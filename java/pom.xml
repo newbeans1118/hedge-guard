@@ -123,6 +123,37 @@
           </archive>
         </configuration>
       </plugin>
+
+      <!--
+        架构合规聚合门禁（ARCHITECTURE.md §3.13）：`mvn verify` 前置步骤。
+        调用仓库根 tools/arch-check/arch-check.sh（聚合 E1–E6；任一非 0 ⇒ 整体非 0）。
+        说明：
+          · 绑定 validate 阶段 ⇒ 先于 compile/test/package/verify，属「verify 前置」；
+          · 为不新增 compile/runtime 依赖、不改既有插件，仅引入 exec-maven-plugin
+            （单插件、单 execution，workdir 指仓库根，命令 bash tools/arch-check/arch-check.sh）；
+          · 该插件须在本地仓库可得（离线 `mvn -o` 亦可解析）。
+      -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.1.0</version>
+        <executions>
+          <execution>
+            <id>arch-check</id>
+            <phase>validate</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <configuration>
+              <workingDirectory>${project.basedir}/..</workingDirectory>
+              <executable>bash</executable>
+              <arguments>
+                <argument>tools/arch-check/arch-check.sh</argument>
+              </arguments>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
 </project>

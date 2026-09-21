@@ -8,14 +8,23 @@
 #
 # 用法：
 #   tools/arch-check/scan_lock_free.sh [--root <dir>]
-#     --root <dir>   待扫描根目录（默认 cpp/src/trading）
+#     --root <dir>   待扫描根目录（**显式**给出则以该目录为唯一根）
+#                    省略时用**默认扫描根**（见下「默认扫描根」）
 #     -h, --help     显示本帮助
 #   退出码语义（六脚本统一，`T-095`）：
-#     0 = 通过；或**默认路径**不存在（组件未铺开，打印 SKIP）
+#     0 = 通过；或**默认扫描根**全部不存在（组件未铺开，打印 SKIP）
 #     1 = 命中（架构偏离）
 #     2 = 用法/前置错误：**显式传入**的 `--root` 不存在，或参数错误（**不得静默放行**）
 #
-# 扫描范围：<root>/**/*.{cpp,cxx,cc,c,hpp,h,hh}（架构原文 = `cpp/src/trading/**`）
+# 默认扫描根（`T-120`；依据 `ARCHITECTURE.md §3.0.2` 的 `E4` 脚注，`v1.5.12` 裁定）
+#   —— **三目录集合取并集** = `cpp/src/order_engine` + `cpp/src/risk_engine` + `cpp/src/risk_state`
+#   （「交易路径」= **执行在 T4 交易线程上的代码**；`flow_store`（T7 合法 `append + fsync`）、
+#     `hgcp`（T5/T6/T8 合法 socket `send`/`recv`）、`ctp_adapter`（T2/T3 SPI 回调）**显式排除**）。
+#   SKIP 条件 = **三目录全部不存在**；**任一存在即实扫**（并集）。
+#   ⚠️ 旧路径 `cpp/src/trading` **已废**（该目录不存在）；旧路径→新口径的映射见
+#      `docs/ARCHITECTURE.md §3.0.2` 的 `E4` 脚注（本脚本不再以该路径为默认根）。
+#
+# 扫描范围：<扫描根>/**/*.{cpp,cxx,cc,c,hpp,h,hh}
 # 排除项  ：**/build*、**/_deps/**、**/third_party/**
 #
 # 本脚本**实际覆盖**的清单（判红；命中即失败；先剔 C++ 注释与字符串/字符字面量再判）：
@@ -41,7 +50,7 @@
 #          `expr * name(`（调用）的 **token 形态完全相同、静态不可判** —— 此系修「`int* read(`
 #          误报」（`R2-1`）的**对称代价**，即**为消除误报而接受的一处真阳放松**。兜底：
 #          `E2`（调用形态扫描）+ 代码审查；且交易路径本不应出现 `read`/`write` 同步 I/O
-#          （该形态在真实 `cpp/src/trading/` 中不现实）。
+#          （该形态在真实交易路径模块 `cpp/src/{order_engine,risk_engine,risk_state}` 中不现实）。
 #        · **限定名定义 ⇒ 误报**：`int Foo::read(int){}` / `int A::write(int){}` ⇒ 被判为
 #          调用（退 1）。**方向 = 误报**。
 #
@@ -60,7 +69,8 @@
 #   ⚠️ **与 `E5` 故意不对称**：`E5` 必须**保留字符串**（它要抓字符串里内嵌的连接串）。
 #   E4 判的是**调用构造**，故剔字面量；后来者勿以「统一」为名改成与 E5 同形。
 #
-# 无目录时的行为（`T-095` 统一）：默认路径不存在 ⇒ SKIP + 退出 0；**显式 `--root` 不存在 ⇒ 退出 2**。
+# 无目录时的行为（`T-095` 统一；`T-120` 扩为多根）：**默认扫描根**（三目录）**全部**不存在
+#   ⇒ SKIP + 退出 0；**显式 `--root` 不存在 ⇒ 退出 2**（三目录中任一存在即实扫，不 SKIP）。
 #
 # 自测（隔离夹具见回执；本脚本两向实测）：
 #   反例  真码含 `std::mutex m;` / `std::lock_guard<…>`  → 命中（退出码 1）
@@ -69,21 +79,25 @@
 #   正例  定义含**指针/引用返回类型**：`int* read(int){…}` / `int& write(int){…}` / `char *read(int){…}` → **不命中**（`R2-1`：类型与函数名间的 `*`/`&` 已识别为定义）
 #   正例  注释含 `// 本路径无 mutex`                     → 不命中（注释已剔）
 #   正例  字符串含 `const char* s = "mutex";`            → 不命中（字面量已剔）
-#   正例  目录不存在（默认路径）                         → SKIP（退出码 0）
+#   正例  目录不存在（默认扫描根三目录）                 → SKIP（退出码 0）
 #   前置  显式 `--root /no/such`                         → 退出码 2
 # =============================================================================
 
 set -u
 
-ROOT="cpp/src/trading"
+# 默认扫描根 = 三目录集合（`T-120`；依据 `ARCHITECTURE.md §3.0.2` 的 `E4` 脚注）
+DEFAULT_ROOTS=(cpp/src/order_engine cpp/src/risk_engine cpp/src/risk_state)
+ROOTS=("${DEFAULT_ROOTS[@]}")
 ROOT_EXPLICIT=0
 
 usage() {
   cat <<'USAGE'
 用法：scan_lock_free.sh [--root <dir>]
-  --root <dir>   待扫描根目录，默认 cpp/src/trading
+  --root <dir>   待扫描根目录（显式给出则以该目录为唯一根）
+                 省略时用默认扫描根 = 三目录集合并集
+                 cpp/src/order_engine + cpp/src/risk_engine + cpp/src/risk_state
   -h, --help     显示本帮助
-退出码：0 通过 / 默认路径不存在（SKIP）；1 命中；2 用法或前置错误（含显式 --root 不存在）
+退出码：0 通过 / 默认扫描根三目录全部不存在（SKIP）；1 命中；2 用法或前置错误（含显式 --root 不存在）
 USAGE
 }
 
@@ -91,20 +105,33 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --root)
       if [ "$#" -lt 2 ]; then echo "错误：--root 缺少参数" >&2; exit 2; fi
-      ROOT="$2"; ROOT_EXPLICIT=1; shift 2 ;;
-    --root=*) ROOT="${1#--root=}"; ROOT_EXPLICIT=1; shift ;;
+      ROOTS=("$2"); ROOT_EXPLICIT=1; shift 2 ;;
+    --root=*) ROOTS=("${1#--root=}"); ROOT_EXPLICIT=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "错误：未知参数 $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-if [ ! -d "$ROOT" ]; then
-  if [ "$ROOT_EXPLICIT" -eq 1 ]; then
-    echo "错误：--root 目录不存在（显式路径）：$ROOT" >&2
+# ---- 扫描根解析：显式 ⇒ 单目录（不存在即退出 2）；默认 ⇒ 三目录并集（全不存在才 SKIP）----
+SCAN_ROOTS=()
+if [ "$ROOT_EXPLICIT" -eq 1 ]; then
+  if [ ! -d "${ROOTS[0]}" ]; then
+    echo "错误：--root 目录不存在（显式路径）：${ROOTS[0]}" >&2
     exit 2
   fi
-  echo "SKIP: 默认路径 $ROOT 不存在（交易路径尚未铺开，C++ 组件未构建）—— 退出码 0"
-  exit 0
+  SCAN_ROOTS=("${ROOTS[0]}")
+else
+  for d in "${ROOTS[@]}"; do
+    if [ -d "$d" ]; then
+      SCAN_ROOTS+=("$d")
+    else
+      echo "注意：默认扫描根子目录不存在，跳过：$d" >&2
+    fi
+  done
+  if [ "${#SCAN_ROOTS[@]}" -eq 0 ]; then
+    echo "SKIP: 默认扫描根（三目录集合：${ROOTS[*]}）全部不存在（交易路径尚未铺开，C++ 组件未构建）—— 退出码 0"
+    exit 0
+  fi
 fi
 
 # ---- C++ 注释 + 字符串/字符字面量 剔除器（内联；每输入行 → 每输出行，行号不变）----
@@ -195,8 +222,15 @@ function sync_hit(s,   names, netnames, i, n, nm, p, q, e, before, after, k, pre
 { if (lock_hit($0) || sync_hit($0)) print FNR }
 AWKEOF
 
+DISPLAY_ROOTS="$(printf '%s, ' "${SCAN_ROOTS[@]}")"; DISPLAY_ROOTS="${DISPLAY_ROOTS%, }"
+
 echo "== E4 交易路径无锁 / 无同步 I/O 扫描 =="
-echo "扫描范围  : $ROOT/**/*.{cpp,cxx,cc,c,hpp,h,hh}（架构原文 = cpp/src/trading/**）"
+if [ "$ROOT_EXPLICIT" -eq 1 ]; then
+  echo "扫描根    : ${DISPLAY_ROOTS}（显式 --root）"
+else
+  echo "扫描根    : ${DISPLAY_ROOTS}（默认三目录集合取并集；依据 ARCHITECTURE.md §3.0.2 的 E4 脚注）"
+fi
+echo "扫描范围  : <扫描根>/**/*.{cpp,cxx,cc,c,hpp,h,hh}"
 echo "排除项    : **/build*、**/_deps/**、**/third_party/**"
 echo "覆盖 A 锁 : mutex / lock_guard / unique_lock / condition_variable（词边界，含前缀变体）"
 echo "覆盖 B I/O: fsync / fdatasync / write / read / send / sendto / recv / recvfrom / sleep / usleep / nanosleep（**按调用形态**：非标识符前缀/行首/:: 判为调用；类型+空白+name( 判为定义不判；通用名成员调用不判）"
@@ -205,10 +239,10 @@ echo "未覆盖 D  : atomic compare_exchange 循环 / 异常抛出路径 —— 
 echo "预处理    : 剔 C++ 注释 + 字符串/字符字面量（与 E5「留字符串」故意不对称）"
 echo "-------------------------------------------------------------------"
 
-mapfile -t FILES < <(find "$ROOT" -type f \
+mapfile -t FILES < <(find "${SCAN_ROOTS[@]}" -type f \
   \( -name '*.cpp' -o -name '*.cxx' -o -name '*.cc' -o -name '*.c' \
      -o -name '*.hpp' -o -name '*.h' -o -name '*.hh' \) \
-  ! -path '*/build*' ! -path '*/_deps/*' ! -path '*/third_party/*' | LC_ALL=C sort)
+  ! -path '*/build*' ! -path '*/_deps/*' ! -path '*/third_party/*' | LC_ALL=C sort -u)
 
 echo "待扫描文件: ${#FILES[@]} 个"
 

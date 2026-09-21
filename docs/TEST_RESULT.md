@@ -2109,3 +2109,178 @@ bash tools/arch-check/scan_lock_free.sh --root /tmp/v3/e4ml; echo "EXIT=$?"   # 
 **⚠️ 落笔窗口内的树演进（据实披露）**：补录者取样锚 `1cfc6a3a…`（`14:59:42`）之后，共享 `java/src` 于本节落笔期间**再变**（补录者实测 `2cf7f368a9da80bd93452fc2f551a1fa` / **314 文件**；`diff -rq` 显示与取样锚仅 **3 个文件**差异：`dao/impl/DmProductDao.java`、`dao/ProductDao.java`、`service/VarietyService.java`）⇒ 系**并行任务 `T-105`（`be-t105`）正在共享树实施**。**本节之构建（`421/0/0/0`）锚定的是冻结副本 `1cfc6a3a…`**（其 `java/src` 内容级 md5 已逐字节校验与取样锚**同值**），**非**变动后的实时树；`md5` **以实时为准**。
 
 > **本节由测试经理席（`tm-t098-evidence`）补录**，**仅新增本节**；`T-098` / `T-112` / `T-115` 复核结论先经消息往来确认、其后补录于此（**事后补录，非当场记录**）。§`T098-115.1`~`.3` 数字为**复核者实测值并附时点（引述）**，§`T098-115.4` / `.5` 为**补录者自测**，**两类分列不混写**；`md5` / 行数**以实时为准**；`.4` 三项差异已据实披露。
+
+---
+
+# `T-031` / `T-120` 独立复核证据（事后补录，2026-09-21）
+
+> 本章由测试工程师席（`te-verify-t120`）补录。**对象** = `T-120`（`E4` 判据接线落地）与 `T-031` 交付的 `tools/arch-check/README.md` / `arch-check.sh` 的**独立 delta 复核**。章内严格分列「**复核者/补录者实测**（独立重跑，附时点）」与「**引述**（他人自述 / 派单转述，未经我重跑者）」；`md5` / 行数**以实时为准**。**本单写权仅本文件一个**，其余制品全程只读；临时探针建于 `/root/` 下、结束已删净。
+
+## T031-120.0 冻结信息与基线
+
+**两轮复核的制品锚点**（`cwd` = 仓库根；内容级锚统一用 `LC_ALL=C sort`）：
+
+| 制品 | 首轮（`2026-09-21 18:25–18:27`） | delta（`2026-09-21 18:34:26`；3 取样 `18:34:26/36/46` 不变） |
+|---|---|---|
+| `tools/arch-check/scan_lock_free.sh` | `277` 行 / `64fb6c1a99583ce73c0e4a1c54758a69` | **同**（0 行改动） |
+| `tools/arch-check/arch-check.sh` | `126` 行 / `306daf0aca2e625243ad16e562a1641a` | **同**（0 行改动） |
+| `tools/arch-check/README.md` | `211` 行 / `8a68c9ab4b40198db8c39f06b7e7646c` | **`220` 行 / `04523ee239b22da61a49c5241762fc01`** |
+| `docs/ARCHITECTURE.md`（`v1.5.13`） | `2774` 行 / `4b7d5602f6be68f7243c450a5e2d9158` | **`2780` 行 / `3c7e2e1ac202698cb453bbf2e1b302e5`** |
+
+- **VCS 状态**：`README.md` / `arch-check.sh` 在首提交 `59b6f70` 中**未跟踪**（`git status` 显 `??`）⇒ 无 git 基线，只能对 **T-031 期第三方快照** `/root/te-t031/repo/tools/arch-check/{README.md(192 行 / 306aa1507bd8df3b9b9ffe2eba9c7e69), arch-check.sh(122 行 / 81ee4c56bcbc4926412fcaec389c21c7)}` 做 diff；`scan_lock_free.sh`（旧 `42c76604936cb9f69d621e1c1135961a` / 243 行）与 `ARCHITECTURE.md` 已跟踪（`git show 59b6f70:…` / `git diff` 可用）。
+- **同版本时效**：`docs/ARCHITECTURE.md` 两轮同为 `v1.5.13`（**同轮追加、未升 `v1.5.14`**）⇒ **`v1.5.13` 现行 md5 = `3c7e2e1a…`；首轮 `4b7d5602…` / 2774 已作废、勿再引用**。
+
+## T031-120.1 `T-120` 首轮复核 = **有条件通过**（＝依本项目惯例**退回**）
+
+**逐项证实（复核者实测；均自建证据、不采信产出方自报表）**：
+
+1. **锚点**：四文件 md5 + 行数逐格与自报一致（见 §0）。
+2. **`E4` 实扫 vs `SKIP`**：`bash tools/arch-check/arch-check.sh` ⇒ 聚合退 `0`、`E1..E6 = 0/0/0/0/0/0`、**`E4` `待扫描文件: 6 个`**（非 `SKIP`）。
+3. **`N=6` 自洽**：`find cpp/src/{order_engine,risk_engine,risk_state} -type f \( -name '*.cpp' -o -name '*.cxx' -o -name '*.cc' -o -name '*.c' -o -name '*.hpp' -o -name '*.h' -o -name '*.hh' \) ! -path '*/build*' ! -path '*/_deps/*' ! -path '*/third_party/*' | LC_ALL=C sort -u` 列出 **6** 个 = 每模块 `{include/hg/<m>/module.h, src/module.cc}`；`CMakeLists.txt` 计 **0**（不在 `-name` 白名单）。
+4. **判定段逐字节未变**：见 §4(a) 原始 `cmp` 输出。
+5. **`SKIP` / `--root` 四态（隔离副本 `<root>/cpp/src/...` 构造）**：(a) 三目录全存在⇒实扫退 `0`；(b) **仅 `order_engine` 存在⇒实扫该一个、退 `0`**（缺席目录向 stderr 打印「注意：默认扫描根子目录不存在，跳过：…」）；(c) 三目录全不存在⇒`SKIP` 退 `0`；(d) `--root <存在单目录>`⇒退 `0`；`--root /no/such`⇒**`2`**；`--root=/no/such`⇒**`2`**；未知参数⇒**`2`**。
+6. **漏防方向 30/30**：6 文件（三模块各 `include/.../module.h` + `src/module.cc`）× 5 注入（`std::mutex m;` / `std::lock_guard<std::mutex> g(m);` / `std::unique_lock<std::mutex> u(m);` / `std::condition_variable cv;` / `::fsync(fd);`）**全部退 `1`**。
+7. **误拒方向**：三模块 6 源文件仅 `module_name()` 声明 / namespace / include guard，**无 `read`/`write`/`send` 任何形态**；另 12 例最小边界探针与脚本头未覆盖段**逐条一致**（`R3-1` 跨行返回类型定义⇒误报 `1`；`R3-2` `expr * name(`⇒漏判 `0`；`R3-3` 限定名定义⇒误报 `1`；字面量 / 注释 / 通用名成员调用⇒`0`）。
+8. **排除面非空转**：`flow_store`/`hgcp`/`ctp_adapter` 注入合法 `::fsync`/`::send`/`::recv` ⇒ 默认根退 **`0`**（不进扫描面、`待扫描文件: 6 个` 不变）；同批探针 `--root cpp/src` ⇒ 命中 **3** 处、退 **`1`**。
+9. **`ARCHITECTURE.md` 三处回写**：§3.0.2 `E4` 表行（`:321`）/ 脚注 ④（`:377`）/ §13 `v1.5.13`（`:2722`〔首轮时点〕）均表述「已接线 / 已生效」，与实测一致。
+10. **`FR=184`**：五处落点一致（抬头上游锚 / §1.1 / §10 覆盖行 / §10.1 标题 / 覆盖统计）。
+11. **升版非过度**：与先例 `v1.5.9`（`E1`/`E3`/`E4`/`E6` 四脚本落地即升版）同构。
+
+**缺陷 `TE-T120-001`（一般）**：`tools/arch-check/README.md`（首轮 `:197`）表述「`FetchContent` 取回 CTP ⇒ `rsk02` 同样注册并通过」**与事实不符**，且把**条件性** `6/6` 写成确定性 ⇒ **过度断言**。
+- **复现（复核者实测）**：`cpp/ctp_smoke/CMakeLists.txt:129`〔**注：实测为 `:128`，见 §3〕= `if(CTP_FOUND)`；`CTP_FOUND=ON` 仅当 `:87` `if(CTP_SDK_ROOT AND EXISTS "${CTP_SDK_ROOT}/${HGCP_CTP_TRADER_HEADER}")` 成立。三轨 `CMakeCache.txt`：`build-ctp`=`/home/ctpmini/ctpmini_admin/ctp_sdk`、`build-stub`=**空**、`build-fetch`=**同 ctp**；`ls cpp/build-fetch/_deps/` ⇒ **仅 protobuf**（`protobuf-build` / `protobuf-src` / `protobuf-subbuild`）、**无 CTP**；两轨 `hgcp_ctp_probe` 的 `ldd` 均链 `/home/ctpmini/.../libthost{user,md}userapi.so`。
+- **影响**：文档事实错误（已致下游沿用错误理由）；**不影响门禁行为**。
+
+## T031-120.2 两处矛盾点裁定
+
+### （甲）`build-fetch` `5/5` vs `6/6` —— **配置差异；双方数字均非测错、双方「解释」均错**
+- 复核者实测三轨 `ctest`：`build-ctp` **`6/6`**、`build-stub` **`5/5`**、`build-fetch` **`6/6`**（注册清单 = `arch_check` / `rsk01`×3 / **`rsk02.ctp_header_cxx11_compat`** / `hg.skeleton_modules`；`build-stub/ctp_smoke/CTestTestfile.cmake` **空**）。
+- **真实自变量 = `CTP_SDK_ROOT`（→`CTP_FOUND`）**，与 `CTP_USE_FETCH_DEPS`（只供 protobuf）无关。
+- 产出方 `tl-t120` 原「`FetchContent` 取回 CTP」与 `te-verify-t031` 记忆里的「`fetch` `5/5`」**两处解释均误**；`te-verify-t031` 的 `5/5` 系**当时空 root 态**，其快照未留 `CMakeCache.txt` ⇒ **不可逐字节复原**（判定为「配置差异」，但时点 cache 不可复现）。
+
+### （乙）「部分缺席静默只扫现存者」= **假通过面**
+- 规则「任一存在即实扫」⇒ 三中只剩一时**只扫现存者**（实测：隔离副本仅留 `order_engine` ⇒ `N=2`、退 `0`；仅留单文件 ⇒ `N=1`、退 `0`；stderr 有「跳过」提示但**退出码 `0`**）⇒ 未来模块改名 / 迁移可致**少扫而不红**。
+- **编排者裁定**：**不改**脚本行为 / 退出码，改采「**显式披露 + 登记为已接受风险**（`ARCHITECTURE.md` §3.0.2 `E4` 脚注 ⑥）**+ 验收面兜底**」。
+
+## T031-120.3 delta 复检（补修后）= **通过（0 缺陷）**
+
+- **`TE-T120-001` 已订正**：`README.md` 删去错误理由、替换为「**真实自变量 = `CTP_SDK_ROOT`（不是 `FetchContent`）**」（`:194–199` 注册条件块），三轨表**增 `CTP_SDK_ROOT` 列**并标明 `6/6` 为**条件性**（`:203` / `:206–207`）。全仓 grep：`FetchContent` 在 README 仅 **`:194` / `:203` 两处、均否定式**，无残留错误理由。
+- **`:128` 笔误订正（我方）**：复核者首轮写「注册守卫 `:129`」**有误**；产出方 / 编排者实测 **`cpp/ctp_smoke/CMakeLists.txt:128` = `if(CTP_FOUND)`**（`:87` 判定、`:88` `set(CTP_FOUND ON)`、`:171` `add_test(rsk02…)`）⇒ **我复核确认 `:128` 正确、认领该笔误**（属复核精度问题，非产出方缺陷）。
+- **脚注 ⑥ 兜底判定复核成立**（读码实证见 §4(d)）：「**部分兜底；对『已同步的完整迁移』无自动化兜底**」。
+- **「无 CTP SDK ⇒ 三轨 `5/5`」= 已由复核者补硬证据闭环**（见 §4(c)）——该句原系产出方**推断**，现升为**实测成立**。
+- **同轮追加 `v1.5.13`（未升 `v1.5.14`）可接受**：与文档既有「同一修订轮不另升版」先例（`v1.5.7` 追加四项 / `v1.5.11` 同轮追加两笔）同构；改动属**同一交付循环内的复核订正**，升版会即时作废 PM 刚登记的锚点 ⇒ 保持 `v1.5.13`。
+- 其余：`FR` 仍 `184`；聚合退 `0`、`E4` `N=6`；`cpp/src` / `java/src` / `java/pom.xml` / `cpp/CMakeLists.txt` 零改动。
+
+## T031-120.4 补录者抽验（本席独立执行，**不采信转述**）
+
+> **全部为「补录者自测」**，与 §1 的「引述（他人自述）」严格分列。
+
+**(a) 判定段四段 `cmp`（原始输出）**：
+```
+$ git show 59b6f70:tools/arch-check/scan_lock_free.sh > old.sh ; cp tools/arch-check/scan_lock_free.sh new.sh
+# 各按 <<'AWKEOF' … AWKEOF 定界抽段
+$ cmp old_s1.txt new_s1.txt      # STRIP_AWK  → 无输出（逐字节相同）
+$ md5sum old_s1.txt new_s1.txt
+2d45b42d1d84302a4f2f2c83e726a9d5  old_s1.txt
+2d45b42d1d84302a4f2f2c83e726a9d5  new_s1.txt
+$ cmp old_s2.txt new_s2.txt      # DETECT_AWK → 无输出（逐字节相同）
+$ md5sum old_s2.txt new_s2.txt
+932573376c20cc05ef1fdf80eb8f6f27  old_s2.txt
+932573376c20cc05ef1fdf80eb8f6f27  new_s2.txt
+# WARN_RE 整行相同；printf '%s\n' "$WARN_RE行" | md5sum → a676da63c8f4f3f784c760f818f76a3a
+# 末行 { if (lock_hit($0) || sync_hit($0)) print FNR }（含尾换行）→ 52c0dd25d51475380d7c622f4c67d477
+```
+⇒ **产出方自报的末行 `md5 52c0dd25…` 经复核者独立复算、证实**。另：`scan_lock_free.sh` **整文件 `md5 64fb6c1a…` 与首轮逐字节相同** ⇒ 判定段未变（此证明**强于**抽段比对）。
+
+**(b) 改后聚合（原始输出节选）**：
+```
+E1 通过：C++ 产物未链接 DB 客户端库（退出码 0）
+待扫描文件: 15 个
+E2 通过：C++ 侧未发现 SQL / DB 驱动痕迹（退出码 0）
+E3 通过：编译参数与源码均符合 C++11（退出码 0）
+待扫描文件: 6 个
+E4 通过：交易路径未发现锁 / 同步 I/O（覆盖 A+B；WARN 0 处…）（退出码 0）
+待扫描文件: 142 个
+E5 通过：dao 之外未发现 SQL（退出码 0）
+E6 通过：前端零构建链、无直连字样（退出码 0）
+#   通过(0)=6  命中(1)=0  用法/前置错误(2)=0
+#   E1 退出码 0 / E2 退出码 0 / E3 退出码 0 / E4 退出码 0 / E5 退出码 0 / E6 退出码 0
+arch-check 通过：六个判据脚本全部通过（退出码 0）
+$ echo $?  →  0
+```
+`E4` 的 `待扫描文件: N 个` = **`6`**。
+
+**(c) 「无 CTP SDK ⇒ 三轨 `5/5`」硬证据（复核者自建，全新 out-of-source，不进仓库）**：
+```
+$ cmake -S cpp -B /root/… -DCTP_SDK_ROOT= -DCTP_USE_FETCH_DEPS=OFF   # 退 0
+$ cmake -S cpp -B /root/… -DCTP_SDK_ROOT= -DCTP_USE_FETCH_DEPS=ON    # 退 0（6.0s）
+# 两个配置下 ctp_smoke/CTestTestfile.cmake 的 add_test 数均为 0（无 rsk02） ⇒ 总数 5
+```
+**代码链**：`CTP_USE_FETCH_DEPS` 仅影响 protobuf 供给（`cpp/cmake/HgDependencies.cmake:16–17,27,67,154`）；`CTP_FOUND` 由 `cpp/ctp_smoke/CMakeLists.txt:81` / `:88` 独立置位；`cpp/CMakeLists.txt` 顺序 **`:54 add_subdirectory(ctp_smoke)` 早于 `:61 include(cmake/HgDependencies.cmake)`** ⇒ fetch 逻辑**结构上不可能**影响 `rsk02` 注册。（**仅 configure、未 build / 未 ctest**，见 §6。）
+
+**(d) 脚注 ⑥ 兜底依据（复核者读码实证）**：
+- `cpp/src/CMakeLists.txt:14–19` = `add_subdirectory(ctp_adapter … hgcp)` ×6；`:25–31` = `target_link_libraries(hg-trading …6 模块)`；`cpp/src/main.cc:15–20` = `#include "hg/<mod>/module.h"` ×6 ⇒ 「删 / 改名**未同步**」⇒ **构建失败（CI 红）**（有效兜底）。
+- `hg.skeleton_modules`（`cpp/src/CMakeLists.txt:35` = `hg-trading --self-test`）断言 = `cpp/src/main.cc:53–58` 以**字面量**比对六模块 `module_name()`、`:61` 打印 `SELFTEST: PASS` ⇒ **仅**保证六模块在且可调用，**不**把 `E4` 扫描根集合与实际目录绑定。
+- `E1` / `E2` / `E3` 按**内容**扫描（不钉目录名）；`E6` 只扫 `web` ⇒ §3.1–§3.6 **无其它目录名强制点**。
+⇒ 「**部分兜底；对『已同步的完整迁移』无自动化兜底**」**成立**。
+
+**(e) 零改动与锚点口径**：
+```
+$ find cpp/src -type f | sort | xargs md5sum | md5sum            → 40d8b797a46a7b1f4c76411e21118ca0  （=自报）
+$ find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum  → 152fb4447ef9a6cc55e17b774c04eca9  （=自报；318 文件）
+$ find java/src -type f | sort | xargs md5sum | md5sum           → 6bfe9cc3227be5c6b8c1deb1763642ce  （裸 sort；同 318 文件、内容相同）
+```
+`java/pom.xml`（`4cefba7502d2c877183972e96d4497ca`）、`cpp/CMakeLists.txt`（`29e158820b753d136bd2e25be653d428`）对 T-031 期快照**未变**。⇒ **`java/src` 内容级锚须写 `LC_ALL=C sort`**，否则跨人比对出现**假差异**（裸 `sort` 与 `LC_ALL=C sort` 对含特殊字符路径排序不同）。
+
+## T031-120.5 度量与「纯追加」证明
+
+| 指标 | 数值 |
+|---|---|
+| 本文件改前基线（**补录者自测**） | `fac8b8da4a50bc6796fe80de7bcefdef` / `2111` 行（3×10s 静默：`18:38:52` / `18:39:02` / `18:39:12` 三次同值） |
+| **纯追加校验** | `head -2111 docs/TEST_RESULT.md \| md5sum` = **`fac8b8da4a50bc6796fe80de7bcefdef`**（**等于改前基线** ⇒ 既有 `2111` 行**逐字节未改**） |
+| 本文件改后 `md5` / 行数 / 时刻 | **见补录回报（以实时为准）** |
+| `T-120` 严重级缺陷 | **`0`**（`TE-T120-001` 一般级，**已订正并复检闭合**） |
+| `T-120` delta 复检结论 | **通过（0 缺陷）** |
+
+> 本文件**不在正文内嵌自身落笔后 md5**，以免自引用失效（与既有章同例）。
+
+## T031-120.6 未决 / 不可判定（显式列出）
+
+1. **空 SDK 下仅 configure、未 build / 未 ctest**：「无 CTP SDK ⇒ 三轨 `5/5`」我已实测**「`rsk02` 不注册 ⇒ 总数 5」**（全新 out-of-source，`CTP_USE_FETCH_DEPS` OFF/ON 双测）；但**未在新的空-root 构建目录跑完整 `ctest`**（需完整构建 + 外部 protobuf）⇒ 「`5/5` 全通过」部分依赖既有 `build-stub` 现场 `ctest = 5/5`（机制同源）。
+2. **`te-verify-t031` 的 `fetch 5/5` 时点态不可逐字节复原**（其快照未留 `build-fetch/CMakeCache.txt`）。
+3. **`build-fetch` `6/6` 依赖外部 `/home/ctpmini/ctpmini_admin/ctp_sdk`**（不在本仓）⇒ 无 SDK 环境不可复现（即 `TE-T120-001` 的「过度断言」点）。
+4. **`ctp_adapter` T4 可达面（如 `CtAdapter::sendOrder`）不在 `E4` 扫描面** —— `ARCH §3.0.2` 脚注 ⑤ 已诚实披露；**我未评估**其是否有现实锁 / 同步 I/O（超出本单）。
+5. **`T-031` 期快照非本仓产物**：`README.md` / `arch-check.sh` 无 git 基线，仅能与第三方复核者快照 `/root/te-t031/repo/…` 比对 ⇒ 若该快照本身非 T-031 交付原件，则「只加不改」类判定受此限制。
+
+---
+
+> **本章由测试工程师席（`te-verify-t120`）补录**（**事后补录，非当场记录**），**仅新增本章**、未改写任何既有章。§`T031-120.1` / `.2` 为**复核者实测值并附时点**；§`T031-120.4` 为**补录者自测原始输出**；`md5` / 行数**以实时为准**。`T-120` 结论：首轮 **有条件通过（退回）** → `TE-T120-001` 订正后 delta **通过（0 缺陷）**。
+
+---
+
+## T031-120.7 收口状态（补记，2026-09-21）
+
+> 📌 **本节由编排者补记**（**非 `te-verify-t120` 所写**）。上文 `.0`~`.6` 系该席于 `2026-09-21 18:40:12` 落笔时的记录，本节为其后的**收口事实**。
+> **补记动因**：`te-record-t120` 独立抽验时指出 `.6` 只含「未决 / 不可判定」，**缺「收口状态」半边**（派单规格 = 「收口状态**与**未决项」）。该间隙属**编排者 / 项目经理职权**（`DONE` 授权与守恒计数**不属验证方自评**），故不由验证席补写。
+
+**① `T-120` = `DONE`**（判据 = **授权 + 独立验证**，本项目恒定口径）
+- **授权** = **编排者 2026-09-21**（`T-120` 系编排者新立，并由编排者授权其转 `DONE`）。
+- **独立验证链** = ① 首轮 `te-verify-t120` = **有条件通过**（＝依本项目惯例**退回**；缺陷 `TE-T120-001`）→ ② `tl-t120` **补修**（`README` §5 订正 + `docs/ARCHITECTURE.md` §3.0.2 `E4` 脚注 ⑥）→ ③ **delta 复检 = 通过、0 缺陷**。
+- **非自评**：产出方 `tl-t120` 全程「**不自评、不置 `DONE`**」，并**主动声明**「无 SDK 三轨 `5/5`」系**推断**；该缺口后由复核方以**全新 out-of-source 配置**（`-DCTP_SDK_ROOT=`）补硬证据闭环。
+
+**② 收口落点四处**（行号为**登记时点**实测；一律**以实时为准**）
+
+| 落点 | 行（登记时点） | 内容要点 |
+|---|---|---|
+| `docs/TASKS.md` §1 表（`T-120` 行） | `:165` | 状态格 = `DONE`（判据 + 复核链） |
+| `docs/TASKS.md` §2 详情块状态行 | `:2399` | `DONE（授权 + 独立验证）〔第 34 轮〕` + 验收证据 + 补修后锚点 + 证据章落点 |
+| `docs/BOARD.md` §2 `DONE` 区 | `:198` | `T-120` 行（复核链、`E4` 实扫 `N=6`、补修后锚点） |
+| `docs/BOARD.md` §5 变更记录 | `:353` | **第 34 轮**行（增量复核通过 → 转 `DONE`；含双实例冲突与去重留痕） |
+
+**③ 分区守恒（编排者实测）** = `TODO 67 + IN_PROGRESS 1 + 已完成待复核 14 + DONE 21 + REJECTED 2 + BLOCKED 15 = 120` ✔
+任务数 **`120`** / 总人时 **`1791`**（`TASKS.md` §5 九角色行合计）—— 本轮为**纯状态迁移 + 去重**，**无任务增删、无人时变化**。
+
+**④ 立项与风险承接（链式留痕）**：`T-120` 由编排者**新立**（`tech-lead`，P0，3 人时，依赖 `T-031`），依据 = `ARCHITECTURE.md` §3.0.2 `E4` 脚注④「诚实披露」+ 独立复核 `te-verify-t031` 第 2 点（**判为独立任务、非 `T-031` 缺陷**）；新立前**已扫全表确认无既有承载**。**残留风险**（默认扫描根**部分缺席** ⇒ 少扫而不红）的**承接点 = `TASKS.md` `T-060` 验收标准第 6 条**（`code-reviewer` 的「E1~E6 全量审查」任务）。
+
+**⑤ 过程事故留痕（供追溯，不隐去）**：`T-120` 收口期间发生**同席位多实例并行写** —— 根因为**编排者对同一席位连发多条序贯指令（＝重复派单）**；后果 = `TASKS.md` 曾并存**两条同题**「`T-120` 补修 delta 登记」段（已去重，`2635 → 2634` 行）。**处置** = 该席位主动停手报冲突、未与对方互覆盖；随后编排者**将 `TASKS.md` / `BOARD.md` 写权收归本身**以终止竞态。**终态经编排者独立复核：内容完整、无丢失、守恒成立。**
+
+**⑥ 时点口径**：本节系**事后补记**（`T-120` 转 `DONE` **之后**）；上文 `.0`~`.6` 为 `18:40:12` 落笔时记录。任何锚点引用**一律以实时 `md5sum` 为准**。

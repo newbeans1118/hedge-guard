@@ -10,7 +10,7 @@
 > - 里程碑与门禁：`PROJECT.md` §9（M1 门禁 = 数据模型三方会签；M2 门禁 = TCP 协议冻结）
 > - 数据边界：`docs/DATA_MODEL.md` §0.6 表编号总览（111 张）+ §4.7 FR→表映射 + §4.6.3 三层计数
 > - 组件边界与协议：`docs/ARCHITECTURE.md` §3 模块划分、§4.1 REST/WS、§4.2 HGCP v1.0.1（FROZEN）、§4.4 内存模型、§11 配置项
-> - 需求追溯：`docs/REQUIREMENTS/`（183 FR / 129 R / 50 NFR；`INDEX.md` §9.1 17 条已确认口径）
+> - 需求追溯：`docs/REQUIREMENTS/`（184 FR / 129 R / 50 NFR；`INDEX.md` §9.1 17 条已确认口径）
 >
 > **分解粒度**：按**数据边界（模块 → 表簇）**切分，**不按页面切**；每任务 1 人 0.5～2 人天可完成，验收标准可客观判定（`project-manager.md` §5.1）。
 > **负责人取值**：`backend-engineer#cpp`（交易组件）/ `backend-engineer#java`（业务组件·实时与交易链）/ `backend-engineer#java2`（业务组件·台账与合规链，**R-12 预案 A 已生效，见 §5.1**）/ `frontend-engineer` / `tech-lead` / `test-manager` / `test-engineer` / `code-reviewer`。
@@ -21,9 +21,9 @@
 
 | 门禁 | 对应里程碑 | 状态 | 锚点 | 对任务分解的约束 |
 |------|-----------|------|------|-----------------|
-| **M1 门禁：数据模型三方会签** | M1 编码前 | ✅ **已达成**（2026-09-20，产品经理 + 技术负责人 + 测试经理三方全部通过，见 `docs/gates/M1-data-model-signoff/SIGN-OFF.md`） | 会签锚点 md5 `112b33243173196a33d4c0d575622d68`（5152 行，v1.3）→ 订正 **v1.3.1** `03b1fc729352f5c94886020a5866c574`（5169 行）→ **v1.3.2 定版 `99b647ec3e7a29b95ee86b04a58c747c`（5177 行 / 442225 字节 / mtime 18:43:53，写者已冻结）**〔**历史层**〕→ **现行定版 v1.3.4 `da7799826de29ebedc0de33f416fb4af`（5246 行；**以实时 `md5sum` 为准**）**〔v1.3.2→v1.3.4 两笔增量 = `v1.3.3`（`DC-041` 同编号改写：`t_exposure` 未映射口径改哨兵 `0` + 恒 `NOT NULL` + 新增 `spot_category_code` 品类双态 + `uk_exposure_key` 六列全非空；新增 `t_product` 保留系统行 `id=0`）+ `v1.3.4`（`TB-PLAN-1.term_end_date` 期限口径 `OR`→`min`），经**两席书面追认**承接，见 `T-002` 备注与 `docs/gates/M1-data-model-signoff/REAFFIRM-*.md`〕 | M1 门禁已达成、**T-002 两席定点再验证已闭环（两席均无条件确认）**；**M1 编码已可开工**；`R-12` 已由编排者裁定 **采纳预案 A（加派 `backend-engineer#java2`）**，**施工工单已派发、S4 进入 M1 施工**（见 §5.1） |
-| **M2 门禁：TCP 协议冻结** | M2 编码前 | ✅ **已冻结**（技术负责人单方签署，`ARCHITECTURE.md` §4.2：**HGCP v1.0.1，FROZEN**；v1.0 → v1.0.1 为向后兼容澄清性修订，见 `CH-007`；**消息集 40 / 错误码 62 不变**） | `proto/hgcp.proto`（唯一定义，两侧同源生成）；冻结日期 2026-09-20；`ARCHITECTURE.md` 定版 md5 `641b481bee2678e8e6e931c190d4f86f`；**注**：`ARCHITECTURE.md` 其后经 `CH-006`（技术栈收紧）升至 **v1.4 `a7003553…` / 2478 行**，再经 `CH-007`（协议澄清性修订）升 **v1.5**（md5 `9feae927…` / 2516 行；§4.2 冻结登记块补 ③ 后定稿；**锚点以实时 `md5sum` 为准**）；`CH-006`/`CH-007` **不改变架构分层与接口契约**（HGCP 仍 FROZEN），**不影响 M1 门禁结论**（门禁实质对象 `DATA_MODEL.md`：**门禁定版 v1.3.2 `99b647ec…`（5177 行）〔历史层〕→ 现行定版 v1.3.4 `da779982…`（5246 行），以实时 `md5sum` 为准**〔v1.3.3 `c399c5f5…`（5245 行）同列历史层、不删〕；⚠️ **锚点漂移已裁定**：v1.3.2 定版后经 `DC-038`~`DC-041` 演进至 v1.3.3 → **v1.3.4**，**该漂移对 M1 门禁结论的影响已由编排者「(B) 务实案」裁定 + 两席书面追认承接**〔`REAFFIRM-product.md`（`5ac0bc90…` / 207 行）与 `REAFFIRM-test.md`（`19fed18e…` / 267 行），均「认可·无条件」，2026-09-21〕，**无需另行门禁复核**） | C++ / Java 分头开工的前置条件已具备；冻结后任何协议变更须走 `CH-xxx`（L3，技术负责人批准）并重跑协议专项测试（T-057） |
-| **M2 首周探路门禁（技术负责人加设）** | M2 业务开发铺开前 | ⏳ **执行中（3 项探路已完成 2 项）** | `ARCHITECTURE.md` §9：`RSK-01` / `RSK-02` / `RSK-06` **三项**（`RSK-07` 已由 `CH-006` 消除），全部落在 **T-026 / T-027 / T-028** | **未完成不得铺开 M2 业务开发**；`RSK-01`（protobuf C++11）/ `RSK-02`（CTP 头文件 C++11）**已通过（探路实证）** → `T-026` / `T-027` **DONE**；第 3 项 `RSK-06`（Java 端 WebSocket，`T-028`）**待 `#java`**，故 `T-030` 汇签**仍为 `TODO`**（`T-029` 已 `REJECTED`，编号留痕、**不计入人时**） **（2026-09-21 台账对齐）**受本门禁阻塞的任务已在 `§1`/`BOARD §2` 标 `BLOCKED`；解除点 = `T-030` 汇签通过。 |
+| **M1 门禁：数据模型三方会签** | M1 编码前 | ✅ **已达成**（2026-09-20，产品经理 + 技术负责人 + 测试经理三方全部通过，见 `docs/gates/M1-data-model-signoff/SIGN-OFF.md`） | 会签锚点 md5 `112b33243173196a33d4c0d575622d68`（5152 行，v1.3）→ 订正 **v1.3.1** `03b1fc729352f5c94886020a5866c574`（5169 行）→ **v1.3.2 定版 `99b647ec3e7a29b95ee86b04a58c747c`（5177 行 / 442225 字节 / mtime 18:43:53，写者已冻结）**〔**历史层**〕→ **v1.3.4 `da7799826de29ebedc0de33f416fb4af`（5246 行）〔历史层〕→ 现行定版 v1.3.5 `d17bce0c37e513a0a236304b9cb3f25d`（5252 行）；以实时 `md5sum` 为准**〔v1.3.2→v1.3.4 两笔增量 = `v1.3.3`（`DC-041` 同编号改写：`t_exposure` 未映射口径改哨兵 `0` + 恒 `NOT NULL` + 新增 `spot_category_code` 品类双态 + `uk_exposure_key` 六列全非空；新增 `t_product` 保留系统行 `id=0`）+ `v1.3.4`（`TB-PLAN-1.term_end_date` 期限口径 `OR`→`min`），经**两席书面追认**承接，见 `T-002` 备注与 `docs/gates/M1-data-model-signoff/REAFFIRM-*.md`〕；**（2026-09-21 再前移）v1.3.5 = 非结构计数传导**（`CH-011` 新增 `FR-SPOT-19` ⇒ 抬头 `FR` `183→184`；`DATA_MODEL.md` 仅计数同步、**无结构变更**）⇒ **不重开门禁**、两席 `REAFFIRM` 追认**继续有效**（其审查对象 `v1.3.3`/`v1.3.4` 未变，`v1.3.5` 不在其范围内、无须追认），依据 `docs/gates/M1-data-model-signoff/SIGN-OFF.md` **§9.7** | M1 门禁已达成、**T-002 两席定点再验证已闭环（两席均无条件确认）**；**M1 编码已可开工**；`R-12` 已由编排者裁定 **采纳预案 A（加派 `backend-engineer#java2`）**，**施工工单已派发、S4 进入 M1 施工**（见 §5.1） |
+| **M2 门禁：TCP 协议冻结** | M2 编码前 | ✅ **已冻结**（技术负责人单方签署，`ARCHITECTURE.md` §4.2：**HGCP v1.0.1，FROZEN**；v1.0 → v1.0.1 为向后兼容澄清性修订，见 `CH-007`；**消息集 40 / 错误码 62 不变**） | `proto/hgcp.proto`（唯一定义，两侧同源生成）；冻结日期 2026-09-20；`ARCHITECTURE.md` 定版 md5 `641b481bee2678e8e6e931c190d4f86f`；**注**：`ARCHITECTURE.md` 其后经 `CH-006`（技术栈收紧）升至 **v1.4 `a7003553…` / 2478 行**，再经 `CH-007`（协议澄清性修订）升 **v1.5**（md5 `9feae927…` / 2516 行；§4.2 冻结登记块补 ③ 后定稿；**锚点以实时 `md5sum` 为准**）；`CH-006`/`CH-007` **不改变架构分层与接口契约**（HGCP 仍 FROZEN），**不影响 M1 门禁结论**（门禁实质对象 `DATA_MODEL.md`：**门禁定版 v1.3.2 `99b647ec…`（5177 行）〔历史层〕→ 现行定版 v1.3.5 `d17bce0c…`（5252 行），以实时 `md5sum` 为准**〔v1.3.3 `c399c5f5…`（5245 行）/ v1.3.4 `da779982…`（5246 行）同列**历史层**、不删；**v1.3.5 = 非结构计数传导（`CH-011` ⇒ `FR` `183→184`）、不重开门禁**，依据 `docs/gates/M1-data-model-signoff/SIGN-OFF.md` **§9.7**〕；⚠️ **锚点漂移已裁定**：v1.3.2 定版后经 `DC-038`~`DC-041` 演进至 v1.3.3 → **v1.3.4**，**该漂移对 M1 门禁结论的影响已由编排者「(B) 务实案」裁定 + 两席书面追认承接**〔`REAFFIRM-product.md`（`5ac0bc90…` / 207 行）与 `REAFFIRM-test.md`（`19fed18e…` / 267 行），均「认可·无条件」，2026-09-21〕，**无需另行门禁复核**） | C++ / Java 分头开工的前置条件已具备；冻结后任何协议变更须走 `CH-xxx`（L3，技术负责人批准）并重跑协议专项测试（T-057） |
+| **M2 首周探路门禁（技术负责人加设）** | M2 业务开发铺开前 | ✅ **已达成**（2026-09-21 `T-030` 汇签；三项探路 `T-026`/`T-027`/`T-028` 均通过；许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`） | `ARCHITECTURE.md` §9：`RSK-01` / `RSK-02` / `RSK-06` **三项**（`RSK-07` 已由 `CH-006` 消除），全部落在 **T-026 / T-027 / T-028** | **未完成不得铺开 M2 业务开发**；`RSK-01`（protobuf C++11）/ `RSK-02`（CTP 头文件 C++11）**已通过（探路实证）** → `T-026` / `T-027` **DONE**；第 3 项 `RSK-06`（Java 端 WebSocket，`T-028`）**待 `#java`**，故 `T-030` 汇签**仍为 `TODO`**（`T-029` 已 `REJECTED`，编号留痕、**不计入人时**） **（2026-09-21 台账对齐）**受本门禁阻塞的任务已在 `§1`/`BOARD §2` 标 `BLOCKED`；解除点 = `T-030` 汇签通过。 **（2026-09-21 解锁回写）** `T-030` 汇签已完成（`docs/gates/M2-recon-signoff/SIGN-OFF.md`，`081f37a2…` / 254 行），**许可令已下**（`T-031`~`T-060` 解除阻塞）；受阻塞任务按「阻塞原因」分流 —— 仅门禁者转 `TODO`、含依赖未满足者维持 `BLOCKED`（详见 `BOARD.md` §5 第 30 轮）。 |
 
 > 📌 **M1 数据模型定版状态（2026-09-20，编排者裁决口径）**：
 > M1 门禁会签后，数据模型经历 **v1.3.1 一致性订正**（`SIGN-OFF.md` §5 打包的 5 项建议级）与 **v1.3.2 收尾轮**（两席再验证披露的 `O-1`=`PI-24`、`PI-22`、`PI-23` 三项建议级引用/口径问题）。
@@ -32,7 +32,7 @@
 > - **T-002 已闭环**：产品席 + 测试席**各自独立取证、均「无条件确认」**（不变式零漂移、实质改动 0、行号引用归零）→ **M1 编码已放行**。
 > - **`R-12` 已裁决、派发已下达**：编排者 2026-09-20 裁定**采纳预案 A（加派 `backend-engineer#java2`）**；M1 首发工单已投递（`T-003`/`T-004` → `#java`，`T-026`/`T-027` → `#cpp`，`#java2` 首批为开工说明性工单），S4 进入 M1 施工。方案与二分见 §5.1。
 > - 该过程属**门禁制品的固有订正流程**，归 `BOARD.md` `R-11`（**已闭环，纪律已固化**），**不是制品内容缺陷**，不计入缺陷清单。
-> - **（2026-09-21 追加）现行定版已前移**：编排者「(B) 务实案」裁定 **M1 门禁现行锚点 = v1.3.4 `da7799826de29ebedc0de33f416fb4af` / 5246 行**（**以实时 `md5sum` 为准**）；上列 **v1.3.2 `99b647ec…`（5177 行）改列「历史层」（不删）**；v1.3.3 / v1.3.4 两笔增量由 `docs/gates/M1-data-model-signoff/REAFFIRM-product.md`（`5ac0bc90…` / 207 行）与 `REAFFIRM-test.md`（`19fed18e…` / 267 行）**两席书面追认承接**（**均「认可·无条件」、均判两笔不影响原会签结论**）；`T-002` 结论**由追认延续**（见 §2 `T-002`）。
+> - **（2026-09-21 追加）现行定版已前移**：编排者「(B) 务实案」裁定 **M1 门禁现行锚点 = v1.3.4 `da7799826de29ebedc0de33f416fb4af` / 5246 行**（**以实时 `md5sum` 为准**）；上列 **v1.3.2 `99b647ec…`（5177 行）改列「历史层」（不删）**；v1.3.3 / v1.3.4 两笔增量由 `docs/gates/M1-data-model-signoff/REAFFIRM-product.md`（`5ac0bc90…` / 207 行）与 `REAFFIRM-test.md`（`19fed18e…` / 267 行）**两席书面追认承接**（**均「认可·无条件」、均判两笔不影响原会签结论**）；`T-002` 结论**由追认延续**（见 §2 `T-002`）。 **（2026-09-21 再前移 · 只加不改）现行定版 = v1.3.5 `d17bce0c37e513a0a236304b9cb3f25d` / 5252 行**（**以实时 `md5sum` 为准**）—— v1.3.5 系**非结构计数传导**（`CH-011` 新增 `FR-SPOT-19` ⇒ 抬头 `FR` `183→184`；`DATA_MODEL.md` 仅计数同步、**无结构变更**），**不重开门禁**、两席 `REAFFIRM` 追认**继续有效**（其审查对象 `v1.3.3`/`v1.3.4` 未变；`v1.3.5` 不在其范围内、无须追认），依据 `docs/gates/M1-data-model-signoff/SIGN-OFF.md` **§9.7**；**v1.3.4 `da779982…`（5246 行）随之改列「历史层」（不删）**。
 
 ---
 
@@ -68,41 +68,41 @@
 | T-023 | 编写 M1 单测与集成测试（JUnit 5） | NFR-TEST-1/3, NFR-MAINT-2 | test-engineer | P0 | T-010, T-012~T-016 | 32 人时 | 初版 | TODO |
 | T-024 | 执行 M1 端到端验收（双子账户→品种/敞口→计划→隔离→落库） | PROJECT §9 M1 验收, §10-34 | test-engineer | P0 | T-023 | 16 人时 | 初版 | TODO |
 | T-025 | 执行 M1 代码与架构合规审查 | NFR-MAINT-4/5/6, NFR-SEC-9, PROJECT §10-7 | code-reviewer | P0 | T-012~T-021 | 16 人时 | 初版 | TODO |
-| T-026 | RSK-01 protobuf 在 C++11 下空壳构通验证 | ARCH §9 RSK-01, §7.1.5 | backend-engineer#cpp | P0 | — | 8 人时 | 初版 | 已完成，待独立复核 |
-| T-027 | RSK-02 CTP 头文件 C++11 兼容验证 | ARCH §9 RSK-02, NFR-COMPAT-1/2 | backend-engineer#cpp | P0 | — | 4 人时 | 初版 | 已完成，待独立复核 |
-| T-028 | RSK-06 Java 端 WebSocket 选型与实现 | ARCH §9 RSK-06, §4.1.2, NFR-PERF-5, `CH-006` | backend-engineer#java | P0 | — | 16 人时 | 初版（`CH-006` 口径收紧） | TODO |
+| T-026 | RSK-01 protobuf 在 C++11 下空壳构通验证 | ARCH §9 RSK-01, §7.1.5 | backend-engineer#cpp | P0 | — | 8 人时 | 初版 | DONE（**附条件**；判据 = **授权 + 独立验证**；`T-030` 汇签结论 = **通过**〔**技术风险已排除，不得上推为「协议已验证」** —— `proto/hgcp.proto` 实测不存在，协议级闭环待 `T-032`〕；见 §2 备注） |
+| T-027 | RSK-02 CTP 头文件 C++11 兼容验证 | ARCH §9 RSK-02, NFR-COMPAT-1/2 | backend-engineer#cpp | P0 | — | 4 人时 | 初版 | DONE（独立复核**通过** + `T-030` 汇签结论 = **通过**；见 §2 备注） |
+| T-028 | RSK-06 Java 端 WebSocket 选型与实现 | ARCH §9 RSK-06, §4.1.2, NFR-PERF-5, `CH-006` | backend-engineer#java | P0 | — | 16 人时 | 初版（`CH-006` 口径收紧） | DONE（独立复核通过；见 §2 备注） |
 | T-029 | RSK-07 websocketpp 落点确认（**已取消**） | ARCH §9 RSK-07（**因 `CH-006` 移除 websocketpp 而失效**） | backend-engineer#cpp | P0 | — | 0 人时（原 8，已扣除） | `CH-006` | REJECTED |
-| T-030 | 汇签 M2 探路结论并下达铺开许可 | ARCH §9（三项探路：T-026/T-027/T-028）, §3.13 | tech-lead | P0 | T-026, T-027, T-028 | 4 人时 | 初版 | TODO |
-| T-031 | 搭建 C++ 交易组件工程骨架与构建 + arch-check 聚合入口与 CI 接线 | NFR-COMPAT-1/2/7, NFR-MAINT-4/6 | backend-engineer#cpp | P0 | T-030 | 24 人时 | 初版 | BLOCKED |
-| T-032 | 实现 HGCP 帧编解码与元协议（鉴权/心跳/补数） | FR-TRADE-14, FR-CONFIG-6/9, NFR-SEC-3, NFR-REL-2 | backend-engineer#cpp | P0 | T-031 | 32 人时 | 初版 | BLOCKED |
-| T-033 | 实现 CTP 适配层 ctp_adapter（交易+行情+资金划转） | FR-TRADE-2/4/5/6/12, FR-FUND-5/6/8 | backend-engineer#cpp | P0 | T-031 | 24 人时 | 初版 | BLOCKED |
-| T-034 | 实现风控内存状态 risk_state（不可变快照 + 原子替换） | FR-RISK-9/10, ARCH §4.4, NFR-PERF-1 | backend-engineer#cpp | P0 | T-031 | 24 人时 | 初版 | BLOCKED |
+| T-030 | 汇签 M2 探路结论并下达铺开许可 | ARCH §9（三项探路：T-026/T-027/T-028）, §3.13 | tech-lead | P0 | T-026, T-027, T-028 | 4 人时 | 初版 | DONE（见 §2 备注） |
+| T-031 | 搭建 C++ 交易组件工程骨架与构建 + arch-check 聚合入口与 CI 接线 | NFR-COMPAT-1/2/7, NFR-MAINT-4/6 | backend-engineer#cpp | P0 | T-030 | 24 人时 | 初版 | TODO |
+| T-032 | 实现 HGCP 帧编解码与元协议（鉴权/心跳/补数） | FR-TRADE-14, FR-CONFIG-6/9, NFR-SEC-3, NFR-REL-2 | backend-engineer#cpp | P0 | T-031 | 32 人时 | 初版 | TODO |
+| T-033 | 实现 CTP 适配层 ctp_adapter（交易+行情+资金划转） | FR-TRADE-2/4/5/6/12, FR-FUND-5/6/8 | backend-engineer#cpp | P0 | T-031 | 24 人时 | 初版 | TODO |
+| T-034 | 实现风控内存状态 risk_state（不可变快照 + 原子替换） | FR-RISK-9/10, ARCH §4.4, NFR-PERF-1 | backend-engineer#cpp | P0 | T-031 | 24 人时 | 初版 | TODO |
 | T-035 | 实现事前风控引擎 risk_engine（8 规则 + 三层限额 + 双层校验） | FR-RISK-1~8, FR-TRADE-3, NFR-PERF-1 | backend-engineer#cpp | P0 | T-034 | 32 人时 | 初版 | TODO |
 | T-036 | 实现指令生命周期管理 order_engine | FR-TRADE-1/2/6/13, R-TRADE-1/2/5/6/7/12 | backend-engineer#cpp | P0 | T-033, T-035 | 32 人时 | 初版 | TODO |
 | T-037 | 实现指令流水与重放 flow_store | FR-TRADE-15/16, NFR-REL-1 | backend-engineer#cpp | P0 | T-031 | 24 人时 | 初版 | TODO |
 | T-038 | 实现控制指令消费与参数生效（param_version 单调） | FR-RISK-10, FR-CONFIG-6, ARCH §4.2.3B | backend-engineer#cpp | P0 | T-032, T-034 | 16 人时 | 初版 | TODO |
 | T-039 | 实现事件流产出与保序补数（含缓冲保留） | ARCH §4.2.6, NFR-REL-2/5, NFR-PERF-6 | backend-engineer#cpp | P0 | T-032, T-036 | 24 人时 | 初版 | TODO |
-| T-040 | 实现 Java 端行情 WebSocket 服务端（**生产级**） | FR-TRADE-12, R-TRADE-11, NFR-PERF-5, `EVT_MARKET_QUOTE`, ARCH §4.1.2/§6.13/§7.1.11 | backend-engineer#java | P1 | T-028, T-042 | 16 人时 | 初版（`CH-006` 定界改派 `#java`） | TODO |
+| T-040 | 实现 Java 端行情 WebSocket 服务端（**生产级**） | FR-TRADE-12, R-TRADE-11, NFR-PERF-5, `EVT_MARKET_QUOTE`, ARCH §4.1.2/§6.13/§7.1.11 | backend-engineer#java | P1 | T-028, T-042 | 16 人时 | 初版（`CH-006` 定界改派 `#java`） | BLOCKED |
 | T-041 | 实现崩溃恢复集成（在途指令不释放冻结额度） | PROJECT §10-27, FR-TRADE-15/16, ARCH §9 RSK-10 | backend-engineer#cpp | P0 | T-036, T-037 | 24 人时 | 初版 | TODO |
 | T-042 | 实现组件桥接层 TradingBridge（HGCP 客户端） | FR-TRADE-14, FR-RISK-9~12, NFR-REL-2/5 | backend-engineer#java | P0 | T-030 | 32 人时 | 初版 | TODO |
 | T-043 | 交付 TRADE 模块 9 张表 DDL 与 DAO | FR-TRADE-1~18 | backend-engineer#java | P0 | T-004 | 16 人时 | 初版 | TODO |
 | T-044 | 交付 SETTLE 模块 16 张表 DDL 与 DAO | FR-SETTLE-1~17 | backend-engineer#java2 | P0 | T-004 | 24 人时 | 初版 | TODO |
 | T-045 | 交付 FUND 模块 9 张表 DDL 与 DAO | FR-FUND-1~17 | backend-engineer#java2 | P0 | T-004 | 16 人时 | 初版 | TODO |
-| T-046 | 实现交易执行服务 TradeService（不落库下单 + 事件流落库） | FR-TRADE-1~18, CFG-13 | backend-engineer#java | P0 | T-042, T-043 | 24 人时 | 初版 | TODO |
-| T-047 | 实现结算服务 SettleService（独立结算 + 加总对账 + 差异归属） | FR-SETTLE-1~12/15/16, CFG-11, Q-11 | backend-engineer#java2 | P0 | T-042, T-044, T-046 | 32 人时 | 初版 | TODO |
-| T-048 | 实现核对任务与电子签署 | FR-SETTLE-13/14/17, CFG-14, R-SETTLE-11 | backend-engineer#java2 | P0 | T-047 | 16 人时 | 初版 | TODO |
-| T-049 | 实现资金管理服务 FundService（出入金 + 划拨 + 额度） | FR-FUND-1~17, CFG-25 | backend-engineer#java2 | P0 | T-042, T-045 | 24 人时 | 初版 | TODO |
-| T-050 | 实现事中风控与镜像状态 risk_intraday | FR-RISK-12~16/19, R-RISK-13 | backend-engineer#java | P0 | T-042 | 20 人时 | 初版 | TODO |
-| T-051 | 实现调度 job（日终/报表/对账/到期提醒，可注入时钟） | NFR-TEST-4, ARCH §3.12 | backend-engineer#java2 | P1 | T-047, T-049 | 16 人时 | 初版 | TODO |
-| T-052 | 交付部署与运维支撑（部署/环境/配置清单/启动脚本） | NFR-DEPLOY-2/3/4/5, ARCH §3.14, CFG-01~31 | backend-engineer#java2 | P0 | T-009, T-049 | 16 人时 | 初版 | TODO |
-| T-053 | 实现交易执行前端（含行情 WebSocket） | FR-TRADE-1~18, NFR-PERF-5 | frontend-engineer | P0 | T-017, T-046 | 20 人时 | 初版 | TODO |
-| T-054 | 实现结算前端页面 | FR-SETTLE-1~17 | frontend-engineer | P1 | T-047 | 16 人时 | 初版 | TODO |
-| T-055 | 实现资金管理前端页面 | FR-FUND-1~17 | frontend-engineer | P1 | T-049 | 16 人时 | 初版 | TODO |
+| T-046 | 实现交易执行服务 TradeService（不落库下单 + 事件流落库） | FR-TRADE-1~18, CFG-13 | backend-engineer#java | P0 | T-042, T-043 | 24 人时 | 初版 | BLOCKED |
+| T-047 | 实现结算服务 SettleService（独立结算 + 加总对账 + 差异归属） | FR-SETTLE-1~12/15/16, CFG-11, Q-11 | backend-engineer#java2 | P0 | T-042, T-044, T-046 | 32 人时 | 初版 | BLOCKED |
+| T-048 | 实现核对任务与电子签署 | FR-SETTLE-13/14/17, CFG-14, R-SETTLE-11 | backend-engineer#java2 | P0 | T-047 | 16 人时 | 初版 | BLOCKED |
+| T-049 | 实现资金管理服务 FundService（出入金 + 划拨 + 额度） | FR-FUND-1~17, CFG-25 | backend-engineer#java2 | P0 | T-042, T-045 | 24 人时 | 初版 | BLOCKED |
+| T-050 | 实现事中风控与镜像状态 risk_intraday | FR-RISK-12~16/19, R-RISK-13 | backend-engineer#java | P0 | T-042 | 20 人时 | 初版 | BLOCKED |
+| T-051 | 实现调度 job（日终/报表/对账/到期提醒，可注入时钟） | NFR-TEST-4, ARCH §3.12 | backend-engineer#java2 | P1 | T-047, T-049 | 16 人时 | 初版 | BLOCKED |
+| T-052 | 交付部署与运维支撑（部署/环境/配置清单/启动脚本） | NFR-DEPLOY-2/3/4/5, ARCH §3.14, CFG-01~31 | backend-engineer#java2 | P0 | T-009, T-049 | 16 人时 | 初版 | BLOCKED |
+| T-053 | 实现交易执行前端（含行情 WebSocket） | FR-TRADE-1~18, NFR-PERF-5 | frontend-engineer | P0 | T-017, T-046 | 20 人时 | 初版 | BLOCKED |
+| T-054 | 实现结算前端页面 | FR-SETTLE-1~17 | frontend-engineer | P1 | T-047 | 16 人时 | 初版 | BLOCKED |
+| T-055 | 实现资金管理前端页面 | FR-FUND-1~17 | frontend-engineer | P1 | T-049 | 16 人时 | 初版 | BLOCKED |
 | T-056 | 制定 M2 联调测试策略与 HGCP 协议专项测试设计 | NFR-TEST-5, ARCH §4.2.7 | test-manager | P0 | T-030 | 16 人时 | 初版 | TODO |
-| T-057 | 执行 M2 协议专项测试（一致性/保序/补数/幂等/重连） | NFR-TEST-5, NFR-REL-2/5, PROJECT §10-31/32 | test-engineer | P0 | T-039, T-042, T-056 | 32 人时 | 初版 | TODO |
-| T-058 | 执行 M2 端到端（模拟盘期货+期权/零 DB/加总/划拨） | PROJECT §9 M2 验收, §10-1/21/23/30/35/36/37 | test-engineer | P0 | T-046~T-049, T-052, T-057 | 32 人时 | 初版 | TODO |
-| T-059 | 执行 C++ ctest 单测（风控/指令/流水/协议） | NFR-TEST-1, PROJECT §10-8 | test-engineer | P0 | T-035~T-041 | 24 人时 | 初版 | TODO |
-| T-060 | 执行 M2 代码与架构合规审查（E1~E6 全量） | NFR-SEC-9, NFR-MAINT-4/6, PROJECT §10-6/29 | code-reviewer | P0 | T-041, T-049, T-055 | 16 人时 | 初版 | TODO |
+| T-057 | 执行 M2 协议专项测试（一致性/保序/补数/幂等/重连） | NFR-TEST-5, NFR-REL-2/5, PROJECT §10-31/32 | test-engineer | P0 | T-039, T-042, T-056 | 32 人时 | 初版 | BLOCKED |
+| T-058 | 执行 M2 端到端（模拟盘期货+期权/零 DB/加总/划拨） | PROJECT §9 M2 验收, §10-1/21/23/30/35/36/37 | test-engineer | P0 | T-046~T-049, T-052, T-057 | 32 人时 | 初版 | BLOCKED |
+| T-059 | 执行 C++ ctest 单测（风控/指令/流水/协议） | NFR-TEST-1, PROJECT §10-8 | test-engineer | P0 | T-035~T-041 | 24 人时 | 初版 | BLOCKED |
+| T-060 | 执行 M2 代码与架构合规审查（E1~E6 全量） | NFR-SEC-9, NFR-MAINT-4/6, PROJECT §10-6/29 | code-reviewer | P0 | T-041, T-049, T-055 | 16 人时 | 初版 | BLOCKED |
 | T-061 | 交付 RISK 首增量 `t_param_dispatch` 单表 DDL 与 DAO（原 11 张表范围已收窄） | FR-RISK-1~19 | backend-engineer#java | P0 | T-004 | 2 人时 | 初版（2026-09-20 范围收窄） | 已完成，待独立复核 |
 | T-062 | 交付 AUDIT 模块 8 张表 DDL 与 DAO | FR-AUDIT-1~13 | backend-engineer#java2 | P0 | T-004 | 16 人时 | 初版 | TODO |
 | T-063 | 实现风控阈值配置与下发闭环（合规下限校验） | FR-RISK-1~10, CFG-01~05/15/16/21, R-CONFIG-8 | backend-engineer#java | P0 | T-038, T-061, T-094 | 20 人时 | 初版 | TODO |
@@ -136,7 +136,7 @@
 | T-091 | 落地架构判据 E3 脚本（C++11 合规扫描） | ARCH §3.0.2 E3, §3.13, NFR-COMPAT-1 | tech-lead | P0 | 无 | 4 人时 | 新增（判据落点补齐） | DONE |
 | T-092 | 落地架构判据 E4 脚本（交易路径无锁/无动态分配/无同步 I/O 扫描） | ARCH §3.0.2 E4, §3.13, NFR-PERF-1 | tech-lead | P0 | 无 | 4 人时 | 新增（判据落点补齐） | DONE |
 | T-093 | 落地架构判据 E6 脚本（前端零构建链与无直连扫描） | ARCH §3.0.2 E6, §3.13, NFR-MAINT-1/5, NFR-COMPAT-3 | tech-lead | P0 | 无 | 4 人时 | 新增（判据落点补齐） | DONE |
-| T-094 | 交付 RISK 模块剩余 10 张表 DDL 与 DAO（M3 窗口） | FR-RISK-1~19 | 待定（原 `#java` 口径，待编排者指派） | P0 | T-004 | 18 人时 | 新增（`T-061` 范围收窄，余表转 M3） | TODO |
+| T-094 | 交付 RISK 模块剩余 10 张表 DDL 与 DAO（M3 窗口） | FR-RISK-1~19 | backend-engineer#java | P0 | T-004 | 18 人时 | 新增（`T-061` 范围收窄，余表转 M3） | TODO |
 | T-095 | **`E1`~`E6` 六条判据脚本形态 / 退出码语义一致性收口**（原 `E2` 按 `E5` 同法收紧） | ARCH §3.0.2 `E1`~`E6`, §3.13, NFR-SEC-9, NFR-COMPAT-1, NFR-PERF-1, PROJECT §10-29 | tech-lead | P0 | 无 | **8 人时** | 新增（判据与 E5 同构化；**第 10 轮扩范围** = 兼收 `TE-AC-002`/`TE-AC-003`/`TE-AC-004`） | DONE |
 | T-096 | 为 `PageQuery` 增加「缺省排序方向」重载（向后兼容）+ **稳定排序**（多键 / 唯一 tie-break） | ARCH §4.1.1「分页默认排序方向」, FR-PLAN-4, **FR-PLAN-15 处理规则（分页排序稳定性）** | backend-engineer#java | P0 | 无 | **3 人时** | 新增（架构 §4.1.1 约定落点；**本轮追加「稳定排序」要求**，来源 = `T-103` 交付披露 (b)：分页后 `ORDER BY` 仅单列、无唯一 tie-break） | TODO |
 | T-097 | `ApiRoutes` 升级为冻结 `(方法,路径)` 对 + 一致性判据改等值断言 | ARCH §4.1.1「路由声明与判据的目标形态」, FR-PLAN-4 | backend-engineer#java | P0 | 无 | 4 人时 | 新增（架构 §4.1.1 约定落点） | TODO |
@@ -147,7 +147,7 @@
 | T-102 | 写面**子账户可见性 / 交易权限**强制补齐（`assertSubAccountVisible` + `assertCanTrade` 未接线 + `withdraw` 发起人校验缺失 + `decomposeTradePlans` 写路径读取未 scope） | FR-AUTH-9, FR-AUTH-10, FR-AUTH-13, NFR-SEC-7, R-AUTH-8, R-AUTH-13 | backend-engineer#java | P0 | T-100 | 5 人时 | 新增（`T-100` 专项复核 `EXP-T100-1` 同族发现；编排者 2026-09-21 裁定立项并扩范围；**第 3 轮再扩 ④** = `decomposeTradePlans` 写路径读取未 scope，来源 = `T-101` 交付「未完成/待裁定 ①」披露；`PlanService.java` 行号以实时 `md5sum` 为准） | TODO |
 | T-103 | `GET /plan/{id}/trade-plans` 补**分页/筛选/排序**（按 `FR-PLAN-15` **输入列**） | FR-PLAN-15 输入列（`PLAN.md:321`）, ARCH §4.1.1（分页约定）, CONTRACTS §1.1（`PageData` 信封）, NFR-SEC-7 | backend-engineer#java | P0 | T-101 | 4 人时 | 新增（`T-101` 独立复核探索性发现 `EXP-T101-1`；编排者 2026-09-21 裁定立项，项目经理登记） | DONE |
 | T-104 | `FR-PLAN-15` 处理规则两项：交易计划**剩余可下单量** + **已达上限标记**（含前端展示） | FR-PLAN-15 处理规则（`PLAN.md:322`；引用时点，**以实时 `md5sum` 为准**）, FR-PLAN-14 验收4 | backend-engineer#java | P0 | T-103 | 2 人时 | 新增（`FR-PLAN-15`「处理规则」两项被 `T-101`/`T-103` **两次**判为「非本任务范围」⇒ 单独立号以免持续掉队；编排者 2026-09-21 裁定立项，项目经理登记） | TODO |
-| T-105 | PRODUCT **列表类**读取面口径收口（`GET /product` 补分页 + 默认创建时间倒序 + 子账户隔离；`GET /product/export` 范围与排序对齐） | FR-PRODUCT-5（`PRODUCT.md:143`~`:156`）, FR-PRODUCT-8（`:187`~`:199`）, FR-AUTH-12/13, NFR-SEC-7 | backend-engineer#java2 | P0 | T-100 | 5 人时 | 新增（`tl-triage` 读取面普查 + 编排者 2026-09-21 裁定立项，项目经理登记） | TODO |
+| T-105 | PRODUCT **列表类**读取面口径收口（`GET /product` 补分页 + 默认创建时间倒序 + 子账户隔离；`GET /product/export` 范围与排序对齐） | FR-PRODUCT-5（`PRODUCT.md:143`~`:156`）, FR-PRODUCT-8（`:187`~`:199`）, FR-AUTH-12/13, NFR-SEC-7 | backend-engineer#java2 | P0 | T-100 | 5 人时 | 新增（`tl-triage` 读取面普查 + 编排者 2026-09-21 裁定立项，项目经理登记） | DONE（独立复核通过；见 §2 备注） |
 | T-106 | PRODUCT **单对象**读取面隔离（`GET /product/{id}` + `GET /product/quota`） | FR-PRODUCT-6 验收3, FR-PRODUCT-11（`Q-16`）, FR-AUTH-13, NFR-SEC-7 | backend-engineer#java2 | P0 | T-100 | 2 人时 | 新增（`tl-triage` 读取面普查 + 编排者 2026-09-21 裁定立项，项目经理登记） | TODO |
 | T-107 | SPOT 读取面口径收口（`GET /spot/exposure` 补分页 + 默认敞口金额/数量倒序 + 隔离；`GET /spot/exposure/{id}` 隔离） | FR-SPOT-15（`SPOT.md:312`~`:325`）验收3, FR-AUTH-13, NFR-SEC-7 | backend-engineer#java2 | P0 | T-100 | 4 人时 | 新增（`tl-triage` 读取面普查 + 编排者 2026-09-21 裁定立项，项目经理登记） | TODO |
 | T-108 | 补齐 **AUTH 3 个**未实现 DAO 的实现类（**第 19 轮范围收窄**：CONFIG 侧 4 个已由 `T-109` 交付；`AuthorizationDao` 由 `T-016` 顺带实现，**不在本任务内**） | FR-CONFIG-1, FR-AUTH-1/14, NFR-MAINT-3, NFR-COMPAT-5 | backend-engineer#java2 | P0 | T-004 | 8 人时 | 新增（`T-016`/`CR-002` 实施受阻连带发现；编排者 2026-09-21 裁定立项；**2026-09-21 第 19 轮范围收窄**） | TODO |
@@ -158,8 +158,13 @@
 | T-113 | 修正 SPOT 现货单据创建在 `subAccountId` 缺省时的错误呈现（现 NPE→500，应明确提示「子账户必填」） | `FR-SPOT-1` 验收 2（`SPOT.md:101` 起；「未选择子账户即提交被拒绝，提示"子账户必填"」）, `R-SPOT-2` | backend-engineer#java2 | P1 | —（**归属 `T-013`**） | 2 人时 | 新增（`te-verify-t110` 域外同类复核新发现；`T-013` 既有 `requireSubAccount(int)` 对 `Integer` 字段自动拆箱 NPE） | TODO |
 | T-114 | 补齐 `POST /spot/exposure/recalc`（`recalcForDisplay`）的子账户可见性强制 | `FR-AUTH-13`, `NFR-SEC-7`；`FR-SPOT-15`（敞口端点自身 FR，`SPOT.md:312`~`:325`） | backend-engineer#java2 | P1 | T-110（复用其范式） | 2 人时 | 新增（`T-112` 实施者第 3 步全仓写路径扫描；写路径越权面〔读 + `t_spot_change_log` 留痕写〕，与 `TE-T109-002` 同族） | TODO |
 | T-115 | 修正 `CROSS_READONLY` 写面放行（写路径拒绝跨账户只读身份；读面语义不变） | `FR-AUTH-13` 验收3、`NFR-SEC-7`、`docs/DATA_MODEL.md`（`CROSS_READONLY` 只读性**由服务层保证**、写前校验 `perm_type`） | backend-engineer#java | P0 | T-102, T-110, T-112 | 0 人时（原 6，已扣除） | 新增（`te-verify-t112` 独立复核缺陷①（高·真绕过）；系 `T-102`/`T-110` 既有机制、非 `T-112` 引入，但 `T-112` 扩大暴露面） | REJECTED（**重复立项**：与既有 `T-098` 范围逐条重合；成果归 `T-098`；编号留痕、不计人时；2026-09-21） |
+| T-116 | PRODUCT 读取面**「需求面 > 实现面」缺口补齐**（`FR-PRODUCT-5` 输出列「子账户」「最近变更时间」+ `FR-PRODUCT-8` 验收 1「导出与列表筛选一致」） | FR-PRODUCT-5 输出列（`PRODUCT.md:149`）、FR-PRODUCT-8 验收 1（`:198`）、FR-PRODUCT-5 输入列过滤（`:148`） | backend-engineer#java2 | P1 | T-105 | 3 人时 | 新增（`te-verify-t105` 独立复核「范围外观察」第 1/3 项；编排者 2026-09-21 裁定立项，项目经理登记） | TODO |
+| T-117 | 修正 PRODUCT **白名单可见性 over-inclusive**（子查询补 `status='ENABLED'`，已移出品种不再算「可见」） | FR-PRODUCT-5 处理规则（「仅返回有权限的子账户范围内的品种」，`PRODUCT.md:147`）；载体 = `t_sub_product_whitelist`（`m1_product.sql:158`~`:189`，`status ∈ {ENABLED,DISABLED}`、移出 = 置 `DISABLED` 保留历史） | backend-engineer#java2 | P1 | T-105 | 2 人时 | 新增（`te-verify-t105` 独立复核「范围外观察」第 2 项，**判缺陷：可见性过宽**）；编排者 2026-09-21 裁定立项，项目经理登记） | TODO |
+| T-118 | 补齐**全局 / 账户级对象写面的功能权限强制点**（`createProduct`/`disableProduct`/`enableProduct`/`putUnit`/`putContract`/`putSpotMapping`/`importProducts` 现**零权限门禁**） | FR-AUTH-13 **处理规则**（「跨子账户权限默认只读……不得执行下单、审批、改配置等操作」）、NFR-SEC-7、R-AUTH-8 | backend-engineer#java2 | P0 | T-119（层③断言器：`assertCanConfigureAccountLevel`；**2026-09-21 由 `T-049` 订正而来**） | 5 人时 | 新增（`tl-quota-authz` 技术席实测「全局对象写面零门禁」类缺口；用户 2026-09-21 裁定「同类单独立号」，项目经理登记） | TODO |
+| T-119 | 补齐 `putQuota` **层③**（`ACCOUNT_PRODUCT` / 账户哨兵 `0`）**写面授权门禁**（M1 = 角色近似） | `FR-AUTH-12`（功能权限维度；`AUTH.md` §2）、`FR-AUTH-13`、`NFR-SEC-7`、`R-AUTH-8`；依据 `ARCHITECTURE.md` §8.2③ 新增条目（`v1.5.11`） | backend-engineer#java（断言器 `assertCanConfigureAccountLevel` 落 `AuthService`） | P0 | `CH-012`（需求侧待用户确认）+ **播种前置**（`t_role`/`t_user_role` 须与实现同批） | 5 人时 | 新增（`tl-quota-authz` 技术席层③实测 + 编排者 2026-09-21 裁定立项；**层③断言器原无编号承载**，本号补登记） | TODO |
+| T-120 | `E4` 判据接线落地（默认根改三目录集合 `cpp/src/{order_engine,risk_engine,risk_state}` + `arch-check.sh` / `README` 同步） | ARCH §3.0.2 `E4` 脚注④（**诚实披露**）+ `§3.13`（判据脚本聚合入口）, NFR-PERF-1, NFR-MAINT-4/6 | tech-lead | P0 | T-031 | 3 人时 | 新增（`tl-e4-scope` 的 `ARCHITECTURE.md` §3.0.2 `E4` 脚注④ + 独立复核 `te-verify-t031` 第 2 点：「`E4` 恒 `SKIP`」= 判据未生效；判为**独立任务、非 `T-031` 缺陷**） | DONE（判据 = **授权 + 独立验证**；首轮复核「有条件通过」→ 补修 → **delta 复检通过、0 缺陷**；见 §2 备注） |
 
-**合计：115 个任务**（M1 32 / M2 54 / M3 16 / M4 13）——**115 = 114 + `T-115`（1） = 113 + `T-114`（1） = 111 + `T-112`（1）+ `T-113`（1） = 109 + `T-110`（1）+ `T-111`（1） = 104 + `T-105`（1）+ `T-106`（1）+ `T-107`（1）+ `T-108`（1）+ `T-109`（1） = 89 + `T-090`~`T-093`（4）+ `T-094`（1）+ `T-095`（1）+ `T-096`~`T-099`（4）+ `T-100`（1）+ `T-101`（1）+ `T-102`（1）+ `T-103`（1）+ `T-104`（1）+ `T-109`（1）**（`T-109` = 「已声明未注册」端点补齐（CONFIG 9 / SPOT 5 / PLAN 1），`#java2`，**M1 窗口**，依赖 `T-005`/`T-006`/`T-007`，来源 = 对齐普查 `audit-cov` + 编排者 2026-09-21 裁定；`T-090`~`T-093` = 架构 §3.0.2 判据 `E1`/`E3`/`E4`/`E6` 脚本落点，M2 首周批；**`T-094` = `T-061` 范围收窄后承接剩余 10 张 RISK 表，改归 M3 窗口**；**`T-095` = `E1`~`E6` 六脚本形态 / 退出码语义一致性收口（原 `E2` 按 `E5` 同法收紧，第 10 轮扩范围；兼收 `TE-AC-002`/`TE-AC-003`/`TE-AC-004`），M2 窗口**；**`T-096`~`T-099` = `ARCHITECTURE.md`（登记时点 `v1.5.8`；**以实时 `md5sum` 为准**）§4.1.1 两项约定 + §8.2 强制点／机制订正的落点，负责人 `#java`，M2 窗口，编号由技术负责人建议、项目经理登记方为事实**；**`T-100` = 架构 §8.2①③④ **主落点**（`GET /plan` 读取面隔离装配）的**编号补登记**，依赖 `T-016`，`#java`，M2 窗口，编排者 2026-09-21 裁定立项**；**`T-101` = `GET /plan/{id}/trade-plans` 读取面**子账户隔离装配**（`T-100` 的**相邻残余缺口** —— 同性质缺陷换端点仍复现；动 `PlanService.listTradePlans` + `TradePlanDao`/`DmTradePlanDao` + `TradePlanHandler`，**写域与 `T-100` 不同**，故**单独立号**），依赖 `T-100`，`#java`，M2 窗口，编排者 2026-09-21 裁定立项**；**`T-102` = 写面**子账户可见性强制**补齐（`T-100` 专项复核 `EXP-T100-1` 的同族发现：`AuthService.assertSubAccountVisible` **与** `AuthService.assertCanTrade` **均「已实现但生产 0 处调用」** + `PlanService.withdraw` **javadoc 承诺与实现不符** + **第 3 轮再扩 ④** `PlanService.decomposeTradePlans`（`:786`）**写路径读取未 scope**，来源 = `T-101` 交付披露），依赖 `T-100`，`#java`，M2 窗口，编排者 2026-09-21 裁定立项（**范围含 `assertCanTrade`**）**；**`T-103` = `GET /plan/{id}/trade-plans` **补分页/筛选/排序**（按 `FR-PLAN-15` **输入列**，`PLAN.md:321`；`FR-PLAN-15` 自身优先级 = **P0**〔`PLAN.md:324`〕；依赖 `T-101`，`#java`，M2 窗口；**不需 `CH-xxx`** —— `CONTRACTS §1.1` 已冻结「分页接口用 `PageData` 信封」，本项属**向既有冻结口径对齐**、系**修正违规**非变更契约）**；**`T-104` = `FR-PLAN-15` **处理规则**两项（**剩余可下单量** = 数量 − 已下达指令量；**已达可下单量上限标记**）的独立承载 —— 该项被 `T-101`/`T-103` **两次**判为「非本任务范围」⇒ 单独立号以免持续掉队；依赖 `T-103`，`#java`，M2 窗口**）；`T-029` 保留编号、状态 `REJECTED`，**不计入人时**；**总估时 1773 人时**（= 1779 − `T-115` **6 人时** = −6〔第 25 轮：`T-115` 判 `REJECTED`、不计人时〕；= 1773 + `T-115` **6 人时** = +6〔第 24 轮〕；= 1771 + `T-114` **2 人时** = +2〔第 23 轮〕；= 1761 + `T-112` **8 人时** + `T-113` **2 人时** = +10；= 1714 + `T-105` **5 人时** + `T-106` **2 人时** + `T-107` **4 人时** + `T-108` **8 人时** + `T-109` **12 人时** + `T-110` **8 人时** + `T-111` **8 人时** = +47；= 1691 + `T-100` **4 人时** + `T-101` **3 人时** + `T-102` **5 人时** + `T-103` **4 人时** + `T-104` **2 人时** + `T-096` 上修 **1 人时** + `T-095` 上修 **4 人时**）——`T-061` 由 20 → **2 人时**（首增量单表）、`T-094` **+18 人时**（RISK DDL 总量守恒 20 人时）、`T-095` **+4 人时**、`T-096`~`T-099` **+2 +4 +3 +2 = +11 人时**、`T-100` **+4 人时**、`T-101` **+3 人时**、`T-102` **+5 人时**（`+4` → `+5`，第 3 轮再扩 ④ 后上修）、`T-103` **+4 人时**（第 4 轮新增，`EXP-T101-1`）、`T-104` **+2 人时**（本轮新增，`FR-PLAN-15` 处理规则两项，`#java`，M2）、`T-096` **+1 人时**（本轮上修 **2 → 3 人时**，追加「稳定排序」能力；依据见 §2 `T-096` 备注）、**`T-095` 第 10 轮再上修 4 → 8 人时（+4）**（扩为 `E1`~`E6` 六脚本形态/退出码语义一致性收口，兼收 `TE-AC-002`/`TE-AC-003`/`TE-AC-004`；**总估时 1710 → 1714**）。 **第 11 轮**：新增 **`T-105`/`T-106`/`T-107`**（`#java2`，M2 窗口，**+5 +2 +4 = +11 人时**）—— PRODUCT/SPOT **读取面口径收口**（`tl-triage` 全模块只读普查 + 编排者 2026-09-21 裁定立项）；**总估时 1714 → 1725 → 1733**。 **第 15 轮**：新增 **`T-108`**（补齐 CONFIG+AUTH **7 个**未实现 DAO 的实现类，`#java2`，M2 窗口，**+8 人时**；**第 19 轮范围收窄为 AUTH 3 个**，CONFIG 侧 4 个由 `T-109` 交付）；**任务数 107 → 108**、**总估时 1725 → 1733**。 **第 16 轮**：新增 **`T-109`**（补齐「已声明未注册」端点 **CONFIG 9 / SPOT 5 / PLAN 1**，`#java2`，**M1 窗口**，**+12 人时**）；**任务数 108 → 109**、**总估时 1733 → 1745**；**第 21 轮新增 `T-110`/`T-111`**（各 8 人时，`#java2`；`T-110` = SPOT 写面（`T-013` 范围）子账户可见性强制〔M1 窗口〕、`T-111` = 服务端敞口推导引擎 + `FR-SPOT-16` 验收 1 回填〔M2 窗口〕）**；任务数 109 → 111**、**总估时 1745 → 1761**。 **第 22 轮**：新增 **`T-112`**（写路径子账户可见性强制的全域收口〔PRODUCT 写面 + PLAN 写面〕，`#java2`，M1 窗口，**+8 人时**，**依赖 `T-110`**；来源 = `te-verify-t110` 域外同类复核）与 **`T-113`**（修正 SPOT 现货单据创建 `subAccountId` 缺省时的错误呈现〔NPE→500 ⇒ 应「子账户必填」〕，`#java2`，M1 窗口，**+2 人时**，归属 `T-013`）；**`T-110` 由 `TODO` → `DONE`**（独立复核 `te-verify-t110` 判定**通过**）；**任务数 111 → 113**、**总估时 1761 → 1771**。 **第 23 轮**：新增 **`T-114`**（补齐 `POST /spot/exposure/recalc`（`recalcForDisplay`）子账户可见性强制，`#java2`，M1 窗口，**+2 人时**，**依赖 `T-110`**；来源 = `T-112` 实施者第 3 步全仓写路径扫描）；**`T-112` 由 `TODO` → `IN_PROGRESS`**（2026-09-21 派发实施中，实施者 `backend-engineer#java2` / 实例 `be-t112`）；**任务数 113 → 114**、**总估时 1771 → 1773**。 **第 24 轮**：新增 **`T-115`**（修正 `CROSS_READONLY` **写面**放行〔写路径拒绝跨账户只读身份；读面语义不变〕，`#java`，M1 窗口，**+6 人时**，**依赖 `T-102`/`T-110`/`T-112`**；来源 = `te-verify-t112` 独立复核缺陷①〔高·真绕过〕）；**`T-112` 保持 `IN_PROGRESS`（第 2 轮：复核后补修）**；**任务数 114 → 115**、**总估时 1773 → 1779**。 **第 25 轮**：**`T-115` 判 `REJECTED`**（**重复立项** —— 与既有 `T-098` 范围逐条重合：同为「命中 `perm_type='CROSS_READONLY'` 的写操作**一律拒绝（服务端强制）**」、同为错误码 `10004`（403）、同为留痕 `t_unauthorized_attempt`（`R-AUTH-8`）、同为正/反双向测试要求；**成果归 `T-098`**；编号留痕、**不计人时**，依 `T-029` 先例；**动因** = 编排者立号时未扫整张既有任务表）；**`T-098` / `T-112` 转「已完成，待独立复核」**（纯状态口径、人时不变）；**任务数 115 不变**、**总估时 1779 → 1773**。
+**合计：120 个任务**（M1 33 / M2 58 / M3 16 / M4 13）——**120 = 119 + `T-120`（1）〔第 31 轮新立〕；其中 119 = 118 + `T-119`（1）〔第 29 轮新立〕；其中 118 = 115 + `T-116`（1）+ `T-117`（1）+ `T-118`（1）〔第 28 轮新立〕；其中 115 = 114 + `T-115`（1） = 113 + `T-114`（1） = 111 + `T-112`（1）+ `T-113`（1） = 109 + `T-110`（1）+ `T-111`（1） = 104 + `T-105`（1）+ `T-106`（1）+ `T-107`（1）+ `T-108`（1）+ `T-109`（1） = 89 + `T-090`~`T-093`（4）+ `T-094`（1）+ `T-095`（1）+ `T-096`~`T-099`（4）+ `T-100`（1）+ `T-101`（1）+ `T-102`（1）+ `T-103`（1）+ `T-104`（1）+ `T-109`（1）**（`T-109` = 「已声明未注册」端点补齐（CONFIG 9 / SPOT 5 / PLAN 1），`#java2`，**M1 窗口**，依赖 `T-005`/`T-006`/`T-007`，来源 = 对齐普查 `audit-cov` + 编排者 2026-09-21 裁定；`T-090`~`T-093` = 架构 §3.0.2 判据 `E1`/`E3`/`E4`/`E6` 脚本落点，M2 首周批；**`T-094` = `T-061` 范围收窄后承接剩余 10 张 RISK 表，改归 M3 窗口**；**`T-095` = `E1`~`E6` 六脚本形态 / 退出码语义一致性收口（原 `E2` 按 `E5` 同法收紧，第 10 轮扩范围；兼收 `TE-AC-002`/`TE-AC-003`/`TE-AC-004`），M2 窗口**；**`T-096`~`T-099` = `ARCHITECTURE.md`（登记时点 `v1.5.8`；**以实时 `md5sum` 为准**）§4.1.1 两项约定 + §8.2 强制点／机制订正的落点，负责人 `#java`，M2 窗口，编号由技术负责人建议、项目经理登记方为事实**；**`T-100` = 架构 §8.2①③④ **主落点**（`GET /plan` 读取面隔离装配）的**编号补登记**，依赖 `T-016`，`#java`，M2 窗口，编排者 2026-09-21 裁定立项**；**`T-101` = `GET /plan/{id}/trade-plans` 读取面**子账户隔离装配**（`T-100` 的**相邻残余缺口** —— 同性质缺陷换端点仍复现；动 `PlanService.listTradePlans` + `TradePlanDao`/`DmTradePlanDao` + `TradePlanHandler`，**写域与 `T-100` 不同**，故**单独立号**），依赖 `T-100`，`#java`，M2 窗口，编排者 2026-09-21 裁定立项**；**`T-102` = 写面**子账户可见性强制**补齐（`T-100` 专项复核 `EXP-T100-1` 的同族发现：`AuthService.assertSubAccountVisible` **与** `AuthService.assertCanTrade` **均「已实现但生产 0 处调用」** + `PlanService.withdraw` **javadoc 承诺与实现不符** + **第 3 轮再扩 ④** `PlanService.decomposeTradePlans`（`:786`）**写路径读取未 scope**，来源 = `T-101` 交付披露），依赖 `T-100`，`#java`，M2 窗口，编排者 2026-09-21 裁定立项（**范围含 `assertCanTrade`**）**；**`T-103` = `GET /plan/{id}/trade-plans` **补分页/筛选/排序**（按 `FR-PLAN-15` **输入列**，`PLAN.md:321`；`FR-PLAN-15` 自身优先级 = **P0**〔`PLAN.md:324`〕；依赖 `T-101`，`#java`，M2 窗口；**不需 `CH-xxx`** —— `CONTRACTS §1.1` 已冻结「分页接口用 `PageData` 信封」，本项属**向既有冻结口径对齐**、系**修正违规**非变更契约）**；**`T-104` = `FR-PLAN-15` **处理规则**两项（**剩余可下单量** = 数量 − 已下达指令量；**已达可下单量上限标记**）的独立承载 —— 该项被 `T-101`/`T-103` **两次**判为「非本任务范围」⇒ 单独立号以免持续掉队；依赖 `T-103`，`#java`，M2 窗口**）；`T-029` 保留编号、状态 `REJECTED`，**不计入人时**；**总估时 1791 人时**（= 1788 + `T-120` **3 人时** = +3〔第 31 轮〕；= 1779 − `T-115` **6 人时** = −6〔第 25 轮：`T-115` 判 `REJECTED`、不计人时〕+ `T-116` **3 人时** + `T-117` **2 人时** + `T-118` **5 人时** = +10〔第 28 轮〕+ `T-119` **5 人时** = +5〔第 29 轮〕；= 1773 + `T-115` **6 人时** = +6〔第 24 轮〕；= 1771 + `T-114` **2 人时** = +2〔第 23 轮〕；= 1761 + `T-112` **8 人时** + `T-113` **2 人时** = +10；= 1714 + `T-105` **5 人时** + `T-106` **2 人时** + `T-107` **4 人时** + `T-108` **8 人时** + `T-109` **12 人时** + `T-110` **8 人时** + `T-111` **8 人时** = +47；= 1691 + `T-100` **4 人时** + `T-101` **3 人时** + `T-102` **5 人时** + `T-103` **4 人时** + `T-104` **2 人时** + `T-096` 上修 **1 人时** + `T-095` 上修 **4 人时**）——`T-061` 由 20 → **2 人时**（首增量单表）、`T-094` **+18 人时**（RISK DDL 总量守恒 20 人时）、`T-095` **+4 人时**、`T-096`~`T-099` **+2 +4 +3 +2 = +11 人时**、`T-100` **+4 人时**、`T-101` **+3 人时**、`T-102` **+5 人时**（`+4` → `+5`，第 3 轮再扩 ④ 后上修）、`T-103` **+4 人时**（第 4 轮新增，`EXP-T101-1`）、`T-104` **+2 人时**（本轮新增，`FR-PLAN-15` 处理规则两项，`#java`，M2）、`T-096` **+1 人时**（本轮上修 **2 → 3 人时**，追加「稳定排序」能力；依据见 §2 `T-096` 备注）、**`T-095` 第 10 轮再上修 4 → 8 人时（+4）**（扩为 `E1`~`E6` 六脚本形态/退出码语义一致性收口，兼收 `TE-AC-002`/`TE-AC-003`/`TE-AC-004`；**总估时 1710 → 1714**）。 **第 11 轮**：新增 **`T-105`/`T-106`/`T-107`**（`#java2`，M2 窗口，**+5 +2 +4 = +11 人时**）—— PRODUCT/SPOT **读取面口径收口**（`tl-triage` 全模块只读普查 + 编排者 2026-09-21 裁定立项）；**总估时 1714 → 1725 → 1733**。 **第 15 轮**：新增 **`T-108`**（补齐 CONFIG+AUTH **7 个**未实现 DAO 的实现类，`#java2`，M2 窗口，**+8 人时**；**第 19 轮范围收窄为 AUTH 3 个**，CONFIG 侧 4 个由 `T-109` 交付）；**任务数 107 → 108**、**总估时 1725 → 1733**。 **第 16 轮**：新增 **`T-109`**（补齐「已声明未注册」端点 **CONFIG 9 / SPOT 5 / PLAN 1**，`#java2`，**M1 窗口**，**+12 人时**）；**任务数 108 → 109**、**总估时 1733 → 1745**；**第 21 轮新增 `T-110`/`T-111`**（各 8 人时，`#java2`；`T-110` = SPOT 写面（`T-013` 范围）子账户可见性强制〔M1 窗口〕、`T-111` = 服务端敞口推导引擎 + `FR-SPOT-16` 验收 1 回填〔M2 窗口〕）**；任务数 109 → 111**、**总估时 1745 → 1761**。 **第 22 轮**：新增 **`T-112`**（写路径子账户可见性强制的全域收口〔PRODUCT 写面 + PLAN 写面〕，`#java2`，M1 窗口，**+8 人时**，**依赖 `T-110`**；来源 = `te-verify-t110` 域外同类复核）与 **`T-113`**（修正 SPOT 现货单据创建 `subAccountId` 缺省时的错误呈现〔NPE→500 ⇒ 应「子账户必填」〕，`#java2`，M1 窗口，**+2 人时**，归属 `T-013`）；**`T-110` 由 `TODO` → `DONE`**（独立复核 `te-verify-t110` 判定**通过**）；**任务数 111 → 113**、**总估时 1761 → 1771**。 **第 23 轮**：新增 **`T-114`**（补齐 `POST /spot/exposure/recalc`（`recalcForDisplay`）子账户可见性强制，`#java2`，M1 窗口，**+2 人时**，**依赖 `T-110`**；来源 = `T-112` 实施者第 3 步全仓写路径扫描）；**`T-112` 由 `TODO` → `IN_PROGRESS`**（2026-09-21 派发实施中，实施者 `backend-engineer#java2` / 实例 `be-t112`）；**任务数 113 → 114**、**总估时 1771 → 1773**。 **第 24 轮**：新增 **`T-115`**（修正 `CROSS_READONLY` **写面**放行〔写路径拒绝跨账户只读身份；读面语义不变〕，`#java`，M1 窗口，**+6 人时**，**依赖 `T-102`/`T-110`/`T-112`**；来源 = `te-verify-t112` 独立复核缺陷①〔高·真绕过〕）；**`T-112` 保持 `IN_PROGRESS`（第 2 轮：复核后补修）**；**任务数 114 → 115**、**总估时 1773 → 1779**。 **第 25 轮**：**`T-115` 判 `REJECTED`**（**重复立项** —— 与既有 `T-098` 范围逐条重合：同为「命中 `perm_type='CROSS_READONLY'` 的写操作**一律拒绝（服务端强制）**」、同为错误码 `10004`（403）、同为留痕 `t_unauthorized_attempt`（`R-AUTH-8`）、同为正/反双向测试要求；**成果归 `T-098`**；编号留痕、**不计人时**，依 `T-029` 先例；**动因** = 编排者立号时未扫整张既有任务表）；**`T-098` / `T-112` 转「已完成，待独立复核」**（纯状态口径、人时不变）；**任务数 115 不变**、**总估时 1779 → 1773**。
 
 > 📌 **派发状态（2026-09-20，M1 施工推进）**：`T-003`/`T-004` → **`已完成，待独立复核`**（`#java` 交付并**冻结接口契约** `java/CONTRACTS.md`（**现行 `05c8161207e94d14c643fa632e66bc46` / 728 行，以实时 `md5sum` 为准**），工单已 `CLOSED`）；`T-026`/`T-027` → **`已完成，待独立复核`**（`#cpp` M2 首周探路**均通过**；**证据档 = 自评探路实证**）；`T-005`/`T-006`/`T-007` → **`已完成，待独立复核`**（`#java2` 同批交付 PRODUCT/SPOT/PLAN **26 张表** DDL 与 DAO；**已完成、待技术负责人门禁复核确认（不自评）**）。（**2026-09-20 时点快照，非现行**）**`T-061` → `DONE`（首增量 `t_param_dispatch` 单表 DDL + DAO 已完成、待独立复核）**，其余 10 张 RISK 表转 **`T-094`（M3 窗口，负责人待定）**。**`T-008`~`T-016` → `已完成，待独立复核`**（实现与自测到位、**尚无独立验证证据**，见 `REVIEW.md` `CR-003`）；`T-017` 起（含 `#java2` 其余条目、`T-028`）**未投递**；`T-030`（探路汇签）**仍为 `TODO`**，待第 3 项探路 `T-028`（`#java`）完成后由技术负责人汇签并下达 M2 铺开许可。
 
@@ -611,20 +616,22 @@
 - **依赖**：无（M2 协议已 FROZEN，可直接开工）
 - **估时**：8 人时
 - **来源**：初版（技术负责人 M2 首周探路要求）
-- **状态**：**已完成，待独立复核**（证据档：`#cpp` **自评探路实证**；**无第三方独立验证记录**）（2026-09-20 探路通过：protobuf `3.21.12` 在 `-std=c++11 -Wall -Wextra -Werror` 下空壳构通成功）
+- **状态**：**DONE（附条件；判据 = 授权 + 独立验证）**（2026-09-21；原「已完成，待独立复核」〔证据档 = `#cpp` **自评探路实证**、**无第三方独立验证记录**〕**已由独立复核 + `T-030` 汇签承接** ⇒ 判据满足。**独立复核 = 通过**；**`T-030` 汇签结论 = 通过**〔**技术风险已排除，不得上推为「协议已验证」** —— `proto/hgcp.proto` 实测不存在，其协议级闭环待 `T-032`〕，见 `BOARD.md` §2 `DONE` 区与 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）（2026-09-20 探路通过：protobuf `3.21.12` 在 `-std=c++11 -Wall -Wextra -Werror` 下空壳构通成功）
 - **验收标准**：
   1. 在 `-std=c++11 -Wall -Wextra -Werror` 下，用 `proto/hgcp.proto` 仅编译一个 **HGCP 空消息**并完成收发，构建成功；
   2. 首选 protobuf `3.21.12`，失败回退 `3.19.6`，回退链路在 CI 中可复现；
   3. 记录实际可用版本与编译参数；两侧 protobuf 大版本一致（`3.x`，构建时校验）；
   4. 若两版本皆不可用 → **提 `CH-xxx`（L3）** 申请 `protobuf-lite` 或降级 `3.17.3`，**不得静默改技术栈**。
-  5. **可测判据（CI 复现口径）**：`HG_STAGE=all bash cpp/proto_smoke/ci/run_smoke.sh` → **`PASS=11  FAIL=0`（`RESULT: PASS`）**，退码 0；逐条断言：
-     - **主路径**（`HG_STAGE=system`，实测 `PASS=8`）：`A1` `compile_commands.json` 中 `-std=c++11 -Wall -Wextra -Werror` **实际生效**；`A1b` `__cplusplus == 201103`；`A2` 构建成功 **且** `ctest` **3/3**；`A3` 实际可用版本 = **`3.21.12`**；`A4` 构建期大版本 = **3**；`A5` `-Werror` 反证（故意使用 3.21 已弃用 API `ByteSize()` **必须编译失败**，且失败原因为 `deprecated`）；`A7` `ldd` 产物无任何 DB 客户端库；
+  5. **可测判据（CI 复现口径）**：`HG_STAGE=all bash cpp/proto_smoke/ci/run_smoke.sh` → **`PASS=13  FAIL=0`（`RESULT: PASS`）**，退码 0；逐条断言：
+     - **主路径**（`HG_STAGE=system`，实测 `PASS=10`；含 `A8`/`A9` 两条后加断言）：`A1` `compile_commands.json` 中 `-std=c++11 -Wall -Wextra -Werror` **实际生效**；`A1b` `__cplusplus == 201103`；`A2` 构建成功 **且** `ctest` **3/3**；`A3` 实际可用版本 = **`3.21.12`**；`A4` 构建期大版本 = **3**；`A5` `-Werror` 反证（故意使用 3.21 已弃用 API `ByteSize()` **必须编译失败**，且失败原因为 `deprecated`）；`A7` `ldd` 产物无任何 DB 客户端库；
      - **回退链路**（`HG_STAGE=fallback`，实测 `PASS=2`）：protobuf **`3.19.6`** 由 `FetchContent` 从源码构建成功且空消息**真机收发成功**（`A6`）、`ctest` 全绿（`A6b`）；
      - **降级链路**（`HG_STAGE=lite`，实测 `PASS=1`）：`protobuf-lite` 构通且 `ctest` 全绿（`A6c`）；
      - `HG_STAGE=all` 的回退段须可取到 `3.19.6` 源码（联网走 `GIT`，或预置 tarball `HG_PROTOBUF_TARBALL=<...>` 按内置 SHA256 校验）；**纯离线仅可跑主路径**（`HG_SKIP_FALLBACK=1`）。
   6. **供给策略（部署承接）**：protobuf **优先系统包 `3.21.12`**；`FetchContent`（**钉死 SHA256** + `SOURCE_SUBDIR cmake` + `CMAKE_POLICY_VERSION_MINIMUM=3.5`）作**离线回退**；`protobuf-lite` 为**降级链路**。三条链路**均已实测跑通**（对应上条 `A*` / `A6*`）。
 - **产出**：`cpp/proto_smoke/`（空壳验证）+ 结论记录
 - **备注**：**M2 首周探路任务，未过不得铺开 M2 业务开发**（`T-030` 汇签）。**已提前投递**（2026-09-20，工单 `T-026-task.md`）；**2026-09-20 探路通过 → `DONE`**（状态列见 §1，验收证据见 `BOARD.md` §2 `DONE` 区）；M2 门禁与「探路→汇签（`T-030`）」约束不变。
+  **📌（2026-09-21 状态收口 · 只加不改）** 本任务现行状态 = **`DONE`（附条件；判据 = 授权 + 独立验证）** —— **独立复核通过 + `T-030` 汇签结论通过**；「附条件」= 保留限定语「**技术风险已排除，不得上推为「协议已验证」**（`proto/hgcp.proto` 实测不存在，协议级闭环待 `T-032`）」，**义务不减**。
+  **📌（2026-09-21 `T-030` 汇签登记 · 只加不改）** `PASS` 计数订正：验收 5 原载 `PASS=11`（`A8`/`A9` 两条断言后加未回写）⇒ 本轮回写为 **`PASS=13`**（= 系统 10 + 回退 2 + 降级 1 三腿合计）；同条主路径明细原载 `PASS=8` ⇒ 一并订正为 `PASS=10`（含 `A8`/`A9`）。依据 = `docs/gates/M2-recon-signoff/SIGN-OFF.md` §3 条件 2。
 
 ### T-027 RSK-02 CTP 头文件 C++11 兼容验证
 
@@ -634,12 +641,12 @@
 - **依赖**：无
 - **估时**：4 人时
 - **来源**：初版（M2 首周探路要求）
-- **状态**：**已完成，待独立复核**（证据档：`#cpp` **自评探路实证**；**无第三方独立验证记录**）（2026-09-20 探路通过：真实 CTP SDK `V1.7.7` 合并版头文件 `<ThostFtdcUserApi.h>` 在 C++11 下编译 + 链接通过）
+- **状态**：**DONE（判据 = 授权 + 独立验证）**（2026-09-21；原「已完成，待独立复核」〔证据档 = `#cpp` **自评探路实证**、**无第三方独立验证记录**〕**已由独立复核 + `T-030` 汇签承接** ⇒ 判据满足。**独立复核 = 通过**；**`T-030` 汇签结论 = 通过**，见 `BOARD.md` §2 `DONE` 区与 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）（2026-09-20 探路通过：真实 CTP SDK `V1.7.7` 合并版头文件 `<ThostFtdcUserApi.h>` 在 C++11 下编译 + 链接通过）
 - **验收标准**：
   1. 以最小程序 `#include <ThostFtdcUserApi.h>` 在 `-std=c++11 -Werror` 下编译通过；
   2. 记录 CTP SDK 版本与编译参数；
   3. 若冲突 → 提 `CH-xxx`（**L1/L2 级，牵动 `PROJECT.md` §6 硬约束**）上报用户，**不得自行放宽 C++11 边界**。
-  4. **可测判据（CI 复现口径）**：`CTP_SDK_ROOT=<dir> bash cpp/ctp_smoke/ci/run_probe.sh` → **`PASS=9  FAIL=0`（`RESULT: PASS`）**，退码 0；逐条断言：
+  4. **可测判据（CI 复现口径）**：`CTP_SDK_ROOT=<dir> bash cpp/ctp_smoke/ci/run_probe.sh` → **`PASS=11  FAIL=0`（`RESULT: PASS`）**，退码 0；逐条断言：
      - `B1` SDK 可得（记录路径 / 头文件 / md5）；`B2` `-std=c++11 -Wall -Wextra -Werror` 下编译通过（**CTP SDK include 必须以 SYSTEM 头引入**）；`B2b` `ctest` 全绿；`B3` `__cplusplus == 201103`；`B4` 链接**真实** SDK 动态库并取回 **SDK 自报版本 `V1.7.7`**（非桩、非等价头文件）；`B7` `ldd` 产物无任何 DB 客户端库；`B8` C++11 边界**未被放宽**（编译参数仅 `-std=c++11`）；
      - **`B5` 反证判据**：`-DHG_CTP_INCLUDE_AS_SYSTEM=OFF` **必须编译失败**（SPI 基类 `virtual void OnXxx(...) {};` 的**参数具名但未使用** → `-Werror=unused-parameter`）；并注明此失败**与 C++ 标准无关**（`make_unique` / `optional` / `string_view` / `if constexpr` / 结构化绑定 **全库 0 命中**），**不得**据此放宽 C++11 边界；
      - **签名级证据（编译期绑定，签名不符即编译失败）**：`override` 派生 SPI + 成员函数指针绑定 `ReqUserLogin` / `ReqOrderInsert` / `ReqOrderAction` / `SubscribeMarketData`（另含 `SubscribePrivateTopic` / `RegisterSpi`）；`static_assert` 校验**抽象多态**接口类（`is_abstract` / `is_polymorphic`）；
@@ -648,6 +655,8 @@
   6. **残余风险（部署复测）**：实盘柜台 SDK 版本可能与本次探路（`V1.7.7`）不同 → 部署前按 **`NFR-DEPLOY-5`** 记录实测版本并**重跑 `run_probe.sh`**（约 1 分钟；探路工程已支持 `CTP_SDK_ROOT` 参数化）；**承接归 `T-052` 部署清单**。
 - **产出**：`cpp/ctp_smoke/` + 结论记录
 - **备注**：**M2 首周探路任务**。CTPmini 同栈已跑通，概率低-中。**已提前投递**（2026-09-20，工单 `T-027-task.md`）；**2026-09-20 探路通过 → `DONE`**（状态列见 §1，验收证据见 `BOARD.md` §2 `DONE` 区）；M2 门禁与「探路→汇签（`T-030`）」约束不变。
+  **📌（2026-09-21 状态收口 · 只加不改）** 本任务现行状态 = **`DONE`（判据 = 授权 + 独立验证）** —— **独立复核通过 + `T-030` 汇签结论通过**。
+  **📌（2026-09-21 `T-030` 汇签登记 · 只加不改）** `PASS` 计数订正：验收 4 原载 `PASS=9`（`B7b`/`B7c` 两条断言后加未回写）⇒ 本轮回写为 **`PASS=11`**。依据 = `docs/gates/M2-recon-signoff/SIGN-OFF.md` §3 条件 2。
 
 ### T-028 RSK-06 Java 端 WebSocket 选型与实现
 
@@ -657,7 +666,7 @@
 - **依赖**：无
 - **估时**：16 人时
 - **来源**：初版（M2 首周探路要求）；`CH-006` 口径收紧（**WebSocket 确定在 Java 端实现**，不再是「自实现是否可行」的探路）
-- **状态**：TODO
+- **状态**：**DONE（独立复核通过）**（判据 = **授权 + 独立验证**；见「备注」）
 - **验收标准**：
   1. **完成 Java 端 WebSocket 服务端实现**（行情推送 `/ws/quote`），浏览器可连通；**连接路径 / 鉴权 / 订阅消息 / 心跳重连**四项对外约定须写入冻结清单（与 `T-003`/`T-004` 一致）；
   2. **给出轻量库选型论证（四要素）**：**用途 / 版本 / 替代方案 / 不引入的代价**，落于 `ARCHITECTURE.md` §7.1.11（由技术负责人定稿，本任务提供论证输入）；替代方案须含「JDK 内置 `HttpServer` 自实现 RFC 6455」一档；
@@ -667,6 +676,8 @@
 - **产出**：`java/src/main/java/com/hedgeguard/web/ws/**`（WebSocket 服务端）+ **选型论证与传递依赖清单**（结论记录）（**路径订正 2026-09-21**：原写 `java/ws/`，实测该目录**不存在**；实物在 `web/ws/`，依 `CONTRACTS` 包结构 + 项目经理实测）
 - **备注**：**M2 首周探路任务，未过不得铺开 M2 业务开发**（`T-030` 汇签）。**已由用户裁决（`CH-006`）确定 WebSocket 在 Java 端实现**，本任务不再是可行性探路，而是**选型 + 实现 + 依赖举证**；`T-029`（websocketpp 落点）已随之 `REJECTED`。
   **范围边界（与 `T-040` 显式分工）**：本任务 = **选型 + 最小可行实现**（连通性 + 轻量库四要素论证 + 传递依赖举证 + P95 实测），**不承担生产级要求**；**生产级实现**（连接管理 / 订阅管理 / 推送 / 鉴权 / 心跳重连 / 背压或限流）归 **`T-040`**（`#java`，依赖本任务与 `T-042`）。
+  **（2026-09-21 转「已完成，待独立复核」· 只加不改）**：产出 `mvn -B -o clean test` = **`443/0/0/0`**（基线 435 ⇒ **+8**；新增 `WsAcceptanceTest` 8 例 + `java/WS_T028_ACCEPTANCE.md`）；`src/main` **零改动**。**`E1`–`E13` 判据 = 满足 11 / 措辞待裁 1 / 不可判定 1**；**`R-1` 已裁定**（`E3` 措辞与冻结契约 §4.3 冲突 ⇒ **以冻结契约为准、修订 `E3` 措辞、不改实现**；已派技术席落笔）；**`R-2` 转派登记**（`E9` 不可判定，落点 = **`T-040`** / HGCP 行情消费层，须在彼层注入含行情帧的补数批次做断言 ⇒ **已在 `T-040` 备注登记该承接义务**）；`R-3`（`E2` 稀疏发布时延受 200ms 节拍支配）/ `R-4`（`WsServer` **未接线**、`CFG-32 port` 无实现值 ⇒ 归 `A-2` / `T-040`）**如实登记**。**判据 = 授权 + 独立验证** ⇒ 独立复核完成前**不置 `DONE`**。
+  **（2026-09-21 转 `DONE` · 只加不改）**：独立复核 **`te-verify-t028`** 判 **有条件通过、不阻断 `T-030`** —— **`E1`–`E13`：满足 12 / `E9` 合法不可判定 / `E3` 措辞订正后消解**；`E9` 系**合法不可判定**（其独立 `grep` 全仓 `EVT_MARKET_QUOTE|IS_RESUME_DATA` = **0**、`TradingBridge` 无行情回调 ⇒ **非「有而不用」**）；`E3` 订正后**与冻结契约 §4.3 硬一致且仍有可失败负例**；**独立复现 `443/0/0/0` 两次**；**`src/main` 零改动经 git 证明**（`git diff --stat 59b6f70 -- java/src/main` = 空 + `git show 59b6f70:…WsServer.java` md5 == 工作树）；反退化自设 4 条红 + 1 条**存活**。**两项非阻塞承接（均转 `T-040`）**：`(a)` `E6` **补「有界队列丢最旧时保留的是最新帧」断言**（其自设变异 `pollFirst→pollLast` **存活** ⇒ 实现正确但**测试未覆盖该属性**）；`(b)` `E2` **显式声明工况**（实测**稀疏 max=193 ms、相位最坏 204 ms**，而判据文字指向的正是该工况）。
 
 ### T-029 RSK-07 websocketpp 落点确认（**已取消 · REJECTED**）
 
@@ -693,13 +704,14 @@
 - **依赖**：**T-026, T-027, T-028**（原含 `T-029`，因 `CH-006` 取消而移除）
 - **估时**：4 人时
 - **来源**：初版（技术负责人加设门禁）
-- **状态**：TODO
+- **状态**：**DONE**（2026-09-21 汇签完成；许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）
 - **验收标准**：
   1. 对 **3 项探路**（**T-026 / T-027 / T-028**）结论逐项给出「通过/不通过」，并记录所用版本与编译参数；
   2. 若任一项不通过，明确走 `CH-xxx` 或降级，**M2 业务开发任务（T-031 起）保持 `BLOCKED`**；
   3. 全部通过后以书面许可（本任务结论）解锁 T-031 及后续 M2 开发任务。
 - **产出**：`docs/TASKS.md` 本任务备注 + `docs/BOARD.md` 阶段状态更新
 - **备注**：**这是 M2 探路门禁的闭环点**；未下达许可前 T-031~T-060 不得开工。探路项由四项减为**三项**（`T-029` `REJECTED`，见本文 §1）。
+  **📌（2026-09-21 转 `DONE` · 只加不改）** 汇签记录 = `docs/gates/M2-recon-signoff/SIGN-OFF.md`（`081f37a2…` / 254 行）；逐项结论 `T-027` 通过 / **`T-026` 通过（技术风险已排除，不得上推为「协议已验证」）** / `T-028` 通过（`E9` 合法不可判定）；两项条件见该记录 §3；**许可令已下**（`T-031`~`T-060` 解除阻塞）。
 
 ### T-031 搭建 C++ 交易组件工程骨架与构建 + arch-check E1~E4
 
@@ -709,14 +721,15 @@
 - **依赖**：T-030
 - **估时**：24 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**TODO**（2026-09-21 `T-030` 汇签解锁，由 `BLOCKED` 转）
 - **验收标准**：
   1. CMake ≥ 3.16 + FetchContent 工程建立，`CMAKE_CXX_STANDARD 11`，`CTP_FOUND`/`CTP_USE_FETCH_DEPS` 双轨构建可用；`ctest` 可跑；
   2. 按 `ARCHITECTURE.md` §3.1~§3.6 建立六模块目录（`ctp_adapter/order_engine/risk_engine/risk_state/flow_store/hgcp`）；
   3. **判据脚本不重复交付**（`E1`/`E2`/`E3`/`E4` 由 `T-090`~`T-092` 唯一交付，`E5`/`E6` 由既有脚本交付）；本任务交付 **`tools/arch-check/arch-check.sh` 聚合入口**（按 `ARCHITECTURE.md` §3.13：**任一脚本非 0 ⇒ 整体非 0**）**+ `tools/arch-check/README.md`**（含各脚本用法、退出码语义、**各脚本自测三条的可复跑记录**），并**纳入 `ctest` / `mvn verify` 前置步骤**；
   4. **不链接任何 DB 客户端库**，`E1` 通过（`PROJECT.md` §10-29）。
 - **产出**：`cpp/CMakeLists.txt`, `cpp/src/**`, `tools/arch-check/{arch-check.sh,README.md}`
-- **备注**：`E5`/`E6` 归 T-060 一并核查。 **📌 聚合入口义务补承载（编排者 2026-09-21 裁定）**：原验收标准 3 / 产出列的**判据脚本交付义务已消解至 `T-090`~`T-092`**，本任务改为**交付聚合入口 `arch-check.sh` 与 `README.md` + 接线（`ctest` / `mvn verify` 前置）**（落实 `ARCHITECTURE.md` §3.13 产出清单「6 脚本 + 1 聚合入口 `arch-check.sh` + `README.md`」）。**依据（项目经理实测）**：`tools/arch-check/` 现仅 **7 个文件**（6 判据脚本 + `strip_java_comments.awk`），**无 `README.md`、无 `arch-check.sh`**；全仓**无 `Makefile`／CI 配置**；而 `docs/TASKS.md` 中 `arch-check.sh` **仅被引用、无任何任务承载**（`T-060` 验收标准 1、`T-090` 验收标准 4/5）⇒ 判据在引用一个**不存在、且无任务交付**的制品（**追溯链断裂**）。**估时维持 24 人时**（「接入构建与 CI」本已在需求追溯内）。
+- **备注**：`E5`/`E6` 归 T-060 一并核查。 **📌 聚合入口义务补承载（编排者 2026-09-21 裁定）**：原验收标准 3 / 产出列的**判据脚本交付义务已消解至 `T-090`~`T-092`**，本任务改为**交付聚合入口 `arch-check.sh` 与 `README.md` + 接线（`ctest` / `mvn verify` 前置）**（落实 `ARCHITECTURE.md` §3.13 产出清单「6 脚本 + 1 聚合入口 `arch-check.sh` + `README.md`」）。**依据（项目经理实测）**：`tools/arch-check/` 现仅 **7 个文件**（6 判据脚本 + `strip_java_comments.awk`），**无 `README.md`、无 `arch-check.sh`**；全仓**无 `Makefile`／CI 配置**；而 `docs/TASKS.md` 中 `arch-check.sh` **仅被引用、无任何任务承载**（`T-060` 验收标准 1、`T-090` 验收标准 4/5）⇒ 判据在引用一个**不存在、且无任务交付**的制品（**追溯链断裂**）。**估时维持 24 人时**（「接入构建与 CI」本已在需求追溯内）。 **📌（2026-09-21 台账对齐）阻塞原因 = M2 首周探路门禁未过（`T-028` 未完成）；解除人 = `T-030`（技术负责人汇签）；依 `T-030` 验收原文『任一项不通过 → `T-031` 起保持 `BLOCKED`』。**
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条无其他阻塞源 ⇒ `BLOCKED` → `TODO`。
 
 ### T-032 实现 HGCP 帧编解码与元协议
 
@@ -726,15 +739,17 @@
 - **依赖**：T-031
 - **估时**：32 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**TODO**（2026-09-21 `T-030` 汇签解锁，由 `BLOCKED` 转）
 - **验收标准**：
   1. 帧格式正确：32 字节帧头（`MAGIC="HGCP"` / `VER=0x0100` / `TYPE` / `FLAGS` / `SEQ` / `MSG_ID` / `LEN`）+ 尾部 `CRC32`，大端，最大帧 1 MiB；
   2. 元协议 9 种消息（`MSG_HELLO`/`HELLO_ACK`/`AUTH_FAIL`/`HEARTBEAT`/`HEARTBEAT_ACK`/`ACK`/`ERROR`/`RESUME_REQ`/`RESUME_DATA`）编解码可用；
   3. 鉴权：持有 `auth_token` 的 **SHA-256 摘要**并做**常量时间比较**；失败 `MSG_AUTH_FAIL` + 立即关连接 + 告警留痕；**禁止**日志打印令牌；
   4. 心跳 1000 ms、连续 3 次未收 ACK 判定断连（**≤ 3 s ≤ 5 s**，`NFR-REL-2`）；重连指数退避 500ms→8s 上限、无限重试；补数缓冲 65536 帧、单批 ≤ 500 帧；
   5. 仅绑定 `127.0.0.1`，非回环值拒绝启动；通道 A 单连接只允许 1 条业务连接，重复连接拒 `0x0302`。
+  6. **（2026-09-21 由 `T-030` 汇签登记）** 真实 schema `proto/hgcp.proto` 落地后，须以 **`-std=c++11 -Wall -Wextra -Werror`** 重跑 `cpp/proto_smoke`（**指向真实 schema**）并附证据，**方可确认 `RSK-01` 闭环**。
 - **产出**：`cpp/src/hgcp/**`, `proto/hgcp.proto`（与 Java 侧同源）
-- **备注**：**跨栈依赖**：本任务产出与 Java 侧 T-042 用**同一份 `.proto`** 生成代码，结构上不可能字段漂移（M2 门禁的工程价值）。
+- **备注**：**跨栈依赖**：本任务产出与 Java 侧 T-042 用**同一份 `.proto`** 生成代码，结构上不可能字段漂移（M2 门禁的工程价值）。 **📌（2026-09-21 台账对齐）阻塞原因 = M2 首周探路门禁未过（`T-028` 未完成）；解除人 = `T-030`（技术负责人汇签）；依 `T-030` 验收原文『任一项不通过 → `T-031` 起保持 `BLOCKED`』。**
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条无其他阻塞源 ⇒ `BLOCKED` → `TODO`。
 
 ### T-033 实现 CTP 适配层 ctp_adapter
 
@@ -744,14 +759,15 @@
 - **依赖**：T-031
 - **估时**：24 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**TODO**（2026-09-21 `T-030` 汇签解锁，由 `BLOCKED` 转）
 - **验收标准**：
   1. 封装 CTP 合并版 `ThostFtdc UserApi`（交易 + 行情 + 资金划转），登录/登出/连接状态可用；
   2. `sendOrder`/`cancelOrder`/`subscribeMarket`/`reqFundTransfer` 接口可用，异步 SPI 回调**只做序列化并投递队列**；
   3. 覆盖**期货与期权**（`PROJECT.md` §10-10）；
   4. 按异步回调模型处理，**不假设同步返回**；CTP 未连接时 `CMD_CONFIRM_ORDER` 回 `0x2004` 且指令退回不静默丢弃。
 - **产出**：`cpp/src/ctp_adapter/**`
-- **备注**：**跨栈依赖**：成交/委托/资金回执经 T-039 以 `EVT_*` 推给 Java。
+- **备注**：**跨栈依赖**：成交/委托/资金回执经 T-039 以 `EVT_*` 推给 Java。 **📌（2026-09-21 台账对齐）阻塞原因 = M2 首周探路门禁未过（`T-028` 未完成）；解除人 = `T-030`（技术负责人汇签）；依 `T-030` 验收原文『任一项不通过 → `T-031` 起保持 `BLOCKED`』。**
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条无其他阻塞源 ⇒ `BLOCKED` → `TODO`。
 
 ### T-034 实现风控内存状态 risk_state
 
@@ -761,14 +777,15 @@
 - **依赖**：T-031
 - **估时**：24 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**TODO**（2026-09-21 `T-030` 汇签解锁，由 `BLOCKED` 转）
 - **验收标准**：
   1. 常驻内存数据集齐备：品种白名单、三层额度、持仓上限、敞口（含三分量 + `snapshot_time`）、权限、阈值、年度规模因子；
   2. 采用**不可变快照 + 原子指针替换（RCU 风格）**，`snapshot()` 原子读、`rebuild()` 构建新快照后原子替换；
   3. 交易路径**零数据库 I/O、零阻塞调用、零锁竞争**（`E4` 无锁扫描通过）；
   4. 快照替换期间的保守方向符合 `ARCHITECTURE.md` §9 `RSK-04`（上限调低更易拒，不会超限放行）。
 - **产出**：`cpp/src/risk_state/**`
-- **备注**：本模块是「内存为交易路径权威源」的载体。
+- **备注**：本模块是「内存为交易路径权威源」的载体。 **📌（2026-09-21 台账对齐）阻塞原因 = M2 首周探路门禁未过（`T-028` 未完成）；解除人 = `T-030`（技术负责人汇签）；依 `T-030` 验收原文『任一项不通过 → `T-031` 起保持 `BLOCKED`』。**
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条无其他阻塞源 ⇒ `BLOCKED` → `TODO`。
 
 ### T-035 实现事前风控引擎 risk_engine（8 规则 + 三层限额 + 双层校验）
 
@@ -778,14 +795,15 @@
 - **依赖**：T-034
 - **估时**：32 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**TODO**（2026-09-21 `T-030` 汇签解锁，由 `BLOCKED` 转）
 - **验收标准**：
   1. 8 条规则全内存判定：白名单 / **三层限额** / 持仓上限（平仓不受限）/ 规模红线（90%·80%，基数=年度现货敞口累计实物量）/ 时点净持仓 / 期限红线（三级处置）/ 权限与授权 / 价格偏离（昨结算价基准，2% 告警 5% 阻断，市价单不适用）；
   2. **三层限额全序写死**：层② > 层① > 层③（层③不参与「最细命中」选择）；同层并列取**占用率最高者**，再并列按 `id` 升序；`EVT_PRE_TRADE_REJECT.entries[]` 携带**全部命中项**；
   3. **双层校验**：子账户维度 + 总账户维度均生效；`RiskEngine::check` **纯函数式**（const 快照 + 入参，无副作用）；
   4. **P99 ≤ 5 ms**（§4.4.4 预算分解）；构造超限指令被拒且**未发往 CTP**（`PROJECT.md` §10-24）。
 - **产出**：`cpp/src/risk_engine/**`
-- **备注**：非法判定值一律拒绝；平仓/减仓方向按规则豁免。
+- **备注**：非法判定值一律拒绝；平仓/减仓方向按规则豁免。 **📌（2026-09-21 台账对齐）阻塞原因 = M2 首周探路门禁未过（`T-028` 未完成）；解除人 = `T-030`（技术负责人汇签）；依 `T-030` 验收原文『任一项不通过 → `T-031` 起保持 `BLOCKED`』。**
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条无其他阻塞源 ⇒ `BLOCKED` → `TODO`。
 
 ### T-036 实现指令生命周期管理 order_engine
 
@@ -795,14 +813,15 @@
 - **依赖**：T-033, T-035
 - **估时**：32 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**TODO**（2026-09-21 `T-030` 汇签解锁，由 `BLOCKED` 转）
 - **验收标准**：
   1. 状态机：受理 → 事前风控 → 置「待确认」→ 人工确认 → 落流水 → 发 CTP → 回报处理 → 终态；支持超时失效、撤单、部分成交；
   2. **人工确认**：确认人必须与提交人一致，否则拒 `0x0305`（防代确认）；确认时**再跑一次风控**（防确认期状态变化）；校验 `confirm_token`（防重放）；
   3. 确认超时 60 s（`CFG-28`）→ 指令置失效、**释放冻结额度**、发 `EVT_ORDER_EXPIRED`、**不发 CTP**；
   4. 每笔指令携带 `trade_plan_id`/`exposure_id`/`sub_account_id`，缺失（`trade_plan_id=0`/`sub_account_id=0`）→ 拒绝（`R-TRADE-1`）；期权多腿经 `strategy_id`+`leg_no` 关联同一计划（`PROJECT.md` §10-10）。
 - **产出**：`cpp/src/order_engine/**`
-- **备注**：**跨栈依赖**：入口 `CMD_PLACE_ORDER`(0x0101)/`CMD_CONFIRM_ORDER`(0x0102)/`CMD_CANCEL_ORDER`(0x0103)；出口 `EVT_ORDER_ACCEPTED`(0x0201)/`EVT_PRE_TRADE_REJECT`(0x0202)/`EVT_ORDER_REPORT`(0x0203)/`EVT_ORDER_CANCEL_RESULT`(0x0206)/`EVT_ORDER_EXPIRED`(0x0207)。
+- **备注**：**跨栈依赖**：入口 `CMD_PLACE_ORDER`(0x0101)/`CMD_CONFIRM_ORDER`(0x0102)/`CMD_CANCEL_ORDER`(0x0103)；出口 `EVT_ORDER_ACCEPTED`(0x0201)/`EVT_PRE_TRADE_REJECT`(0x0202)/`EVT_ORDER_REPORT`(0x0203)/`EVT_ORDER_CANCEL_RESULT`(0x0206)/`EVT_ORDER_EXPIRED`(0x0207)。 **📌（2026-09-21 台账对齐）阻塞原因 = M2 首周探路门禁未过（`T-028` 未完成）；解除人 = `T-030`（技术负责人汇签）；依 `T-030` 验收原文『任一项不通过 → `T-031` 起保持 `BLOCKED`』。**
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条无其他阻塞源 ⇒ `BLOCKED` → `TODO`。
 
 ### T-037 实现指令流水与重放 flow_store
 
@@ -812,14 +831,15 @@
 - **依赖**：T-031
 - **估时**：24 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**TODO**（2026-09-21 `T-030` 汇签解锁，由 `BLOCKED` 转）
 - **验收标准**：
   1. append-only 流水落盘（`hg.flow.dir` 默认 `./data/flow`，`fsync_mode=BATCH`，保留 90 天）；
   2. 启动重放；状态机 `NOT_READY` / `REPLAYING` / `READY` 对外可见（`EVT_REPLAY_PROGRESS`/`EVT_SYSTEM_STATE`）；
   3. 重放期与 CTP 侧状态对齐；**非 `READY` 时对交易指令回 `0x0401`**（系统未就绪）→ 不产生基于陈旧状态的错误判定；
   4. 在途指令（已发 CTP、未收回报）**不释放冻结额度**，标记「状态未知」+ 告警。
 - **产出**：`cpp/src/flow_store/**`
-- **备注**：**跨栈依赖**：`EVT_REPLAY_PROGRESS`(0x0209)/`EVT_SYSTEM_STATE`(0x020A) 告知 Java 就绪/参数版本；Java 侧 `TradingBridge.isReady()` 依赖之。
+- **备注**：**跨栈依赖**：`EVT_REPLAY_PROGRESS`(0x0209)/`EVT_SYSTEM_STATE`(0x020A) 告知 Java 就绪/参数版本；Java 侧 `TradingBridge.isReady()` 依赖之。 **📌（2026-09-21 台账对齐）阻塞原因 = M2 首周探路门禁未过（`T-028` 未完成）；解除人 = `T-030`（技术负责人汇签）；依 `T-030` 验收原文『任一项不通过 → `T-031` 起保持 `BLOCKED`』。**
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条无其他阻塞源 ⇒ `BLOCKED` → `TODO`。
 
 ### T-038 实现控制指令消费与参数生效
 
@@ -829,14 +849,15 @@
 - **依赖**：T-032, T-034
 - **估时**：16 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**TODO**（2026-09-21 `T-030` 汇签解锁，由 `BLOCKED` 转）
 - **验收标准**：
   1. 17 种控制指令可消费并生效（`CMD_PLACE_ORDER`/`CMD_CONFIRM_ORDER`/`CMD_CANCEL_ORDER`/`CMD_LOAD_RISK_PARAMS`/`CMD_UPDATE_*`/`CMD_SET_TRADING_SUSPEND`/`CMD_SET_READY_STATE`/`CMD_RELOAD`/`CMD_TRIGGER_REPLAY`/`CMD_QUERY_STATUS`/`CMD_FUND_TRANSFER`/`CMD_QUERY_FUND_RESULT`）；
   2. `param_version` 单调校验：**仅接受 `param_version > current`**，否则回 `0x0403` 并丢弃（后发不会先至覆盖新值）；
   3. `CMD_LOAD_RISK_PARAMS` 支持分批（`batch_size` 默认 2000，`batch_index`/`batch_total`），每批回 `MSG_ACK`，完成发 `EVT_SYSTEM_STATE(READY, param_version)`；
   4. `CMD_UPDATE_RISK_THRESHOLD` 默认值不得低于 `INDEX.md` §9.1 合规口径（`R-CONFIG-8`，C++ 侧拒绝低于下限）。
 - **产出**：`cpp/src/hgcp/command_handler.cc`, `cpp/src/risk_state/rebuild.cc`
-- **备注**：**跨栈依赖**：与 T-011（Java 侧编排）配对，构成「下发→回执→留痕」闭环；`CMD_SET_TRADING_SUSPEND` 与 T-050 事中风控配对。
+- **备注**：**跨栈依赖**：与 T-011（Java 侧编排）配对，构成「下发→回执→留痕」闭环；`CMD_SET_TRADING_SUSPEND` 与 T-050 事中风控配对。 **📌（2026-09-21 台账对齐）阻塞原因 = M2 首周探路门禁未过（`T-028` 未完成）；解除人 = `T-030`（技术负责人汇签）；依 `T-030` 验收原文『任一项不通过 → `T-031` 起保持 `BLOCKED`』。**
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条无其他阻塞源 ⇒ `BLOCKED` → `TODO`。
 
 ### T-039 实现事件流产出与保序补数
 
@@ -846,7 +867,7 @@
 - **依赖**：T-032, T-036
 - **估时**：24 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**TODO**（2026-09-21 `T-030` 汇签解锁，由 `BLOCKED` 转）
 - **验收标准**：
   1. 14 种事件可产出，其中**须落库的 10 种**（`0x0202`,`0x0203`,`0x0204`,`0x0205`,`0x0206`,`0x0207`,`0x0208`,`0x0209`,`0x020A`,`0x020B`）齐备；
   2. 通道 A **所有业务帧共用一个单调递增 `SEQ`**（含事件帧与控制帧），不可跳号；跳号触发补数；
@@ -854,7 +875,8 @@
   4. 补数：`MSG_RESUME_REQ`/`MSG_RESUME_DATA`（`is_last` 标识、单批 ≤ 500 帧）；缺口超缓冲 → 回 `MSG_ERROR{0x0306}` + 触发全量状态重建，期间拒新指令 `0x0401`；
   5. 压力下（连续 1000 笔）Java 侧接收数量与顺序与发出完全一致（`PROJECT.md` §10-31）。
 - **产出**：`cpp/src/hgcp/event_emitter.cc`
-- **备注**：**跨栈依赖**：事件被 T-042/T-046/T-047/T-049/T-050 消费（落库 + 镜像状态）。
+- **备注**：**跨栈依赖**：事件被 T-042/T-046/T-047/T-049/T-050 消费（落库 + 镜像状态）。 **📌（2026-09-21 台账对齐）阻塞原因 = M2 首周探路门禁未过（`T-028` 未完成）；解除人 = `T-030`（技术负责人汇签）；依 `T-030` 验收原文『任一项不通过 → `T-031` 起保持 `BLOCKED`』。**
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条无其他阻塞源 ⇒ `BLOCKED` → `TODO`。
 
 ### T-040 实现 Java 端行情 WebSocket 服务端（**生产级**）
 
@@ -864,7 +886,7 @@
 - **依赖**：**T-028, T-042**（原 `T-029`〔已 `REJECTED`，悬空依赖消除〕、`T-031`〔C++ 骨架，已随改派移除〕）
 - **估时**：16 人时
 - **来源**：初版；`CH-006` 定界改派（组件边界见 `ARCHITECTURE.md` §4.1.2/§7.1.2，v1.4）
-- **状态**：TODO
+- **状态**：**BLOCKED**
 - **验收标准**：
   1. 在 `T-028` 的选型与最小可行实现之上，交付**生产级** Java WebSocket 服务端（行情端点 `/ws/quote`），浏览器可连通，**长稳运行 ≥ 1 h 无连接/内存泄漏**（连接数与堆占用有观测证据）；
   2. **连接管理**：连接建立/关闭生命周期完整；**最大连接数受控**（`CFG-32` `hg.web.ws.max_connections`，超限拒绝并留痕）；**慢客户端隔离**——每连接有界发送队列，满则丢弃旧行情并计数，**不得阻塞 Java 事件消费线程（J3）**，即**不背压** `EVT_MARKET_QUOTE` 消费路径；
@@ -878,6 +900,10 @@
 - **备注**：**定界（`CH-006` / `ARCHITECTURE.md` v1.4）** —— 原「**行情通道 B**（C++ 侧 `websocketpp`）」**已废弃**：行情改由 **CTP → C++（仅事件源）→ HGCP 事件流 `EVT_MARKET_QUOTE`（本地 TCP 回环）→ Java →（Java 端 WebSocket）→ 前端**，**C++ 组件不提供 HTTP / WebSocket**（§4.2.1/§3.6/§7.1.2）。本任务即**该 Java 侧 WebSocket 服务端**；组件边界**以架构为准**，任务侧不得自行定义。
   **范围边界（与 `T-028` 显式分工）**：`T-028` = **选型 + 最小可行实现**（连通性 + 四要素论证 + 传递依赖举证 + P95 实测）；**本任务 = 生产级实现**（连接管理 / 订阅管理 / 推送 / 鉴权 / 心跳重连 / 背压或限流）。**两者不重叠**：`T-028` 不承担生产级要求，本任务不重复选型论证。
   **跨栈依赖**：上游为 `T-042`（Java 桥接层消费 `EVT_MARKET_QUOTE`）；下游为前端 `T-053`（`/ws/quote`）。
+  **（2026-09-21 承接义务登记 · 只加不改）**：`T-028` 判据 **`E9`（不可判定）** 的**落点 = 本任务** —— `T-028` 的 `E9` 需在**含行情帧的补数批次**（`IS_RESUME_DATA` 中的 `EVT_MARKET_QUOTE` **接收侧不消费**，见 `CH-007` / `ARCHITECTURE.md` §4.2.6）下做断言，属 **HGCP 行情消费层**，故**由本任务接管该断言义务**（在 `T-042` 消费 `EVT_MARKET_QUOTE` 之后、本服务的推送路径上补齐）。**依据**：`T-028` 交付的 `E1`–`E13` 判据集（`java/WS_T028_ACCEPTANCE.md`）中 `E9` 判定「不可判定」并转派（见 `T-028` 备注）。
+  **📌（2026-09-21 第 28 轮台账对齐）** 阻塞原因 = ① **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」）＋ ② **依赖未满足**：`T-042`（`T-028` 已 `DONE`〔独立复核通过〕）。**解除人** = `T-030`（技术负责人汇签）；**依赖**：`T-042`。
+  **（2026-09-21 承接，来自 `T-028` 独立复核 · 只加不改）** 三项义务：① **`E9` 落点**（HGCP 行情事件消费层，须注入含行情帧的补数批次做断言）；② **`E6` 补「有界队列丢最旧时保留的是最新帧」断言**（现有 `quoteDropsOldestWhenFull` 仅断言计数 ⇒ 改坏成 `pollLast` 的变异会存活）；③ **`E2` 证据显式声明工况**（稀疏发布下时延受 `QUOTE_TICK_MILLIS=200` 节拍支配、相位最坏 ≈204 ms）。另：`CFG-32` 的 `hg.web.ws.port` **默认值 / 接线**亦归本任务或架构 `A-2`。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条仍受依赖 `T-042` 阻塞 ⇒ 维持 `BLOCKED`。
 
 ### T-041 实现崩溃恢复集成（在途指令不释放冻结额度）
 
@@ -887,14 +913,15 @@
 - **依赖**：T-036, T-037
 - **估时**：24 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**TODO**（2026-09-21 `T-030` 汇签解锁，由 `BLOCKED` 转）
 - **验收标准**：
   1. 模拟「已发 CTP 未收回报」时强杀进程 → 重启重放 → 额度与持仓**无重复计入、无遗漏**（`PROJECT.md` §10-27）；
   2. CTP 查询不可用/超时时：保守记为「状态未知」、**不释放冻结额度**、告警、要求人工介入；
   3. 提供「人工核验并释放」管理入口（**双人复核 + 留痕**）；
   4. 该场景下系统**继续拒绝新指令**，直到人工闭环。
 - **产出**：`cpp/src/flow_store/recovery.cc`, `cpp/src/order_engine/recovery_hook.cc`
-- **备注**：**跨栈依赖**：`EVT_REPLAY_PROGRESS` 通知 Java 重放进度与结果。
+- **备注**：**跨栈依赖**：`EVT_REPLAY_PROGRESS` 通知 Java 重放进度与结果。 **📌（2026-09-21 台账对齐）阻塞原因 = M2 首周探路门禁未过（`T-028` 未完成）；解除人 = `T-030`（技术负责人汇签）；依 `T-030` 验收原文『任一项不通过 → `T-031` 起保持 `BLOCKED`』。**
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条无其他阻塞源 ⇒ `BLOCKED` → `TODO`。
 
 ### T-042 实现组件桥接层 TradingBridge（HGCP 客户端）
 
@@ -904,7 +931,7 @@
 - **依赖**：T-030
 - **估时**：32 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**TODO**（2026-09-21 `T-030` 汇签解锁，由 `BLOCKED` 转）
 - **验收标准**：
   1. HGCP TCP 客户端：连接/鉴权/心跳/重连/补数/protobuf 编解码/命令回执关联全实现；用**同一份 `proto/hgcp.proto`** 与 C++ 侧同源生成；
   2. 接口就位：`placeOrder`/`confirmOrder`/`cancelOrder`/`dispatch`/`isReady`/`replayProgress`/`mirror`；**不提供 `preCheck`**（判定只在 C++）；
@@ -912,7 +939,8 @@
   4. **事件驱动、不轮询**：不主动查库、不主动查 C++；
   5. 命令回执超时 3000 ms（`CFG-28`）标记未生效；断连后两侧状态最终一致（`PROJECT.md` §10-32）。
 - **产出**：`java/bridge/{TradingBridge.java,HgcpClient.java,MirrorState.java,IdempotencyCache.java}`
-- **备注**：**跨栈依赖**：与 T-032/T-038/T-039 配对，是 C++↔Java 的唯一通道；协议变更须走 `CH-xxx` 并重跑 T-057。
+- **备注**：**跨栈依赖**：与 T-032/T-038/T-039 配对，是 C++↔Java 的唯一通道；协议变更须走 `CH-xxx` 并重跑 T-057。 **📌（2026-09-21 第 28 轮台账对齐）** 阻塞原因 = **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」；本任务依赖 `T-030`）。**解除人** = `T-030`（技术负责人汇签）。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条无其他阻塞源 ⇒ `BLOCKED` → `TODO`。
 
 ### T-043 交付 TRADE 模块 9 张表 DDL 与 DAO
 
@@ -922,7 +950,7 @@
 - **依赖**：T-004
 - **估时**：16 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**TODO**（2026-09-21 `T-030` 汇签解锁，由 `BLOCKED` 转）
 - **验收标准**：
   1. `TB-TRADE-1~9` 交付，DM8 建表成功，与 `DATA_MODEL.md` 逐列一致；
   2. `t_trade_fill.trade_id` 建唯一约束（幂等键）；`t_pre_trade_reject` 含 `limit_layer` 与敞口快照列；
@@ -930,7 +958,8 @@
   4. 成交/委托/流水表含事件幂等键所需唯一约束。
   5. **`java/dao/**` 下本模块每个 DAO 接口均有对应 `Dm*` 实现类；若某个接口本期不需实现，须在 `TASKS.md` 显式登记「延后实现 + 原因 + 承接任务」（不得沉默略过）。**
 - **产出**：`java/dao/impl/DmTrade*Dao.java`, `docs/DEPLOY/schema/m2_trade.sql`
-- **备注**：—
+- **备注**：— **📌（2026-09-21 第 28 轮台账对齐）** 阻塞原因 = **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」；本任务依赖 `T-004`，**已完成**、非阻塞源）。**解除人** = `T-030`（技术负责人汇签）。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条无其他阻塞源 ⇒ `BLOCKED` → `TODO`。
 
 ### T-044 交付 SETTLE 模块 16 张表 DDL 与 DAO
 
@@ -940,14 +969,15 @@
 - **依赖**：T-004
 - **估时**：24 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**TODO**（2026-09-21 `T-030` 汇签解锁，由 `BLOCKED` 转）
 - **验收标准**：
   1. `TB-SETTLE-1~16` 交付（含 `TB-SETTLE-15` 核对签署、`TB-SETTLE-16` 加总差异候选归属），DM8 建表成功；
   2. 结算持仓/资金/盈亏表按子账户可加总（`NOT NULL` 子账户标识）；`t_check_signature` 唯一约束 `uk_check_signature_task_role` 支持「不可代签」；
   3. `t_agg_diff_candidate`（候选态）与 `t_reconcile_difference.sub_account_id`（定位态）字段齐备，支撑 `CFG-11` 阻断范围机判（`Q-11`）。
   4. **`java/dao/**` 下本模块每个 DAO 接口均有对应 `Dm*` 实现类；若某个接口本期不需实现，须在 `TASKS.md` 显式登记「延后实现 + 原因 + 承接任务」（不得沉默略过）。**
 - **产出**：`java/dao/impl/DmSettle*Dao.java`, `docs/DEPLOY/schema/m2_settle.sql`
-- **备注**：SETTLE 共享台账边界允许跨模块写表（`R-SETTLE-8`）。
+- **备注**：SETTLE 共享台账边界允许跨模块写表（`R-SETTLE-8`）。 **📌（2026-09-21 第 28 轮台账对齐）** 阻塞原因 = **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」；本任务依赖 `T-004`，**已完成**、非阻塞源）。**解除人** = `T-030`（技术负责人汇签）。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条无其他阻塞源 ⇒ `BLOCKED` → `TODO`。
 
 ### T-045 交付 FUND 模块 9 张表 DDL 与 DAO
 
@@ -957,7 +987,7 @@
 - **依赖**：T-004
 - **估时**：16 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**TODO**（2026-09-21 `T-030` 汇签解锁，由 `BLOCKED` 转）
 - **验收标准**：
   1. `TB-FUND-1~9` 交付，DM8 建表成功，与 `DATA_MODEL.md` 逐列一致；
   2. 资金台账/流水表 `NOT NULL` 携带子账户标识，支持「期初 + 发生额 = 期末」可加总；
@@ -965,7 +995,8 @@
   4. 出入金幂等键（`idempotency_key`）唯一约束就位。
   5. **`java/dao/**` 下本模块每个 DAO 接口均有对应 `Dm*` 实现类；若某个接口本期不需实现，须在 `TASKS.md` 显式登记「延后实现 + 原因 + 承接任务」（不得沉默略过）。**
 - **产出**：`java/dao/impl/DmFund*Dao.java`, `docs/DEPLOY/schema/m2_fund.sql`
-- **备注**：FUND 共享台账边界允许跨模块写表（`R-FUND-8`）。
+- **备注**：FUND 共享台账边界允许跨模块写表（`R-FUND-8`）。 **📌（2026-09-21 第 28 轮台账对齐）** 阻塞原因 = **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」；本任务依赖 `T-004`，**已完成**、非阻塞源）。**解除人** = `T-030`（技术负责人汇签）。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条无其他阻塞源 ⇒ `BLOCKED` → `TODO`。
 
 ### T-046 实现交易执行服务 TradeService
 
@@ -975,7 +1006,7 @@
 - **依赖**：T-042, T-043
 - **估时**：24 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**BLOCKED**
 - **验收标准**：
   1. 提交指令**不落库**（避免交易路径 DB I/O），经桥接下 `CMD_PLACE_ORDER`；确认/撤单经 `CMD_CONFIRM_ORDER`/`CMD_CANCEL_ORDER`；
   2. **交易理由结构化必填**（`CFG-13`）：关联类型 + 关联对象（计划 ID + 敞口 ID，须同子账户）+ 时点说明三项；校验不通过即拒绝；
@@ -983,7 +1014,8 @@
   4. 事件流回传后落库（成交/委托/持仓/拒绝/流水），回写额度占用与交易计划进度；
   5. 验证交易路径零数据库访问：DB 层全量语句审计下跑 100 笔下单，该路径 SQL 记录 **= 0**（`PROJECT.md` §10-23）。
 - **产出**：`java/service/TradeService.java`, REST `/trade/**`
-- **备注**：**跨栈依赖**：`CMD_PLACE_ORDER`/`CMD_CONFIRM_ORDER`/`CMD_CANCEL_ORDER` ↔ `EVT_ORDER_ACCEPTED`/`EVT_PRE_TRADE_REJECT`/`EVT_ORDER_REPORT`/`EVT_TRADE_FILL`(0x0204)/`EVT_POSITION_CHANGE`(0x0205)/`EVT_ORDER_CANCEL_RESULT`/`EVT_ORDER_EXPIRED`/`EVT_COMMAND_FLOW`(0x0208)。**`assertCanTrade` 的 M2 强制点（2026-09-21 登记，只加不改）**：`AuthService.assertCanTrade` 在 `src/main` **无 M1 调用点**（**有意**，非缺陷）；其**服务端强制点 = M2 Java 下单写路径**（`POST /trade/order` → `TradingBridge.placeOrder` 前置），**归 `T-046`**。**M1 有意不接线的依据**：`FR-PLAN-14` 明列主体 = **财务 / 风控岗或期货交易岗**，其输出 / 验收**不含权限项** ⇒ 在 `decomposeTradePlans` 处要求交易岗能力会**误拒合法主体**。该结论现**仅存于 `PlanService` 代码注释**，故登记入表。（同族登记见 `T-102` 备注）
+- **备注**：**跨栈依赖**：`CMD_PLACE_ORDER`/`CMD_CONFIRM_ORDER`/`CMD_CANCEL_ORDER` ↔ `EVT_ORDER_ACCEPTED`/`EVT_PRE_TRADE_REJECT`/`EVT_ORDER_REPORT`/`EVT_TRADE_FILL`(0x0204)/`EVT_POSITION_CHANGE`(0x0205)/`EVT_ORDER_CANCEL_RESULT`/`EVT_ORDER_EXPIRED`/`EVT_COMMAND_FLOW`(0x0208)。**`assertCanTrade` 的 M2 强制点（2026-09-21 登记，只加不改）**：`AuthService.assertCanTrade` 在 `src/main` **无 M1 调用点**（**有意**，非缺陷）；其**服务端强制点 = M2 Java 下单写路径**（`POST /trade/order` → `TradingBridge.placeOrder` 前置），**归 `T-046`**。**M1 有意不接线的依据**：`FR-PLAN-14` 明列主体 = **财务 / 风控岗或期货交易岗**，其输出 / 验收**不含权限项** ⇒ 在 `decomposeTradePlans` 处要求交易岗能力会**误拒合法主体**。该结论现**仅存于 `PlanService` 代码注释**，故登记入表。（同族登记见 `T-102` 备注） **📌（2026-09-21 第 28 轮台账对齐）** 阻塞原因 = ① **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」）＋ ② **依赖未满足**：`T-042`/`T-043`。**解除人** = `T-030`（技术负责人汇签）；**依赖**：`T-042`/`T-043`。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条仍受依赖 `T-042`/`T-043` 阻塞 ⇒ 维持 `BLOCKED`。
 
 ### T-047 实现结算服务 SettleService（独立结算 + 加总对账 + 差异归属）
 
@@ -993,14 +1025,15 @@
 - **依赖**：T-042, T-044, T-046
 - **估时**：32 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**BLOCKED**
 - **验收标准**：
   1. CTP 日终入库 → 子账户拆分 → 独立结算（持仓/资金/盈亏按子账户）→ 三类核对（仓位/资金/成交）；
   2. **加总对账**：校验 `Σ 子账户数据 = 真实账户数据`；**人为构造不一致 → 告警触发**（`PROJECT.md` §10-36）；
   3. **阻断范围**：仅差异所属子账户的新开仓/资金划拨/日终关账，**不波及其他子账户、不阻断平仓**；全账户强制告警（`CFG-11`）；`possible_sub_accounts` 仅展示，机判取 `t_agg_diff_candidate`/`t_reconcile_difference`；
   4. 关账门禁生效，差异未闭环不得关账。
 - **产出**：`java/service/SettleService.java`, REST `/settle/**`
-- **备注**：**跨栈依赖**：CTP 日终数据与成交/持仓事件经 T-042 消费。
+- **备注**：**跨栈依赖**：CTP 日终数据与成交/持仓事件经 T-042 消费。 **📌（2026-09-21 第 28 轮台账对齐）** 阻塞原因 = ① **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」）＋ ② **依赖未满足**：`T-042`/`T-044`/`T-046`。**解除人** = `T-030`（技术负责人汇签）；**依赖**：`T-042`/`T-044`/`T-046`。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条仍受依赖 `T-042`/`T-044`/`T-046` 阻塞 ⇒ 维持 `BLOCKED`。
 
 ### T-048 实现核对任务与电子签署
 
@@ -1010,14 +1043,15 @@
 - **依赖**：T-047
 - **估时**：16 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**BLOCKED**
 - **验收标准**：
   1. 月度三方核对（`RISK,TRADE,FINANCE` 各自签署）、季度（`RISK` 编制 + `TRADE` 会签 + `MANAGE` 签收）、年度（`AUDITOR` 全覆盖）；
   2. **不可代签**：按角色级判据与多角色解析规则拒绝代签（`CFG-14` / `DC-022`）；
   3. 签署截止 30 天（`settle.sign.deadline_days`）；核对记录与签署记录作为合规证据可导出；
   4. 审计席（`FR-AUDIT-13`）可**只读**查询核对任务与签署记录。
 - **产出**：`java/service/SettleService.java`（核对与签署部分）、REST `/settle/monthly-check`、`/settle/quarterly-report`
-- **备注**：`t_check_signature` 唯一约束 `uk_check_signature_task_role`。
+- **备注**：`t_check_signature` 唯一约束 `uk_check_signature_task_role`。 **📌（2026-09-21 第 28 轮台账对齐）** 阻塞原因 = ① **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」）＋ ② **依赖未满足**：`T-047`。**解除人** = `T-030`（技术负责人汇签）；**依赖**：`T-047`。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条仍受依赖 `T-047` 阻塞 ⇒ 维持 `BLOCKED`。
 
 ### T-049 实现资金管理服务 FundService（出入金 + 划拨 + 额度）
 
@@ -1027,7 +1061,7 @@
 - **依赖**：T-042, T-045
 - **估时**：24 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**BLOCKED**
 - **验收标准**：
   1. 资金台账完整：期初 + 发生额 = 期末，每笔有凭证编号，可导出对账（`PROJECT.md` §10-19）；
   2. **出入金经 CTP 异步**：提交 → 等回执 → 更新台账；幂等键去重；超时标记「超时待查」**不得假设未到账**（`PROJECT.md` §10-21）；
@@ -1035,7 +1069,8 @@
   4. **子账户划拨**为系统内记账：A 减、B 增、**加总不变**、有审批与留痕（`PROJECT.md` §10-37）；划拨后可回滚；
   5. 资金额度上限触及时告警（`CFG-25`，`PROJECT.md` §10-20）。
 - **产出**：`java/service/FundService.java`, REST `/fund/**`
-- **备注**：**跨栈依赖**：`CMD_FUND_TRANSFER`(0x011D)/`CMD_QUERY_FUND_RESULT`(0x011E) ↔ `EVT_FUND_RECEIPT`(0x020B)。
+- **备注**：**跨栈依赖**：`CMD_FUND_TRANSFER`(0x011D)/`CMD_QUERY_FUND_RESULT`(0x011E) ↔ `EVT_FUND_RECEIPT`(0x020B)。 **📌（2026-09-21 第 28 轮台账对齐）** 阻塞原因 = ① **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」）＋ ② **依赖未满足**：`T-042`/`T-045`。**解除人** = `T-030`（技术负责人汇签）；**依赖**：`T-042`/`T-045`。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条仍受依赖 `T-042`/`T-045` 阻塞 ⇒ 维持 `BLOCKED`。
 
 ### T-050 实现事中风控与镜像状态 risk_intraday
 
@@ -1045,14 +1080,15 @@
 - **依赖**：T-042
 - **估时**：20 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**BLOCKED**
 - **验收标准**：
   1. 基于 `TradingBridge.mirror()` 实时监控 6 类指标：实时持仓 / 浮动盈亏 / 保证金占用率 / 风险度 / 资金可用量 / 异常下单行为；
   2. 超阈值 → 告警 / **限制新开仓**（经 `CMD_SET_TRADING_SUSPEND`，`scope=OPEN_ONLY`）/ 强制平仓**只提示不自动下单**（`R-RISK-13`）；
   3. 指标在内存中计算，**先算后异步落库**，不因 DB 查询阻塞事件消费（`PROJECT.md` §10-25，全过程无 DB 查询）；
   4. 「只限开仓、不限平仓」：C++ 侧对平仓/减仓跳过该规则。
 - **产出**：`java/risk_intraday/**`, REST `/risk/mirror-status`
-- **备注**：**跨栈依赖**：消费 `EVT_TRADE_FILL`/`EVT_POSITION_CHANGE`；下发 `CMD_SET_TRADING_SUSPEND`(0x0118)；告警经 `/ws/alert` 推送。
+- **备注**：**跨栈依赖**：消费 `EVT_TRADE_FILL`/`EVT_POSITION_CHANGE`；下发 `CMD_SET_TRADING_SUSPEND`(0x0118)；告警经 `/ws/alert` 推送。 **📌（2026-09-21 第 28 轮台账对齐）** 阻塞原因 = ① **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」）＋ ② **依赖未满足**：`T-042`。**解除人** = `T-030`（技术负责人汇签）；**依赖**：`T-042`。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条仍受依赖 `T-042` 阻塞 ⇒ 维持 `BLOCKED`。
 
 ### T-051 实现调度 job
 
@@ -1062,14 +1098,15 @@
 - **依赖**：T-047, T-049
 - **估时**：16 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**BLOCKED**
 - **验收标准**：
   1. 定时任务：日终结算、事后风控、报表生成、对账、到期提醒（`CFG-24`）、报告周期提醒、事件流水位巡检；
   2. 调度任务**不绕过 service 层直接调 DAO**；
   3. **可注入时钟**（`NFR-TEST-4`），单测可控时间推进；
   4. 任务失败可告警且可重入，不产生重复结算。
 - **产出**：`java/job/**`
-- **备注**：—
+- **备注**：— **📌（2026-09-21 第 28 轮台账对齐）** 阻塞原因 = ① **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」）＋ ② **依赖未满足**：`T-047`/`T-049`。**解除人** = `T-030`（技术负责人汇签）；**依赖**：`T-047`/`T-049`。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条仍受依赖 `T-047`/`T-049` 阻塞 ⇒ 维持 `BLOCKED`。
 
 ### T-052 交付部署与运维支撑
 
@@ -1079,7 +1116,7 @@
 - **依赖**：T-009, T-049
 - **估时**：16 人时
 - **来源**：初版（承接 `T-ARCH-001` 要求 4）
-- **状态**：TODO
+- **状态**：**BLOCKED**
 - **验收标准**：
   1. 部署清单（`NFR-DEPLOY-2`）、环境依赖清单（`NFR-DEPLOY-5`，**含 DM JDBC 驱动实测版本**）、配置项清单（`CFG-01`~`CFG-31`）齐备；
   2. 双组件启动顺序脚本：`hg-trading` → `hg-biz`（Java 连接时 C++ 已在重放/就绪态）；
@@ -1089,7 +1126,8 @@
   6. **protobuf 供给策略落地**：给出 `protobuf` 依赖的获取 / 锁定策略并落地（依据本任务备注，**以备注原文为准**）。
   7. **CTP SDK 实盘版本复测**：给出 CTP SDK 实盘版本复测结论（承接 `T-027` 的探路结论至实盘版本）。
 - **产出**：`docs/DEPLOY/README.md`、启动/健康检查脚本
-- **备注**：DM JDBC 驱动版本须记录（`RSK-03`）。**环境依赖清单须并入两项 M2 探路承接项**：① protobuf **供给策略**——优先系统包 `3.21.12` / `FetchContent` 离线回退 / `protobuf-lite` 降级（见 `T-026` 验收 6）；② **CTP SDK 实盘版本复测**——按 `NFR-DEPLOY-5` 记录实测版本并重跑 `cpp/ctp_smoke/ci/run_probe.sh`（见 `T-027` 验收 6）。 **📌 承接义务落点登记（编排者 2026-09-21）**：**本任务验收标准新增的第 5/6/7 三条，即 `T-005`/`T-006`/`T-007`/`T-061`/`T-094` 五处备注转来义务的落点**（验收 5 = 五处「DM8 实机建表未执行」义务；验收 6/7 = `T-026`/`T-027` 探路结论的实盘承接）。此前本任务**验收段对 `DM8`/`protobuf`/`CTP SDK` 零命中** ⇒ 五处转来的义务在验收面**完全落空**，现补齐。
+- **备注**：DM JDBC 驱动版本须记录（`RSK-03`）。**环境依赖清单须并入两项 M2 探路承接项**：① protobuf **供给策略**——优先系统包 `3.21.12` / `FetchContent` 离线回退 / `protobuf-lite` 降级（见 `T-026` 验收 6）；② **CTP SDK 实盘版本复测**——按 `NFR-DEPLOY-5` 记录实测版本并重跑 `cpp/ctp_smoke/ci/run_probe.sh`（见 `T-027` 验收 6）。 **📌 承接义务落点登记（编排者 2026-09-21）**：**本任务验收标准新增的第 5/6/7 三条，即 `T-005`/`T-006`/`T-007`/`T-061`/`T-094` 五处备注转来义务的落点**（验收 5 = 五处「DM8 实机建表未执行」义务；验收 6/7 = `T-026`/`T-027` 探路结论的实盘承接）。此前本任务**验收段对 `DM8`/`protobuf`/`CTP SDK` 零命中** ⇒ 五处转来的义务在验收面**完全落空**，现补齐。 **📌（2026-09-21 第 28 轮台账对齐）** 阻塞原因 = ① **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」）＋ ② **依赖未满足**：`T-049`（`T-009` 已完成）。**解除人** = `T-030`（技术负责人汇签）；**依赖**：`T-049`。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条仍受依赖 `T-049` 阻塞 ⇒ 维持 `BLOCKED`。
 
 ### T-053 实现交易执行前端（含行情 WebSocket）
 
@@ -1099,14 +1137,15 @@
 - **依赖**：T-017, T-046
 - **估时**：20 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**BLOCKED**
 - **验收标准**：
   1. 下单（含交易理由结构化三项必填）/ 待确认列表 / 人工确认 / 撤单 / 委托回报 / 成交 / 持仓 / 事前风控拒绝记录页面可用；
   2. **行情**：`ws://<host>/ws/quote` 实时展示，允许丢帧仅显示最新值；断线重连；
   3. 对接 REST：`/trade/order`、`/trade/order/{id}/confirm`、`/trade/order/{id}/cancel`、`/trade/order-report`、`/trade/fill`、`/trade/position`、`/trade/reason`、`/trade/reject-record`、`/trade/flow`、`/trade/quote/{instrument}`、`/trade/strategy`；
   4. 事前风控拒绝展示 `ruleId/current/threshold/limit_layer` 与处理建议。
 - **产出**：`web/js/pages/trade.js`
-- **备注**：**跨栈依赖（链式）**：前端 ← Java（REST/`/ws/quote`）← Java 消费 C++ `EVT_MARKET_QUOTE`（同一 HGCP 通道，行情为**可丢例外**）+ `EVT_*`（原「通道 B」/「通道 A」，`CH-006` 后并入单一 HGCP 通道）。
+- **备注**：**跨栈依赖（链式）**：前端 ← Java（REST/`/ws/quote`）← Java 消费 C++ `EVT_MARKET_QUOTE`（同一 HGCP 通道，行情为**可丢例外**）+ `EVT_*`（原「通道 B」/「通道 A」，`CH-006` 后并入单一 HGCP 通道）。 **📌（2026-09-21 第 29 轮台账对齐）** 阻塞原因 = **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」）—— **已有开工骨架、尚未完成**（`web/js/pages/trade.js` 自述「开工骨架」）；「**开工骨架**」**不等于**可继续开工 ⇒ **不得继续**；**依赖亦未满足**：`T-017`/`T-046`。**解除人** = `T-030`（技术负责人汇签）。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条仍受依赖 `T-017`/`T-046` 阻塞 ⇒ 维持 `BLOCKED`。
 
 ### T-054 实现结算前端页面
 
@@ -1116,13 +1155,14 @@
 - **依赖**：T-047
 - **估时**：16 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**BLOCKED**
 - **验收标准**：
   1. CTP 日终数据、结算单、三类核对、加总对账（含差异候选与阻断范围提示）、差异处理、结算报告、保证金、压力测试、月度/季度页面可用；
   2. 对接 REST：`/settle/ctp-data`、`/settle/cycle*`、`/settle/difference`、`/settle/report`、`/settle/margin`、`/settle/stress-test`、`/settle/monthly-check`、`/settle/quarterly-report`、`/settle/export`；
   3. 加总不一致时高亮差异子账户并提示阻断影响范围。
 - **产出**：`web/js/pages/settle.js`
-- **备注**：—
+- **备注**：— **📌（2026-09-21 第 29 轮台账对齐）** 阻塞原因 = **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」）—— **已有开工骨架、尚未完成**；**依赖亦未满足**：`T-047`。**解除人** = `T-030`（技术负责人汇签）。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条仍受依赖 `T-047` 阻塞 ⇒ 维持 `BLOCKED`。
 
 ### T-055 实现资金管理前端页面
 
@@ -1132,13 +1172,14 @@
 - **依赖**：T-049
 - **估时**：16 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**BLOCKED**
 - **验收标准**：
   1. 资金台账/流水、出入金申请与审批（双人复核提示）、子账户划拨与审批、回执、资金额度、保证金占用视图页面可用；
   2. 对接 REST：`/fund/ledger`、`/fund/flow`、`/fund/deposit`、`/fund/withdraw`、`/fund/{id}/review`、`/fund/transfer`、`/fund/transfer/{id}/approve`、`/fund/receipt`、`/fund/quota`、`/fund/margin`、`/fund/reconcile`；
   3. 划拨页显式提示「系统内记账，加总不变」；「超时待查」状态显式展示。
 - **产出**：`web/js/pages/fund.js`
-- **备注**：—
+- **备注**：— **📌（2026-09-21 第 29 轮台账对齐）** 阻塞原因 = **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」）—— **已有开工骨架、尚未完成**；**依赖亦未满足**：`T-049`。**解除人** = `T-030`（技术负责人汇签）。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条仍受依赖 `T-049` 阻塞 ⇒ 维持 `BLOCKED`。
 
 ### T-056 制定 M2 联调测试策略与 HGCP 协议专项测试设计
 
@@ -1148,14 +1189,15 @@
 - **依赖**：T-030
 - **估时**：16 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**TODO**（2026-09-21 `T-030` 汇签解锁，由 `BLOCKED` 转）
 - **验收标准**：
   1. 协议专项测试设计覆盖：帧格式/CRC/版本不匹配、握手鉴权失败、心跳 3 s 检出、断连重连补数、**补数批次行情帧的接收侧不消费（`CH-007`，出处 `ARCHITECTURE.md` §4.2.6）**、乱序与缺口、幂等去重、`param_version` 单调、最大帧分片；
   2. 双组件联调测试策略：C++/Java 分别打桩与真联两档；
   3. 明确 `NFR-PERF-6`（两侧逐帧数量与顺序一致）的验证口径；
   4. 用例均可给出唯一预期值。
 - **产出**：`docs/TEST_PLAN/M2.md`
-- **备注**：协议已冻结，**冻结后变更须重跑本套测试**。
+- **备注**：协议已冻结，**冻结后变更须重跑本套测试**。 **📌（2026-09-21 第 28 轮台账对齐）** 阻塞原因 = **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」；本任务依赖 `T-030`）。**解除人** = `T-030`（技术负责人汇签）。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条无其他阻塞源 ⇒ `BLOCKED` → `TODO`。
 
 ### T-057 执行 M2 协议专项测试
 
@@ -1165,7 +1207,7 @@
 - **依赖**：T-039, T-042, T-056
 - **估时**：32 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**BLOCKED**
 - **验收标准**：
   1. 逐一执行 T-056 设计的协议用例并留证；
   2. 压力下（连续 1000 笔）事件流**不丢、不乱序**（`PROJECT.md` §10-31）；
@@ -1173,7 +1215,8 @@
   4. 断连检出 ≤ 5 s（实测约 3 s）；
   5. **补数批次中的行情帧在接收侧不消费**（`CH-007`，出处：`ARCHITECTURE.md` §4.2.6）：构造「断连 → 补数」场景，断言 ① `MSG_RESUME_DATA` 批次**线路侧完整回放**（含行情帧，`SEQ` 连续无缺口、**不触发 `0x0106`**）、**补数收敛**（不出现反复重补，无死循环、不进入永久 `NOT_READY`）；② **接收侧对该批次中的 `EVT_MARKET_QUOTE` 一律丢弃、不消费、不透传、不推前端、不进入行情缓存**；③ 普通（关键）事件帧仍**完整补数**（**不得误伤**）**并落库（须落库的 10 种事件）**。
 - **产出**：协议专项测试报告（**产出路径补登 2026-09-21**：落 `docs/TEST_RESULT.md` §`T-057` 节）
-- **备注**：**协议冻结后的回归基线**；第 5 条为 `CH-007` 追加（**消费侧规则**，出处 `ARCHITECTURE.md` §4.2.6；协议 `v1.0.1`，消息集 40 / 错误码 62 不变；**线路未过滤**、**线格式 `VER` 仍 `0x0100`**）。
+- **备注**：**协议冻结后的回归基线**；第 5 条为 `CH-007` 追加（**消费侧规则**，出处 `ARCHITECTURE.md` §4.2.6；协议 `v1.0.1`，消息集 40 / 错误码 62 不变；**线路未过滤**、**线格式 `VER` 仍 `0x0100`**）。 **📌（2026-09-21 第 28 轮台账对齐）** 阻塞原因 = ① **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」）＋ ② **依赖未满足**：`T-039`/`T-042`/`T-056`。**解除人** = `T-030`（技术负责人汇签）；**依赖**：`T-039`/`T-042`/`T-056`。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条仍受依赖 `T-039`/`T-042`/`T-056` 阻塞 ⇒ 维持 `BLOCKED`。
 
 ### T-058 执行 M2 端到端（模拟盘期货+期权/零 DB/加总/划拨）
 
@@ -1183,7 +1226,7 @@
 - **依赖**：T-046, T-047, T-048, T-049, T-052, T-057
 - **估时**：32 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**BLOCKED**
 - **验收标准**：
   1. 在 CTP 模拟盘按 M1 计划完成**一笔期货开平 + 一笔期权策略（如领口）**，每单可追溯至子账户与计划；
   2. 验证**交易路径零 DB 访问**（DB 层语句审计，路径 SQL = 0；或停库方式验证下单路径不受影响，`PROJECT.md` §10-23）；
@@ -1191,7 +1234,8 @@
   4. **子账户间划拨后加总不变**（§10-37）；出入金经 CTP 跑通并回执回写（§10-21）；
   5. 组件通信双向可用：C++ 成交 Java 落库，Java 改风控参数 C++ 内存生效（§10-30）。
 - **产出**：`docs/TEST_PLAN/M2-report.md`
-- **备注**：依赖 T-052 部署脚本搭建模拟盘环境。
+- **备注**：依赖 T-052 部署脚本搭建模拟盘环境。 **📌（2026-09-21 第 28 轮台账对齐）** 阻塞原因 = ① **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」）＋ ② **依赖未满足**：`T-046`~`T-049`/`T-052`/`T-057`。**解除人** = `T-030`（技术负责人汇签）；**依赖**：`T-046`~`T-049`/`T-052`/`T-057`。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条仍受依赖 `T-046`~`T-049`/`T-052`/`T-057` 阻塞 ⇒ 维持 `BLOCKED`。
 
 ### T-059 执行 C++ ctest 单测（风控/指令/流水/协议）
 
@@ -1201,13 +1245,14 @@
 - **依赖**：T-035, T-036, T-037, T-038, T-039, T-041（原含 `T-040`；`T-040` 已由 `CH-006` 定界改派 `#java`，不再属 C++ 单测范围）
 - **估时**：24 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**BLOCKED**
 - **验收标准**：
   1. ctest 覆盖 `risk_engine`（8 规则 + 三层限额全序 + 并列取一）、`order_engine`（状态机/超时/确认人一致）、`flow_store`（重放）、`hgcp`（帧/CRC/补数）；
   2. C++ 侧核心模块（额度校验、事前风控）单测覆盖率 ≥ 80%；
   3. `ctest` 全部通过；`-Werror` 下零警告。
 - **产出**：`cpp/tests/**` + ctest 报告（**产出路径补登 2026-09-21**：落 `docs/TEST_RESULT.md` §`T-059` 节）
-- **备注**：—
+- **备注**：— **📌（2026-09-21 第 28 轮台账对齐）** 阻塞原因 = ① **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」）＋ ② **依赖未满足**：`T-035`~`T-041`。**解除人** = `T-030`（技术负责人汇签）；**依赖**：`T-035`~`T-041`。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条仍受依赖 `T-035`~`T-041` 阻塞 ⇒ 维持 `BLOCKED`。
 
 ### T-060 执行 M2 代码与架构合规审查（E1~E6 全量）
 
@@ -1217,15 +1262,17 @@
 - **依赖**：T-041, T-049, T-055
 - **估时**：16 人时
 - **来源**：初版
-- **状态**：TODO
+- **状态**：**BLOCKED**
 - **验收标准**：
   1. `E1`~`E6` 六脚本全量通过（聚合入口 `arch-check.sh` 任一失败即整体失败）；
   2. C++ 组件**不链接任何 DB 客户端库**、无 SQL 语句（`PROJECT.md` §10-29）；
   3. C++11 严格合规：无 `make_unique`/`optional`/`string_view`/结构化绑定/`if constexpr`（§10-6）；
   4. 敏感字段零落盘复核（结构 + grep）；组件边界无越界；
   5. 出具问题清单（问题/位置/建议/级别），不改代码。
+  6. **（2026-09-21 编排者裁定增补）核对 `ARCHITECTURE.md` §3.0.2 `E4` 的扫描根集合（`cpp/src/{order_engine,risk_engine,risk_state}`）与 §3.1–§3.6 的六模块实际布局是否一致**；若模块增删 / 改名而未同步，须**报为缺陷**（依据：`v1.5.12` 裁定 + `v1.5.13` 脚注 ⑥「残留风险（已接受）」；本项即该风险的**自动化外兜底** —— 「改名并同步更新 `CMakeLists` / 包含路径」的完整迁移**当前无自动化兜底**，故由本审查承接）。
 - **产出**：`docs/REVIEW.md`（M2 部分）
-- **备注**：只读审查。
+- **备注**：只读审查。 **📌（2026-09-21 第 28 轮台账对齐）** 阻塞原因 = ① **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」）＋ ② **依赖未满足**：`T-041`/`T-049`/`T-055`。**解除人** = `T-030`（技术负责人汇签）；**依赖**：`T-041`/`T-049`/`T-055`。
+  **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条仍受依赖 `T-041`/`T-049`/`T-055` 阻塞 ⇒ 维持 `BLOCKED`。
 
 ### T-061 交付 RISK 首增量 `t_param_dispatch` 单表 DDL 与 DAO
 
@@ -1793,7 +1840,7 @@
 ### T-094 交付 RISK 模块剩余 10 张表 DDL 与 DAO（M3 窗口）
 
 - **需求追溯**：`FR-RISK-1~19`
-- **负责人**：**待定**（原 `#java` 口径，待编排者指派；本任务承接 `T-061` 收窄后撤出的余表）
+- **负责人**：**backend-engineer#java**（原 `#java` 口径；2026-09-21 编排者指派；本任务承接 `T-061` 收窄后撤出的余表）
 - **优先级**：P0
 - **依赖**：T-004
 - **估时**：18 人时（**折算依据**：`T-061` 原估 20 人时覆盖 `TB-RISK-1~11` 共 11 张表 ≈ 1.82 人时/表；首增量 `t_param_dispatch` 单表已由 `T-061` 交付并计 2 人时，余 10 表 = 20 − 2 = **18 人时**；RISK DDL 工作总量守恒 20 人时；全项目口径见 §5 合计行）
@@ -1805,7 +1852,7 @@
   3. 对应 `DmRisk*Dao` 齐备，逐列一致性测试 0 差异；
   4. `t_risk_threshold` 支撑「默认值不得低于 `INDEX.md` §9.1 口径」的存储表达。
 - **产出**：`docs/DEPLOY/schema/m3_risk.sql`（续写）、`java/src/main/java/com/hedgeguard/dao/impl/DmRisk*Dao.java`
-- **备注**：**M3 窗口**（依赖仅 `T-004`，技术上可与 M1/M2 并行，但按编排者裁定归 M3 排期）。⚠️ **DM8 实机建表未执行**（环境无 DM8 实例，归 `T-052`）。下游 `T-063`/`T-064`/`T-065` 依赖本任务交付的风险表。
+- **备注**：**M3 窗口**（依赖仅 `T-004`，技术上可与 M1/M2 并行，但按编排者裁定归 M3 排期）。⚠️ **DM8 实机建表未执行**（环境无 DM8 实例，归 `T-052`）。下游 `T-063`/`T-064`/`T-065` 依赖本任务交付的风险表。 **（2026-09-21 编排者指派）**负责人定为 `backend-engineer#java`（依原口径；`#java` 的 `T-098`/`T-102` 已收口，负荷可容纳）。**状态仍 `TODO`**（M3 窗口）。
 
 ### T-095 `E1`~`E6` 六条判据脚本形态 / 退出码语义一致性收口（原 `E2` 按 `E5` 同法收紧）
 
@@ -1962,6 +2009,7 @@
 - **备注**：**本项系 `T-100` 专项独立复核的同族发现**（`docs/TEST_RESULT.md` §`T-100.10`，`EXP-T100-1`；**补录节** §补录.2 / §补录.5 第 3 项）。**四条同族问题**（**「控制看起来有、实际没有」**）：① `AuthService.assertSubAccountVisible`（约 `:479`）在 `src/main` **0 处调用** —— **已实现的守卫未接线**（与 `DmUserSubAccountPermDao.scopeOf` **同形**：方法存在，但没人调）；② 写动作经 `requirePlan`（约 `:1064`）→ `findById`（**不做子账户过滤**）⇒ **写面无子账户可见性强制**；③ `AuthService.assertCanTrade`（`:417`）在 `src/main` **亦 0 处调用**（`:53` 的 `{@link #assertCanTrade}` 系 javadoc 引用、**非调用**）—— 同为「已实现、生产无人接」的**交易权限守卫**（`R-AUTH-13` 负责人 / 管理层禁操盘）；④ `PlanService.withdraw`（约 `:639-655`）的 **javadoc 称「须为发起人」、实现仅校验状态** —— javadoc 承诺与实现不符。**⚠️ 与 `T-098` 的边界（不合并）**：`T-098` = **`CROSS_READONLY` 跨账户只读用户的「只读强制点」**（该用户**不得写**）；**`T-102` = 写面可见性断言未接线（`assertSubAccountVisible`）+ 交易权限断言未接线（`assertCanTrade`）+ `withdraw` 发起人校验缺失**。**相关但不同** —— 三者同属 `NFR-SEC-7` 权限强制族，但**强制轴向不同**：`T-098` 管「**这类用户**能不能写」，本项管「**写动作**有没有按子账户可见性 / 交易权限强制 + 发起人身份校验」；**故不合并、亦不并入 `T-098`**。**⚠️ 与 `T-099` 的边界**：`T-099` 处置 `scopeOf` **不读 `perm_type`** 的机制缺陷（**读面取数入口**）；本项处置**写面**强制点，二者不同层。**⚠️ 写者边界**：`AuthService` / `PlanService` 均 `#java` 写权；本项与其串行前序（`T-100`/`T-101`）**动同一服务层**，须遵守**单实例写**纪律。**⚠️ 禁止**：**不得**以 `DmUserSubAccountPermDao.scopeOf` 作取数入口（`scopeOf` **不读 `perm_type`**；其处置归 **`T-099`**）。**估时判据（项目经理独立判断 · 同族可比）**：与 `T-098`（3 人时）同族可比 —— `T-098` 为**一个强制点的实现 + 留痕 + 用例**（3 人时）。**第 1 轮（未含 `assertCanTrade`）**按「两个强制点择一接线/订正 + 两类拒绝用例 + 反退化」取 **3 人时**；**第 2 轮（本轮，编排者裁定纳入 `assertCanTrade`）**增至**三个强制点、且两条守卫均须接线（不再「择一」）**：`assertSubAccountVisible`（写面可见性）+ `assertCanTrade`（操盘前置交易权限）+ `withdraw` 发起人校验 ⇒ **由 3 人时上修至 4 人时**（较 `T-098` 多两项强制点 + 一类拒绝用例；机制件 `AuthService.visibleSubAccountIds` / `SubAccountScope` / 既有 `requirePlan` 路径**均已就绪、无需新建**，故未按 3×`T-098` 线性放大）。⚠️ **条件性上修**：若交付方判定两条守卫的接线点须**新增独立 DTO / 路由 / DAO**（而非复用既有写路径），应再上修**至 5～6 人时**（交付报告须写明所选接线点与实际覆盖面）。**串行顺序（编排者裁定 2026-09-21）**：`T-100 → T-101 → T-103 → T-102 → T-099 → T-098 → T-096 → T-097`（`T-103` 插于 `T-101` 之后、`T-102` 插于 `T-103` 之后、`T-099` 之前；前六项同属 `#java`、动公共件／服务层／写读路径，**同一时刻只允许一个实例写**；`T-097` 为判据升级、最后收束）。 **第 3 轮再扩（同族第四项 ④）**：`T-101` 交付报告主动披露「未完成/待裁定 ①」 —— `PlanService.decomposeTradePlans`（`PlanService.java:775`，**登记时点 md5 `a18d23b7…` / 1237 行**）在 `:786` 仍调用**未 scoped** 的 `tradePlanDao.findByHedgePlan(planId)`，属**写路径内读取未做子账户过滤**，与前述三强制点**同族**（「控制看起来有、实际没有」的**写路径读取面**变体）。**原三项强制点** = ① `assertSubAccountVisible` 未接线 / ② `assertCanTrade` 未接线 / ③ `withdraw` 发起人校验缺失；**本项为同族第四项 ④**。**估时判据（第 3 轮）**：④ 复用 `T-101` 已建立的 `findByHedgePlanScoped` + `SubAccountScope`，且 `decomposeTradePlans` **已接受 `operatorId` 入参**（无须改签名）⇒ 增量小于 `T-101`（3 人时）；但 ④ 为**第四个强制点 / 覆盖项**，须自带「跨子账户既有交易计划不计入 `used`」用例 + **反退化自证** ⇒ 按本项目「每个强制点 ≥ 1 人时」粒度 **+1 人时，由 4 人时上修至 5 人时**。**⚠️ 回落条件**：若交付方判定 ④ 完全复用既有 scoped 方法、无新增 DTO/路由/DAO 且覆盖面最小，可在交付报告中说明实际人时并**建议回落至 4 人时**（须给覆盖面证据）。 **第 4 轮扩项（项目经理 2026-09-21）**：本任务**再扩一项** —— 除「接线」外，`assertCanTrade` 的**判据形态须由合取订正为析取**（依 `CH-010`，见验收 2），并补**两类单条件拒绝用例**（验收 5 ②a / ②b）。**估时判据（项目经理独立判断）**：该扩项系**既有强制点 ② 的判据语义订正（合取 → 析取）+ 既有拒绝用例的拆分细化（② → ②a/②b）**，**非新增独立强制点 / 覆盖项**，落在既有 5 人时（含「条件性上修」缓冲）范围内 ⇒ **不上修，维持 5 人时**。（**备选**：若编排者 / 交付方判定须按本项目「每个覆盖项 ≥ 1 人时」粒度上修，则 **+1 → 6 人时**；此时须联动 §1 合计行 / §4 里程碑映射 / §5 资源负荷等聚合口径。）
 
 **（2026-09-21 登记 · 待裁定）`CROSS_READONLY` 可写 —— 归本任务口径**：`assertSubAccountVisible` 对「调用者授权集含哨兵 `0`（`CROSS_READONLY`）」**一律放行** ⇒ `CROSS_READONLY` 用户**可写** `POST /spot/production`、`/spot/doc/sub-account`。与「只读」命名相悖，但与本任务已落地的 `assertSubAccountVisible` 语义**同源**（`PlanService` 写面亦如此）⇒ 属**本任务口径问题**，**非 `T-109` 引入**。**待裁定：`CROSS_READONLY` 是否应允许写路径。**（**只加不改**登记；来源 = `T-109` 增量复核 `te-verify-t109c` 探索性新发现 (B)）
+**📌（2026-09-21 闭环 · 只加不改）** 本「待裁定」项**已闭环**：由 **`T-098`** 落地（**写面拒绝 `CROSS_READONLY`**、错误码 **`10004`**、留痕 `t_unauthorized_attempt`；**读面语义不变**）+ **读 / 写断言分离**（读面 `assertSubAccountVisible` / 写面 `assertSubAccountWritable`）；依据 `ARCHITECTURE.md` §8.2③。`T-098` 已 **`DONE`**（`te-verify-t115` 独立复核**通过**，结论已由「有条件通过」升级为「**通过（无条件）**」）⇒ 判定为「**`CROSS_READONLY` 不得写路径**」，与「只读」命名一致。
 
 ### T-103 `GET /plan/{id}/trade-plans` 补分页/筛选/排序（按 `FR-PLAN-15` 输入列）
 
@@ -2009,7 +2057,7 @@
 - **依赖**：T-100（复用 `AuthService.visibleSubAccountIds` / `SubAccountScope`）
 - **估时**：5 人时（依据见「备注」估时判据）
 - **来源**：新增（`tl-triage` 全模块读取面只读普查 + 编排者 2026-09-21 裁定立项，项目经理登记）
-- **状态**：TODO
+- **状态**：**DONE（独立复核通过）**（判据 = **授权 + 独立验证**；见「备注」）
 - **验收标准**：
   1. **`GET /product` 补分页信封**（`FR-PRODUCT-5` 输入列 `:146`）：现裸数组（`ProductHandler.java:53-57`）⇒ 改 `PageQuery` + `PageData{items,total,page,size}`（`CONTRACTS §1.1` 冻结口径）；
   2. **默认排序改创建时间倒序**（`:147`）：现 `DmProductDao.java:104` `ORDER BY product_code ASC` ⇒ 改为 `created_time DESC`；⚠️ **须显式声明方向**（`PageQuery` 缺省恒 `ASC`；本项目 `BUG-001` 即此坑）；
@@ -2020,6 +2068,7 @@
   7. `mvn -B -o clean test` **全绿**（**冻结点上**全量，无排除）。
 - **产出**：`java/.../web/handler/product/ProductHandler.java`、`java/.../service/VarietyService.java`、`java/.../dao/impl/DmProductDao.java` + 对应测试
 - **备注**：**来源 = `tl-triage` Part 2 全模块只读普查**（11 个已注册列表类端点 + 3 个单对象同族端点，逐端点回读**其自身 FR 原文**后比实现；编排者已抽查关键结论成立）。**载体裁定（编排者 2026-09-21 查实）**：`FR-PRODUCT-5`「只返回有权限的子账户范围内的品种」—— `t_product` **无** `sub_account_id` 列，故载体易被误判为「无载体」；实测 `m1_product.sql:160`–`:188` **`t_sub_product_whitelist` 有 `sub_account_id`** ⇒ **载体 = 该白名单表**，由「疑似」升为「**确定缺陷**」。**待确认项（产品经理；仅登记，本任务不实现）**：`GET /product/change-log`（`FR-PRODUCT-14`）的隔离要求 —— `PRODUCT.md:280` **未写控制动词**，仅验收 4 提「审计岗可跨子账户查看」⇒ **蕴含**非审计岗受限；**确认成立则另立号**。**估时判据（项目经理）**：两条端点（列表 + 导出）+ 分页信封变更 + 默认方向变更 + 白名单 join 隔离 + 四类用例 + SQL 形状断言 ⇒ **5 人时**。**写者边界**：`VarietyService`/`ProductHandler`/`DmProductDao` 属 `#java2` 写权（PRODUCT 属主 `T-005`）；与 `#java` 链**同一 `java/**`、同一时刻只允许一实例写**。
+  **（2026-09-21 转 `DONE` · 只加不改）**：独立复核由 **`te-verify-t105`** 出具，判 **有条件通过、0 阻断缺陷** ⇒ 满足本项目 `DONE`（**授权 + 独立验证**）。**复核要点**：验收 **7/7**；**两个方向均核**（越权 + 防误拒 —— 含 `CROSS_READONLY` 读面经**真实 `AuthService`** 放行、哨兵 `0` 下两条 SQL **均无过滤**）；**独立构建 `mvn -B -o clean test` = `435/0/0/0`**；`@Test` 数与 surefire 一致；**自设 4 条反退化探针全红**（7/1/3/6）；`ApiRoutes` **未改**。**唯一「不符」** = 产出方自述 `DmProductDao` **179** 行而实测 **183**（**`md5` 逐字节相同 ⇒ 内容一致、仅行数自述笔误**）⇒ **不构成缺陷**。**范围外三项**（复核者未立号、未改文档）：① `FR-PRODUCT-8` 验收 1「导出与列表筛选一致」当前不成立（`listProducts`/`exportProducts` 均无筛选参数）、② **白名单子查询未过滤 `status`（over-inclusive，已移出品种仍算「可见」）**、③ `FR-PRODUCT-5` 输出列「子账户」「最近变更时间」`ProductView` 未含 ⇒ **已由项目经理登记立项**：①+③ 合并 → **`T-116`**；②（**判缺陷：可见性过宽**）→ **`T-117`**。**跨页 tie-break 缺位**（分页排序稳定性）经复核者**独立复现**（15 条同 `exec_deadline`、`size=10` ⇒ 并集=10、漏 11–15 + 重复 1–5）⇒ 归 **`T-096`**、**不阻断本任务**。**替身改动**经**逐字节 diff** 确认**仅追加 3 个 stub、未削弱既有断言**。
 
 ### T-106 PRODUCT 单对象读取面隔离（`GET /product/{id}` + `GET /product/quota`）
 
@@ -2104,7 +2153,7 @@
 | `TE-T109-004` | 一般 | `/config/import` **缺取值范围预校验**（`validateValue` 未调用） | `FR-CONFIG-13` 验收 2 | 本任务修复 |
 | `TE-T109-005` | 一般 | `/spot/doc/sub-account` **不重算敞口**（仅回 `recomputeRequired=true`） | `FR-SPOT-16` 处理规则 / 验收 1 | 本任务修复（若不可实现须回报阻塞 + 承接建议） |
 | `TE-T109-006` | 建议 | 验收 2 报错列 `exposureIds` 而非「**计划**」 | `FR-SPOT-16` 验收 2 | 本任务修复 |
-| `TE-T109-007` | 建议·待裁定 | `/spot/price/export` **确无对应 FR**（独立复核已证实）⇒ 产出面 > 需求面 | — | **待产品经理裁决**（补 `FR` 或删路由，**两者均须走 `CH-xxx`**） |
+| `TE-T109-007` | 建议·待裁定 | `/spot/price/export` **确无对应 FR**（独立复核已证实）⇒ 产出面 > 需求面 | — | **待产品经理裁决**（补 `FR` 或删路由，**两者均须走 `CH-xxx`**）**（2026-09-21 闭环）** 已闭环 = 采「**补 `FR`**」形态；产品席已回写 **`CH-011`** 并新增 **`FR-SPOT-19`**（用户 2026-09-21 已确认采形态①；`docs/REQUIREMENTS/SPOT.md` + `INDEX.md` 已落） |
 
 - **C. 隔离归属订正（纠错留痕，非任务范围变更）**：编排者先前误判「`/spot/exposure/export` 的 operator 级隔离归 `T-107`」—— **独立复核证伪**：`T-107` 范围为 `/spot/exposure` + `/spot/exposure/{id}`（`FR-SPOT-15`），**不含** export 端点 ⇒ 该越权面（`TE-T109-002`）**由 `T-109` 自行承接修复、不挂 `T-107`**。
 - **D. `/config/ctp/test` 延后登记**：其**连通性**在 M1 不可实测（须 C++ `ctp_adapter` + HGCP 桥接），**延后至 M2**；**建议承接任务 = `T-042`**（复核者称查无更贴切承载）。M1 行为 = 显式返回 `10002 COMPONENT_UNAVAILABLE`、**从不伪成功**（经独立复核核实）。
@@ -2190,7 +2239,7 @@
   10. **（同上）产出方测试文件自述的 md5 已陈旧**（主源相符，**项目经理落笔前实测复算**）：`VarietyT112VisibilityTest` 自述 `d090180f…`/457 → 实测 **`3dd100037b305008a30dd74fb30f4715`/492**；`PlanT112VisibilityTest` 自述 `420f50f4…`/501 → 实测 **`896c75ac8988d7417d68493c95052fd5`/538**。
   11. **（同上）产出方自述的「树级 md5 `e4bb06a8…`」不可复现**；**统一口径** = `find java/src -type f | sort | xargs md5sum | md5sum` ⇒ 复核时点 **`7e316b27be4644378c0525a1f4417063`**（**以实时 `md5sum` 为准**；⚠️ 项目经理落笔时实测 = `e8f59e52abb0129049359cf1e3b1310b`；差异源 = 复核后新增测试文件 `T112MissingSubAccountIdHandlerTest.java`，mtime `2026-09-21 14:00:12` ⇒ 树已前进、`②` 补修落地中）。
   12. **（同上）复核并行披露的越界观察（登记、不立号）**：`ConfigService.disableSubAccount` / `changeCategory` **取裸 `subAccountId` 且全无可见性强制**（CONFIG 模块；项目经理实测 `:443`/`:499`，**行号为观测时点、以实时 `md5sum` 为准**）；`removeWhitelist` 之外的 **PRODUCT 写面**已由本任务覆盖。
-  13. **（2026-09-21）复核结论 = 有条件通过**（锚 `7e316b27…`：分类表 **8 行全对**、**双向无缺陷**〔无漏防、无误拒〕、独立复现 **`420/0/0/0`**，两条严重/低危条件见下）；**条件① 已由 `T-098` 的实现关闭**（复核 `te-verify-t115` 在现行锚 `1cfc6a3a…` 上补核 delta：8 个写面点仍拒、`removeWhitelist` 已落）；**条件② 已闭环**（建议级一致性）。**`T-115` 系重复立项、已 `REJECTED`**，与本任务的关联仅在实施方同一批。 **（2026-09-21 转 `DONE`）** 复核结论 = `te-verify-t112` **有条件通过**（锚 `7e316b27…`：分类表 8 行全对、双向无缺陷、`420/0/0/0`）+ 两条件闭环（① 由 `T-098` 实现关闭；② 建议级已落）+ **delta 已由 `te-verify-t115` 在现行锚 `1cfc6a3a…` 复验**（8 个写面点仍拒 `CROSS_READONLY`）。**`T-115` 系重复立项、已 `REJECTED`**，与本任务关联仅在同一批实施。
+  13. **（2026-09-21）复核结论 = 有条件通过**（锚 `7e316b27…`：分类表 **8 行全对**、**双向无缺陷**〔无漏防、无误拒〕、独立复现 **`420/0/0/0`**，两条严重/低危条件见下）；**条件① 已由 `T-098` 的实现关闭**（复核 `te-verify-t115` 在现行锚 `1cfc6a3a…` 上补核 delta：8 个写面点仍拒、`removeWhitelist` 已落）；**条件② 已闭环**（建议级一致性）。**`T-115` 系重复立项、已 `REJECTED`**，与本任务的关联仅在实施方同一批。 **（2026-09-21 转 `DONE`）** 复核结论 = `te-verify-t112` **有条件通过**（锚 `7e316b27…`：分类表 8 行全对、双向无缺陷、`420/0/0/0`）+ 两条件闭环（① 由 `T-098` 实现关闭；② 建议级已落）+ **delta 已由 `te-verify-t115` 在现行锚 `1cfc6a3a…` 复验**（8 个写面点仍拒 `CROSS_READONLY`）。
 
 ### T-113 修正 SPOT 现货单据创建在 `subAccountId` 缺省时的错误呈现
 
@@ -2238,7 +2287,7 @@
 
 ### T-115 修正 `CROSS_READONLY` 写面放行（写路径拒绝跨账户只读身份；读面语义不变）
 
-- **需求追溯**：`FR-AUTH-13` 验收 3（跨子账户下不得执行「改配置」等操作 ⇒ 拒绝）、`NFR-SEC-7`（跨子账户权限默认只读）、`docs/DATA_MODEL.md`（`CROSS_READONLY` 只读性**由服务层保证**、写前校验 `perm_type`）
+- **需求追溯**：`FR-AUTH-13` **处理规则**（「跨子账户下**不得**执行下单、审批、改配置等操作」，`docs/REQUIREMENTS/AUTH.md:280`）〔**锚点订正 2026-09-21**：原引「验收 3」，该条字面仅「跨子账户权限下尝试执行下单/审批操作被拒绝（只读）」、**不含「改配置」**〕、`NFR-SEC-7`（跨子账户权限默认只读）、`docs/DATA_MODEL.md`（`CROSS_READONLY` 只读性**由服务层保证**、写前校验 `perm_type`）
 - **负责人**：backend-engineer#java
 - **优先级**：P0
 - **依赖**：T-102, T-110, T-112（三者均在其写面上暴露该绕过）
@@ -2254,7 +2303,7 @@
   6. `mvn -B -o clean test` **全绿**（**冻结点上**全量，无排除）。
 - **产出**：`java/src/main/java/com/hedgeguard/service/AuthService.java`（写面断言拒绝 `CROSS_READONLY`）+ 对应测试
 - **备注（照录）**：
-  1. **需求依据（三条，均与现行实现冲突 ⇒ 现行实现作废）**：`docs/DATA_MODEL.md`（`CROSS_READONLY` 只读性**由服务层保证**、写前校验 `perm_type`）；`FR-AUTH-13` **验收 3**（跨子账户下**不得**执行「改配置」等操作 ⇒ 拒绝）；`NFR-SEC-7`（跨子账户权限**默认只读**）。
+  1. **需求依据（三条，均与现行实现冲突 ⇒ 现行实现作废）**：`docs/DATA_MODEL.md`（`CROSS_READONLY` 只读性**由服务层保证**、写前校验 `perm_type`）；`FR-AUTH-13` **处理规则**（「跨子账户下**不得**执行下单、审批、改配置等操作」，`docs/REQUIREMENTS/AUTH.md:280`）〔**锚点订正 2026-09-21**：原引「验收 3」、字面不含「改配置」〕；`NFR-SEC-7`（跨子账户权限**默认只读**）。
   2. **实证**：独立复核以**真实 `AuthService` 探针**经 `VarietyService.putWhitelist` **成功写入他人子账户白名单行** ⇒ **真绕过**，非口径差异。
   3. **修正范围**：`AuthService` **写面**断言拒绝 `CROSS_READONLY`；**读面**（`visibleSubAccountIds` 的「哨兵 `0` ⇒ 不加过滤」）**保持不变**；须**全域横扫** `assertSubAccountVisible` 的**全部写面调用方**（`T-102` `requireWritablePlan` 一族、`T-110` SPOT 8 处、`T-112` PRODUCT 4 + PLAN 4 处、`T-109` 3+4 处），逐条确认修正后拒绝；**不得**把**只读**端点一并拒掉（防**误拒**）。
   3b. **预期会变红的既有用例**：断言「`CROSS_READONLY` 放行」的用例断言的是**错误口径**，须按新口径改写；要求实现方**逐条列出被改写的用例 + 旧/新断言 + 为何旧断言错**。
@@ -2262,6 +2311,102 @@
   5. **写者边界**：本任务主体改 `AuthService`（属 **`#java`**）；横扫的写面调用方多属 `#java2`（PRODUCT/SPOT/PLAN 链）——**以读/核为主**，若须改动他属文件，按 `TASKS.md` §5.1「跨实例共享接口须先冻结再并行」与**单写者纪律**协调。与 `#java2` 链**同一 `java/**`、同一时刻只允许一实例写**。
   6. **与 `T-098` 的关系**：`T-098` 登记的是「`CROSS_READONLY` **只读强制点**（8 类写操作拒绝 → `10004` + 留痕）」，本任务为其**同族**、**须协调不重复**：`T-115` 收口的是「`assertSubAccountVisible` **写面**对 `CROSS_READONLY` 的**放行**」这一**具体绕过**（复核已实证），`T-098` 的通用写操作强制点可在其落地时**吸收**本判定，避免双实现。
   7. **（2026-09-21）裁定 `REJECTED`** —— 与既有 `T-098` 范围**逐条重合**（连错误码 `10004`、留痕表 `t_unauthorized_attempt`/`R-AUTH-8`、正/反双向测试要求均一致）⇒ 属**重复立项**；其实施成果由 **`T-098` 收受**；**编号保留留痕、不计人时**（依 `T-029` 先例）。**动因留痕**：编排者立号时未扫整张既有任务表。
+
+### T-116 PRODUCT 读取面「需求面 > 实现面」缺口补齐（`FR-PRODUCT-5` 输出列 + `FR-PRODUCT-8` 导出筛选一致）
+
+- **需求追溯**：`FR-PRODUCT-5` 输出列（`docs/REQUIREMENTS/PRODUCT.md:149`：「品种列表（含状态、分类、**子账户**、**最近变更时间**）」）、`FR-PRODUCT-5` 输入列（`:148`「筛选条件（品种编码/名称关键字、状态、分类、子账户）」）、`FR-PRODUCT-8` 验收 1（`:198`：「在『状态=启用』筛选下导出，文件仅含启用品种，**条数与列表一致**」）、`T-105` 产出面
+- **负责人**：backend-engineer#java2（PRODUCT 属主 = `T-005`）
+- **优先级**：P1
+- **依赖**：T-105
+- **估时**：3 人时（依据见「备注」）
+- **来源**：新增（`te-verify-t105` 独立复核「范围外观察」第 1 项 + 第 3 项；编排者 2026-09-21 裁定立项，项目经理登记）
+- **状态**：TODO
+- **验收标准**：
+  1. **`GET /product` 支持筛选**（`FR-PRODUCT-5` 输入列 `:148`）：`listProducts` 增筛选参数（品种编码/名称关键字、状态、分类、子账户），下推至 `COUNT` 与 `SELECT` **两条 SQL**；
+  2. **`GET /product/export` 与列表筛选一致**（`FR-PRODUCT-8` 验收 1 / 处理规则 `:196`）：`exportProducts` 接受**同一筛选口径**，导出条数与列表一致、仅含符合筛选的品种；
+  3. **输出列补齐**（`FR-PRODUCT-5` 输出列 `:149`）：`ProductView` 增「子账户」「最近变更时间」字段（「最近变更时间」取值口径须写明：`product_change_log` 最新一条 或 `updated_time`）；
+  4. **用例**：① 状态筛选「停用」⇒ 结果全为停用；② 导出与列表在同一筛选下**条数一致**；③ 输出含新增两列；且**移除筛选 / 列后用例必红**；
+  5. `mvn -B -o clean test` **全绿**（**冻结点上**全量，无排除）。
+- **产出**：`java/.../service/VarietyService.java`（`listProducts`/`exportProducts` 增筛选）、`java/.../web/handler/product/ProductHandler.java`（`ProductView` 增列）＋ 对应测试
+- **备注**：**来源 = `te-verify-t105` 独立复核「范围外观察」（该复核者未立号、未改文档）**。第 1 项（「导出与列表筛选一致」**当前不成立**：`listProducts`/`exportProducts` **均无筛选参数**）+ 第 3 项（`ProductView` **未含**「子账户」「最近变更时间」）同属 **PRODUCT 读取面「需求面 > 实现面」缺口** ⇒ **合并为一个任务**（同模块、同来源、均属输入/输出面缺口；单列过细 ⇒ 依 §5.1「不到半天 ⇒ 合并到相邻任务」）。**估时判据（项目经理）**：两条端点的筛选入参 + 输出列补齐 + 用例 ⇒ **3 人时**。**写者边界**：`#java2`（PRODUCT 属主 `T-005`），与 `#java` 链**同一 `java/**`、同一时刻只允许一实例写**。
+
+### T-117 修正 PRODUCT 白名单可见性 over-inclusive（子查询补 `status='ENABLED'`）
+
+- **需求追溯**：`FR-PRODUCT-5` 处理规则（「**仅返回当前用户有权限查看的子账户范围内的品种**」，`docs/REQUIREMENTS/PRODUCT.md:147`）；载体 = `t_sub_product_whitelist`（`docs/DEPLOY/schema/m1_product.sql:158`~`:189`：`status ∈ {ENABLED,DISABLED}`、**移出白名单 = 置 `DISABLED` 保留历史**）；`FR-AUTH-13`；`NFR-SEC-7`
+- **负责人**：backend-engineer#java2（PRODUCT 属主 = `T-005`）
+- **优先级**：P1
+- **依赖**：T-105
+- **估时**：2 人时（依据见「备注」）
+- **来源**：新增（`te-verify-t105` 独立复核「范围外观察」第 2 项，**判缺陷：可见性过宽**；编排者 2026-09-21 裁定立项，项目经理登记）
+- **状态**：TODO
+- **验收标准**：
+  1. **可见品种子查询过滤 `status`**：`DmProductDao` 的可见主键谓词（现 `:181` `id IN (SELECT product_id FROM t_sub_product_whitelist WHERE <scope>)`）**追加 `AND status = 'ENABLED'`** —— 已移出（`DISABLED`）白名单的品种**不得**算入可见集；
+  2. **`GET /product` 与 `GET /product/export` 两处同口径**（均消费同一可见谓词）；
+  3. **用例**：构造「曾入白名单、后置 `DISABLED`」的行 ⇒ 该品种**不出现在**列表与导出；且**移除 `status` 过滤后该用例必红**（反退化自证）；
+  4. `mvn -B -o clean test` **全绿**（**冻结点上**全量，无排除）。
+- **产出**：`java/.../dao/impl/DmProductDao.java`（可见子查询追加 `status` 谓词）＋ 对应测试
+- **备注**：**来源 = `te-verify-t105` 独立复核「范围外观察」第 2 项，判缺陷（可见性过宽 / over-inclusive）** —— 子查询**不带 `status='ENABLED'`**，而「移出白名单 = 置 `DISABLED` 保留历史」，故**已移出品种仍算「可见」**。**跨页 tie-break 与分页稳定性**归 `T-096`（与本任务无关）。**估时判据（项目经理）**：单谓词追加 + 双向用例 ⇒ **2 人时**（与 `T-099` 同档）。**写者边界**：`#java2`（PRODUCT 属主 `T-005`）；**与 `T-105` 同写域**（`DmProductDao`），须**单实例串行**。
+
+### T-118 补齐全局 / 账户级对象写面的功能权限强制点
+
+- **需求追溯**：`FR-AUTH-13` **处理规则**（「跨子账户权限默认只读……**不得执行下单、审批、改配置等操作**」，`docs/REQUIREMENTS/AUTH.md:280`）、`NFR-SEC-7`（子账户软隔离 · 服务端强制）、`R-AUTH-8`（越权尝试必留痕）
+- **负责人**：backend-engineer#java2（PRODUCT 属主 = `T-005`）
+- **优先级**：P0
+- **依赖**：**T-119**（层③断言器：`assertCanConfigureAccountLevel`；**2026-09-21 由 `T-049` 订正而来**）
+- **估时**：5 人时（依据见「备注」）
+- **来源**：新增（`tl-quota-authz` 技术席实测「全局对象写面零门禁」类缺口；用户 2026-09-21 裁定「同类单独立号」；项目经理登记）
+- **状态**：TODO
+- **验收标准**：
+  1. **功能权限强制点落地**：`VarietyService` 的 `createProduct` / `disableProduct` / `enableProduct` / `putUnit` / `putContract` / `putSpotMapping` / `importProducts` **七个写方法**各接入**功能权限断言**（均为**零权限门禁**，现仅字段级 `requireText`）；越权 ⇒ 拒绝（错误码与 `R-AUTH-8` 留痕口径须写明）；
+  2. **判据口径**（依 `FR-AUTH-13` 处理规则）：主体 = **有权配置全局 / 账户级对象者**（财务 / 风控岗或系统管理员，具体口径以 `CH-012` 为准）；**不得**以子账户可见性（`assertSubAccountVisible`）替代（这些方法目标为**全局对象**、非子账户维度）；
+  3. **不得误拒**：合法配置主体仍可写（反向用例）；
+  4. **用例**：每个写方法 ≥ 1 例正分支（有权 ⇒ 成功）+ 1 例反分支（无权 ⇒ 拒绝 + 留痕）；且**移除断言后反分支用例必红**（反退化自证）；
+  5. `mvn -B -o clean test` **全绿**（**冻结点上**全量，无排除）。
+- **产出**：`java/.../service/VarietyService.java`（七个写方法接入功能权限断言）＋ `java/.../service/AuthService.java`（若断言落此）＋ 对应测试
+- **备注（照录 + 依赖/估时判据）**：**同属「全局 / 账户级写面无功能权限强制点」类**；**层③（`ACCOUNT_PRODUCT`，账户哨兵 `0`）的修复不覆盖本类**（层③属**额度**写面、本类属**对象配置**写面）；**需求依据 = `FR-AUTH-13` 处理规则**（「不得执行下单、审批、**改配置**等操作」）。**来源事实（`tl-quota-authz` 实测）**：`createProduct`/`disableProduct`/`enableProduct`/`putUnit`/`putContract`/`putSpotMapping`/`importProducts` **一律零权限门禁**（与层③同源）。**⚠️ 依赖依据（项目经理实测提示、待复核）**：编排者给的依赖 = **`T-049`**（其中含层③实现 `assertCanConfigureAccountLevel`）；**本席实测**：层③机制落在 `VarietyService.putQuota`（**非 `T-049` 的 `FundService`**），且该断言器**当前无任务承载**（`CH-012` 已起草、待用户确认）⇒ **若 `T-049` 不交付该断言器，本任务依赖不成立**；**建议**改依赖「承载 `assertCanConfigureAccountLevel` 的任务（待立号）/ `T-010`（AUTH 功能权限）」，**请编排者复核**（本席按派单原值登记 `T-049`、不擅改）。**估时判据（项目经理）**：七个写方法的断言接入 + 正反双向用例 + 反退化 ⇒ **5 人时**（类比 `T-110` 的 8 处 / 8 人时、`T-098` 的单点 / 3 人时：本类 7 处、单服务、单轴向 ⇒ 取 5 人时）。**写者边界**：`#java2`（PRODUCT 属主 `T-005`）；若断言落 `AuthService` 则涉 `#java` 写权 ⇒ 须按 §5.1「跨实例共享接口须先冻结再并行」与**单写者纪律**协调。
+  **（2026-09-21 依赖订正 · 只加不改）**：原记依赖 `T-049`；经实测，层③断言器 `assertCanConfigureAccountLevel` 由 **`T-119`** 承载（`T-049` 为 `FundService` 域，**不交付该断言**）⇒ **依赖改为 `T-119`**。
+  **📌（2026-09-21 `CH-012` 依赖状态登记 · 只加不改）** 依赖 `CH-012`（层③账户级写面授权口径，**L2 澄清性**）——**用户暂缓确认**（同日裁决）⇒ **`CH-012` 确认前本任务不得开工**。**主体范围已裁定**：可写主体 = **财务/风控岗 或 系统管理员**（**含 `SYS_ADMIN`**；依据 `FR-PRODUCT-11` actor 原文 + 对称先例 `FR-FUND-13` + `INDEX.md §4` 系统管理员职责含「风险阈值」+ `R-AUTH-10` 排除的是「风控**判定**」而非「配置」）——**该范围随 `CH-012` 一并待最终确认**。
+
+### T-119 补齐 `putQuota` **层③**（`ACCOUNT_PRODUCT` / 账户哨兵 `0`）**写面授权门禁**（M1 = 角色近似）
+
+- **需求追溯**：`FR-AUTH-12`（功能权限维度；`AUTH.md` §2）、`FR-AUTH-13`、`NFR-SEC-7`、`R-AUTH-8`（越权尝试必留痕）；`CH-012`（需求侧澄清性变更、**待用户确认**）；依据 `ARCHITECTURE.md` §8.2③ 新增条目（登记时点 `v1.5.11`；**以实时 `md5sum` 为准**）
+- **负责人**：backend-engineer#java（断言器 `assertCanConfigureAccountLevel` 落 `AuthService`）
+- **优先级**：P0
+- **依赖**：`CH-012`（需求侧待用户确认）＋ **播种前置**（`t_role`/`t_user_role` 预置数据须与实现**同批**；现**零播种** ⇒ 否则**全拒 = 误拒**）
+- **估时**：5 人时（依据见「备注」）
+- **来源**：新增（`tl-quota-authz` 技术席层③实测 + 编排者 2026-09-21 裁定立项；**层③断言器原无编号承载** ⇒ 本号补登记）
+- **状态**：TODO
+- **验收标准**：
+  1. **断言器落地**：`AuthService` 新增 `assertCanConfigureAccountLevel(userId)`（M1 = **角色近似**：财务/风控岗 **或** 系统管理员）；`VarietyService.putQuota` 的**层③**（`ACCOUNT_PRODUCT`、目标 = 账户哨兵 `0`）写路径接入该断言；
+  2. **不得套用子账户可见性**：层③目标为**账户级**（哨兵 `0`）⇒ **不适用** `assertSubAccountWritable`（其放行条件 = 「`id ≠ 哨兵 0` 且 `id == 目标`」，与哨兵 `0` **结构性互斥** ⇒ 套用即**误拒**）；
+  3. **失败语义**：无权 ⇒ 拒绝；错误码 **`10003`**（**不新造**）＋ `R-AUTH-8` 留痕；
+  4. **播种**：`t_role`/`t_user_role` 预置数据与实现**同批**交付（否则无权者全拒 = 误拒）；
+  5. **改判既有用例**：同步改写 2 条锁定现状的用例（`VarietyT112VisibilityTest.putQuotaAccountLevelNotSubAccountScoped`、`realAuthServiceAllowsAccountLevelQuota`），注释写明「**旧设计决定已被推翻 + 理由**」；
+  6. **正反双向用例** + **反退化自证**（移除断言 ⇒ 反分支必红）；
+  7. `mvn -B -o clean test` **全绿**（**冻结点上**全量，无排除）。
+- **产出**：`java/.../service/AuthService.java`（`assertCanConfigureAccountLevel`）＋ `java/.../service/VarietyService.java`（层③接线）＋ `docs/DEPLOY/schema/data-init.sql`（AUTH 预设段：`t_role`/`t_user_role`）＋ 对应测试
+- **备注（照录 + 估时判据）**：① **不适用子账户可见性**（`assertSubAccountWritable` 以 `target=0` 调用**无人放行** —— 放行条件为「`id ≠ 哨兵 0` 且 `id == 目标`」，两者**结构性互斥**；**套用即误拒**）；② 归**功能权限维度**（`AUTH.md` §2；`FR-AUTH-12`）；③ **M1 = 角色近似**（财务/风控岗 **或** 系统管理员 ⇒ `AuthService.assertCanConfigureAccountLevel`）→ **M2 = 功能权限 `t_role_permission.perm_code`**；④ **失败码 `10003`**（不新造）＋ `R-AUTH-8` 留痕；⑤ **硬前置：`t_role`/`t_user_role` 播种必须与实现同批**（现为零播种 ⇒ 否则**全拒 = 误拒**）；⑥ **须同步改 2 条锁定现状的用例**（`VarietyT112VisibilityTest.putQuotaAccountLevelNotSubAccountScoped`、`realAuthServiceAllowsAccountLevelQuota`）并在注释写明「旧设计决定已被推翻 + 理由」；⑦ 依据 `ARCHITECTURE.md §8.2③` 新增条目（`v1.5.11`）。**估时判据（项目经理）**：新增断言器 + 层③接线（单点）+ 播种 + 2 条既有用例改判 + 正反双向 + 反退化 ⇒ **5 人时**（与 `T-102` 同档：单服务写面 + 断言器接线 + 双向用例；高于 `T-098` 单点 3 人时，因含**播种前置**与**既有用例改判**）。**写者边界**：断言器落 `AuthService` ⇒ **`#java` 写权**；`VarietyService` 属 `#java2` ⇒ **跨写域**，须按 §5.1「契约冻结先于并行」与**单写者纪律**协调（**同一 `java/**`、同一时刻只允许一实例写**）。
+  **📌（2026-09-21 `CH-012` 依赖状态登记 · 只加不改）** 依赖 `CH-012`（层③账户级写面授权口径，**L2 澄清性**）——**用户暂缓确认**（同日裁决）⇒ **`CH-012` 确认前本任务不得开工**。**主体范围已裁定**：可写主体 = **财务/风控岗 或 系统管理员**（**含 `SYS_ADMIN`**；依据 `FR-PRODUCT-11` actor 原文 + 对称先例 `FR-FUND-13` + `INDEX.md §4` 系统管理员职责含「风险阈值」+ `R-AUTH-10` 排除的是「风控**判定**」而非「配置」）——**该范围随 `CH-012` 一并待最终确认**。
+
+### T-120 `E4` 判据接线落地（默认根改三目录集合 `cpp/src/{order_engine,risk_engine,risk_state}` + `arch-check.sh` / `README` 同步）
+
+- **需求追溯**：`ARCHITECTURE.md` §3.0.2 `E4` 脚注④（**诚实披露**：判据默认扫描根口径）+ `§3.13`（判据脚本聚合入口 `arch-check.sh` + CI 接线）、`NFR-PERF-1`（交易路径无锁 / 无动态分配 / 无同步 I/O）、`NFR-MAINT-4/6`
+- **负责人**：tech-lead
+- **优先级**：P0
+- **依赖**：`T-031`（C++ 骨架 + `tools/arch-check/arch-check.sh` 聚合入口与 CI 接线）
+- **估时**：3 人时
+- **来源**：新增（`tl-e4-scope` 的 `ARCHITECTURE.md` §3.0.2 `E4` 脚注④「诚实披露」+ 独立复核 `te-verify-t031` 第 2 点；**判为独立任务、非 `T-031` 缺陷**）
+- **状态**：**DONE（授权 + 独立验证）**〔第 34 轮〕（**首轮复核** `te-verify-t120` = **有条件通过**〔缺陷 `TE-T120-001`〕→ `tl-t120` **补修**〔`README` 订正 + `ARCHITECTURE.md` §3.0.2 `E4` 脚注 ⑥「残留风险（已接受）」〕→ **delta 复检 = 通过、0 缺陷**；**编排者 2026-09-21 授权**。**验收证据**：`E4` 由 `SKIP` → **实扫（`N=6`）**、聚合退 `0`、六条 `0/0/0/0/0/0`；`scan_lock_free.sh` 整文件 md5 与首轮冻结点**逐字节相同** ⇒ **判定段未变**；`java/src` / `cpp/src` **零改动**。**空-SDK 全新配置硬证据**：`CTP_USE_FETCH_DEPS=OFF/ON` 两轨 `ctp_smoke` 均 **0 个 `add_test`**（代码链 `cpp/CMakeLists.txt:54 add_subdirectory(ctp_smoke)` **早于** `:61 include(HgDependencies)` ⇒ fetch 逻辑**结构上不影响** `rsk02` 注册）；**`:128` 为注册守卫**（首轮 `:129` 系笔误、已更正）。**补修后锚点（以实时 `md5sum` 为准）**：`tools/arch-check/README.md` `04523ee239b22da61a49c5241762fc01` / 220 行；`docs/ARCHITECTURE.md` `3c7e2e1ac202698cb453bbf2e1b302e5` / **2780 行**（**仍 `v1.5.13`**、**同轮追加未升版**〔与 `v1.5.7` / `v1.5.11` 同轮追加先例一致〕）；`scan_lock_free.sh` `64fb6c1a…` / 277、`arch-check.sh` `306daf0a…` / 126 **未变**。**证据章落点（分支 B）**：`docs/TEST_RESULT.md` 章 ``# `T-031` / `T-120` 独立复核证据（事后补录，2026-09-21）``（**由 `te-verify-t120` 落笔**；**已落**：章起 `:2115`、止 `:2256`；文件 `5e94243cb4e5ba02242904aa666f95f7` / **2256 行**〔登记时点；**以实时 `md5sum` 为准**〕；**纯追加已证**〔`head -2111 | md5sum` = 追加前基线 `fac8b8da…`〕；原登记时点该章尚未落）。）
+- **验收标准**：
+  1. **默认扫描根改三目录集合**：`E4` 脚本（`tools/arch-check/scan_lock_free.sh`）默认根由「指向**永不存在的老路径**」改为 **`cpp/src/{order_engine,risk_engine,risk_state}`**（T4 热路径三模块；「交易路径」定义 = **执行在 T4 上的代码**），依据 `ARCHITECTURE.md` §3.0.2 `E4` 脚注④（`v1.5.12`；**以实时 `md5sum` 为准**）；
+  2. **聚合入口与说明同步**：`tools/arch-check/arch-check.sh` 调用 `E4` 时**传 `--root`**（三目录集合）或使默认根生效；`tools/arch-check/README.md` 同步；
+  3. **判据不再空转**：真仓库运行 `E4` **退出码非 `SKIP`**（对三目录集合实际生效）；负例（临时摘除 `--root` / 默认根回退，或向三目录注入 `fsync`/动态分配/同步 I/O）**必须变红**（反退化自证）；
+  4. **不误报**：父目录 `cpp/src` 作根**已实测证伪**（3 处合法 `fsync`/`send`/`recv` 被误判为红）⇒ 改判据默认根，对交易路径三目录外的合法调用**不得**误判为红；
+  5. `bash -n` 通过；`E4` 的 `exit` 语义与其余五脚本统一（显式不存在 ⇒ `2`、默认 ⇒ `0` `SKIP`）。
+- **产出**：`tools/arch-check/scan_lock_free.sh`（默认根）+ `tools/arch-check/arch-check.sh`（`E4` 传根）+ `tools/arch-check/README.md` + 自测记录
+- **备注**：**来源事实** —— 独立复核 `te-verify-t031` 第 2 点发现 **`E4` 恒 `SKIP`**（**判据未生效**）：默认根指向**永不存在的老路径**，且聚合入口 `arch-check.sh` **不传 `--root`** ⇒ 判据在 CI 中**空转**；扫描根口径由 `tl-e4-scope` 裁定 = **`cpp/src/{order_engine,risk_engine,risk_state}`**，`ARCHITECTURE.md` `v1.5.12` 已登记（**以实时 `md5sum` 为准**）。**边界**：本任务**仅动判据默认根 / 聚合入口 / README**，**不改 `E4` 检测逻辑**（`scan_lock_free.sh` 判定段归 `T-092`/`T-095`）；**判为独立任务、非 `T-031` 缺陷**（`T-031` 交付的聚合入口 + CI 接线**本身成立**，缺的是「默认根口径落地」这一独立工作项）。**⬆ 判据脚本落点边界（立号前已实测全表）**：`T-092`（`DONE`）= `E4` 脚本**本体**、`T-095`（`DONE`）= 六脚本**形态 / 退出码一致性收口**、`T-031`（`TODO`）= 聚合入口 + CI 接线 —— **三者均不含「改判据默认根」**。**写者边界**：`tools/**` 与 `docs/ARCHITECTURE.md` 由 `tech-lead` 单写者持有（**同一时刻只允许一实例写**）。
+  **📌（2026-09-21 `T-120` 交付登记 · 只加不改）** **冻结点 `2026-09-21 18:25:01`**（三次取样至 `18:26:07` 不变）；交付物与指纹（**均以实时 `md5sum` 为准**）：`tools/arch-check/scan_lock_free.sh`（277 行 / `64fb6c1a99583ce73c0e4a1c54758a69`）、`tools/arch-check/arch-check.sh`（126 行 / `306daf0aca2e625243ad16e562a1641a`）、`tools/arch-check/README.md`（211 行 / `8a68c9ab4b40198db8c39f06b7e7646c`）、`docs/ARCHITECTURE.md`（**升版 `v1.5.13`**，2774 行 / `4b7d5602f6be68f7243c450a5e2d9158` —— 本任务立项时所述「登记时点 `v1.5.12`」为该轮事实；**现行以实时 `md5sum` 为准**）。**实现要点**：默认扫描根 = `cpp/src/{order_engine,risk_engine,risk_state}` **并集**；`SKIP` 条件 = 三目录**全部**不存在；显式 `--root` 单目录语义与「不存在 ⇒ 退 `2`」护栏不变；`arch-check.sh` **逻辑零改动**（仅注释 / `usage`）；**判定段逐字节未变**（`STRIP_AWK` `2d45b42d…` / `DETECT_AWK` `93257337…` / `WARN_RE` `a676da63…`）。**自测（产出方自述，待独立复核）**：聚合退 `0`、六脚本 `0/0/0/0/0/0`、**`E4` 实扫「待扫描文件: 6 个」（非 `SKIP`）**；注入 `std::mutex` ⇒ `1`、删净 ⇒ `0`；`--root /no/such` ⇒ `2`；`E4` 现随 `ctest` fixture `arch_check`（`cpp/CMakeLists.txt:75`）与 `mvn validate`（`java/pom.xml` exec）**实际执行** ⇒ `NFR-SEC-9` 的 `E4` 一项现成立。**`ARCHITECTURE.md` `v1.5.13`**：§3.0.2 `E4` 表行 + 脚注④ 由「恒 `SKIP` = 未生效」回写为「已接线 / 已生效」+ §13 新增 `v1.5.13` 行 + 抬头「编写时间」追加；**`FR` 计数 `184` 未变、消息 40 / 错误码 62 未变、线格式 `VER` 仍 `0x0100`；`java/**`、`cpp/**` 零改动**。**状态 = 已完成，待独立复核**（`te-verify-t120` 进行中；**不置 `DONE`**）。
+  **📌（2026-09-21 `T-120` 补修 delta 登记 · 只加不改）** **`te-verify-t120` 首轮复核 = 有条件通过（= 退回）**；`tl-t120` 已完成**两项订正**（冻结于 `2026-09-21 18:34:26`，三次取样不变）。**补修后锚点（均以实时 `md5sum` 为准）**：`tools/arch-check/README.md` = **`04523ee239b22da61a49c5241762fc01` / 220 行**（原 `8a68c9ab…` / 211，**旧值为历史**）、`docs/ARCHITECTURE.md` = **`3c7e2e1ac202698cb453bbf2e1b302e5` / 2780 行**（原 `4b7d5602…` / 2774，**旧值为历史**；**仍 `v1.5.13`，同轮追加、未升 `v1.5.14`** ⇒ 本任务立项主引用「登记时点 `v1.5.12`」**不变**）；`tools/arch-check/scan_lock_free.sh`（`64fb6c1a…` / 277）与 `arch-check.sh`（`306daf0a…` / 126）**未变**。⚠️ `README.md` 在首提 `59b6f70` 中**未跟踪**（`git status` = `??`）⇒ 只能以 `md5` + 行数复现。**补修内容三笔**：① **`TE-T120-001`（一般，首轮复核提出）已订正** —— `README.md` 删去「`FetchContent` 取回 CTP」这一**错误理由**；三轨表**增 `CTP_SDK_ROOT` 列**并标明 `6/6` 为**条件性结果**（前置 = 该构建目录的 `CTP_SDK_ROOT` 指向含 `ThostFtdcUserApi.h` 的目录 ⇒ `CTP_FOUND=ON`）；表前增「注册条件」块、表后增「**不是恒真**」警示。② **`ARCHITECTURE.md` §3.0.2 `E4` 脚注新增 ⑥「残留风险（已接受）」**（`:383` 起，只加不改）—— 登记「默认扫描根**部分缺席**时只扫现存者、退出码仍 `0`」的残留风险 + **编排者裁定**（不采纳「改退出码」：与 `v1.5.12` 既定口径冲突 / 会把「组件尚未铺开」误判为架构偏离 / 已非完全静默）+ 三条理由。③ **兜底判定结论（`tl-t120` 实测）=「部分兜底；对『已同步的完整迁移』无兜底」** —— **有效兜底**（覆盖「删 / 改名**未同步**」）：`cpp/src/CMakeLists.txt` 逐一 `add_subdirectory(<mod>)` + 链入 `hg-trading` + `cpp/src/main.cc` 逐一 `#include "hg/<mod>/module.h"` ⇒ **构建失败（CI 红）、不静默**；**部分兜底**（`hg.skeleton_modules`）：只断言六模块 `module_name()` **字面量**，**不**把 `E4` 扫描根集合与实际目录绑定；**⇒ 对「改名并同步更新 `CMakeLists` / 包含路径」的完整迁移：当前无自动化兜底**，由**代码审查**承接（**承接点 = `T-060` 验收标准第 6 条**）；另 `E1`/`E2`/`E3` 均**按内容扫描、不钉目录名**，`E6` 只扫 `web` ⇒ **§3.1–§3.6 无其它目录名强制点**。**状态 = 已完成，待独立复核**（**delta 复检**尚未回；**不置 `DONE`**）。
 
 ## 3. 依赖图与关键路径
 
@@ -2302,6 +2447,7 @@ T-093（E6）──────────────────────�
 T-095（E2）──────────────────────────> tools/arch-check/scan_cpp_sql.sh（按 E5 同法收紧）
         （E5 已落地 scan_java_sql.sh）
         消费方：T-060 / T-088（E1~E6 全量审查）、T-031（接入构建与 CI）
+T-031 ──> T-120（**`E4` 判据接线落地**：默认根改 **`cpp/src/{order_engine,risk_engine,risk_state}`** + `arch-check.sh` 传 `--root` + `README` 同步；来源 = `tl-e4-scope` E4 扫描根裁定〔`ARCHITECTURE.md` `v1.5.12`〕+ `te-verify-t031` 第 2 点「`E4` 恒 `SKIP`」；`#tech-lead`，M2 窗口）
 
 [ M2 公共件与安全强制点 —— 架构裁定落点（依赖：`T-096`~`T-099` 依赖无；`T-100` 依赖 `T-016`；`T-101`/`T-102` 依赖 `T-100`；`T-103` 依赖 `T-101`；`T-104` 依赖 `T-103`；`T-105`/`T-106`/`T-107` 依赖 `T-100`；`T-108` 依赖 `T-004`）]
 T-096（`PageQuery` 缺省排序方向重载，向后兼容）
@@ -2324,6 +2470,8 @@ T-100 ✔ ──> T-105 / T-106 / T-107（**PRODUCT / SPOT 读取面口径收口
         ── 出处：`FR-PRODUCT-5`/`FR-PRODUCT-6`/`FR-PRODUCT-8`/`FR-PRODUCT-11`（`PRODUCT.md`）+ `FR-SPOT-15`（`SPOT.md:312`~`:325`）+ `FR-AUTH-13` / `NFR-SEC-7`；**载体裁定** = `t_sub_product_whitelist`（`m1_product.sql:160`–`:188`，编排者查实「疑似→确定」）
            ⚠️ 写者边界：`VarietyService`/`ProductHandler`/`QuotaHandler`/`SpotService`/`SpotExposureHandler`/`DmProductDao`/`DmExposureDao` 属 **`#java2`**（PRODUCT/SPOT 属主 `T-005`/`T-006`）；与 `#java` 链**同一 `java/**`、同一时刻只允许一实例写**
            🔒 `#java2` 串行顺序（编排者 2026-09-21）：`T-016`(CR-002 修复，严重级优先) → `T-105` → `T-106` → `T-107` → `T-108`（DAO 实现补齐，依赖 `T-004`）→ `T-109` ✔ → `T-110` ✔（SPOT 写面可见性强制）→ `T-112`（写路径可见性全域收口：PRODUCT + PLAN 写面）→ `T-113`（SPOT 现货单据 `subAccountId` 缺省错误呈现修正）→ `T-111`（敞口推导引擎 + `FR-SPOT-16` 验收 1 回填）
+           🔒 **第 28 轮新增（均 `#java2`）**：`T-105 ✔` ──> **`T-116`**（PRODUCT 读取面「需求面 > 实现面」缺口：`FR-PRODUCT-5` 输出列「子账户 / 最近变更时间」+ `FR-PRODUCT-8` 导出与列表筛选一致；来源 = `te-verify-t105` 范围外观察第 1/3 项）；`T-105 ✔` ──> **`T-117`**（PRODUCT 白名单可见性 **over-inclusive** 修正：可见子查询补 `status='ENABLED'`，已移出品种不再算「可见」；来源 = `te-verify-t105` 范围外观察第 2 项，**判缺陷**）；**`T-118`**（补齐全局 / 账户级对象写面功能权限强制点：`createProduct`/`disableProduct`/`enableProduct`/`putUnit`/`putContract`/`putSpotMapping`/`importProducts` 现**零权限门禁**；来源 = `tl-quota-authz` 实测 + 用户「同类单独立号」裁定；**依赖依据 T-049 待复核**）
+           🔒 **第 29 轮新增 / 订正**：**`T-119`**（补齐 `putQuota` 层③〔`ACCOUNT_PRODUCT` / 账户哨兵 `0`〕**账户级写面授权门禁**：`AuthService.assertCanConfigureAccountLevel`〔M1 角色近似〕+ 层③接线 + `t_role`/`t_user_role` 播种同批；**`#java`**〔断言器落 `AuthService`〕/M1/P0/**5 人时**；依赖 `CH-012`〔需求侧待确认〕+ 播种前置）；**`T-118` 依赖由 `T-049` 订正为 `T-119`**（层③断言器原无编号承载）。
 T-004 ✔ ──> T-108（补齐 **AUTH 3 个**未实现 DAO 的实现类：`PermissionChangeLogDao`/`PositionGroupDao`/`RolePermissionDao`；`AuthorizationDao` 由 `T-016` 顺带实现；CONFIG 侧 4 个已由 `T-109` 交付〔第 19 轮收窄〕；**新建 `dao/impl/Dm*.java`，不改接口签名**）
 
 [M2 双组件开发 —— 依赖 T-030]
@@ -2384,8 +2532,8 @@ T-001 ✔ → T-089 ✔ → T-002 → T-003 → T-004 → T-007 → T-015 → T-
 
 | 里程碑 | 模块范围 | 组件归属 | **前置门禁** | 包含任务 | 交付物 | 验收方式 |
 |--------|---------|---------|-------------|---------|--------|---------|
-| **M1** | ①品种 `PRODUCT`(8 表) + ②现货 `SPOT`(10 表) + ③套保计划 `PLAN`(8 表) + ⑩权限 `AUTH`(13 表) + ⑪配置 `CONFIG`(7 表) + **子账户体系** | **Java**（`#java` 实时链 + `#java2` 台账链，`R-12` 预案 A）+ 前端 | **M1 门禁 = 数据模型三方会签**（✅ 已达成）+ **最终锚定 v1.3.2 `99b647ec…`（T-089 ✅）→ T-002 两席无条件确认闭环 ✅**；`R-12` 已裁决（预案 A），**首发工单已派发** | T-001 ~ T-025 + **T-089** + **`T-109`**（「已声明未注册」端点补齐，CONFIG 9 / SPOT 5 / PLAN 1；`#java2`，M1 窗口） + **`T-110`**（SPOT 写面（`T-013` 范围）子账户可见性强制，`#java2`，M1 窗口，**依赖 `T-109`**；来源 = `te-verify-t109c` 探索性新发现 (A)）+ **`T-112`**（写路径子账户可见性强制的全域收口〔PRODUCT 写面 + PLAN 写面〕，`#java2`，M1 窗口，**依赖 `T-110`**；来源 = `te-verify-t110` 域外同类复核）+ **`T-113`**（修正 SPOT 现货单据创建 `subAccountId` 缺省时的错误呈现〔NPE→500 ⇒ 应「子账户必填」〕，`#java2`，M1 窗口，归属 `T-013`；来源 = `te-verify-t110` 域外同类复核）+ **`T-114`**（补齐 `POST /spot/exposure/recalc`（`recalcForDisplay`）的子账户可见性强制，`#java2`，M1 窗口，**依赖 `T-110`**；来源 = `T-112` 实施者第 3 步全仓写路径扫描）+ **`T-115`**（修正 `CROSS_READONLY` **写面**放行〔写路径拒绝跨账户只读身份；读面语义不变〕，`#java`，M1 窗口，**依赖 `T-102`/`T-110`/`T-112`**；来源 = `te-verify-t112` 独立复核缺陷①）（**32**；其中 `T-115` 已 `REJECTED`〔重复立项、成果归 `T-098`、编号留痕、不计人时〕） | 品种/现货/敞口/计划/权限/配置/子账户功能 + DM8 DAO 层 + 前端页面 | 创建 2 子账户 → 配置品种与敞口 → 产出计划；验证子账户隔离；DM8 正确落库（T-024） |
-| **M2** | ④交易 `TRADE`(9 表) + ⑤结算 `SETTLE`(16 表) + ⑨资金 `FUND`(9 表) | **C++ + Java**（双组件联调） | **M2 门禁 = TCP 协议冻结**（✅ HGCP v1.0.1 FROZEN；消息集 40 / 错误码 62 不变，`CH-007`）+ **3 项探路（T-026 / T-027 / T-028）+ 汇签（T-030）**（`T-029` `REJECTED`） | T-026 ~ T-060（35，其中 `T-029` 已取消、计 0 人时）+ **T-090 ~ T-093**（4，架构 §3.0.2 判据 E1/E3/E4/E6 落点，M2 首周批）+ **T-095**（1，`E2` 判据按 `E5` 同法收紧，M2 窗口）+ **`T-096` ~ `T-099`**（4，架构 §4.1.1 两项约定 + §8.2 强制点／机制订正落点，`#java`，M2 窗口）+ **`T-100`**（1，架构 §8.2①③④ **主落点**：`GET /plan` 读取面隔离装配，`#java`，M2 窗口，**依赖 `T-016`**）+ **`T-101`**（1，架构 §8.2③「其余读取面」通则落点：`GET /plan/{id}/trade-plans` 读取面隔离装配，`#java`，M2 窗口，**依赖 `T-100`**）+ **`T-102`**（1，写面**子账户可见性 / 交易权限强制补齐**：`assertSubAccountVisible` 与 `assertCanTrade` 未接线 + `withdraw` 发起人校验缺失 + **第 3 轮再扩 ④** `decomposeTradePlans` 写路径读取未 scope，`#java`，M2 窗口，**依赖 `T-100`**）+ **`T-103`**（1，`GET /plan/{id}/trade-plans` **补分页/筛选/排序**〔按 `FR-PLAN-15` 输入列〕，`#java`，M2 窗口，**依赖 `T-101`**）+ **`T-104`**（1，`FR-PLAN-15` **处理规则**两项〔**剩余可下单量** + **已达上限标记**〕（含前端展示，另派），`#java`，M2 窗口，**依赖 `T-103`**）+ **`T-105`**（1，PRODUCT **列表类**读取面口径收口，`#java2`，M2 窗口，**依赖 `T-100`**）+ **`T-106`**（1，PRODUCT **单对象**读取面隔离，`#java2`，M2 窗口，**依赖 `T-100`**）+ **`T-107`**（1，SPOT 读取面口径收口，`#java2`，M2 窗口，**依赖 `T-100`**）+ **`T-108`**（1，补齐 **AUTH 3 个**未实现 DAO 的实现类〔第 19 轮收窄：原「CONFIG+AUTH 7 个」，CONFIG 侧 4 个由 `T-109` 交付〕，`#java2`，M2 窗口，**依赖 `T-004`**）+ **`T-111`**（1，**服务端敞口推导引擎** + 回填 `FR-SPOT-16` 验收 1〔变更后重算敞口〕，`#java2`，M2 窗口，**依赖 `T-109`**；来源 = `TE-T109-005`）= **54** | C++ 交易组件（CTP/事前风控/指令流水/重放/HGCP）+ Java 桥接与业务服务 + 前端 + **`tools/arch-check/` 判据脚本** | CTP 模拟盘期货开平 + 期权策略，每单可追溯子账户与计划；交易路径零 DB 访问；子账户加总一致；划拨后加总不变（T-058） |
+| **M1** | ①品种 `PRODUCT`(8 表) + ②现货 `SPOT`(10 表) + ③套保计划 `PLAN`(8 表) + ⑩权限 `AUTH`(13 表) + ⑪配置 `CONFIG`(7 表) + **子账户体系** | **Java**（`#java` 实时链 + `#java2` 台账链，`R-12` 预案 A）+ 前端 | **M1 门禁 = 数据模型三方会签**（✅ 已达成）+ **最终锚定 v1.3.2 `99b647ec…`（T-089 ✅）→ T-002 两席无条件确认闭环 ✅**；`R-12` 已裁决（预案 A），**首发工单已派发** | T-001 ~ T-025 + **T-089** + **`T-109`**（「已声明未注册」端点补齐，CONFIG 9 / SPOT 5 / PLAN 1；`#java2`，M1 窗口） + **`T-110`**（SPOT 写面（`T-013` 范围）子账户可见性强制，`#java2`，M1 窗口，**依赖 `T-109`**；来源 = `te-verify-t109c` 探索性新发现 (A)）+ **`T-112`**（写路径子账户可见性强制的全域收口〔PRODUCT 写面 + PLAN 写面〕，`#java2`，M1 窗口，**依赖 `T-110`**；来源 = `te-verify-t110` 域外同类复核）+ **`T-113`**（修正 SPOT 现货单据创建 `subAccountId` 缺省时的错误呈现〔NPE→500 ⇒ 应「子账户必填」〕，`#java2`，M1 窗口，归属 `T-013`；来源 = `te-verify-t110` 域外同类复核）+ **`T-114`**（补齐 `POST /spot/exposure/recalc`（`recalcForDisplay`）的子账户可见性强制，`#java2`，M1 窗口，**依赖 `T-110`**；来源 = `T-112` 实施者第 3 步全仓写路径扫描）+ **`T-115`**（修正 `CROSS_READONLY` **写面**放行〔写路径拒绝跨账户只读身份；读面语义不变〕，`#java`，M1 窗口，**依赖 `T-102`/`T-110`/`T-112`**；来源 = `te-verify-t112` 独立复核缺陷①）（**33**；其中 `T-115` 已 `REJECTED`〔重复立项、成果归 `T-098`、编号留痕、不计人时〕；+ **`T-119`**（1，补齐 `putQuota` 层③账户级写面授权门禁，`#java`，M1 窗口，**依赖 `CH-012` + 播种前置**；来源 = `tl-quota-authz` 层③实测）） | 品种/现货/敞口/计划/权限/配置/子账户功能 + DM8 DAO 层 + 前端页面 | 创建 2 子账户 → 配置品种与敞口 → 产出计划；验证子账户隔离；DM8 正确落库（T-024） |
+| **M2** | ④交易 `TRADE`(9 表) + ⑤结算 `SETTLE`(16 表) + ⑨资金 `FUND`(9 表) | **C++ + Java**（双组件联调） | **M2 门禁 = TCP 协议冻结**（✅ HGCP v1.0.1 FROZEN；消息集 40 / 错误码 62 不变，`CH-007`）+ **3 项探路（T-026 / T-027 / T-028）+ 汇签（T-030）**（`T-029` `REJECTED`） | T-026 ~ T-060（35，其中 `T-029` 已取消、计 0 人时）+ **T-090 ~ T-093**（4，架构 §3.0.2 判据 E1/E3/E4/E6 落点，M2 首周批）+ **T-095**（1，`E2` 判据按 `E5` 同法收紧，M2 窗口）+ **`T-096` ~ `T-099`**（4，架构 §4.1.1 两项约定 + §8.2 强制点／机制订正落点，`#java`，M2 窗口）+ **`T-100`**（1，架构 §8.2①③④ **主落点**：`GET /plan` 读取面隔离装配，`#java`，M2 窗口，**依赖 `T-016`**）+ **`T-101`**（1，架构 §8.2③「其余读取面」通则落点：`GET /plan/{id}/trade-plans` 读取面隔离装配，`#java`，M2 窗口，**依赖 `T-100`**）+ **`T-102`**（1，写面**子账户可见性 / 交易权限强制补齐**：`assertSubAccountVisible` 与 `assertCanTrade` 未接线 + `withdraw` 发起人校验缺失 + **第 3 轮再扩 ④** `decomposeTradePlans` 写路径读取未 scope，`#java`，M2 窗口，**依赖 `T-100`**）+ **`T-103`**（1，`GET /plan/{id}/trade-plans` **补分页/筛选/排序**〔按 `FR-PLAN-15` 输入列〕，`#java`，M2 窗口，**依赖 `T-101`**）+ **`T-104`**（1，`FR-PLAN-15` **处理规则**两项〔**剩余可下单量** + **已达上限标记**〕（含前端展示，另派），`#java`，M2 窗口，**依赖 `T-103`**）+ **`T-105`**（1，PRODUCT **列表类**读取面口径收口，`#java2`，M2 窗口，**依赖 `T-100`**）+ **`T-106`**（1，PRODUCT **单对象**读取面隔离，`#java2`，M2 窗口，**依赖 `T-100`**）+ **`T-107`**（1，SPOT 读取面口径收口，`#java2`，M2 窗口，**依赖 `T-100`**）+ **`T-108`**（1，补齐 **AUTH 3 个**未实现 DAO 的实现类〔第 19 轮收窄：原「CONFIG+AUTH 7 个」，CONFIG 侧 4 个由 `T-109` 交付〕，`#java2`，M2 窗口，**依赖 `T-004`**）+ **`T-111`**（1，**服务端敞口推导引擎** + 回填 `FR-SPOT-16` 验收 1〔变更后重算敞口〕，`#java2`，M2 窗口，**依赖 `T-109`**；来源 = `TE-T109-005`）+ **`T-116`**（1，PRODUCT 读取面「需求面 > 实现面」缺口：`FR-PRODUCT-5` 输出列 + `FR-PRODUCT-8` 导出筛选一致，`#java2`，M2 窗口，**依赖 `T-105`**；来源 = `te-verify-t105` 范围外观察）+ **`T-117`**（1，PRODUCT 白名单可见性 over-inclusive 修正〔可见子查询补 `status='ENABLED'`〕，`#java2`，M2 窗口，**依赖 `T-105`**；来源 = `te-verify-t105` 范围外观察）+ **`T-118`**（1，补齐全局 / 账户级对象写面功能权限强制点，`#java2`，M2 窗口，**依赖 `T-049`**；来源 = `tl-quota-authz` 实测）+ **`T-120`**（1，**`E4` 判据接线落地**〔默认根改 `cpp/src/{order_engine,risk_engine,risk_state}` + `arch-check.sh` / `README` 同步〕，`tech-lead`，M2 窗口，**依赖 `T-031`**；来源 = `tl-e4-scope` E4 扫描根裁定〔`ARCHITECTURE.md` `v1.5.12`〕+ `te-verify-t031` 第 2 点）= **58** | C++ 交易组件（CTP/事前风控/指令流水/重放/HGCP）+ Java 桥接与业务服务 + 前端 + **`tools/arch-check/` 判据脚本** | CTP 模拟盘期货开平 + 期权策略，每单可追溯子账户与计划；交易路径零 DB 访问；子账户加总一致；划拨后加总不变（T-058） |
 | **M3** | ⑥风险控制 `RISK`(11 表) + ⑦审计 `AUDIT`(8 表) | **C++（事前，M2 已交付）+ Java（事中/事后）** | 依赖 M2 交付（`T-030` 后的事前风控引擎 T-035） | T-061 ~ T-075 + T-094（16） | 事中/事后风控与风险报表、规则校验与红线、全链路追溯、违规筛查、报表导出 | 逐类构造超限场景验证阻断；验证事中风控告警；崩溃恢复不产生超额下单；导出季度报表与追溯报告（T-073/T-074） |
 | **M4** | ⑧套保会计 `ACCT`(12 表) + 实盘验证 + 硬化 | **Java + 系统级** | 依赖 M3 交付 | T-076 ~ T-088（13） | CAS 24/IFRS 9 文档、有效性评估与再平衡、凭证草稿、双侧盈亏、证据链导出、安全加固、实盘运行 | 生成完整会计文档包；实盘运行 1–2 个月无违规告警；安全审计通过；换库可行性与断网终验（T-085~T-087） |
 
@@ -2399,30 +2547,29 @@ T-001 ✔ → T-089 ✔ → T-002 → T-003 → T-004 → T-007 → T-015 → T-
 | 角色 | 负责任务数 | 合计估时 | 负荷评估 |
 |------|-----------|---------|---------|
 | `backend-engineer#cpp` | 13 | **268 人时**（约 33.5 人天） | 高。集中于 M2；`T-032`/`T-035`/`T-036` 为最长链，**单点风险**，须优先投入。**`CH-006` 两笔已扣**：`T-029` 取消（-8 人时）、`T-040` 改派 `#java`（-16 人时） |
-| `backend-engineer#java`（主 · **实时与交易链**） | 24 | **304 人时**（约 38.0 人天） | 高。骨架/DAO 基座/桥接/交易执行/事中风控/RISK 参数与复算/安全加固 + **行情 WebSocket 服务端（生产级，`CH-006` 定界移入 `T-040`，+16 人时）**；**M1 关键路径 `T-003`→`T-004` 由本席先行交付并冻结接口**（`R-12` 预案 A 已生效）。**2026-09-20 `T-061` 范围收窄**：首增量 `t_param_dispatch` 单表 20 → **2 人时**（-18），余 10 张表转 `T-094`（待指派）。**2026-09-21 新增 `T-096`~`T-099`**（2 / 4 / 3 / 2 人时 = **+11 人时**，架构 §4.1.1 两项约定 + §8.2 强制点／机制订正落点，M2 窗口）；**2026-09-21 新增 `T-100`**（4 人时，架构 §8.2①③④ **主落点**：`GET /plan` 读取面隔离装配，依赖 `T-016`，M2 窗口）；**2026-09-21 新增 `T-101`**（3 人时，架构 §8.2③「其余读取面」通则落点：`GET /plan/{id}/trade-plans` 读取面隔离装配，**相邻残余缺口**，依赖 `T-100`，M2 窗口）；**2026-09-21 新增 `T-102`**（**5 人时**，写面**子账户可见性 / 交易权限强制补齐**：`AuthService.assertSubAccountVisible` 与 `assertCanTrade` 未接线 + `PlanService.withdraw` 发起人校验缺失 + **第 3 轮再扩 ④** `PlanService.decomposeTradePlans`（`:786`）写路径读取未 scope；`T-100` 专项复核 `EXP-T100-1` 同族发现 + `T-101` 交付披露；依赖 `T-100`，M2 窗口）；**2026-09-21 新增 `T-103`**（4 人时，`GET /plan/{id}/trade-plans` **补分页/筛选/排序**〔按 `FR-PLAN-15` 输入列，`PLAN.md:321`〕；来源 = `T-101` 独立复核 `EXP-T101-1`；依赖 `T-101`，M2 窗口）；**2026-09-21 新增 `T-104`**（2 人时，`FR-PLAN-15` **处理规则**两项〔**剩余可下单量** + **已达上限标记**〕；被 `T-101`/`T-103` **两次**判为「非本任务范围」⇒ 单独立号以免持续掉队；依赖 `T-103`，M2 窗口）；**2026-09-21 `T-096` 估时上修**（**2 → 3 人时**，追加「稳定排序」能力，来源 = `T-103` 交付披露 (b)：分页 `ORDER BY` 仅单列、无唯一 tie-break）；**2026-09-21 第 24 轮新增 `T-115`**（**+6 人时**，修正 `CROSS_READONLY` **写面**放行〔写路径拒绝跨账户只读身份；读面语义不变〕；来源 = `te-verify-t112` 独立复核缺陷①（高·真绕过）；依赖 `T-102`/`T-110`/`T-112`，M1 窗口）；**2026-09-21 第 25 轮 `T-115` 判 `REJECTED`**（重复立项、编号留痕、**不计人时**）⇒ **−6 人时**（**310 → 304**） |
-| `backend-engineer#java2`（新 · **台账与合规链**） | 39 | **607 人时**（约 75.9 人天） | **最高**。品种/现货/敞口/计划 → 结算/资金 → 审计 → 会计全链；**待 `#java` 冻结 `T-003`/`T-004` 接口后并行开工**，其解阻点仍由 `#java` 承担（见 §5.1）。**2026-09-21 第 11 轮新增 `T-105`/`T-106`/`T-107`**（**+5 +2 +4 = +11 人时**，PRODUCT/SPOT **读取面口径收口**，`tl-triage` 普查 + 编排者裁定，M2 窗口）；另**承接 `T-016` 的 `CR-002` 修复**（严重级，写作属主 = `#java2`）；**2026-09-21 第 15 轮新增 `T-108`**（**+8 人时**，补齐 CONFIG+AUTH **7 个**未实现 DAO 的实现类，来源 = `T-016`/`CR-002` 实施受阻连带发现，M2 窗口；**第 19 轮范围收窄为 AUTH 3 个**，CONFIG 侧 4 个由 `T-109` 交付）；**2026-09-21 第 16 轮新增 `T-109`**（**+12 人时**，补齐 CONFIG/SPOT/PLAN「已声明未注册」端点 **15** 条〔CONFIG 9 / SPOT 5 / PLAN 1〕，**M1 窗口**，依赖 `T-005`/`T-006`/`T-007`，来源 = 对齐普查 `audit-cov`）；**2026-09-21 第 21 轮新增 `T-110`/`T-111`**（各 **8 人时** = **+16 人时**；`T-110` = SPOT 写面（`T-013` 范围）**子账户可见性强制**〔M1 窗口〕、`T-111` = **服务端敞口推导引擎** + 回填 `FR-SPOT-16` 验收 1〔M2 窗口〕，均依赖 `T-109`）；**2026-09-21 第 22 轮新增 `T-112`/`T-113`**（`T-112` = 写路径子账户可见性强制的全域收口〔PRODUCT 写面 + PLAN 写面〕，**+8 人时**；`T-113` = SPOT 现货单据 `subAccountId` 缺省错误呈现修正，**+2 人时**；均 `#java2`、M1 窗口）；**2026-09-21 第 23 轮新增 `T-114`**（**+2 人时**，补齐 `POST /spot/exposure/recalc`（`recalcForDisplay`）子账户可见性强制，写路径越权面〔读 + `t_spot_change_log` 留痕写〕，**M1 窗口**，依赖 `T-110`；来源 = `T-112` 实施者第 3 步全仓写路径扫描） |
+| `backend-engineer#java`（主 · **实时与交易链**） | 26 | **327 人时**（约 40.9 人天） | 高。骨架/DAO 基座/桥接/交易执行/事中风控/RISK 参数与复算/安全加固 + **行情 WebSocket 服务端（生产级，`CH-006` 定界移入 `T-040`，+16 人时）**；**M1 关键路径 `T-003`→`T-004` 由本席先行交付并冻结接口**（`R-12` 预案 A 已生效）。**2026-09-20 `T-061` 范围收窄**：首增量 `t_param_dispatch` 单表 20 → **2 人时**（-18），余 10 张表转 `T-094`（待指派）。**2026-09-21 新增 `T-096`~`T-099`**（2 / 4 / 3 / 2 人时 = **+11 人时**，架构 §4.1.1 两项约定 + §8.2 强制点／机制订正落点，M2 窗口）；**2026-09-21 新增 `T-100`**（4 人时，架构 §8.2①③④ **主落点**：`GET /plan` 读取面隔离装配，依赖 `T-016`，M2 窗口）；**2026-09-21 新增 `T-101`**（3 人时，架构 §8.2③「其余读取面」通则落点：`GET /plan/{id}/trade-plans` 读取面隔离装配，**相邻残余缺口**，依赖 `T-100`，M2 窗口）；**2026-09-21 新增 `T-102`**（**5 人时**，写面**子账户可见性 / 交易权限强制补齐**：`AuthService.assertSubAccountVisible` 与 `assertCanTrade` 未接线 + `PlanService.withdraw` 发起人校验缺失 + **第 3 轮再扩 ④** `PlanService.decomposeTradePlans`（`:786`）写路径读取未 scope；`T-100` 专项复核 `EXP-T100-1` 同族发现 + `T-101` 交付披露；依赖 `T-100`，M2 窗口）；**2026-09-21 新增 `T-103`**（4 人时，`GET /plan/{id}/trade-plans` **补分页/筛选/排序**〔按 `FR-PLAN-15` 输入列，`PLAN.md:321`〕；来源 = `T-101` 独立复核 `EXP-T101-1`；依赖 `T-101`，M2 窗口）；**2026-09-21 新增 `T-104`**（2 人时，`FR-PLAN-15` **处理规则**两项〔**剩余可下单量** + **已达上限标记**〕；被 `T-101`/`T-103` **两次**判为「非本任务范围」⇒ 单独立号以免持续掉队；依赖 `T-103`，M2 窗口）；**2026-09-21 `T-096` 估时上修**（**2 → 3 人时**，追加「稳定排序」能力，来源 = `T-103` 交付披露 (b)：分页 `ORDER BY` 仅单列、无唯一 tie-break）；**2026-09-21 第 24 轮新增 `T-115`**（**+6 人时**，修正 `CROSS_READONLY` **写面**放行〔写路径拒绝跨账户只读身份；读面语义不变〕；来源 = `te-verify-t112` 独立复核缺陷①（高·真绕过）；依赖 `T-102`/`T-110`/`T-112`，M1 窗口）；**2026-09-21 第 25 轮 `T-115` 判 `REJECTED`**（重复立项、编号留痕、**不计人时**）⇒ **−6 人时**（**310 → 304**）；**2026-09-21（第 27 轮）编排者指派承接 `T-094`**（RISK 余 10 张表 DDL 与 DAO，M3 窗口，**+18 人时**）⇒ **304 → 322 人时（24 → 25 个）**；**2026-09-21（第 29 轮）新增 `T-119`**（补齐 `putQuota` 层③〔`ACCOUNT_PRODUCT`/账户哨兵 `0`〕账户级写面授权门禁，**+5 人时**）⇒ **322 → 327 人时（25 → 26 个）** |
+| `backend-engineer#java2`（新 · **台账与合规链**） | 42 | **617 人时**（约 77.1 人天） | **最高**。品种/现货/敞口/计划 → 结算/资金 → 审计 → 会计全链；**待 `#java` 冻结 `T-003`/`T-004` 接口后并行开工**，其解阻点仍由 `#java` 承担（见 §5.1）。**2026-09-21 第 11 轮新增 `T-105`/`T-106`/`T-107`**（**+5 +2 +4 = +11 人时**，PRODUCT/SPOT **读取面口径收口**，`tl-triage` 普查 + 编排者裁定，M2 窗口）；另**承接 `T-016` 的 `CR-002` 修复**（严重级，写作属主 = `#java2`）；**2026-09-21 第 15 轮新增 `T-108`**（**+8 人时**，补齐 CONFIG+AUTH **7 个**未实现 DAO 的实现类，来源 = `T-016`/`CR-002` 实施受阻连带发现，M2 窗口；**第 19 轮范围收窄为 AUTH 3 个**，CONFIG 侧 4 个由 `T-109` 交付）；**2026-09-21 第 16 轮新增 `T-109`**（**+12 人时**，补齐 CONFIG/SPOT/PLAN「已声明未注册」端点 **15** 条〔CONFIG 9 / SPOT 5 / PLAN 1〕，**M1 窗口**，依赖 `T-005`/`T-006`/`T-007`，来源 = 对齐普查 `audit-cov`）；**2026-09-21 第 21 轮新增 `T-110`/`T-111`**（各 **8 人时** = **+16 人时**；`T-110` = SPOT 写面（`T-013` 范围）**子账户可见性强制**〔M1 窗口〕、`T-111` = **服务端敞口推导引擎** + 回填 `FR-SPOT-16` 验收 1〔M2 窗口〕，均依赖 `T-109`）；**2026-09-21 第 22 轮新增 `T-112`/`T-113`**（`T-112` = 写路径子账户可见性强制的全域收口〔PRODUCT 写面 + PLAN 写面〕，**+8 人时**；`T-113` = SPOT 现货单据 `subAccountId` 缺省错误呈现修正，**+2 人时**；均 `#java2`、M1 窗口）；**2026-09-21 第 23 轮新增 `T-114`**（**+2 人时**，补齐 `POST /spot/exposure/recalc`（`recalcForDisplay`）子账户可见性强制，写路径越权面〔读 + `t_spot_change_log` 留痕写〕，**M1 窗口**，依赖 `T-110`；来源 = `T-112` 实施者第 3 步全仓写路径扫描）；**2026-09-21 第 28 轮新增 `T-116`/`T-117`/`T-118`**（**+3 +2 +5 = +10 人时**，均 M2 窗口：`T-116`/`T-117` = PRODUCT 读取面「需求面 > 实现面」缺口与白名单 over-inclusive 修正〔来源 = `te-verify-t105` 范围外观察〕、`T-118` = 全局 / 账户级对象写面功能权限强制点〔来源 = `tl-quota-authz` 实测〕） |
 | `frontend-engineer` | 11 | **176 人时**（约 22 人天） | 中。依赖后端 REST/WS 就绪（T-012/T-016/T-046/T-047/T-049/T-080）后方可开工，前期可先做 T-017 基座 |
-| `tech-lead` | 7 | **32 人时** | 低（任务数少）；但 T-030（M2 铺开门禁）**不可延**。另承担架构 §3.0.2 判据脚本 `E1`/`E3`/`E4`/`E6` 四条落点（`T-090`~`T-093`，各 4 人时）+ **`E1`~`E6` 六脚本形态/退出码语义一致性收口（`T-095`，第 10 轮 4 → 8 人时）**——**M2 批，可与 `T-030` 并行** |
+| `tech-lead` | 8 | **35 人时** | 低（任务数少）；但 T-030（M2 铺开门禁）**不可延**。另承担架构 §3.0.2 判据脚本 `E1`/`E3`/`E4`/`E6` 四条落点（`T-090`~`T-093`，各 4 人时）+ **`E1`~`E6` 六脚本形态/退出码语义一致性收口（`T-095`，第 10 轮 4 → 8 人时）** + **`T-120`（`E4` 判据接线落地：默认根改 `cpp/src/{order_engine,risk_engine,risk_state}` + `arch-check.sh` / `README` 同步，**3 人时**，第 31 轮新增）**——**M2 批，可与 `T-030` 并行** |
 | `编排者`（team-lead） | 1（T-089） | **4 人时** | 低；T-089 已完成（门禁制品定版冻结，属治理动作，非 7 类执行角色） |
 | `test-manager` | 5 | **60 人时** | 中。`T-022`/`T-056`/`T-072`/`T-084` 分别卡在 M1/M2/M3/M4 前段，须**提前于对应开发**准备 |
 | `test-engineer` | 10 | **240 人时**（约 30 人天） | 高。M2/M3 测试与生产级联调叠加，须与后端并行推进 |
 | `code-reviewer` | 4 | **64 人时** | 低-中。每里程碑末段集中审查（T-025/T-060/T-075/T-088），阶段性峰值高 |
-| **待指派**（`T-094`，M3） | 1 | **18 人时** | `T-061` 范围收窄后承接**剩余 10 张 RISK 表** DDL 与 DAO；**负责人待编排者指派**（原 `#java` 口径） |
-| **合计** | **115** | **1773 人时**（约 **221.6 人天**） | 按 `PROJECT.md` §6 工期 5–6 个月（含实盘观察期 1–2 个月日历），**须 C++/Java 双后端并行、测试前置**方可匹配。**合计已扣除 `T-029`（`REJECTED`）的 8 人时**；**已计入 `T-090`~`T-093` 的 16 人时 + `T-095` 的 **8** 人时 + `T-096`~`T-099` 的 11 人时 + `T-100` 的 4 人时 + `T-101` 的 3 人时 + `T-102` 的 5 人时 + `T-103` 的 4 人时 + `T-104` 的 2 人时 + `T-096` 上修的 1 人时**（`T-102` 由 4 → 5，第 3 轮再扩 ④；`T-103` 为第 4 轮新增；`T-104` 与 `T-096` 上修为第 8 轮新增；**`T-095` 第 10 轮由 4 → 8 上修**）；**`T-061` 20 → 2、`T-094` +18（RISK DDL 总量守恒于 20 人时）**；**第 11 轮新增 `T-105`/`T-106`/`T-107`（`#java2`，M2 窗口，+5 +2 +4 = +11 人时）**；**第 15 轮新增 `T-108`（`#java2`，M2 窗口，+8 人时）**；**第 16 轮新增 `T-109`（`#java2`，M1 窗口，+12 人时）**；**第 21 轮新增 `T-110`/`T-111`（`#java2`，M1/M2 窗口，+8 +8 = +16 人时）**；**第 22 轮新增 `T-112`/`T-113`（`#java2`，M1 窗口，+8 +2 = +10 人时；`T-110` 由 `TODO` → `DONE`，人时不变）**；**第 23 轮新增 `T-114`（`#java2`，M1 窗口，+2 人时；`T-112` 由 `TODO` → `IN_PROGRESS`，人时不变）**；**第 24 轮新增 `T-115`（`#java`，M1 窗口，+6 人时；`T-112` 保持 `IN_PROGRESS`、人时不变）**；**第 25 轮 `T-115` 判 `REJECTED`（**重复立项** —— 与既有 `T-098` 范围逐条重合；**成果归 `T-098`**；编号留痕、不计人时；动因 = 编排者立号时未扫整张既有任务表）⇒ **−6 人时**（**1779 → 1773**）；`T-098` / `T-112` 转「已完成，待独立复核」（纯状态口径、人时不变）** |
+| **合计** | **120** | **1791 人时**（约 **223.9 人天**） | 按 `PROJECT.md` §6 工期 5–6 个月（含实盘观察期 1–2 个月日历），**须 C++/Java 双后端并行、测试前置**方可匹配。**合计已扣除 `T-029`（`REJECTED`）的 8 人时**；**已计入 `T-090`~`T-093` 的 16 人时 + `T-095` 的 **8** 人时 + `T-096`~`T-099` 的 11 人时 + `T-100` 的 4 人时 + `T-101` 的 3 人时 + `T-102` 的 5 人时 + `T-103` 的 4 人时 + `T-104` 的 2 人时 + `T-096` 上修的 1 人时**（`T-102` 由 4 → 5，第 3 轮再扩 ④；`T-103` 为第 4 轮新增；`T-104` 与 `T-096` 上修为第 8 轮新增；**`T-095` 第 10 轮由 4 → 8 上修**）；**`T-061` 20 → 2、`T-094` +18（RISK DDL 总量守恒于 20 人时）**；**第 11 轮新增 `T-105`/`T-106`/`T-107`（`#java2`，M2 窗口，+5 +2 +4 = +11 人时）**；**第 15 轮新增 `T-108`（`#java2`，M2 窗口，+8 人时）**；**第 16 轮新增 `T-109`（`#java2`，M1 窗口，+12 人时）**；**第 21 轮新增 `T-110`/`T-111`（`#java2`，M1/M2 窗口，+8 +8 = +16 人时）**；**第 22 轮新增 `T-112`/`T-113`（`#java2`，M1 窗口，+8 +2 = +10 人时；`T-110` 由 `TODO` → `DONE`，人时不变）**；**第 23 轮新增 `T-114`（`#java2`，M1 窗口，+2 人时；`T-112` 由 `TODO` → `IN_PROGRESS`，人时不变）**；**第 24 轮新增 `T-115`（`#java`，M1 窗口，+6 人时；`T-112` 保持 `IN_PROGRESS`、人时不变）**；**第 25 轮 `T-115` 判 `REJECTED`（**重复立项** —— 与既有 `T-098` 范围逐条重合；**成果归 `T-098`**；编号留痕、不计人时；动因 = 编排者立号时未扫整张既有任务表）⇒ **−6 人时**（**1779 → 1773**）；`T-098` / `T-112` 转「已完成，待独立复核」（纯状态口径、人时不变）**；**第 28 轮新增 `T-116`/`T-117`/`T-118`（`#java2`，M2 窗口，+3 +2 +5 = **+10 人时**；来源 = `te-verify-t105` 范围外观察 + `tl-quota-authz` 实测）⇒ **1773 → 1783**；**第 29 轮新增 `T-119`（`#java`，M1 窗口，**+5 人时**）⇒ **1783 → 1788**；**第 31 轮新增 `T-120`（`tech-lead`，M2 窗口，**+3 人时**）⇒ **1788 → 1791** |
 
 **按里程碑估时**：
 
 | 里程碑 | 任务数 | 合计估时 | 占比 |
 |--------|-------|---------|------|
-| M1 | 32 | 440 人时 | 24.82% |
-| M2 | 54 | 793 人时 | 44.73% |
-| M3 | 16 | 288 人时 | 16.24% |
-| M4 | 13 | 252 人时 | 14.21% |
-| **合计** | **115** | **1773 人时** | 100% |
+| M1 | 33 | 445 人时 | 24.85% |
+| M2 | 58 | 806 人时 | 45.00% |
+| M3 | 16 | 288 人时 | 16.08% |
+| M4 | 13 | 252 人时 | 14.07% |
+| **合计** | **120** | **1791 人时** | 100% |
 
-> **本表口径**：任务数按**编号计**（`T-029` `REJECTED` 仍占 1 个编号、计入 M2）；**人时按实际执行计**（`T-029` 计 0），故 M2 = 720 - 8 + **16**（`T-090`~`T-093`）+ **8**（`T-095`，第 10 轮 4 → 8）+ **11**（`T-096`~`T-099`）+ **4**（`T-100`）+ **3**（`T-101`）+ **5**（`T-102`）+ **4**（`T-103`）+ **2**（`T-104`）+ **1**（`T-096` 上修）+ **11**（`T-105`~`T-107`，第 11 轮）+ **8**（`T-108`，第 15 轮）+ **8**（`T-111`，第 21 轮）= **793 人时**；M1 = **440 人时**（= 408 + `T-109` **12**〔第 16 轮〕+ `T-110` **8**〔第 21 轮〕+ `T-112` **8** + `T-113` **2**〔第 22 轮〕+ `T-114` **2**〔第 23 轮〕+ `T-115` **6**〔第 24 轮〕− `T-115` **6**〔第 25 轮：`REJECTED`、不计人时〕）；M3 = **288 人时**（`T-061` 20 → **2** + `T-094` **18**，RISK DDL 总量守恒），全项目 **1773 人时**（详见 §1 合计行）。**占比分母 = 1773 人时**（各段独立四舍五入至 2 位小数，尾数合计 100.00%；M2 = **793**）。
+> **本表口径**：任务数按**编号计**（`T-029` `REJECTED` 仍占 1 个编号、计入 M2）；**人时按实际执行计**（`T-029` 计 0），故 M2 = 720 - 8 + **16**（`T-090`~`T-093`）+ **8**（`T-095`，第 10 轮 4 → 8）+ **11**（`T-096`~`T-099`）+ **4**（`T-100`）+ **3**（`T-101`）+ **5**（`T-102`）+ **4**（`T-103`）+ **2**（`T-104`）+ **1**（`T-096` 上修）+ **11**（`T-105`~`T-107`，第 11 轮）+ **8**（`T-108`，第 15 轮）+ **8**（`T-111`，第 21 轮）+ **10**（`T-116`~`T-118`，第 28 轮）+ **3**（`T-120`，第 31 轮）= **806 人时**；M1 = **445 人时**（= 408 + `T-109` **12**〔第 16 轮〕+ `T-110` **8**〔第 21 轮〕+ `T-112` **8** + `T-113` **2**〔第 22 轮〕+ `T-114` **2**〔第 23 轮〕+ `T-115` **6**〔第 24 轮〕− `T-115` **6**〔第 25 轮：`REJECTED`、不计人时〕+ `T-119` **5**〔第 29 轮〕）；M3 = **288 人时**（`T-061` 20 → **2** + `T-094` **18**，RISK DDL 总量守恒），全项目 **1791 人时**（详见 §1 合计行）。**占比分母 = 1791 人时**（各段独立四舍五入至 2 位小数，尾数合计 100.00%；M2 = **806**）。
 
-> **负荷结论**：Java 侧合计 **911 人时**（`#java` **304** ＝ `R-12` 二分 276 + `CH-006` 定界移入 `T-040` 16 − `T-061` 收窄 18 + `T-096`~`T-099` 11 + `T-100` 4 + `T-101` 3 + `T-102` 5 + `T-103` 4 + `T-104` 2 + `T-096` 上修 1 + `T-115` 6〔第 24 轮〕− `T-115` 6〔第 25 轮：`REJECTED`、不计人时〕；`#java2` **607**（= 595 + `T-112` 8 + `T-113` 2，第 22 轮 + `T-114` 2，第 23 轮），`R-12` 预案 A 二分后两个实例）与 `backend-engineer#cpp`（**268 人时**，已扣除 `T-029` 8 + 移出 `T-040` 16）合计 **1179 人时 = 全项目的 66.50%**（分母 1773；另 **`T-094` 18 人时待指派**，未计入 Java 侧），与 `PROJECT.md` §8「本项目必须有 C++ 与 Java 两种后端能力」一致。**若任一后端能力缺位，M2 双组件联调无法闭环**——应在 S3 门禁处向用户确认资源到位。
+> **负荷结论**：Java 侧合计 **944 人时**（`#java` **327** ＝ `R-12` 二分 276 + `CH-006` 定界移入 `T-040` 16 − `T-061` 收窄 18 + `T-096`~`T-099` 11 + `T-100` 4 + `T-101` 3 + `T-102` 5 + `T-103` 4 + `T-104` 2 + `T-096` 上修 1 + `T-115` 6〔第 24 轮〕− `T-115` 6〔第 25 轮：`REJECTED`、不计人时〕+ `T-119` 5〔第 29 轮〕；`#java2` **617**（= 595 + `T-112` 8 + `T-113` 2，第 22 轮 + `T-114` 2，第 23 轮 + `T-116` 3 + `T-117` 2 + `T-118` 5，第 28 轮），`R-12` 预案 A 二分后两个实例）与 `backend-engineer#cpp`（**268 人时**，已扣除 `T-029` 8 + 移出 `T-040` 16）合计 **1212 人时 = 全项目的 67.67%**（分母 1791；**`T-094` 18 人时已于 2026-09-21（第 27 轮）由编排者指派入 `#java`，故已计入 Java 侧**），与 `PROJECT.md` §8「本项目必须有 C++ 与 Java 两种后端能力」一致。**若任一后端能力缺位，M2 双组件联调无法闭环**——应在 S3 门禁处向用户确认资源到位。
 >
 > **`R-12` 处置结果**：原 `#java` 单点 **42 个 / 824 人时**（全项目 49.5%）经编排者 2026-09-20 裁定**采纳预案 A**，沿数据边界二分后降为 **13/276 与 29/548**，**总量 824 不变**；两个 Java 实例**各自独立 inbox**（`dev-team/inbox/backend-engineer#java/` 与 `.../backend-engineer#java2/`）。详见 §5.1。
 >
@@ -2450,7 +2597,7 @@ T-001 ✔ → T-089 ✔ → T-002 → T-003 → T-004 → T-007 → T-015 → T-
 
 - **切分原则**：沿**数据边界**二分（**非按页面**），且**接口先冻结再并行**——`#java` 先交付 `T-003`/`T-004`（工程骨架 + DAO 基座 + REST 约定）并冻结 REST 契约、DAO 接口与 **WebSocket 对外约定**（`CH-006`）；`#java2` 在其上并行。
 - 🔒 **跨实例共享接口（`TradingBridge` / DAO 基座 / 共享 DTO）须先冻结再并行**——对齐 `ARCHITECTURE.md` **§1.2 约束「契约冻结纪律」**（数据模型与 TCP 协议先冻结再并行；表结构变更先改 `DATA_MODEL.md` 再改代码）与编排规则 **§6.3.4**；冻结物须**显式公布**（接口清单 + 版本）后方可并行，未冻结前不得双实例各自实现同一契约。
-- **`#java`（主）＝实时与交易链**：`T-003`(16) `T-004`(24) `T-028`(16) `T-040`(16) `T-042`(32) `T-043`(16) `T-046`(24) `T-050`(20) `T-061`(2) `T-063`(20) `T-064`(24) `T-065`(20) `T-066`(24) `T-082`(20) → **14 个 / 274 人时**（`T-061` 范围收窄 20 → 2；余 10 张 RISK 表转 `T-094`，负责人待指派）**（历史版本，非现行——本清单为 `T-061` 收窄轮口径；现行 `#java` = 24 个 / 304 人时，含 `T-096`~`T-104`（`T-115` 已 `REJECTED`、不计人时），见本节末「架构约定落点回写」）**
+- **`#java`（主）＝实时与交易链**：`T-003`(16) `T-004`(24) `T-028`(16) `T-040`(16) `T-042`(32) `T-043`(16) `T-046`(24) `T-050`(20) `T-061`(2) `T-063`(20) `T-064`(24) `T-065`(20) `T-066`(24) `T-082`(20) → **14 个 / 274 人时**（`T-061` 范围收窄 20 → 2；余 10 张 RISK 表转 `T-094`，负责人待指派）**（历史版本，非现行——本清单为 `T-061` 收窄轮口径；现行 `#java` = 26 个 / 327 人时，含 `T-096`~`T-104`（`T-115` 已 `REJECTED`、不计人时），见本节末「架构约定落点回写」）**
 - **`#java2`（新）＝台账与合规链**：`T-005`~`T-016`(200) + `T-044`/`T-045`/`T-047`/`T-048`/`T-049`/`T-051`/`T-052`(144) + `T-062`/`T-067`/`T-068`/`T-069`(80) + `T-076`~`T-081`(124) → **29 个 / 548 人时**
 - **效果**：单点 824 → **292 / 548**（`R-12` 二分时为 276 / 548；其后 `CH-006` 定界将 `T-040` 移入 `#java`，+16 → **292 / 548**，Java 侧合计 **840**），M1 关键路径（`T-003`→`T-004`→`T-007`→`T-015`→`T-016`）**不跨实例**（`T-005`~`T-016` 均在 `#java2`，解阻仍由 `#java` 的 `T-003`/`T-004` 承担）；**`R-12` 二分本身不改 Java 侧总量（824）**，日历可压缩。
 - **代价/约束**：需 1 名额资源；`#java2` 的 inbox、工单、审查均需独立（`dev-team/inbox/backend-engineer#java2/`）；**跨实例改同一表簇仍须单写者纪律**。
