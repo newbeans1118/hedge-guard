@@ -803,11 +803,6 @@ class SpotT110VisibilityTest {
             }
             return out;
         }
-
-        @Override
-        public com.hedgeguard.dao.SubAccountScope scopeOf(long userId, String column) {
-            throw com.hedgeguard.testsupport.FakeDao.unsupported("scopeOf");
-        }
     }
 
     private static final class FakeAttemptDao

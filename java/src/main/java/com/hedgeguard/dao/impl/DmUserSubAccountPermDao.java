@@ -1,6 +1,5 @@
 package com.hedgeguard.dao.impl;
 
-import com.hedgeguard.common.Clocks;
 import com.hedgeguard.dao.SubAccountScope;
 import com.hedgeguard.dao.UserSubAccountPermDao;
 import com.hedgeguard.dao.entity.UserSubAccountPerm;
@@ -9,17 +8,21 @@ import com.hedgeguard.dao.tx.TxTemplate;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
 /**
  * {@code t_user_sub_account_perm} 的达梦实现（{@code DATA_MODEL.md} §2.2 {@code TB-AUTH-8}）。
  *
- * <p><b>本类是数据权限的唯一来源</b>（{@code NFR-SEC-7}）：{@link #scopeOf} 产出
- * {@link SubAccountScope} 供各模块拼 {@code sub_account_id IN (...)}；**无授权 ⇒ 空集 ⇒ 恒假条件**，
- * **绝不**退化为"不过滤"。
+ * <p><b>数据权限的取数入口为 {@link com.hedgeguard.service.AuthService#visibleSubAccountIds(long)}</b>
+ * （含 {@code perm_type} 语义；{@code ARCHITECTURE.md} §8.2②，v1.5.8 机制订正）：由调用方判定返回集合
+ * 是否含哨兵 {@link SubAccountScope#ALL_ACCOUNT_SENTINEL}（{@code CROSS_READONLY} ⇒
+ * <b>不构造 scope、不加过滤</b>），<b>空集 ⇒ 恒假条件</b>（{@code NFR-SEC-7} 安全默认，
+ * <b>绝不</b>退化为"不过滤"）。本类只负责 {@code t_user_sub_account_perm} 的<b>原始行</b>读取
+ * （{@link #findByUser}）。
+ *
+ * <p>⚠️ <b>历史入口 {@code scopeOf} 已删除</b>（{@code T-099}，2026-09-21）：它<b>不读</b>
+ * {@code perm_type}，<b>不得</b>作取数入口；因「以接口类型注入调用」对 {@code @Deprecated} 零防护，故删除而非弃用。
  *
  * <p><b>生效期过滤</b>：仅 {@code effective_from <= 今日 <= effective_to}（空值表示该侧不限）计入——
  * 已过期/未生效的授权**不得**放行数据。
@@ -102,22 +105,5 @@ public final class DmUserSubAccountPermDao extends AbstractDmDao<UserSubAccountP
         String sql = "SELECT " + selectList() + " FROM " + tableName()
                 + " WHERE user_id = ? ORDER BY sub_account_id ASC";
         return queryList(sql, Collections.singletonList(userId), this::mapRow);
-    }
-
-    @Override
-    public SubAccountScope scopeOf(long userId, String column) {
-        LocalDate today = Clocks.today();
-        List<Integer> allowed = new ArrayList<>();
-        for (UserSubAccountPerm p : findByUser(userId)) {
-            if (p.effectiveFrom != null && p.effectiveFrom.isAfter(today)) {
-                continue;   // 尚未生效
-            }
-            if (p.effectiveTo != null && p.effectiveTo.isBefore(today)) {
-                continue;   // 已过期
-            }
-            allowed.add(p.subAccountId);
-        }
-        // SubAccountScope.of 在 allowed 为空时产出恒假条件（column IN (-1)）——安全默认，不退化
-        return SubAccountScope.of(column, allowed);
     }
 }

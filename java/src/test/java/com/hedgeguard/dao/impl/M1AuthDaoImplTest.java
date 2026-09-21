@@ -39,9 +39,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * </ol>
  *
  * <p>⚠️ **尚未覆盖**（诚实声明，下一单元补）：需要 {@code ResultSet} 级假连接的 SQL 行为用例
- * （如 {@code scopeOf} 的生效期过滤与"空集恒假"、{@code findRecent} 的取回后截断）——
+ * （如 {@code findRecent} 的取回后截断）——
  * 现有测试支撑仅有 {@code UnsupportedBaseDao}，**没有** JDBC 级假件；将与 `TxTemplateTest` 的假连接手法
  * 统一后补齐，避免在此用未经证实的桩制造"看起来覆盖了"的假象。
+ * （{@code scopeOf} **已删除**〔`T-099`，2026-09-21：不读 {@code perm_type}，不可作取数入口；
+ * 因「以接口类型注入调用」对 {@code @Deprecated} 零防护，故删而非弃用〕，已**无从**为其补行为用例；
+ * 见 {@code T099ScopeOfDeprecationTest#scopeOfMustNotBeRedeclared} 的防复活守卫。）
  */
 class M1AuthDaoImplTest {
 

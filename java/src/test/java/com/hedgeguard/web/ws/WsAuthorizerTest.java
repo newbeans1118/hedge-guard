@@ -208,11 +208,6 @@ class WsAuthorizerTest {
         }
 
         @Override
-        public com.hedgeguard.dao.SubAccountScope scopeOf(long userId, String column) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
         public int insert(UserSubAccountPerm entity, long operatorId) {
             throw new UnsupportedOperationException();
         }

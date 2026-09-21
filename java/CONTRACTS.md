@@ -309,7 +309,7 @@ public interface ProductDao extends BaseDao<Product, Long> {
 - 语义（各 scoped 方法一致，冻结；`ProductDao` 的子查询形态为经登记的载体差异）：由服务层构造 `SubAccountScope` 后传入；本层**不解析权限语义**，只把
   `scope.appendTo(...)` 的条件与既有条件合并（`ProductDao` 为包一层白名单子查询）；**空集合 ⇒ 恒假条件**（返回空），**绝不**退化为不过滤；
   **计数口径**（`findPageScoped`）：`total` 为**叠加 scope 与 `extraWhere` 过滤后**的总行数（分页实现独立执行 `COUNT`），**不得**取全表行数。
-- ⚠️ **不得**以 `DmUserSubAccountPermDao.scopeOf` 作为取数入口（其不读 `perm_type`；处置归 `T-099`，见 `ARCHITECTURE.md` §8.2②）。
+- ⚠️ **不得**以 `DmUserSubAccountPermDao.scopeOf` 作为取数入口（其不读 `perm_type`；**已由 `T-099` 处置：`scopeOf` 已删除**；正确入口 = `AuthService.visibleSubAccountIds`，见 `ARCHITECTURE.md` §8.2②）。〔勘误动因：本行原指引与同文件 §7 检查清单相悖（失效入口继续冒充权威）；授权链 = 编排者 2026-09-21 授权 + `T-099` 处置〕
 
 ### 2.3 DAO 命名与实现约定（冻结）
 
@@ -732,6 +732,7 @@ instantiated OK        # 同时打印 SLF4J: Defaulting to no-operation (NOP) lo
 | 2026-09-21 08:16 | `backend-engineer#java` | 落实 `ARCHITECTURE.md` §6.4（`v1.5.7` `CR-002`）「同步要求 ②」：**新增 §1.5「计划提交合规预校验字段 `precheckResult`（`FR-PLAN-10`/`R-PLAN-3`）」**——按架构两互斥选项取 **(i) 补定义为「服务端回填的校验快照」（只读、入参忽略）**（因架构同时要求响应体含 `unverified`，该字段响应侧必须存在）；含方向、结构（引 §6.4）、M1 六项服务端强制、短路判定顺序、③ 不拒单但三项可见性、落点。**只补一处此前缺位的字段定义，非契约变更增量 ⇒ 未升版**（`HGC-1.6` 不变；实现侧归 `T-016`，本席未动代码） | **未升版**（`HGC-1.6` 不变） |
 | 2026-09-21 09:40 | `backend-engineer#java2` | 落实 `ARCHITECTURE.md` §6.4`:1472`「📌 位号澄清（编排者 2026-09-21 裁定）」：在 §1.5「判定顺序」行**追加**位号澄清 —— 该行位号 = **「执行顺序位号」**（非 `ruleId` 的「校验项编号」）；`ruleId` 的**唯一语义基准 = `REQUIREMENTS/PLAN.md` 的校验项编号**（① 操作授权 / ② 白名单 / ③ 规模红线 / ④ 期限 / ⑤ 数量 / ⑥ 书面文件 / ⑦ 岗位分离）；**不得按执行位号取 `ruleId`**。**只加不改、行内追加（行数 `+0`）**；无签名 / 字段 / 错误码 / 路径变更 ⇒ **未升版**（`HGC-1.6` 不变） | **未升版**（`HGC-1.6` 不变） |
 | 2026-09-21 15:2x | `backend-engineer#java2` | **`T-105` 交付**：§2.2.1 **追加 `ProductDao` 三只纯增量 scoped 方法** —— `findPageScoped`（列表分页）/ `findAllScoped`（导出，`created_time` 倒序）/ `findAllOrderByCreatedDesc`（跨账户只读/哨兵 0 无过滤导出）。**载体差异已在 §2.2.1 显式登记**：`t_product` 无 `sub_account_id` 列 ⇒ scope 落在 `t_sub_product_whitelist` 子查询上。**依据**：`FR-PRODUCT-5`/`FR-PRODUCT-8`/`NFR-SEC-7`；`§5.3`「新增方法属兼容变更」⇒ **未升版**（`HGC-1.6` 不变；未改动任何既有签名/字段/错误码/路径） | **未升版**（`HGC-1.6` 不变） |
+| 2026-09-21 19:39 | `backend-engineer#java`（实例 `be-t099b`） | **勘误：`scopeOf` 过时指引订正 2 处** —— `:312`（§2.2「不得以 `scopeOf` 取数」）改为**已完成态**（`T-099` 已删除 `scopeOf`；正确入口 = `AuthService.visibleSubAccountIds`）；`:798`（§7 `#java2` 检查清单；本行追加登记后该条现位于 `:799`）取数入口由 `userSubAccountPermDao.scopeOf(userId, "sub_account_id")` 改为 `AuthService.visibleSubAccountIds(userId)` → `SubAccountScope.of(...)`（保留"注入 `SubAccountScope`"原意）。**动因**：`:798` 与 `:312` 自相矛盾（失效入口继续冒充权威）；**授权链** = 编排者 2026-09-21 授权 + `T-099` 处置。**无签名 / 字段 / 错误码 / 路径变更** | **未升版**（`HGC-1.6` 不变） |
 
 ---
 
@@ -795,7 +796,7 @@ instantiated OK        # 同时打印 SLF4J: Defaulting to no-operation (NOP) lo
 - [ ] `mvn -q compile` 通过（JDK 11，零警告）
 - [ ] 新增 DAO：接口放 `com.hedgeguard.dao`，实现放 `dao.impl`，`extends AbstractDmDao<E, ID>`
 - [ ] 事务：`txTemplate.inTransaction(() -> { ...; return null; })`；**不在 DAO 内 close 连接**
-- [ ] 列表查询：注入 `SubAccountScope`（`userSubAccountPermDao.scopeOf(userId, "sub_account_id")`）
+- [ ] 列表查询：注入 `SubAccountScope`（取数入口 = `AuthService.visibleSubAccountIds(userId)` → `SubAccountScope.of(...)`；**不得**用 `DmUserSubAccountPermDao.scopeOf` —— 已由 `T-099` 删除，见 `ARCHITECTURE.md` §8.2②）〔勘误动因：本行原指引 `userSubAccountPermDao.scopeOf(…)` 与 `:312` 相悖、且指向已失效入口；授权链 = 编排者 2026-09-21 授权 + `T-099` 处置〕
 - [ ] 时间：一律经 `Clocks`（禁止 `LocalDateTime.now()`）
 - [ ] 金额：`BigDecimal` 进出，HTTP 边界字符串化
 - [ ] 敏感字段：不入日志（`SensitiveLog` 已全局安装）、不入配置、不入 DDL

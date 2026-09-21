@@ -2406,3 +2406,164 @@ $ AuthServiceTest surefire testcase 计数                      → 15
 - **（沿用首轮 5 条不适用项）**：① `scopeOf` 不读 `perm_type` ⇒ 归 **`T-099`**（读面取数入口，非本单）；② SPOT 写面（`T-110`）/ PRODUCT+PLAN 写面（`T-112`）/ `CROSS_READONLY` 写面拒绝（`T-098`，原 `T-115`）**非本单**；③ `CROSS_READONLY` **读面放行**系既定口径（`FR-AUTH-13` 验收 1），**未报缺陷**；④ 分页 / 排序、路由等值断言、合规预校验**非本单**；⑤ `latestPrecheckSnapshot` / `listBindings` 无 `operatorId` **非缺口**（`PlanHandler.detail` 前置已 scoped `getPlan`）。
 - **外依赖**：`assertCanTrade` 的 **M2 真强制点 = `T-046`（`BLOCKED`）**；M1 不接线为**有意**（`FR-PLAN-14` 主体含财务/风控岗）。
 - **（本单新增观察，非缺陷）** `T-102` 首轮复核回执**未落入仓库**（全仓 `grep -rl te-verify-t102` 命中 **0**）⇒ 本章对首轮结论一律**标「引述」**；如需权威存档，建议编排者补录首轮回执。
+
+# `T-099` 独立复核证据（事后补录，2026-09-21）
+
+> 本章由测试工程师席（`te-verify-t099`）补录。**对象** = `T-099`（处置 `DmUserSubAccountPermDao.scopeOf` **不读 `perm_type`** 的机制缺陷）的**独立复核**。**处置形态经一次改判**：阶段一（`be-t099`）「仅给实现加 `@Deprecated`」→ 阶段二（`be-t099b`，编排队裁定）「**删除**」。章内严格分列「**补录者实测**（独立重跑，附时点）」与「**引述**（派单/产出方自述，未经我重跑者）」；`md5` / 行数**以实时为准**。**本单写权仅 `docs/TEST_RESULT.md` 一个**，其余制品全程**只读**；临时副本 `/hg099_*`（均在 `/`、非 `/tmp`，含 `tools/`）结束已删净并给复位证明。
+>
+> **结论 = 通过（0 阻断缺陷）**。删除**完整且不过头**；防复活守卫**双向承重**；**零新增编译告警**；`CONTRACTS.md` 勘误**边界合规、体例合规**；`mvn -B -o clean test` = **`446/0/0/0`**。**改判（删除 vs 只弃用实现）经我独立复现探针后，判「正当」**（详见 §T099.1）。
+
+## T099.0 冻结信息与基线
+
+（`cwd` = 仓库根；内容级锚统一用 `LC_ALL=C sort`）
+
+| 制品 | 值（复核期，实时） |
+|---|---|
+| `java/src` 全树内容级锚（`cwd=root`、前缀 `java/src`） | **`4826aaa849521b74543b00b13e18e961` / 319 文件** |
+| `java/src/main` 内容级锚（`cwd=root`、前缀 `java/src/main`） | `d3f2e0d8f46603a15a646fedff1ebc48` / 258 文件 |
+| `java/CONTRACTS.md` | **`51526c45a9833dcfff6cc59dcd564a20` / 805 行** |
+| `docs/TEST_RESULT.md`（追加前） | **`53535408039f8caeff84b18b1d199967` / 2408 行** |
+| `java/src` 单文件 `md5`（10 件） | 见 §T099.2 |
+
+- **VCS**：`git rev-parse --short HEAD` = **`d0d76c8`**；`git status --porcelain` = **9 `M` + 1 `??`**（`??` = 新增守卫 `T099ScopeOfDeprecationTest.java`）。**「改动 10 个文件」自报属实**（9 改 + 1 新）。
+- **基线法（`git archive HEAD`）**：**基线 = HEAD `d0d76c8`**（**含** `scopeOf`，即 T-099 前态）；以**只读** `git archive HEAD | tar -x -C /hg099_base` 取出，**不动工作树**。**现行** = 工作树（`cp -a {docs,java,tools}` → `/hg099_cur`）。两副本布局均 `<root>/{docs,java,tools}`（含 `tools/`，否则 `mvn validate` 的 `arch-check` exec 报 `127` 假失败）；`TMPDIR=/hg099_tmp`（在 `/`）。基线 `java/src` = **318 文件**（现行 319 = +守卫类 1）。
+- **基线对照量**：`mvn -B -o test`（基线）= **`444/0/0/0`**；现行 = **`446/0/0/0`** ⇒ 净增 **+2** = 守卫类 2 个 `@Test`（`scopeOfMustNotBeRedeclared` / `interfaceContractIntact`），**未删任何既有用例**。
+- ⚠️ **复核期并发写者（据实披露）**：复核期间 `docs/ARCHITECTURE.md` **被另一席位改动**（起点实测 `3c7e2e1ac202698cb453bbf2e1b302e5` / **2780** 行 → 现 `e9a61b3134fe1fa04cdfe2d7bfdd7845` / **2786** 行，新增 **v1.5.14**「§8.2② 订正 `scopeOf` 相关失效表述（`T-099` 落地）」；即派单称「由架构席另行订正」的**那处已同日落地**）。`java/src` / `java/CONTRACTS.md` / `docs/TEST_RESULT.md` 三锚**复核期内各自不变**（详见 §T099.5、§T099.7）——**我未改任何共享制品**。
+
+## T099.1 处置形态的两阶段与改判依据
+
+- **阶段一（`be-t099`；引述产出方自报）**：形态 = **只给实现加 `@Deprecated`**（接口不加）⇒ `446/0/0/0`。
+- **阶段二（`be-t099b`；编排队裁定改判）**：改为**删除**（接口声明 + 实现 + 5 测试假件 `override`）。
+- **改判依据 = `javac` 探针（补录者独立复现，非引述）**：探针原置于 `/root/depprobe`（`I.java` / `C.java` / `M.java`，**接口方法 `m()` 未弃用** + 实现 `C.m()` 标 `@Deprecated(since="x", forRemoval=true)` + `M` 分别**经接口引用**（`viaIface`）与**经具体类型**（`viaImpl`）调用）。我在 `/hg099_probe`（隔离副本）**独立重跑**：
+
+```
+$ javac -Xlint:deprecation I.java C.java M.java
+M.java:3: warning: [removal] m() in C has been deprecated and marked for removal
+  static void viaImpl(C c) { c.m(); }
+                              ^
+1 warning
+```
+
+  ⇒ **经接口引用调用（`M.java:2` `viaIface`）零告警；仅经具体类型调用（`M.java:3`）告警**。**本仓真实场景 = 「注入 `UserSubAccountPermDao`（接口类型）→ 调 `scopeOf`」** ⇒ 阶段一形态**对该场景零防护**（「控制看起来有、实际没有」）。**探针结论成立，改判依据属实**。
+- **补录者于「改判」的意见 = 认可，且认为未删过头**，理由三条：① 探针实证「弃用实现」对本仓入口无防护（上）；② 该方法的签名 `SubAccountScope scopeOf(long, String)` **无法表达「无 scope」**——`SubAccountScope` 只能 `of(column, allowed)`（空集 ⇒ 恒假 `column IN (-1)`），**无「不过滤 / 无 scope」表达**，故选项 (a)「补 `perm_type` 分支」缺可承载的返回形态（架构 v1.5.14 §8.2②(b) 亦载此独立理由）；③ **删除安全**——`scopeOf` 在 `src/main` **0 处调用**（见 §T099.5），删除对生产**零行为影响**。
+
+## T099.2 删除完整性 + 防复活守卫双向承重
+
+**(a) `java/src` 全树 `scopeOf` 残留（补录者实测）**：`grep -rn "scopeOf" java/src` 现命中**仅 javadoc / 注释 / 守卫类的字符串字面量与测试方法名**——**无声明、无实现、无调用**：
+
+```
+$ grep -rn "scopeOf" java/src
+java/src/test/java/com/hedgeguard/dao/impl/M1AuthDaoImplTest.java:45/47   ...javadoc（已删除注记）...
+java/src/test/java/com/hedgeguard/dao/impl/T099ScopeOfDeprecationTest.java:14/16/23/29  ...javadoc...
+java/src/test/java/com/hedgeguard/dao/impl/T099ScopeOfDeprecationTest.java:35/36/38/41  ...@DisplayName/方法名/断言消息...
+java/src/main/java/com/hedgeguard/dao/impl/DmUserSubAccountPermDao.java:24   ...javadoc...
+java/src/main/java/com/hedgeguard/dao/UserSubAccountPermDao.java:18          ...javadoc...
+```
+
+**(b) 编译层证据（`javap`，最稳）**：接口类型**确实不再声明** `scopeOf`：
+
+```
+$ javap -p -classpath target/classes com.hedgeguard.dao.UserSubAccountPermDao
+public interface com.hedgeguard.dao.UserSubAccountPermDao extends com.hedgeguard.dao.BaseDao<...> {
+  public abstract java.util.List<...UserSubAccountPerm> findByUser(long);
+}
+$ javap -p -classpath target/classes com.hedgeguard.dao.impl.DmUserSubAccountPermDao
+public final class com.hedgeguard.dao.impl.DmUserSubAccountPermDao ... implements ...UserSubAccountPermDao {
+  ... public java.util.List<...UserSubAccountPerm> findByUser(long); ...   （全表无 scopeOf）
+}
+```
+
+**(c) 字节码级无残留（`grep -ra`）**：`target/classes`（`src/main`）对 `scopeOf` **零命中**（无 `MethodRef`、无字符串）；`target/test-classes` 仅守卫类 1 命中（其字符串字面量）。
+
+**(d) 删除面清点（补录者实测，基线侧）**：基线恰 **2 个 `src/main` 文件**（接口 `UserSubAccountPermDao:31` 声明 + 实现 `DmUserSubAccountPermDao:108`）+ **5 个测试假件 `override`**（`AuthServiceTest` / `PlanT112VisibilityTest` / `SpotT110VisibilityTest` / `VarietyT112VisibilityTest` / `WsAuthorizerTest`）= **全删、无遗漏**。5 假件的 override 均为 `throw unsupported`（删后语义**无削弱**，仅因接口方法消失而必须删）。
+
+**(e) 防复活守卫 = 反射断言**：`T099ScopeOfDeprecationTest`（类名保留历史名，**保留理由已在类 javadoc 披露**）以 `getDeclaredMethods()` 断言**接口与实现均不再声明** `scopeOf(long, String)`；另断言 `findByUser(long)` **仍在**（防误删）。
+
+**(f) 双向承重（补录者自建变异 · 隔离副本 `/hg099_cur`，**两向均 `clean` 重编译**，避陈旧 class 假红）**：
+
+| 变异 | 位点 | 结果 | 原始输出 |
+|---|---|---|---|
+| **(i) impl-only 加回** | 仅给实现追加 `public SubAccountScope scopeOf(long,String)`（**接口不加**） | **守卫红** | `scopeOfMustNotBeRedeclared` `:40` `AssertionFailedError: DmUserSubAccountPermDao 不得重新声明 scopeOf ==> expected: <false> but was: <true>`；`Tests run: 2, Failures: 1` |
+| **(ii) 全量加回** | 自基线 `HEAD` `cp`：接口 + 实现 + 5 假件 | **守卫红** | `scopeOfMustNotBeRedeclared` `:37` `AssertionFailedError: UserSubAccountPermDao 不得重新声明 scopeOf ==> expected: <false> but was: <true>`；`Tests run: 2, Failures: 1` |
+
+  ⚠️ **（我的一处方法论失误，据实留痕）**：首轮跑变异 (ii) 时**未 `clean`**，`cp -a` 保留的源 mtime（`19:20:40`）**早于**变异 (i) 留下的 `.class`（`19:50/19:51`）⇒ Maven 判「源未变、不重编译」⇒ **读到变异 (i) 的陈旧 class**（报 `:40` 而非 `:37`）。**改以 `clean` 重跑（上表值）后**，`:37`（接口）如预期命中。**固化纪律**：变异 / 复位**一律 `clean` 重编译**再断言。
+- **复位证明**：`.orig` 备份回位后，隔离副本 `java/src` 内容级锚复位为 **`d2a919d0733ff045bff5aac578206806` / 319**（`cwd=/hg099_cur/java`、前缀 `src`；与初拷一致），`DmUserSubAccountPermDao.java` `md5` = **`2ca615c5a2a204193261f71d479eadd3`**（＝源）；随后 **clean 重跑全量 = `446/0/0/0`**（§T099.6）。**共享树全程零改动**。
+
+## T099.3 零新增告警（基线对照法 + 逐条 diff）
+
+- **方法（补录者自选，与派单建议一致）**：`git archive HEAD` 取基线 → 基线 `/hg099_base` 与现行 `/hg099_cur` **各跑一次 `mvn -o -B clean test-compile`**（`java/pom.xml` 已设 `<showWarnings>true</showWarnings>` + `<arg>-Xlint:all</arg>`）→ 抽 `[WARNING]` 逐条 diff（路径前缀归一）。
+- **结果：基线 1 条 == 现行 1 条，逐字节相同（`diff` 为空）**：
+
+```
+[WARNING] <ISO>/java/src/test/java/com/hedgeguard/dao/impl/M1DaoReadAndClobTest.java:[107,44] unchecked call to findById(ID) as a member of the raw type com.hedgeguard.dao.impl.AbstractDmDao
+```
+
+  ⇒ **零新增告警**。**删除 `scopeOf` 亦未引入任何 `deprecation` 告警**（`@Deprecated` 随删除一并消失，接口与实现均无残留弃用标记）。
+- **注**：日志中另有 `警告参数 -Wall=1 -Wextra=1 -Werror=1` 一行，系 **`tools/arch-check` 的 `E3`（C++）脚本输出**（非 `javac` 编译告警），不在对照面内。
+
+## T099.4 CONTRACTS 勘误边界与体例合规
+
+`git diff HEAD -- java/CONTRACTS.md` = **恰 3 个 hunk**（+3 / −2）：`:312`、§5.1 编辑登记行（新 `:735`）、`:798`→`:799`。**未触及任何契约实质**（字段 / 方法签名 / 错误码 / 信封 / 路径）：
+
+| 项 | 实测 |
+|---|---|
+| ① diff 边界 | 仅 `:312`、`:735`（登记行）、`:799` **3 处**；**无第 4 处** |
+| ② 新指引一致性 | `:799` =「取数入口 = `AuthService.visibleSubAccountIds(userId)` → `SubAccountScope.of(...)`」——与 **`ARCHITECTURE.md` §8.2②**（`:2073`–`:2075`）**同构**；与**代码现实**一致（`AuthService.visibleSubAccountIds(long)` 实测在 `AuthService.java:571`，返回 `List<Integer>`、`CROSS_READONLY` 行显式并入哨兵 `0`；`SubAccountScope.of(String,List)` 实存）|
+| ③ 第三处同类扫描 | 全文件 `grep -n scopeOf` = **仅 `:312` / `:735` / `:799`**（`:735` 为登记行内叙述）；**无遗漏** |
+| ④ 版本/署名 | 登记行 =「时间 / 编辑人 / 内容摘要 / 版本是否升版」四元，**合该文件 `§0`（`:41`）「署名要求」**；编辑人 `backend-engineer#java`（实例 `be-t099b`）= 该文件**唯一写者**（`:38`）；**「未升版（`HGC-1.6` 不变）」判定合规**——勘误只动**警告行 + 检查清单行**，无签名 / 字段 / 错误码 / 路径变更，与相邻两行（`precheckResult` / `java2` 位号澄清）**同体例** |
+| ⑤ `T-105` 行完好 | `:734` = `T-105` 交付行（`findPageScoped` / `findAllScoped` / `findAllOrderByCreatedDesc`）**完整**；`:735` = 本登记行；`git diff` 逐 hunk 判**无其它行被误改**（产出方自纠的「曾误覆盖 `T-105` 行」**已恢复且当前无残留**）|
+
+## T099.5 镜像 / 外范围扫描
+
+- **全仓（`docs/**`、`tools/**`、`cpp/**`、`web/**`、`dev-team/**`）`scopeOf` 位置**：均为**历史留痕 / 任务描述 / Q&A 工单 / 纠正性警告**——**无任何一处把 `scopeOf` 当「现行权威取数入口」**。
+- **唯一「已过时」指针 = `docs/ARCHITECTURE.md` §8.2② 的旧句**（`:2078`「若要恢复以 `scopeOf` 为入口…」+ `:2079`「`visibleSubAccountIds` 与 `scopeOf` 全仓均 0 处调用」）。
+  - 🔴 **据派单要求：仅列出、不报为本单缺陷、不改**（归**架构席**）。
+  - **但**：复核期间该处**已由架构席同日订正** —— `docs/ARCHITECTURE.md` 现为 **v1.5.14**（`:2733` 版行列 + §8.2② `:2080`–`:2084` 📌 块），**旧句保留、按现况追加订正**：`scopeOf` = **不存在**（非「0 处调用」）、恢复路径**已排除**（两条理由）、`visibleSubAccountIds` 路径**已接线**（`T-100`/`T-101`/`T-103`）。⇒ **本项前置缺陷已清零**，无需另行处置。
+- **生产行为影响 = 无（补录者实测）**：基线 `src/main` 对 `scopeOf` **0 处调用**（`grep -rn "\.scopeOf(" /hg099_base/java/src/main` ⇒ 空）；`visibleSubAccountIds` 路径仍在且被消费；`mvn -B -o clean test` 全绿（含 `arch-check` E1–E6 各退 `0`）。⇒ **删除为惰性变更**。
+
+## T099.6 补录者抽验（不采信转述）
+
+> 全部为**补录者自测**原始输出；与 §T099.1 的「引述」严格分列。
+
+**(a) 现行全量（隔离副本，`cwd=/hg099_cur/java`，`clean` 无排除、复位后）**：
+
+```
+$ mvn -B -o clean test
+[INFO] Tests run: 446, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS
+```
+
+**(b) 基线全量（`/hg099_base/java`）**：`Tests run: 444, Failures: 0, Errors: 0, Skipped: 0` / `BUILD SUCCESS`。
+
+**(c) 计数口径（现行）**：
+
+```
+$ grep -rn "@Test" src/test --include=*.java | wc -l        → 446
+$ surefire *.xml 逐文件 tests= 求和                          → 446
+$ surefire 文件数                                            → 55
+$ T099ScopeOfDeprecationTest.xml: testcase = {scopeOfMustNotBeRedeclared, interfaceContractIntact}
+                                   tests="2" errors="0" skipped="0" failures="0"
+```
+
+  ⇒ `@Test` grep **==** surefire 求和 **==** `446`；守卫类**在 surefire 名单内实载且通过**。
+
+**(d) 架构判据（随 `mvn validate` 执行）**：`arch-check` 聚合 = **E1/E2/E3/E4/E5/E6 各退 `0`**、聚合退 `0`（`E5` 扫描 142 文件）。
+
+**(e) 与转述不符者**：
+  - **0 处「事实错误」**（自报的删除面 / 锚点 / `446` / 计数 / `CONTRACTS` `:312`+`:799`+登记行，**逐项复现一致**）。
+  - **1 处需补记**：派单「背景」未提 `ARCHITECTURE.md` 已随复核推进到 **v1.5.14**（我按实时实测补记，见 §T099.5）。
+  - **1 处程序性观察（非缺陷）**：`docs/TASKS.md` `T-099` **验收标准原文仍是「二者择一：(a) 补分支 / (b) 弃用指向」**，而实际交付 = **(c) 删除**——**改判由编排队裁定、超出任务原文**。**建议**：项目经理将该验收标准**回写**为「删除」并登记改判授权链（否则 S5 / 门禁按字面判会误判「未按验收交付」）。**（我未改 `TASKS.md`——非我写权。）**
+
+## T099.7 度量与「纯追加」证明
+
+- 追加前：`docs/TEST_RESULT.md` = **`53535408039f8caeff84b18b1d199967` / 2408 行**（`19:57:19` / `19:57:29` / `19:57:39` 三次取样不变 ⇒ 已静默）。
+- **纯追加口径**：追加后 `head -2408 docs/TEST_RESULT.md | md5sum` = **`53535408039f8caeff84b18b1d199967`**（与追加前逐字节相同 ⇒ 前 2408 行未被改写）；**本单仅追加、未改写任何既有章**。
+- 追加后：**2569 行**；新章落点 = 第 **2410** 行起（第 2409 行为章节间空行），末行止于本章末。**因本行数字回填会再次改变全文 `md5`，故全文 `md5` 一律以实时 `md5sum` 为准**。
+- **写权核对**：本单**仅**写 `docs/TEST_RESULT.md`；`java/src` / `java/CONTRACTS.md` / `docs/ARCHITECTURE.md` / `docs/TASKS.md` 等**共享制品全程只读**（复核期内 `java/src` 锚 `4826aaa8…`/319、`CONTRACTS` `51526c45…`/805 各自不变；`ARCHITECTURE.md` 的变动系**另一席位**所为，非本席）。
+
+## T099.8 未决 / 不可判定 / 不适用项
+
+- **不适用（非本单）**：① `scopeOf` 的**历史缺陷本体**（不读 `perm_type`）已记于 `ARCHITECTURE.md` `v1.5.8`，本单只核**处置形态**；② 写面可见性（`T-098` / `T-110` / `T-112`）**非本单**；③ 分页 / 排序（`T-096`）、路由判据升级（`T-097`）**非本单**。
+- **不可判定（据实）**：**阶段一（`be-t099`）的原始产物**（「只给实现加 `@Deprecated`」的中间态）**未落入仓库**（已被阶段二取代）⇒ §T099.1 中阶段一细节为**引述**；但**其改判依据（探针）已由我独立复现**，故改判结论**可判定**。
+- **待回写（非缺陷，承 `TASKS.md` 写权）**：`T-099` 验收标准仍作「(a)/(b) 二者择一」，实际交付为「(c) 删除」⇒ 建议项目经理回写并登记改判授权链（见 §T099.6(e)）。
+- **守卫的已知边界（观察，非缺陷）**：守卫只断言 `(long, String)` 形参签名；**异形参**的同名方法（或加在别的类型上）不在断言面内 —— 属**可接受**范围（历史签名即 `(long, String)`）。

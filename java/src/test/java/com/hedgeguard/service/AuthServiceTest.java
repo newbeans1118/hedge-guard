@@ -820,11 +820,6 @@ class AuthServiceTest {
             }
             return out;
         }
-
-        @Override
-        public com.hedgeguard.dao.SubAccountScope scopeOf(long userId, String column) {
-            throw com.hedgeguard.testsupport.FakeDao.unsupported("scopeOf");
-        }
     }
 
     /** 内存假越权尝试 DAO。 */
