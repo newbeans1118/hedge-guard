@@ -2284,3 +2284,125 @@ $ find java/src -type f | sort | xargs md5sum | md5sum           → 6bfe9cc3227
 **⑤ 过程事故留痕（供追溯，不隐去）**：`T-120` 收口期间发生**同席位多实例并行写** —— 根因为**编排者对同一席位连发多条序贯指令（＝重复派单）**；后果 = `TASKS.md` 曾并存**两条同题**「`T-120` 补修 delta 登记」段（已去重，`2635 → 2634` 行）。**处置** = 该席位主动停手报冲突、未与对方互覆盖；随后编排者**将 `TASKS.md` / `BOARD.md` 写权收归本身**以终止竞态。**终态经编排者独立复核：内容完整、无丢失、守恒成立。**
 
 **⑥ 时点口径**：本节系**事后补记**（`T-120` 转 `DONE` **之后**）；上文 `.0`~`.6` 为 `18:40:12` 落笔时记录。任何锚点引用**一律以实时 `md5sum` 为准**。
+
+# `T-102` 独立复核证据（事后补录，2026-09-21）
+
+> 本章由测试工程师席（`te-rec-t102`）补录。**对象** = `T-102`（写面**子账户可见性 / 交易权限**强制补齐）的 **delta 复核** —— 前一复核方 `te-verify-t102` 判「**通过、0 阻断缺陷**」但诚实指出 1 处与**验收 ⑤ 原文**的冲突（②b 未独立成例），**编排者裁定「须补」**；实施方 `be-t102-fix` 已补修，本章核验**补修后冻结态**。章内严格分列「**补录者实测**（独立重跑，附时点）」与「**引述**（首轮复核 / 派单转述，未经我重跑者）」；`md5` / 行数**以实时为准**。**本单写权仅本文件一个**，其余制品全程只读；临时探针建于 `/hgt102`（隔离副本，含 `tools/`）、结束已删净并给复位证明。
+
+## T102.0 冻结信息与基线
+
+（`cwd` = 仓库根；内容级锚统一用 `LC_ALL=C sort`）
+
+| 制品 | 补修前（`git show HEAD:`） | 补修后（冻结态，2026-09-21 19:12–19:17） |
+|---|---|---|
+| `java/src/test/java/com/hedgeguard/service/AuthServiceTest.java` | `846` 行 / `2b9a9e077f40d0d8e9002c21dfa587d6` | **`858` 行 / `615beb7d72f9e79f77e6dd0b9898ade0`** |
+| `java/src/main/java/com/hedgeguard/service/AuthService.java` | `e5a384cca8eb5122b3716fb4b14e1c13` | **同**（逐字节未动） |
+| `java/src/main/java/com/hedgeguard/service/PlanService.java` | `df9085fe999cf277ca4fb17f14bef26e` | **同**（逐字节未动） |
+| `java/src/main` 内容级树锚 | — | **`2f6c135fde909d8cf786a50e69e11abb`** / **258** 文件 |
+
+- **VCS**：`git rev-parse --short HEAD` = **`60ea187`**；`git status --porcelain` 仅两行 ` M docs/TASKS.md` / ` M java/src/test/java/com/hedgeguard/service/AuthServiceTest.java`；`git diff HEAD -- java/src/main` **空**（退出 0）。
+- **`java/src` 全树内容级锚**（含 test）：`c4e1804316c5411b799c8c42e522a7ff` / **318** 文件。
+- **⚠️ 「`src/main` 树锚两种形式不一致」的裁定（补录者实测）**：派单转述「实施方自报树锚 `c0981cfa…` / 258 **≠** 编排者实测 `2f6c135f…` / 258」。**经我实测，差异纯属「`cwd` / 路径前缀」不同**（`md5sum` 摘要含文件名，前缀变则哈希变），**两值文件数、内容一致**：
+  - `cwd=仓库根` + `find java/src/main …` ⇒ **`2f6c135fde909d8cf786a50e69e11abb`**；
+  - `cwd=java/` + `find src/main …` ⇒ **`c0981cfa4bed799826fa1c96ff8031b4`**（＝实施方口径）；
+  - `cwd=仓库根` + 绝对路径 `find /root/myspace/hedge-guard/java/src/main …` ⇒ `35f8e0888a886558e7fe54d7eec23624`；`./` 前缀 ⇒ `cb42c831d5c31ddc1ffca108b97d36f2`。
+  ⇒ **裁定：两自报值均「对」，属同一冻结态的不同取锚形式**；**本席采用「仓库根 + `find java/src/main` + `LC_ALL=C sort`」= `2f6c135f…` / 258 为规范化锚**，并**建议后续锚点一律注明 `cwd` 与相对前缀**。
+  - **另证 `LC_ALL=C` 必写**：同树 `find java/src/main -type f | sort | xargs md5sum | md5sum`（裸 `sort`）⇒ **`4e7143aa372fe93872ad1538c2b75d31`**（因 locale 致假差异）—— 派单环境事实②属实。
+- **隔离副本布局** = `/hgt102/{docs,java,tools}`（`java/` 仅 `pom.xml` + `src/`；`TMPDIR=/hgt102_tmp`，均在 `/` 非 `/tmp`）；`mvn` 在 `/hgt102/java` 下串行执行。副本 `src/main` 树锚复核 = `2f6c135f…` / 258（与源同）。**副本含 `tools/` 为必需**（`mvn validate` 的 `arch-check` exec 需 `tools/arch-check/arch-check.sh`；缺之则 `127 → BUILD FAILURE` 假失败）。
+
+## T102.1 六条验收逐条判定（首轮复核结论，标注来源）
+
+> ⚠️ **来源标注**：本节 ①③④ 的**首轮判定**系**引述** `te-verify-t102` 回执（**该回执未落入仓库** —— 全仓 `grep -rl te-verify-t102` 命中 **0**）；① ② ③ ④ ⑥ 中**标「补录者实测」者**为我在本单独立确认。
+
+1. **① 写面强制点（引述 + 补录者实测）**：`requireWritablePlan`（`PlanService.java:1739`–`:1753`）→ 调**写面** `assertSubAccountWritable`（`:1751`，**补录者实测行号属实**）；覆盖 **15 写入口** = **11** 经 `requireWritablePlan`（`:624/:739/:822/:1106/:1142/:1180/:1205/:1227/:1251/:1279/:1330`）+ **4** 经 `requireSubAccountWritable`（`:257/:293/:360/:499`，定义 `:1772`）——**补录者实测计数一致**。`assertSubAccountVisible` **非悬空**：读面调用点 `SpotService.java:1544`（补录者实测属实）。
+2. **② 判据 = 析取（补录者实测）**：`AuthService.java:440` = `if (leader || management) {`（`leader` ↔ `is_enterprise_leader='Y'`，`management` ↔ `isManagementRole`）——**析取属实**；M1 不接线有据（`FR-PLAN-14` 主体含财务/风控岗，接 `decompose` 会误拒）；**外依赖 `T-046`（`BLOCKED`）= M2 下单路径强制点**。
+3. **③ 走「修正 javadoc」支（引述 + 补录者实测）**：`PlanService.java:1164`–`:1176` javadoc 明写「`FR-PLAN-13` 四节均未限制操作人身份 ⇒ 本 javadoc 据此订正、与实现一致」；`withdraw`（`:1178`）仅校验原因非空 + 状态，**不比较发起人** —— 补录者实测属实。
+4. **④ `existingTradePlansScoped`（引述 + 补录者实测）**：定义 `PlanService.java:1704`、调用 `:1341` —— 补录者实测属实。
+5. **⑤ 用例映射（补录者实测 + 本单 ②b 补正）**：① 越权写 ⇒ 拒（`PlanWritePathPermissionTest` 7 例）；②a/②b **两条单条件各独立成例** ⇒ **本轮补修落成**（见 §T102.4）；③ javadoc 一致性；④ 跨子账户不计入 `used`；**反退化自证**（见 §T102.3）。
+6. **⑥ 冻结点全量（补录者实测）**：`mvn -B -o clean test` = **`444/0/0/0`**（原始输出见 §T102.5）；`@Test` grep **444** == surefire 名单合计 **444**；`AuthServiceTest` 本类 **15** == surefire `15`。
+
+## T102.2 双向正确性（真实 `AuthService` 探针）
+
+> 本节 1–3 系**引述首轮复核 `te-verify-t102`**（**补录者本单未重建探针、未自测**，据实标注）；4–5 为补录者据**读码**独立确认。
+
+1. **（引述）11 写入口全拒 `10004` + 11 条留痕**：首轮复核以真实 `AuthService` 探针实测。
+2. **（引述）误拒证伪**：财务/风控主体对**可见**子账户 `decomposeTradePlans` 放行 ⇒ 反证 `assertCanTrade` 未被误接。
+3. **（引述）`CROSS_READONLY` 读放行 / 写拒**（`T-098` 口径，**未报缺陷**）。
+4. **（补录者读码独立确认）读/写分离**：`SubAccountVisibility.java:69`/`:100` 两 default 断言 —— **读面**（`:73`）含哨兵 `0` 或含目标子账户 ⇒ 放行；**写面**（`:104`）**仅**含目标子账户（`!= 哨兵 0`）⇒ 放行；两方法在 `AuthService` 同名覆盖（`:507`/`:543`）**均追加 `t_unauthorized_attempt` 留痕**（`:517`/`:552`，`ATTEMPT_SUB_ACCOUNT_DENIED`、`10004`）。⇒ 与首轮结论一致。
+5. **（补录者读码独立确认）`assertSubAccountVisible` 非悬空**：读面调用点 `SpotService.java:1544`；`AuthService.java:53` 的 `{@link #assertCanTrade}` 系 javadoc 引用非调用（与首轮「② 接线点 = M2」一致）。
+
+## T102.3 反退化
+
+**（引述）首轮 `te-verify-t102` 4 向变异（M1~M4）**：结论「全部被杀」—— **引述，补录者未重跑**。
+
+**（补录者本单自建变异 · 独立复现）**：位点 = `AuthService.java:440` `if (leader || management)` → `if (leader && management)`（隔离副本 `/hgt102/java`，仅此一行；先备份 `.orig`）：
+- **杀灭数 = 2 红**：`AuthServiceTest.enterpriseLeaderAloneCannotTrade:304`（②a）**+ `AuthServiceTest.managementRoleAloneCannotTrade:287`（新 ②b）**；`leaderWithManagementRoleCannotTrade` **存活**（合取下两条件同真仍拒）—— 与预期逐条相符。
+- 变异态合计 = **444 测试 / 2 失败 / 0 错误 / 0 跳过**（`target/surefire-reports` 逐文件求和）。
+- **复位证明**：`mv *.orig AuthService.java` 后 `diff` 与共享树同文件**空**、`md5 = e5a384cca8eb5122b3716fb4b14e1c13`（＝源）、无 `.orig` 残留；随后 **clean 重编译** 重跑 ⇒ **`444/0/0/0` / BUILD SUCCESS**（陈旧 class 假红已排除）。
+
+## T102.4 缺陷与 delta 收口
+
+- `TE-T102-001`（②b 未独立成例）：首轮复核指出 —— 旧实现中 ②b 系 `leaderWithManagementRoleCannotTrade` **方法内断言块**，靠前断言一失败则 ②b **不执行**（「控制看起来有、实际没有」）。**编排者裁定「须补」**，依据 = `TASKS.md` §2 `T-102` 验收 ⑤ 原文「② `assertCanTrade` 判据形态（依 `CH-010` **析取**）**两条单条件各须独立成例**……②a/②b **均不得以对方同时成立为前提**；**合取实现下此两例必红**」。
+- **`be-t102-fix` 补修内容（补录者 `git diff` 实测）**：① 新增独立 `@Test` `managementRoleAloneCannotTrade`（`:275`/`:277`）—— **独立构造**（`addUser(2L,"approver")`；`roleDao.put(APPROVER)` + `userRoleDao.put`；**刻意不设** `is_enterprise_leader`）**+ 独立断言**（`assertFalse("Y".equals(...isEnterpriseLeader))`、`assertThrows(assertCanTrade(2L,3))` ⇒ `POSITION_SEPARATION_CONFLICT`、`attemptDao.rows.size()==1` + 类型 `ATTEMPT_MANAGEMENT_TRADE_BLOCKED`）；② **移除**原方法内的 ②b 内联块（无空断言残留）；③ `leaderWithManagementRoleCannotTrade` **保留并强化**：display 名订正为「两条件同满足」、补 `assertEquals("Y", …isEnterpriseLeader)`。
+- **补录者 delta 复检结论 = `T-102` delta 通过（0 阻断）**：
+  - ②b **确为真独立**：`@BeforeEach setUp()`（`AuthServiceTest.java:68`–`:83`）**每例新建全部 fake（含 `attemptDao`）** ⇒ `attemptDao.rows.size()==1` 系本方法专属、不依赖前置断言；新方法**不经**旧方法任何状态。
+  - **原方法未被削弱**：仍覆盖「两条件同满足」并**强化**了 `isEnterpriseLeader=='Y'` 前置断言；旧 ②b 位置**无空断言留存**（`git diff` 已全删）。
+  - **`src/main` 逐字节未动**：`git diff HEAD -- java/src/main` **空**；`AuthService.java` / `PlanService.java` md5 与 HEAD 同。
+  - **既有 443 条未被改弱**：`git diff HEAD -- java/src` **仅** `AuthServiceTest.java`（`21 insertions / 9 deletions`）；承重类 `PlanWritePathPermissionTest` **7/7 绿**、`AuthServiceTest` 其余 **13** 条仍绿（冻结点全绿）。
+  - **计数一致**：`@Test` grep **444** == surefire **444**；surefire **实载**三方法 `enterpriseLeaderAloneCannotTrade` / `leaderWithManagementRoleCannotTrade` / `managementRoleAloneCannotTrade`。
+  - **反退化**：新 ②b 在合取实现下**必红**（实测 `:287` 变红），复位后 clean 全绿（§T102.3）。
+  - **冻结点全量 `444/0/0/0`**（无排除，§T102.5）。
+- **对编排者「须补」裁定的意见**：**认可**。验收 ⑤ 原文「②a/②b **均不得以对方同时成立为前提**；**合取实现下此两例必红**」对「独立成例」有**明文要求**，旧内联块在靠前断言失败时会**静默跳过** ②b ⇒ 确属覆盖缺口，**非过严**。**无反驳、无新缺陷。**
+
+## T102.5 补录者抽验（不采信转述）
+
+> **全部为「补录者自测」原始输出**，与 §T102.2 的「引述」严格分列。
+
+**(a) 冻结态全量（`cwd=java/`）**：
+
+```
+$ mvn -B -o clean test
+[INFO] Results:
+[INFO] Tests run: 444, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS
+[INFO] Total time:  01:14 min
+[INFO] Finished at: 2026-09-21T19:13:24+08:00
+```
+
+**(b) 计数一致**：
+
+```
+$ grep -rn "@Test" java/src/test --include=*.java | wc -l   → 444
+$ grep -c "@Test" .../AuthServiceTest.java                   → 15
+$ 各 surefire *.xml tests= 求和                              → 444
+$ AuthServiceTest surefire testcase 计数                      → 15
+```
+
+**(c) 变异态（隔离副本 `/hgt102/java`，`:440` `||`→`&&`）**：
+
+```
+[ERROR] Tests run: 15, Failures: 2, Errors: 0, Skipped: 0 <<< FAILURE! -- in com.hedgeguard.service.AuthServiceTest
+[ERROR] com.hedgeguard.service.AuthServiceTest.enterpriseLeaderAloneCannotTrade ... <<< FAILURE!
+         at com.hedgeguard.service.AuthServiceTest.enterpriseLeaderAloneCannotTrade(AuthServiceTest.java:304)
+[ERROR] com.hedgeguard.service.AuthServiceTest.managementRoleAloneCannotTrade ... <<< FAILURE!
+         at com.hedgeguard.service.AuthServiceTest.managementRoleAloneCannotTrade(AuthServiceTest.java:287)
+（全量合计 444 / 2 / 0 / 0；leaderWithManagementRoleCannotTrade 无 failure 子节点）
+```
+
+**(d) 复位后 clean 重跑**：`[INFO] Tests run: 444, Failures: 0, Errors: 0, Skipped: 0` / `BUILD SUCCESS`。
+
+**(e) `src/main` 零改动**：`git diff HEAD -- java/src/main` ⇒ 空（退出 0）。
+
+**(f) 与转述不符者**：**0 处** —— 派单表内各值与补录者实测**逐项一致**（含 `AuthServiceTest` `615beb7d…`/858、`AuthService.java` `e5a384cc…`、`PlanService.java` `df9085fe…`、`@Test` **444**、surefire 三方法、变异 **2 红**）。**唯一「不一致」为 `src/main` 树锚**（`c0981cfa…` vs `2f6c135f…`），已裁定为**路径前缀差异**（§T102.0），**非事实错误**。
+
+## T102.6 度量与「纯追加」证明
+
+- 追加前：`docs/TEST_RESULT.md` = **`a803f846e56beadcfce4041f35a854ac` / 2286 行**（`19:16:46` / `19:16:56` / `19:17:06` 三次取样不变 ⇒ 已静默）。
+- **纯追加口径**：追加后 `head -2286 docs/TEST_RESULT.md | md5sum` = **`a803f846e56beadcfce4041f35a854ac`**（与追加前逐字节相同 ⇒ 前 2286 行未被改写）；**本单仅追加、未改写任何既有章**。
+- 追加后：`2408` 行；**首次追加（未回填本节数字）后全文 `md5` = `bf2161c09d69273325e50b81141ca092`（`19:17:59`）**；因本行数字回填会再次改变全文 `md5`，故**全文 `md5` 一律以实时 `md5sum` 为准**；新章落点 = 第 **2288** 行起（第 2287 行为章节间空行），末行止于 `2408`。**落笔前已 3×10s 静默取样不变**（`19:16:46/56/19:17:06`）。
+
+## T102.7 未决 / 不可判定 / 不适用项
+
+- **（沿用首轮 5 条不适用项）**：① `scopeOf` 不读 `perm_type` ⇒ 归 **`T-099`**（读面取数入口，非本单）；② SPOT 写面（`T-110`）/ PRODUCT+PLAN 写面（`T-112`）/ `CROSS_READONLY` 写面拒绝（`T-098`，原 `T-115`）**非本单**；③ `CROSS_READONLY` **读面放行**系既定口径（`FR-AUTH-13` 验收 1），**未报缺陷**；④ 分页 / 排序、路由等值断言、合规预校验**非本单**；⑤ `latestPrecheckSnapshot` / `listBindings` 无 `operatorId` **非缺口**（`PlanHandler.detail` 前置已 scoped `getPlan`）。
+- **外依赖**：`assertCanTrade` 的 **M2 真强制点 = `T-046`（`BLOCKED`）**；M1 不接线为**有意**（`FR-PLAN-14` 主体含财务/风控岗）。
+- **（本单新增观察，非缺陷）** `T-102` 首轮复核回执**未落入仓库**（全仓 `grep -rl te-verify-t102` 命中 **0**）⇒ 本章对首轮结论一律**标「引述」**；如需权威存档，建议编排者补录首轮回执。

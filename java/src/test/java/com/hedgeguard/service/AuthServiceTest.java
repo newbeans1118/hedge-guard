@@ -250,7 +250,7 @@ class AuthServiceTest {
     // ------------------------------------------------------------ 负责人禁操盘
 
     @Test
-    @DisplayName("负责人禁操盘（CH-010 析取）：负责人或管理层任一成立即拒；普通交易岗放行")
+    @DisplayName("负责人禁操盘（CH-010）：负责人且持管理层角色（两条件同满足）亦拒；普通交易岗放行")
     void leaderWithManagementRoleCannotTrade() {
         addUser(1L, "boss", "ENABLED");
         userDao.users.get(1L).isEnterpriseLeader = "Y";
@@ -259,24 +259,36 @@ class AuthServiceTest {
         userRoleDao.put(userRole(100L, 1L, 20L));
 
         assertTrue(service.isManagementRole(1L), "APPROVER 角色即管理层");
+        assertEquals("Y", userDao.users.get(1L).isEnterpriseLeader, "本用例两条件同满足");
         BizException e = assertThrows(BizException.class, () -> service.assertCanTrade(1L, 3));
         assertEquals(ErrorCode.POSITION_SEPARATION_CONFLICT, e.errorCode());
         assertEquals(1, attemptDao.rows.size(), "须留痕越权尝试");
         assertEquals(AuthService.ATTEMPT_MANAGEMENT_TRADE_BLOCKED,
                 attemptDao.rows.get(0).attemptType);
 
-        // ②b 单条件：非负责人但持管理层角色（APPROVER）⇒ 独立成立即拒（CH-010 析取）
-        addUser(2L, "approver", "ENABLED");
-        userRoleDao.put(userRole(101L, 2L, 20L));
-        assertEquals(ErrorCode.POSITION_SEPARATION_CONFLICT,
-                assertThrows(BizException.class, () -> service.assertCanTrade(2L, 3)).errorCode(),
-                "管理层单条件（无负责人标记）独立成立即拒（CH-010 析取；合取实现下此断言必红）");
-        assertEquals(2, attemptDao.rows.size(), "②b 亦须留痕");
-
         // 普通交易岗可操盘
         addUser(3L, "trader01", "ENABLED");
         userRoleDao.put(userRole(102L, 3L, 10L));
         service.assertCanTrade(3L, 3);
+    }
+
+    @Test
+    @DisplayName("负责人禁操盘（CH-010 析取 · ②b）：持管理层（审批人）角色单条件（非负责人）独立成立即拒")
+    void managementRoleAloneCannotTrade() {
+        addUser(2L, "approver", "ENABLED");   // is_enterprise_leader 缺省为 "N"
+        // 授管理层角色（APPROVER），刻意不设负责人标记：仅「管理层角色」单条件成立
+        roleDao.put(role(20L, AuthService.ROLE_APPROVER, 2, "N"));
+        userRoleDao.put(userRole(101L, 2L, 20L));
+
+        assertTrue(service.isManagementRole(2L), "APPROVER 角色即管理层");
+        assertFalse("Y".equals(userDao.users.get(2L).isEnterpriseLeader),
+                "本用例刻意不设负责人标记（②b 单条件）");
+        BizException e = assertThrows(BizException.class, () -> service.assertCanTrade(2L, 3));
+        assertEquals(ErrorCode.POSITION_SEPARATION_CONFLICT, e.errorCode(),
+                "管理层单条件（无负责人标记）独立成立即拒（CH-010 析取；合取实现下此断言必红）");
+        assertEquals(1, attemptDao.rows.size(), "②b 单条件亦须留痕");
+        assertEquals(AuthService.ATTEMPT_MANAGEMENT_TRADE_BLOCKED,
+                attemptDao.rows.get(0).attemptType);
     }
 
     @Test
