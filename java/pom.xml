@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  HedgeGuard 业务组件（hg-biz）构建描述
+  技术栈依据：PROJECT.md §5.1（Java 11 + Maven + 标准 JDBC + JUnit 5）
+  依赖清单依据：docs/ARCHITECTURE.md §7.2.2 —— 仅 4 个 compile 依赖（JDK 11 / DM JDBC / protobuf-java / Gson）
+  连接池、日志、口令哈希、测试打桩均自实现，不得引入 HikariCP / SLF4J / BCrypt / Mockito。
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.hedgeguard</groupId>
+  <artifactId>hg-biz</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <packaging>jar</packaging>
+  <name>HedgeGuard Business Component (hg-biz)</name>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <!-- PROJECT.md §6：编译目标统一为 JDK 11，不得使用 JDK 17+ 特性 -->
+    <maven.compiler.source>11</maven.compiler.source>
+    <maven.compiler.target>11</maven.compiler.target>
+    <gson.version>2.10.1</gson.version>
+    <protobuf.version>3.21.12</protobuf.version>
+    <junit.version>5.10.2</junit.version>
+    <main.class>com.hedgeguard.web.Bootstrap</main.class>
+    <!-- DM JDBC 驱动由部署方提供（与客户 DM8 实例版本匹配，PROJECT.md §5.3 第 4 项） -->
+    <dm.driver.jar>${project.basedir}/lib/DmJdbcDriver18.jar</dm.driver.jar>
+  </properties>
+
+  <dependencies>
+    <!-- ===== compile 依赖（ARCHITECTURE.md §7.2.2，共 4 个，本 pom 落实 2 个可公共获取者） ===== -->
+    <!-- ① JDK 11 java.base：无需声明（HTTP Server / JDBC / 并发 / 密码学均内置） -->
+
+    <!-- ② DM JDBC 驱动：见下方 profile(dm)，默认关闭，理由见 README/CONTRACTS 说明 -->
+
+    <!-- ③ protobuf-java：HGCP 载荷编解码（与 C++ 侧同一大版本 3.21.12） -->
+    <dependency>
+      <groupId>com.google.protobuf</groupId>
+      <artifactId>protobuf-java</artifactId>
+      <version>${protobuf.version}</version>
+      <scope>compile</scope>
+    </dependency>
+
+    <!-- ④ Gson：HTTP REST 的 JSON 编解码（JDK 11 无内置 JSON） -->
+    <dependency>
+      <groupId>com.google.code.gson</groupId>
+      <artifactId>gson</artifactId>
+      <version>${gson.version}</version>
+      <scope>compile</scope>
+    </dependency>
+
+    <!-- ===== test 依赖 ===== -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <profiles>
+    <!--
+      DM JDBC 驱动用 profile 隔离：达梦官方未把驱动发布到 Maven Central，
+      必须由部署方提供 jar（本地私仓安装或放 java/lib/）。
+      默认不激活，以保证 `mvn compile` / `mvn test` 在无 DM 环境下可编译、可跑单测（NFR-TEST-2）。
+      激活方式：mvn -Pdm compile（需 java/lib/DmJdbcDriver18.jar 存在）
+      偏离登记：见 docs/DEPLOY/schema 同级说明与 T-004 工单处理记录（环境前置 R-5）。
+    -->
+    <profile>
+      <id>dm</id>
+      <dependencies>
+        <dependency>
+          <groupId>com.dameng</groupId>
+          <artifactId>DmJdbcDriver18</artifactId>
+          <version>8.1.3.140</version>
+          <scope>system</scope>
+          <systemPath>${dm.driver.jar}</systemPath>
+        </dependency>
+      </dependencies>
+    </profile>
+  </profiles>
+
+  <build>
+    <finalName>hg-biz</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+        <configuration>
+          <source>11</source>
+          <target>11</target>
+          <encoding>UTF-8</encoding>
+          <showWarnings>true</showWarnings>
+          <!-- 告警须清零（backend-engineer.md §4 构建与自检） -->
+          <compilerArgs>
+            <arg>-Xlint:all</arg>
+            <!-- 保留参数名，便于反射/诊断；不使用 JDK 17+ 特性 -->
+            <arg>-parameters</arg>
+          </compilerArgs>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.2.5</version>
+        <configuration>
+          <argLine>-Dfile.encoding=UTF-8</argLine>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.4.1</version>
+        <configuration>
+          <archive>
+            <manifest>
+              <mainClass>${main.class}</mainClass>
+            </manifest>
+          </archive>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

@@ -1,0 +1,21 @@
+// 由 cpp/ctp_smoke/CMakeLists.txt configure_file 生成。**禁止手改**。
+//
+// 作用：把"实际选中的 CTP 头文件与类名"注入编译单元，使同一份探路源码
+//       既能打「合并版 UserApi」（本项目技术栈口径，PROJECT.md §5.1 /
+//       ARCHITECTURE.md §7.2.1）也能打「独立 TraderApi」（T-027 验收标准原文写法）。
+#ifndef HGCP_CTP_HEADERS_H
+#define HGCP_CTP_HEADERS_H
+
+@HGCP_CTP_TRADER_INCLUDE@
+@HGCP_CTP_MD_INCLUDE@
+
+#define HGCP_CTP_HEADER_STYLE      "@HG_CTP_HEADER_STYLE@"
+#define HGCP_CTP_TRADER_HEADER     "@HGCP_CTP_TRADER_HEADER@"
+#define HGCP_CTP_MD_HEADER         "@HGCP_CTP_MD_HEADER@"
+#define HGCP_CTP_TRADER_API_CLASS  @HGCP_CTP_TRADER_API_CLASS@
+#define HGCP_CTP_TRADER_SPI_CLASS  @HGCP_CTP_TRADER_SPI_CLASS@
+#define HGCP_CTP_MD_API_CLASS      CThostFtdcMdApi
+#define HGCP_CTP_MD_SPI_CLASS      CThostFtdcMdSpi
+@HGCP_CTP_STYLE_MERGED_DEFINE@
+
+#endif  // HGCP_CTP_HEADERS_H

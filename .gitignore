@@ -1,0 +1,23 @@
+# ---- 构建产物（不入库；本项目已明确「构建产物永不作锚点」）----
+java/target/
+cpp/build/
+cpp/proto_smoke/build/
+cpp/ctp_smoke/build/
+**/build/
+**/target/
+
+# ---- 编辑器/系统 ----
+*.class
+*.o
+*.a
+*.so
+*.jar
+*.log
+*~
+.DS_Store
+
+# ---- 临时与备份（本会话纪律：探针/备份一律放 /tmp，不得污染仓库）----
+*.orig
+*.bak
+*.tmp
+*.swp

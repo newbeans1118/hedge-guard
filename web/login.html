@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<!--
+  HedgeGuard 登录页（FR-AUTH-14 / FR-AUTH-15）。
+  零构建链（NFR-MAINT-1）：原生 ES Module，无打包器。
+  鉴权由后端判定（统一错误信息、连续失败锁定）；前端不提供"记住我 / 长期免登录"。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录 · HedgeGuard</title>
+  <link rel="stylesheet" href="/web/css/hg.css">
+</head>
+<body>
+  <div id="hg-login-root" class="hg-login"></div>
+  <noscript>本系统需要启用 JavaScript 才能使用。</noscript>
+  <script type="module">
+    import '/web/js/core/format.js';
+    import '/web/js/core/errmsg.js';
+    import '/web/js/core/api.js';
+    import '/web/js/core/ui.js';
+    import '/web/js/core/session.js';
+    import '/web/js/pages/login.js';
+    window.HG.pages.login.render(document.getElementById('hg-login-root'));
+  </script>
+</body>
+</html>

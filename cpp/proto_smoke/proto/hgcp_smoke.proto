@@ -1,0 +1,52 @@
+// ============================================================================
+// HGCP smoke schema  ——  T-026 / RSK-01 探路专用，**不是** M2 冻结契约
+//
+// ⚠️ 边界声明（务必先读）
+//
+//   1. 冻结契约是 `proto/hgcp.proto`（ARCHITECTURE.md §4.2，HGCP v1.0 / FROZEN，
+//      40 消息 / 62 错误码）。**该文件在本次探路时并不存在于仓库中** ——
+//      交付时记录：`find . -name '*.proto'` 零命中。
+//      故本文件是**等价替代物**，只承载 RSK-01 的技术风险
+//      （"protobuf 生成的 C++ 代码能否在 -std=c++11 -Werror 下构通"），
+//      **不承载任何协议语义**，也**不得**被任何一侧当作协议定义引用。
+//
+//   2. 本文件受 `cpp/proto_smoke/**` 写作边界保护；`proto/hgcp.proto` 一旦落地，
+//      本文件即应废弃（它只用于探路取证）。
+//
+//   3. 宏 `HgcpEmpty` 是验收标准所要求的"**HGCP 空消息**"；
+//      `HgcpSmokeFields` 为加严补充用例，用于覆盖 §4.2.4 出现过的字段类型
+//      （string / enum / uint32 / int32 / int64 / repeated bytes），
+//      使 C++11 生成代码的覆盖不止于"空消息"这一最弱形态。
+// ============================================================================
+
+syntax = "proto3";
+
+package hgcp.v1;
+
+// 与 ARCHITECTURE.md §4.2.5「枚举一律显式赋值且 0 保留为 *_UNSET」一致
+enum HgcpDirection {
+  HGCP_DIRECTION_UNSET = 0;
+  HGCP_DIRECTION_BUY   = 1;
+  HGCP_DIRECTION_SELL  = 2;
+}
+
+// ---------------------------------------------------------------------------
+// 验收标准所指的「HGCP 空消息」：无字段，序列化后 payload 长度为 0 字节。
+// 它同时是"零长度 payload 帧"这条边界路径的载体。
+// ---------------------------------------------------------------------------
+message HgcpEmpty {
+}
+
+// ---------------------------------------------------------------------------
+// 加严补充用例（非验收必需）：
+// 覆盖 §4.2.4 `CMD_PLACE_ORDER` / §4.2.3 `MSG_RESUME_DATA` 中出现过的字段类型。
+// ---------------------------------------------------------------------------
+message HgcpSmokeFields {
+  string        client_order_ref = 1;   // 标识符类：仅 ASCII
+  uint32        sub_account_id   = 2;
+  int32         volume           = 3;
+  int64         client_ts_ms     = 4;
+  string        limit_price      = 5;   // 金额/价格：十进制字符串（§4.2.5）
+  HgcpDirection direction        = 6;
+  repeated bytes frames          = 7;   // §4.2.3 `MSG_RESUME_DATA.frames`
+}

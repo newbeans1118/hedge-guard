@@ -1,0 +1,9 @@
+# 构建产物与探路取证日志：不入库
+build/
+build-*/
+*/build/
+*/build-*/
+*.configure.log
+*.build.log
+*.ctest.log
+*.self-test.log

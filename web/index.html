@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<!--
+  HedgeGuard 前端主框架（ARCHITECTURE.md §3.15 / CFG-30 hg.web.root 默认 ./web）。
+  零构建链（NFR-MAINT-1）：原生 ES Module（<script type="module">），无 package.json / node_modules / 打包产物。
+  前端只与本组件的 /api/v1/** 与 /ws/** 通信（NFR-MAINT-5）。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HedgeGuard 套期保值管理系统</title>
+  <link rel="stylesheet" href="/web/css/hg.css">
+</head>
+<body>
+  <div id="hg-app" class="hg-app"></div>
+  <noscript>本系统需要启用 JavaScript 才能使用。</noscript>
+  <script type="module" src="/web/js/app.js"></script>
+</body>
+</html>
