@@ -3686,3 +3686,132 @@ E7 通过：§4.2.8 与 proto 逐条一致（消息 40+10、字段 214+66、枚�
 > - **两向验证**：**「该防的已防」** —— 三层全序（含引擎端到端）、`entries[]` 全命中、双层校验、纯函数式、8 规则主体、P99 预算、平仓豁免（除 `R-RISK-2`）均**独立实测通过**，且经本席 4 例自设变异**双向承重**；**「误伤」方向** —— 捕获 1 处（额度×平仓），其余合法/边界方向未见过度拒绝。
 > - **独立实测基线**：构建 `rc 0`、告警/错误 `0/0`；`ctest -R risk_engine` **13/13**；聚合 `arch-check` **`rc 0`**（`E1`–`E7` 全 0）；`E4` 实扫 **45 文件、命中 0**；`P99 = 33.6–40.5 µs`（5 采样）；自撰探针 8 例（7 通过 1 失败）；隔离变异 4 杀 + 1 假绿事故已披露；共享树/隔离树残留 **0**。
 > - **不置 `DONE`**（门禁结论由编排者落）；`TASKS.md`/`BOARD.md`/`ARCHITECTURE.md` **零改动**。
+
+---
+
+# `T-010` 独立复核证据（2026-09-22）
+
+> 复核人：`test-engineer`（独立复核方，席位 `te-verify-t010b`）。被复核对象：`T-010`「用户与权限服务（岗位分离 + 子账户软隔离）」**退回重做交付**（产出方实例 `be-t010`）。
+> 立场：产出方一切自报**视为待证命题**；本章分「**独立实测**」与「**产出方自述（本席未复现）**」两栏。**本席不置 `DONE`**（门禁结论由编排者落）。
+
+## T010b.0 快照与锚点比对
+
+- **共享树锚**（`cwd = 仓库根`）：`find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum` = **`fba1f886911eed4df00d2598c6fce2ec` / 335 文件** —— 与产出方自报**一致**（本席独立重测，2026-09-22）。
+- **被复核交付位于工作区**（未提交）：`git status` 显示 `AuthService.java`/`Bootstrap.java`/`SessionAuthFilter.java`/`AuthRoutes.java`/`Config.java`/`data-init.sql` 等为已改，且新增 11 个 `web/handler/auth/**` + `SessionRenewer` + 2 个 `dao/impl` + 4 个测试类。
+- **隔离副本**：`/hgt010iso`（含 `docs/`+`tools/`+`java/`，防路径型测试假红与 `mvn validate` 的 `arch-check` exec `127`）。**所有变异/探针仅在副本内执行**；开局扫共享树 **`*.orig`/`*.bak`/`*.rej`/`*MUTATION*` = 0**，复核结束共享树锚**仍为** `fba1f886…`/335、残留 **0**。
+
+## T010b.1 独立实测基线
+
+| 项 | 独立实测 | 产出方自述（本席未复现） |
+|----|---------|------------------------|
+| `mvn -B -o -T1 clean test`（副本） | **484 / 0 / 0 / 0** | 484/0/0/0（一致） |
+| `@Test` grep vs surefire | **484 == 484**（`@ParameterizedTest` = 0） | 484 == 484（一致） |
+| 聚合 `arch-check.sh` | **`rc 0`**；`E1`–`E7` 全 0；`E4` 实扫 45 文件、命中 0 | `rc 0`（一致） |
+| 自撰独立探针（`TeVerifyT010bProbeTest`，10 例） | **10/10 通过** | ——（产出方无此探针） |
+
+## T010b.2 缺口 (a) REST 端点补齐 —— **独立枚举双向差集**
+
+**独立实测**（自撰探针 `routeDeclaredVsRegisteredBothDirections` / `routeCountCorroboratedIndependently`，**非复用产出方用例**）：
+
+- `ApiRoutes.byModule().get("AUTH")` 声明 **10** 条路径。
+- `AuthRoutes.register(new Router(), null, null)` 实测注册 **17** 个 `(方法,路径)` 对：`login/logout`（各 1）+ `user`（GET/POST/PUT）+ `role`、`position-group`、`authorization`、`sub-account-perm`（各 GET/POST）+ `change-log`、`unauthorized-attempt`（各 GET）+ `password`（POST/PUT）。
+- **正向差集**：声明而**未注册** = **∅**。
+- **反向差集**：注册而**声明外**（超范围新增）= **∅**。
+- **路由总数**：自枚举各注册器 —— `AUTH 17 / CONFIG 17 / PRODUCT 13 / SPOT 15 / PLAN 18` + `ping 2` = **82**，与 `Bootstrap.assembleWithResources(...).routeCount()` 实测 **82** **相等**。
+- **前后值核对**：`git show HEAD:.../AuthRoutes.java` 实测注册 **2** 对；`git show HEAD:.../BootstrapAssemblyTest.java` 原断言 **67** ⇒ Δ+15 对 = 67+15 = **82**，**自洽**。
+- **断言订正纪律**：`BootstrapAssemblyTest.java:137-141` 实测含 `【T-010 订正（加注）】` 注释，写明「订正理由 = 需求面（`ApiRoutes` 声明 AUTH 10 条路径、『声明面 ⊇ 注册面』缺口被补齐）… **非为过测试而放宽断言**」；断言由**下界式**改为**精确等值**且**数值增大** ⇒ 属「补需求面」而非放宽。
+
+**产出方自述（本席未复现）**：AUTH 注册 2/10 → 10/10（17 对）、路由计数 67 → 82。 —— 与上列独立实测**一致**。
+
+## T010b.3 缺口 (b) `FR-AUTH-1~18` 覆盖 —— 逐条实现位置 + 接线
+
+**独立实测**（读源码 + `src/main` 调用点枚举，非采信自述）：
+
+| FR | 实现位置（`AuthService`） | 用例 |
+|----|--------------------------|------|
+| 1 新增用户 | `createUser:714` | `AuthAdminServiceTest.createUserHashesAndSeeds` |
+| 2 修改用户 | `updateUser:756` | `updateUserLeaderFlagRequiresReview` |
+| 3 停用 | `disableUser:796` | `disableAndEnable` |
+| 4 启用 | `enableUser:822` | `disableAndEnable` |
+| 5 用户列表 | `listUsers:859` | `listUsersPaged`（路由 `GET /auth/user`） |
+| 6 定义角色 | `defineRole:899`/`listRoles:884` | `defineRoleValidations` |
+| 7 岗位互斥配置 | `definePositionConflict:961`/`listPositionConflicts:948` | `definePositionConflict` |
+| 8 岗位分离校验 | `grantRole:437-493`（`conflicts`） | `grantRoleRejectsPositionConflict` |
+| 9 负责人禁操盘 | `assertCanTrade:538` / `grantRole:471` | `leaderWithManagementRoleCannotTrade`、`managementRoleAloneCannotTrade`、`enterpriseLeaderAloneCannotTrade` |
+| 10 人员授权 | `grantAuthorization:1020` | `grantAuthorization` |
+| 11 授权变更留痕 | `recordChange:1260`/`listPermissionChangeLogs:1143` | `changeLogAndAttemptQueries` |
+| 12 子账户数据权限 | `assignSubAccountPerm:1091`/`listSubAccountPerms:1073` | `assignSubAccountPerm` |
+| 13 跨子账户查看 | `assignSubAccountPerm`（`CROSS_READONLY` 门禁）/`assertSubAccountVisible:613` | `subAccountSoftIsolation`、`crossReadonlyIsReadOnlyOnWriteFace` |
+| 14 登录 | `login:229` | `loginSucceeds`、`loginFailuresAreIndistinguishable` |
+| 15 登出/会话 | `logout:304`/`touchSession:325`/`forceLogout:1173` | `sessionIdleTimeout`、`logoutInvalidatesBoth`、`AuthSessionIdleTimeoutTest` |
+| 16 口令管理 | `changePassword:360`/`resetPassword:406` | `changePasswordEnforcesStrengthAndHistory`、`resetPasswordReturnsOneTimeSecret` |
+| 17 登录失败锁定 | `login` 锁定分支（`loginFailLimit/loginLockMinutes`） | `fiveFailuresLockTheAccount`、`AuthAdminServiceTest.loginLockThresholdFromConfig` |
+| 18 变更记录查询 | `listPermissionChangeLogs:1143`/`listUnauthorizedAttempts:1157` | `changeLogAndAttemptQueries` |
+
+- **独立结论**：**18/18** 均至少有实现 + 至少一个 `@Test`。**未见**「交付了但未接线」的**阻断级**项——8 个新增 handler **逐个实测**均调用 `authService.*`（`UserHandler`→`listUsers/createUser/updateUser/disableUser/enableUser`；`RoleHandler`→`listRoles/defineRole/grantRole`；…）。
+- **接线核准**：`touchSession` 经方法引用 `authService::touchSession` 在 `Bootstrap.java:153` 注入（`src/main` 中 **1** 处），非 0 调用——本席初查 `.touchSession(` 曾漏判，已复核更正。
+- **观察（非缺陷，单列）**：
+  - `assertCanTrade` 在 `src/main` **0 调用** —— 依 `T-102` 裁定其服务端强制点为 **M2 下单写路径（`T-046`）**，M1 不接线属**有意**（`PlanService:1321` 有同源说明）。
+  - `forceLogout` 在 `src/main` **0 调用**、`ApiRoutes` AUTH 声明面**无**强制下线路径 ⇒ `FR-AUTH-15` 验收 4（管理员强制下线）为**服务级交付 + 单测**，**未接 REST**。属「需求面 vs 冻结端点面」问题（AUTH 声明面冻结为 10 路径），**本席不判为 T-010 退回重做的四项硬缺口回归**。
+
+## T010b.4 缺口 (c) 两处逻辑缺口
+
+**① 锁定阈值/时长接 `Config`（改配置实测生效）** —— 独立探针 `loginLockFromConfig`：`System.setProperty(hg.auth.login_fail_limit,"2")` + `hg.auth.login_lock_minutes,"11"`，随后 `login` 实测 **第 2 次即 `ACCOUNT_LOCKED`**、`lockedUntil = T0+11min`（**非硬编码 5**）。机制：`Config.getInt` 取 `System property > 属性文件 > 默认值`（`Config.java:148-175`）。**独立实测通过**。
+
+**② 会话滑动续期（空闲超时而非绝对过期）** —— 独立探针 `slidingIdleTimeout`（**自建**，非复用 `AuthSessionIdleTimeoutTest`）：
+- T0+20min 一次有效请求后 `expireTime` 顺延至 `now+30min`；
+- T0+40min（**已过原绝对过期点 T0+30**）再次请求**仍有效**并继续顺延；
+- **反证**：改用 2 参构造（不注入 `SessionRenewer`）时，同一时刻（T0+40min）**必 `10006`**。**独立实测通过**。
+
+**产出方自述（本席未复现）**：`AuthSessionIdleTimeoutTest` 证「+20min 请求后 +40min 仍有效」 —— 与独立探针语义**一致**。
+
+## T010b.5 缺口 (d) AUTH 预设数据幂等播种
+
+**独立实测**（自撰 SQLite 探针 `probe_seed_idempotency.py`，**真实执行**而非文本断言）：
+- 从 `docs/DEPLOY/schema/data-init.sql` 逐字取出 **§③ 三条 `INSERT`**，在 SQLite 按 DDL 等价建表（DM 专有 `IDENTITY(1,1)` 译为 `INTEGER PRIMARY KEY AUTOINCREMENT`），**执行两遍**。
+- 第一遍：`t_position_group 7` / `t_role 7` / `t_position_conflict 5`；**第二遍：行数不变（幂等）**。
+- 关键字段：岗位组 7 个互异编码；互斥对**全部 `a<b` 单向存储**且集合 = `{(TRADER,FIN_RISK),(TRADER,SETTLER),(FIN_RISK,SETTLER),(TRADER,CASHIER),(TRADER,APPROVER)}`；**仅 `TRADER` 具交易能力**；`SYS_ADMIN.is_business_role='N'`。
+- **幂等由 `WHERE NOT EXISTS` 承重**：见 T010b.7 `MUT-D`（去之，第二遍即 `UNIQUE constraint failed: t_position_group.group_code`）。
+- **产出面**：第 ③ 段**确在** `docs/DEPLOY/schema/data-init.sql`（实测 md5 `f64cb2fc1bbb9a1d46ae0695cd5f6222` / 176 行）；§② 承接表 3 项（岗位组/角色/默认互斥）已标「✅ 已交付：见第 ③ 段（T-010）」。
+
+> ⚠️ **环境限制（据实标注）**：本机**无 DM8 实机**。上述为 **SQLite 等价执行**（DM 专有 `SET IDENTITY_INSERT` 仅用于 §①/①-bis，不涉 §③），**`INSERT…SELECT…UNION ALL…WHERE NOT EXISTS` 为标准 SQL**；故该项证据等级 = **替代证据级（文本/等价引擎级）**，**不得**表述为「已在 DM8 验证」。
+
+## T010b.6 重点独立探针（岗位互斥 / 析取 / 子账户隔离）
+
+- **岗位互斥**：已具 `TRADER`（岗位组 1）再授 `FIN_RISK`（岗位组 2，矩阵有对）⇒ **拒 `POSITION_SEPARATION_CONFLICT` 且记 `t_unauthorized_attempt`（`POSITION_CONFLICT`）**；**反向**：再授合法 `AUDITOR` **放行**（防误拒）。**独立实测通过**。
+- **负责人禁操盘 = 析取（`CH-010`）**：本席构造**两个各自独立**的账号 —— ①仅 `is_enterprise_leader='Y'`（**无任何角色**）⇒ 拒；②仅持 `APPROVER` 角色（**非负责人**）⇒ 拒。二者**互不依赖**，`命中=` 文案亦分别显示「`is_enterprise_leader=Y`」「持 `APPROVER` 角色」。**独立实测通过**（合取变异见 `MUT-A`）。
+- **子账户软隔离（两向）**：①无授权 ⇒ `assertSubAccountVisible` 拒（`10004`）、`visibleSubAccountIds` = **空集**（fail-closed）；②`LIMITED` 到子账户 7 ⇒ 本账户放行、**跨账户 8 拒**，可见集 = `[7]`；③`CROSS_READONLY` ⇒ **读面放行任意账户、写面拒**（`assertSubAccountWritable` `10004`），可见集含哨兵 `0`。**独立实测通过**。
+
+## T010b.7 反退化变异（隔离副本内，后复位 + clean 重编译）
+
+| 变异 | 目标 | 变体后 | 复位后 | 副本路径 |
+|------|------|--------|--------|---------|
+| `MUT-A` `\|\|`→`&&`（合取） | `AuthService:546 assertCanTrade` | **FAIL**：自撰 2 例（`leaderAloneRejected`/`managementAloneRejected`）+ 产出方 2 例（`enterpriseLeaderAloneCannotTrade`/`managementRoleAloneCannotTrade`）红 | 绿 | `/hgt010iso/java/.../AuthService.java` |
+| `MUT-B` 短路 `conflicts()` | `AuthService.conflicts` | **FAIL**：自撰 1 例 + `AuthServiceTest.grantRoleRejectsPositionConflict` 红 | 绿 | 同上 |
+| `MUT-C` 去续期器（忽略 `renewer`） | `SessionAuthFilter.authenticate` | **FAIL**：自撰 1 例 + `AuthSessionIdleTimeoutTest.activeRequestsKeepSessionAliveSlicing` 红（`10:50` vs `10:30`） | 绿 | `/hgt010iso/java/.../SessionAuthFilter.java` |
+| `MUT-D` 去 `WHERE NOT EXISTS`（3 处） | `data-init.sql §③` | **FAIL**：自撰 SQLite 探针第二遍 `IntegrityError`；`AuthSeedDataTest.seedsAreIdempotent` 红 | 绿 | `/hgt010iso/docs/DEPLOY/schema/data-init.sql` |
+
+**复位验证**：三文件 md5 逐字节复原（`AuthService` `45eafcdca2ecf2abbd586f9e3a2c2b77`、`SessionAuthFilter` `4d7b67e339ad054d988dfc6a29980a17`、`data-init.sql` `f64cb2fc1bbb9a1d46ae0695cd5f6222`），**clean 重编译 = 484/0/0/0**，副本锚回 `fba1f886…`/335。**4 例变异全杀**（各自双向承重）。
+
+## T010b.8 缺陷 / 观察
+
+| 编号 | 严重度 | 类别 | 证据（独立实测） | 复现 | 归属建议 |
+|------|--------|------|-----------------|------|---------|
+| **TE-T010b-001** | **低**（守卫空转，非阻断） | 测试强度退化 | `T109EndpointRegistrationTest` **段②** 主断言经**装配分发器**（含 `SessionRenewer`）调用已认证请求；本席自撰探针实测：经装配分发 —— 已注册 `GET /api/v1/product` = **500**、未注册 `GET /api/v1/config/NOT-A-ROUTE` = **500**（假驱动下 `touchSession` 写库 NPE）；**直连分发**（无续期器）未注册 = **404**。⇒ `problems.isEmpty()`（只收 404/405）**恒真、不再守卫注册** | 见左（探针输出） | `T-010` 引入续期器的**副作用**；产出方已把**反向对照**改直连分发（理由确**成立**），但**未察觉主断言被架空**。建议将段② 一并改**直连分发**或改断言 `routeCount`。注册面另由 `BootstrapAssemblyTest` `routeCount==82` 守卫（本席已独立复算一致），故全局覆盖未失 |
+
+**观察（非缺陷，不计入缺陷数）**：`assertCanTrade`（`T-102` 裁定归 M2/`T-046`）、`forceLogout`（`FR-AUTH-15`④，无 REST 端点）在 `src/main` 均 0 调用 —— 均属**已裁定/端点面冻结**的既知事项，非本次四项硬缺口回归。
+
+## T010b.9 结论
+
+**结论：`有条件通过`。**
+
+- **四项硬缺口独立取证结果**：**(a) 通过**（声明 10 路径 / 注册 17 对 / 双向差集 = ∅ / 路由数 82 独立复算一致 / 断言订正合规）；**(b) 通过**（`FR-AUTH-1~18` 逐条有实现 + 用例，handler 接线实测，无阻断级未接线项）；**(c) 通过**（配置化锁定 + 滑动续期均**改配置/自建探针实测生效**，含绝对过期反证）；**(d) 通过（替代证据级）**（§③ 幂等**真实执行**两遍验证，无 DM8 实机已据实标注）。
+- **唯一条件**（归属=**编排者/开发**）：对 **`TE-T010b-001`**（低·守卫空转）裁定处置 —— 建议将 `T109EndpointRegistrationTest` 段② 改直连分发或改断言 `routeCount`（**不阻断** `T-010` 的四项硬缺口结论）。
+- **两向验证结论**：**「该防的已防」** —— 互斥拒+留痕、**析取**（两条件各自独立）、子账户 **fail-closed**、跨账户只读**写面拒**、滑动续期，均经独立探针 + 4 例自设变异**双向承重**；**「误伤」方向** —— 合法交易岗操盘、合法角色授予、跨账户只读**读面**均**放行**，未见过度拒绝。
+- **独立实测基线**：`mvn -B -o -T1 clean test` **484/0/0/0**；`@Test` **484** == surefire **484**；聚合 `arch-check` **`rc 0`**（`E1`–`E7` 全 0）；自撰探针 **10/10**；隔离变异 **4 杀**；共享树锚 `fba1f886…`/335 不变、残留 **0**。
+- **本席不置 `DONE`**（门禁结论由编排者落）；`docs/TASKS.md`/`docs/BOARD.md`/`docs/ARCHITECTURE.md` **零改动**。
+
+**纯追加证明**（自指值不写死）：
+- 追加前基线：`md5 1f219666f28098cae25484acac6eb697` / **3688 行**（本席落笔前实测；此前 `926a499c…`/3557 已被 `T-035` 复核章追加推进，落笔前三次×10s 取样不变 ⇒ 已静默）
+- 校验：`head -3688 docs/TEST_RESULT.md | md5sum` = `1f219666f28098cae25484acac6eb697`（与追加前基线一致 ⇒ **纯追加**）
+- 追加后全文 md5 / 行数：**以实时 `md5sum docs/TEST_RESULT.md` / `wc -l` 为准**（自指值不可写死）
