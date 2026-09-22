@@ -3815,3 +3815,49 @@ E7 通过：§4.2.8 与 proto 逐条一致（消息 40+10、字段 214+66、枚�
 - 追加前基线：`md5 1f219666f28098cae25484acac6eb697` / **3688 行**（本席落笔前实测；此前 `926a499c…`/3557 已被 `T-035` 复核章追加推进，落笔前三次×10s 取样不变 ⇒ 已静默）
 - 校验：`head -3688 docs/TEST_RESULT.md | md5sum` = `1f219666f28098cae25484acac6eb697`（与追加前基线一致 ⇒ **纯追加**）
 - 追加后全文 md5 / 行数：**以实时 `md5sum docs/TEST_RESULT.md` / `wc -l` 为准**（自指值不可写死）
+
+---
+
+## T-010 复核缺陷 `TE-T010b-001`（守卫空转）· 修复证据（`be-t010fix`）
+
+- **修复人 / 时间**：后端开发工程师（`be-t010fix`）／ 2026-09-22
+- **缺陷**（`te-verify-t010b` 认定）：`T109EndpointRegistrationTest` 段② 经 `Bootstrap` **装配分发器**（含 `SessionRenewer`）调用**已认证**请求；假驱动下 `touchSession` 写库 NPE ⇒ **注册 / 未注册路径一律 500** ⇒ 只收 404/405 的 `problems.isEmpty()` **恒真、已不再守卫端点注册**。
+
+### 修1. 独立复现（隔离副本 `/hgt010iso`，未采信交底）
+- 基线（未改）：`mvn -B -o -T1 clean test -Dtest=T109EndpointRegistrationTest` ⇒ **2/2 绿**。
+- **空转实证**：在副本内**摘掉** `ConfigRoutes` 的 `GET /config/ctp` 注册，**仅跑段②** ⇒ **仍绿**（`1/1`）——全量经装配分发器的已认证请求 500、永不触及 404/405 ⇒ 证原断言已不守卫注册。（对照：直连分发时未注册路径 = 404。）
+
+### 修2. 处置（选 **(i)** 直连分发；不选 (ii) 的理由）
+- 选 **(i)**：段② 走**直连分发**（2 参 `SessionAuthFilter` = 不续期），认证通过后才进入路由匹配 ⇒ **恢复 404/500 区分力**；与产出方已改的**反向对照**同形，并与 **`AUTHEndpointRegistrationTest` 段② 同形**。
+- **未选 (ii)**（改断言 `routeCount`）：装配面注册完整性**已由 `BootstrapAssemblyTest` 的 `routeCount == 82`（`BootstrapAssemblyTest:140`）守卫**，(ii) 将与本文件段① 及该用例**三重重复**、且不增分发层区分力。
+
+### 修3. 改动清单（共享树，仅 1 文件）
+- `java/src/test/java/com/hedgeguard/web/T109EndpointRegistrationTest.java`：段② `assembly.dispatcher()` → 直连 `plain` 分发；反向对照复用同一 `plain`；类级 javadoc + 段② 内**加注**原空转成因与判据。diff = **+29 / −5**。
+- **`src/main` 零改动**；未改 `docs/TASKS.md`/`docs/BOARD.md`/`docs/ARCHITECTURE.md`/`cpp/**`/`proto/**`/`tools/**`。
+
+### 修4. 守卫强度反转（**双向**，隔离副本内，复位字节复原 md5 `aa92832f…`）
+| 变异 | 手段 | 结果 |
+|------|------|------|
+| **M1**（摘端点） | 副本内删 `ConfigRoutes` 的 `GET /config/ctp` 注册 | 新段② **红**：`T-109 端点仍返回 404/405：[GET /api/v1/config/ctp → 405]` |
+| **复位** | 从 `.orig` 字节复原 | 新段② **回绿** |
+
+> 实测 19 条 DISPATCH 状态 = 500（GET）/400（POST），**无一是 404/405**；反向对照（不存在路径）= **404**。
+
+### 修5. 全量回归与计数（共享树隔离副本 `/hgt010final`）
+- `mvn -B -o -T1 clean test` ⇒ **484 / 0 / 0 / 0**，BUILD SUCCESS。
+- `@Test`（行首锚 `^\s*@Test\b`）**484** == 裸 `grep -c @Test` **484** == surefire **484**。
+
+### 修6. 架构聚合
+- `bash tools/arch-check/arch-check.sh` ⇒ 聚合 **rc 0**；`E1`–`E7` 逐条 **0**（`E5` = 0；`E4` 实扫、`E7` 通过）。
+
+### 修7. 冻结点锚（cwd = 仓库根，`LC_ALL=C`）
+- `find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum` = **`8bf0e1d6c2e83a52e62d511616324c4b`** / **335 文件**（3×≥9s 不变；实测 2026-09-22 20:07，UTC+8）。前态（复核时）= `fba1f886…`/335（文件数不变、内容变更）。
+
+### 修8. §3 只读项结论（不处置，仅报断）
+- **`assertCanTrade`（`src/main` 0 调用）**：**已有生效裁定**（`docs/TASKS.md:147` `T-102`=`DONE`；`:1057` `T-046` 备注）——服务端强制点 = **M2 下单写路径**（归 `T-046`），M1 **有意不接线**（接 `decompose` 会误拒 `FR-PLAN-14` 的财务/风控岗）⇒ **非缺陷**。
+- **`forceLogout`（`FR-AUTH-15④`）**：原文（`docs/REQUIREMENTS/AUTH.md:306–319`）**无**「REST / 端点 / 接口 / HTTP / URL / 路由」任何字样，仅要求「管理员可**强制下线**（须留痕）」+ 验收4「强制下线操作留痕」；能力已在服务层实现（`AuthService.forceLogout:1173`，`AuthAdminServiceTest.forceLogout` 有用例），`ApiRoutes` AUTH 冻结清单（`:72–74`）与 `ARCHITECTURE §4.1.1` 均无该路径 ⇒ **按原文判 = 非缺口**（属服务层能力）；「触发入口是否须入 REST 面」属**需求阐释**、非字面，**留编排者裁定，本席不动**。
+
+### 修9. 纯追加证明（自指值不写死）
+- 追加前基线：`md5 04a87a2d5631a68c127b89e05cad4e9c` / **3817 行**（落笔前 3×≥9s 取样不变）。
+- 校验：`head -3817 docs/TEST_RESULT.md | md5sum` 应与上式一致（⇒ 纯追加）。
+- 追加后全文 md5 / 行数：**以实时 `md5sum docs/TEST_RESULT.md` / `wc -l` 为准**（自指值不可写死）。
