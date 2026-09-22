@@ -5215,3 +5215,178 @@ $ diff <(grep '^C ' out_new.txt) <(grep '^C ' out_old.txt) | grep -c '^< C .*can
 
 ---
 **纯追加证明（补充章）**：追加前 `md5sum docs/TEST_RESULT.md` = `deb0635fcbaa0345941c1a0d20305906` / **5124 行**（写入前 **3 次 ×10s 取样不变** @ `00:22:22`/`:32`/`:43`）；追加后 `head -5124 docs/TEST_RESULT.md | md5sum` = **`deb0635fcbaa0345941c1a0d20305906`**（⇒ 前 5124 行**逐字节未变**）。追加后行数/md5 **以实时为准**（写死会因追加本身而失效）。
+
+---
+
+# `T-129` 独立复核证据（2026-09-23）
+
+> **席位**：`te-verify-t129`（独立复核席）。**对象**：`T-129` —— 修复 `fetch` 轨构建失败（`hgcp` 经 `hgcp.pb.h` 引入 protobuf **源码头** ⇒ `-Werror=unused-parameter`）。
+> **方法**：一切变异 / 回退 / 构建均在**隔离副本** `/root/t129v`（布局 `<root>/{cpp,docs,java,proto,sdk,tools,web}`，排除 `build*`/`_deps`）内进行；**共享源树 `cpp/**` 只读、零改动**。
+> **锚点口径**：`find … | LC_ALL=C sort | xargs md5sum | md5sum`，**一律排除 `build*`/`_deps`/`target`**，**连同文件数**记录；跨目录比较统一在各自 repo 根下用**相对路径**（前缀不同会致假差异）。
+> **产出方自述仅作线索**，以下每项均**自撰探针 / 自设变异**独立取证。
+
+## T129.0 复核对象、冻结点与「仅一文件」核实
+
+| 项 | 产出方自述 | 本席实测（命令 / 输出） | 结论 |
+|----|-----------|------------------------|------|
+| 唯一改动 | `cpp/cmake/HgDependencies.cmake`（+30/−0 纯追加 1 段） | `git diff --name-status 0bf9a65 d4a2a27` = **仅 `M cpp/cmake/HgDependencies.cmake`**；`git diff --numstat` = **`30 0`** | ✔ 吻合 |
+| 该文件 md5 | 新 `c1f5aa6837fd5fda63cf387d38f23198`（原 `1b43b61c…`） | `md5sum` = `c1f5aa68…`；`git show 0bf9a65:…` = `1b43b61c…` | ✔ 吻合 |
+| `cpp/src/**` 零改动 | `327118d860c1618ecc9609f7d95b1d0e` / 115 | `git diff 0bf9a65 d4a2a27 -- cpp/src` **空**；锚 = `327118d8…` / **115** | ✔ 吻合 |
+| `cpp/cmake` 锚 | `bfe01dd49edef5318777862997d929ec` / 3 | 实测 `bfe01dd4…` / **3** | ✔ 吻合 |
+| 交付域锚（`cpp/cmake`+`cpp/ctp_smoke`，排除 build 目录） | `82bd22457dbccc834738ffa432d179fc` / 9 | 实测 `82bd2245…` / **9** | ✔ 吻合 |
+| 未放宽 `-Werror` | 未放宽任何 `-Werror` | 改动文件内 **0 处** `-Wno-`/`-Werror`（仅注释提及）；`cpp/CMakeLists.txt:36 add_compile_options(-Wall -Wextra -Werror)` **未动** | ✔ 吻合 |
+
+> 取样时刻：`2026-09-23T06:41`–`07:53 +08:00`。**以实时为准**。
+
+## T129.1 判据 A —— 改前复现 / 改后通过（双向）
+
+**独立做法**：把**改前文件**（`git show 0bf9a65:cpp/cmake/HgDependencies.cmake`，md5 `1b43b61c…`）放入副本，配置/构建 `fetch` 轨（`CTP_USE_FETCH_DEPS=ON` + 官方分离式 CTP + `CLASSIC`）；随后换回**改后文件**同树重配重编。
+
+| 步骤 | 命令（摘要） | 关键输出 | rc |
+|------|-------------|---------|----|
+| 改前配置 | `cmake -S cpp -B build-fetch -DCTP_USE_FETCH_DEPS=ON …` | 配置成功 | 0 |
+| 改前 `flags` | `grep CXX_INCLUDES …/hg_hgcp.dir/flags.make` | `… -I/root/t129v/_pb_src_cache/src`（**非 SYSTEM**） | —— |
+| **改前构建** | `cmake --build build-fetch` | 4 `error:`（`port.h:46:41` / `port.h:53:46` `unused parameter 'size' [-Werror=unused-parameter]`）+ 2 `warning:`；`gmake[2]: *** […:199: …/payload_codec.cc.o] Error 1`、`[…:213: …/pb_transport_policy.cc.o] Error 1` | **2** |
+| 改后配置 | 换 `c1f5aa68…` 同树重配 | 配置成功 | 0 |
+| 改后 `flags` | 同上 | `… -isystem /root/t129v/_pb_src_cache/src`（**SYSTEM**） | —— |
+| **改后构建** | `cmake --build build-fetch` | `0 error` / `0 warning` | **0** |
+
+**旁证（与 `T-128` 证据逐字一致）**：改前失败 TU 与行号 `build.make:199`/`:213`、错误文本 `port.h:46/53` **完全一致** ⇒ 本单复现的正是同一存量缺陷（**非本单引入**）。
+
+**机制级独立探针**（绕过整套构建，直击告警源）：
+```
+printf '#include <google/protobuf/io/coded_stream.h>\nint main(){return 0;}\n' > probe.cpp
+g++ -std=c++11 -Wall -Wextra -Werror -I       <pb3.21.12/src> -c probe.cpp   # rc=1  port.h:46/53
+g++ -std=c++11 -Wall -Wextra -Werror -isystem <pb3.21.12/src> -c probe.cpp   # rc=0
+```
+
+## T129.2 判据 B —— 根因裁定是否成立 + 处置是否「过宽」
+
+**（a）是否真「无从回避」经 `hgcp.pb.h` 包含 protobuf 源码头？—— 是，且不止于自家头。**
+- 包含链（文件∶行号为实测）：`cpp/src/hgcp/include/hg/hgcp/payload_codec.h:27 #include "hgcp.pb.h"` → 生成码 `hgcp.pb.h:23 #include <google/protobuf/io/coded_stream.h>` → `coded_stream.h:134 #include <google/protobuf/port.h>` → `port.h:46/53`（`SizedDelete`/`SizedArrayDelete` 具名未用参）。
+- **关键**：protoc **生成码本身** `hgcp.pb.cc:8` 也 `#include <google/protobuf/io/coded_stream.h>`，而 `hgcp.pb.cc` 是 `hg_hgcp` 的源（`cpp/src/hgcp/CMakeLists.txt:70`）。⇒ 即便把**自家头**的包含面收窄（前向声明 / 只引公开头），`hg_hgcp` 仍必编 `hgcp.pb.cc`，其**必然**包含 protobuf 头 ⇒ **无从回避**。
+
+**（b）是否存在更窄正解？—— 「库目标 SYSTEM」确是较宽形态；存在一个更窄且**实测等效**的形态；但**未发现任何具体掩盖**。**
+- 本席实测三条候选：
+  1. **库目标标 SYSTEM**（= 交付形态，`set_target_properties(libprotobuf PROPERTIES SYSTEM TRUE)`）⇒ `-isystem`，rc=0。
+  2. **供给目标接口标 SYSTEM**（`get_target_property(...); target_include_directories(hg_deps_protobuf SYSTEM INTERFACE …)`；**= 交付件 fallback 分支的形态**）⇒ 亦 `-isystem`，rc=0（本席探针 `CAND-N`）。
+  3. **标错目标**（`set_target_properties(hg_deps_protobuf PROPERTIES SYSTEM TRUE)`，即在**无自有 include 的 INTERFACE 目标**上置 SYSTEM **属性**）⇒ 仍 `-I`，**rc=2**（变异 `MUT-B` 证伪）。
+- 「过宽」的**实际影响面**：形态 1 使 protobuf 头对**所有 `libprotobuf` 消费方**变 SYSTEM；形态 2 仅对**本工程供给目标 `hg_deps_protobuf` 的消费方**。**本工程内 `hg_deps::protobuf` 的唯一消费方 = `hg_hgcp`**（全仓 `CMakeLists.txt` 实测：仅 `cpp/src/hgcp/CMakeLists.txt:84`）⇒ **两形态在本工程内作用面相同**（均 → `hg_hgcp` 及其测试）。
+- **故**：形态 1 相对形态 2「更宽」属**理论宽度**；本席**未能构造任何「本工程对 protobuf 头的误用被掩盖」的具体反例**（`-Werror` 对**自家代码**的约束不受影响：`add_compile_options` 未动、`hgcp.pb.cc` 等自家/生成源仍全额受检）。**判为「建议级」观察**（见 `OBS-T129-1`），**非缺陷**。
+- 另一「更窄」思路（对 `hg_hgcp` **定向** `-Wno-unused-parameter`）经判**不可行**：告警源 `port.h` 被 `payload_codec.cc` / `pb_transport_policy.cc` / `hgcp.pb.cc` / 各测试 **多 TU** 包含 ⇒ 定向豁免必然退化为**目标级（乃至全工程级）** `-Wno-unused-parameter`，反而**连带压制自家代码** ⇒ 比 SYSTEM 更宽、更差。
+
+**裁定：根因成立；交付形态（库目标 SYSTEM）为「正解之一」且与项目既有纪律（CTP SDK 头 SYSTEM、`ARCHITECTURE.md §1.2`「严格告警只约束自家代码」）同族；「过宽」属建议级、不阻断。**
+
+## T129.3 判据 C —— 反退化（**自设**变异，非复用产出方 2 例）
+
+> 产出方 2 例 = 「revert ⇒ rc=2 / restore ⇒ rc=0」。本席**另设** 2 例 + 1 形态探针；每例：副本内改 → 重配 → **先证 `flags`/`build_rc`** → 复位 → 逐字节校 md5。
+
+| 变异 | 改动 | 期望 | 实测 | 复位校核 |
+|------|------|------|------|---------|
+| **MUT-A** | `SYSTEM TRUE` → `SYSTEM FALSE`（库目标） | `-I` ⇒ rc=2 | `flags` 变 **`-I`**；build **rc=2**（4 error，`port.h:46/53`） | 复位后 md5 = `c1f5aa68…`（逐字节） |
+| **MUT-B** | 标记**移错目标**：`set_target_properties(hg_deps_protobuf PROPERTIES SYSTEM TRUE)` | `-I` ⇒ rc=2 | `flags` 仍 **`-I`**；build **rc=2**（4 error） | 同上 |
+| **CAND-N** | 主路径改用**供给目标 SYSTEM INTERFACE**（fallback 同形） | `-isystem` ⇒ rc=0 | `flags` = **`-isystem`**；build **rc=0** | 同上 |
+
+**复位 + clean 重编译证明**：恢复 `c1f5aa68…` → 重配（`flags` 回 `-isystem`）→ **删净 `build-fetch/src/hgcp/**/*.o` 后全量重编** ⇒ **rc=0 / 0 error / 0 warning**（⇒ 无陈旧对象假绿；且证明「承重方向」双向：去之则红、复之则绿）。**副本内 `*.orig`/`*.bak` 归零**（仅本席自留 `HgDeps.fixed.bak` 备份于副本根，非共享树）。
+
+## T129.4 判据 D —— 三轨 + 门禁不回归
+
+**三轨 `ctest`（以 `ctest -N` 计数 + 实跑 rc 为准，非 grep 近似）**：
+
+| 轨 | 配置 | `ctest -N` 计数 | 实跑 | build error/warning |
+|----|------|----------------|------|--------------------|
+| `ctp` | `CTP_USE_FETCH_DEPS=OFF` + 官方分离式 + `CLASSIC` | **38** | **38/38 passed**，rc=0 | 0 / 0 |
+| `stub` | 同上去 SDK | **34** | **34/34 passed**，rc=0 | 0 / 0 |
+| `fetch` | `CTP_USE_FETCH_DEPS=ON` + 官方 + `CLASSIC` | **38** | **38/38 passed**，rc=0 | 0 / 0 |
+
+⇒ 三轨 = **`ctp 38/38 · stub 34/34 · fetch 38/38`**，与产出方一致。
+
+**聚合门禁**：`bash tools/arch-check/arch-check.sh` ⇒ **rc=0**（`E1–E7` 全 `0`）。
+**`E4`**（实扫，非 SKIP）：**待扫描文件 47 个 / 命中 0 / `[WARN·未覆盖判据]` 3 处**（`risk_snapshot.cc:235`、`risk_state.cc:22`、`risk_state.cc:41`，均 `new`）；扫描根 = `cpp/src/{order_engine,risk_engine,risk_state}`（**不含** `ctp_adapter`/`hgcp`）⇒ **与基线同、未恶化**。
+
+## T129.5 判据 E —— `cpp/build-*` 重配合法性与口径
+
+> 产出方如实披露：三轨原为 `Mini SDK + HG_CTP_HEADER_STYLE=MERGED`，为主工程硬编码分离式头名所不容 ⇒ 按 `CH-015`（官方分离式 + `CLASSIC`）**重配**了 `cpp/build-{ctp,stub,fetch}`。
+
+**（a）原配置下 `build-ctp` 是否确实 `rc=2`？—— 独立复现，是。**
+本席在副本内造 `MERGED + Mini` 配置（`-DCTP_SDK_ROOT=/home/ctpmini/ctpmini_admin/ctp_sdk -DHG_CTP_HEADER_STYLE=MERGED`）：
+- 配置 **rc=0**，两行 `[HG-CTP-FOUND]`（`role=smoke`/`role=main`）均 `found=ON style=MERGED trader_header=ThostFtdcUserApi.h`；
+- 构建 `hg_ctp_adapter` ⇒ **rc=2**：`cpp/src/ctp_adapter/src/module.cc:7:10: fatal error: ThostFtdcTraderApi.h: No such file or directory`。
+⇒ 与产出方「原配置下 `module.cc:7` 不可编译、属 `T-128` §2 ② 存量缺陷」**一致**；`T-129` 改动未触及该 locus（唯一改动为 `HgDependencies.cmake` 的 protobuf FetchContent 分支）。
+
+**（b）重配是否改变三轨 `ctest` 语义/计数口径？**
+`MERGED + Mini` 下 `ctest -N` 计数 **亦为 38**（配置成功、测试**注册数不变**）；但该配置**根本编不出** `hg_ctp_adapter` ⇒ `ctp`（及 `fetch`）轨**不可能有 38/38 通过**。⇒「`38/38`」是**重配后（= 与 `CH-015` 交付基线一致的官方分离式）才成立**的表述；**计数口径（38）不因重配而变，通过性才是重配后才有**。
+
+**（c）是否越界？是否影响「交付基线」声索？—— 不越界、不影响。**
+- `cpp/build*` **全部 gitignore、0 个入库文件**（`git ls-files 'cpp/build*'` = 0；`cpp/.gitignore:2–5`）⇒ 重配**不构成任何受控源变更**。
+- 权威「交付基线」= `CH-015`：`docs/REQUIREMENTS/INDEX.md:669` + `docs/ARCHITECTURE.md`（多处，如 `:2882` 依赖对齐表）⇒ 交付基线 = **官方 CTP v6.7.13 分离式**（**不**由 `cpp/build-*` 承载）。重配**正是使本地构建目录对齐该基线**，**不改变**基线本身。⚠️ `docs/DECISIONS/` 下确**无** `CH-015` 文件（实测仅 `websocket-selection.md`）——与派单所述一致。
+- 产出方与编排者**均已如实披露**（`BOARD.md` 第 83 轮）。
+
+## T129.6 判据 F —— 同类扫描「不受影响」结论（**未否证**）
+
+**独立穷举「非 SYSTEM 第三方头消费点」**（`grep target_include_directories`/`target_link_libraries`，全仓 `CMakeLists.txt`）：
+
+| 消费点 | 第三方头 | 引入形态 | 结论 |
+|--------|---------|---------|------|
+| `hg_hgcp`（`src/hgcp/CMakeLists.txt:84` → `hg_deps::protobuf`） | protobuf | 修复前 `-I` / 修复后 `-isystem` | **本单已修** |
+| `hg_ctp_adapter`（`:45 SYSTEM`）/ `hgcp_ctp_probe`（`ctp_smoke:193 SYSTEM`） | CTP | `-isystem`（实测 `ctp_smoke` flags = 两条 `-isystem …/traderapi_se…`） | 已 SYSTEM |
+| `hgcp_proto_smoke`（main 轨） | protobuf（**系统包** = IMPORTED） | IMPORTED ⇒ SYSTEM 默认 | 无 `-I`（实测 flags 无 protobuf 目录） |
+| `hgcp_proto_smoke`（**fallback 轨**） | protobuf **3.19.6**（FetchContent） | `-I`（实测 `flags` 含 `-I…/_deps/protobuf-src/src`） | **见下：不受影响** |
+| `Threads::Threads`（各处） | 无头 | —— | 不适用 |
+
+**fallback 轨「不受影响」的独立验证（版本依赖 + 真机跑通）**：
+- `port.h` 实测：**3.21.12** = `src/google/protobuf/port.h` **80 行**、`:46` `SizedDelete` / `:53` `SizedArrayDelete`；**3.19.6** = 同名文件 **40 行**、`SizedDelete` **0 命中**（= 该 80 行版本为 ≥ 3.20 引入）。
+- 机制级探针：**3.21.12 头 + `-I` ⇒ rc=1**（`port.h:46/53`）；**3.19.6 头 + `-I` ⇒ rc=0**。
+- 真机跑通：副本内 `-DHG_PROTOBUF_FORCE_FETCH=ON -DHG_PROTOBUF_FETCH_VIA=URL -DHG_PROTOBUF_TARBALL=<3.19.6 全量 tarball，SHA256=`9a301cf94a8ddcb380b901e7aac852780b826595075577bb967004050c835056`（与内置值一致）>` ⇒ 解析 **protobuf 3.19.6**、`-I` 引入，**build rc=0（0 error/0 warning）、`ctest` 3/3 passed**。
+
+⇒ **产出方「产品内唯一非 SYSTEM 第三方头消费点已修；fallback（3.19.6）不受影响」的结论成立**，**未否证**。其登记于 `T-130` 的硬约束「fallback 一旦抬到 ≥ 3.20 须同法标 SYSTEM」经本席证实**必要**。
+
+## T129.7 判据 G —— `< 3.25` fallback 分支
+
+- **(a) 披露诚实性**：产出方明写该分支「未做真机版本测试、仅以机制等价探针验证」。本机 `cmake --version` = **4.2.3**（唯一版本）⇒ 主路径被取用、`else` 分支**在本机不可达**，披露**属实**。
+- **(b) 更可靠的验证方式（本席已做）**：该分支的**形态** = `get_target_property(... INTERFACE_INCLUDE_DIRECTORIES)` + `target_include_directories(hg_deps_protobuf SYSTEM INTERFACE …)` —— 本席以 **`CAND-N`** 在 4.2.3 上**原样注入该形态**并实测 ⇒ **`-isystem`、rc=0**。即：**分支的机制本身已被真机跑通**；未验证者仅「版本分派条件在 <3.25 上走 `else`」与「<3.25 有 `target_include_directories(... SYSTEM INTERFACE ...)`」，后者自 CMake 2.8.12 起即有。
+- **(c) 残留是否可接受**：可接受（**建议级**）。理由：`cmake_minimum_required(3.16)`（`cpp/CMakeLists.txt:24`）⇒ `3.16–3.24` 属**受支持区间**、该分支**非死代码**；其机制已真机验证；`SYSTEM` 目标属性确为 3.25 引入（`VERSION_GREATER_EQUAL "3.25"` 判据正确）。**唯一未实测** = 一台 <3.25 的 CMake ⇒ 建议 CI 增一台旧版 CMake 跑一次该分支（登记为观察，不阻断）。
+
+## T129.8 环境坑（非缺陷，留痕）
+
+副本内 `proto_smoke` fallback 首跑曾 **rc=2**，错误为 `fatal error: error writing to /tmp/ccy3eXnE.s: No space left on device` —— 系本机 `/tmp` 为 **804M tmpfs（常满）**、gcc 临时 `.s` 写 `/tmp` 所致，**与产品无关**；`TMPDIR=/root/t129v/_tmp`（落 `/`）重跑 ⇒ **rc=0**。**留痕以免误判为「fallback 有缺陷」**。
+
+## T129.9 缺陷 / 观察清单
+
+**缺陷（`TE-T129-00x`）：0 项 · 含 0 项阻断级。** 未发现任何阻断 `T-129` 转 `DONE` 的问题。
+
+**观察项（不阻断）**：
+
+| 编号 | 级别 | 事项 | 证据 / 复现 | 影响面 |
+|------|------|------|-------------|--------|
+| `OBS-T129-1` | **建议** | 交付件**主路径**（库目标 `SYSTEM TRUE`）比**其自身 fallback 形态**（供给目标 `SYSTEM INTERFACE`）**更宽**；后者本席实测等效（`CAND-N`），但未构造出具体掩盖反例 | T129.2(b)；本工程 `hg_deps::protobuf` 唯一消费方 = `hg_hgcp` | 无功能影响；一致性建议（可统一为供给目标形态） |
+| `OBS-T129-2` | **低** | `< 3.25` fallback 分支**未在真机旧版 CMake 上跑过**（机制已验、分派未验） | T129.7；本机仅 CMake 4.2.3 | 建议 CI 补一台 <3.25 版本 |
+| `OBS-T129-3` | **低** | `cpp/build-*` 系**构建产物**（gitignore）已被按 `CH-015` 重配 ⇒ 三轨证据**不能从原始目录态复现**，须按基线重配后复现（本席已复现） | T129.5；`git ls-files 'cpp/build*'` = 0 | 无；证据可复现性说明 |
+| `OBS-T129-4` | **低** | `proto_smoke` fallback 轨 protobuf 头为 `-I`（非 SYSTEM）—— **当下无碍**（3.19.6），但若 fallback 版本抬到 ≥ 3.20 即复发 | T129.6；已由 `T-130` 登记硬约束 | 未来回归风险；已挂任务 |
+
+## T129.10 结论
+
+- **判据 A（改前/改后双向）**：**通过** —— 改前 `rc=2`（`port.h:46/53`，`build.make:199`/`:213`）、改后 `rc=0`（`flags` `-I`→`-isystem`）。
+- **判据 B（根因/过宽）**：**通过** —— 根因成立、「无从回避」经**生成码 `hgcp.pb.cc` 亦必含 protobuf 头**证实；「过宽」为**建议级**、**未发现具体掩盖**。
+- **判据 C（反退化）**：**通过** —— **自设** 2 变异全杀（`MUT-A`/`MUT-B` ⇒ rc=2）、`CAND-N` 复绿（rc=0）、复位逐字节 + clean 重编 rc=0。
+- **判据 D（不回归）**：**通过** —— 三轨 `38/38·34/34·38/38`、聚合 `rc=0`、`E4` 47/0/WARN3。
+- **判据 E（重配）**：**通过** —— 原 `MERGED+Mini` 确 `rc=2`（`module.cc:7`）；计数口径不变（38）、通过性重配后成立；构建目录 gitignore、**不越界**、**不改变 `CH-015` 交付基线**。
+- **判据 F（同类扫描）**：**通过（未否证）** —— 唯一非 SYSTEM 消费点已修；fallback（3.19.6）`-I` 下 `rc=0`（机制 + 真机双证）。
+- **判据 G（<3.25 分支）**：**通过（建议级残留）** —— 披露诚实；分支机制已真机跑通；残留可接受。
+
+> **最终结论：`T-129` = 有条件通过 / 0 阻断缺陷 ⇒ 可转 `DONE`。**
+> 条件（不阻断）：`OBS-T129-1`（建议·统一 SYSTEM 作用面）；`OBS-T129-2`（低·CI 补旧版 CMake 验证 fallback）；`OBS-T129-3/4`（低·证据可复现性与未来回归说明，`OBS-4` 已由 `T-130` 承载）。
+
+**独立复算锚点（本席实测；`LC_ALL=C sort`，排除构建产物；取样 `2026-09-23T06:41`–`07:53 +08:00`；以实时为准）**：
+
+| 锚点 | 值 |
+|------|----|
+| `cpp/src` | `327118d860c1618ecc9609f7d95b1d0e` / **115** |
+| `cpp/cmake` | `bfe01dd49edef5318777862997d929ec` / **3** |
+| `cpp/cmake/HgDependencies.cmake` | `c1f5aa6837fd5fda63cf387d38f23198`（改前 `1b43b61c14d7005d82890d2c9d4be829`） |
+| 交付域（`cpp/cmake`+`cpp/ctp_smoke`，排除 build 目录） | `82bd22457dbccc834738ffa432d179fc` / **9** |
+| 共享树残留（`*.orig`/`*.bak`/`*.rej`，排除 build） | **0** |
+
+---
+
+**纯追加证明**：追加前 `md5sum docs/TEST_RESULT.md` = `a4b04ab89132e152cb4b73dff18fa4b9` / **5217 行**（写入前 **3 次 ×10s 取样不变** @ `07:54:07`/`:17`/`:27`）；追加后 `head -5217 docs/TEST_RESULT.md | md5sum` = **`a4b04ab89132e152cb4b73dff18fa4b9`**（⇒ 前 5217 行**逐字节未变**）。追加后行数/md5 **以实时为准**（写死会因追加本身而失效）。
