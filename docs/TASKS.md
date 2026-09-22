@@ -73,8 +73,8 @@
 | T-028 | RSK-06 Java 端 WebSocket 选型与实现 | ARCH §9 RSK-06, §4.1.2, NFR-PERF-5, `CH-006` | backend-engineer#java | P0 | — | 16 人时 | 初版（`CH-006` 口径收紧） | DONE（独立复核通过；见 §2 备注） |
 | T-029 | RSK-07 websocketpp 落点确认（**已取消**） | ARCH §9 RSK-07（**因 `CH-006` 移除 websocketpp 而失效**） | backend-engineer#cpp | P0 | — | 0 人时（原 8，已扣除） | `CH-006` | REJECTED |
 | T-030 | 汇签 M2 探路结论并下达铺开许可 | ARCH §9（三项探路：T-026/T-027/T-028）, §3.13 | tech-lead | P0 | T-026, T-027, T-028 | 4 人时 | 初版 | DONE（见 §2 备注） |
-| T-031 | 搭建 C++ 交易组件工程骨架与构建 + arch-check 聚合入口与 CI 接线 | NFR-COMPAT-1/2/7, NFR-MAINT-4/6 | backend-engineer#cpp | P0 | T-030 | 24 人时 | 初版 | TODO |
-| T-032 | 实现 HGCP 帧编解码与元协议（鉴权/心跳/补数） | FR-TRADE-14, FR-CONFIG-6/9, NFR-SEC-3, NFR-REL-2 | backend-engineer#cpp | P0 | T-031 | 32 人时 | 初版 | **IN_PROGRESS**（**部分交付**：帧层 32B+CRC32+大端+1MiB / 鉴权 SHA-256+常量时间+零令牌日志 / 心跳 1000ms·3 次·≤3s / 退避 500ms→8s / 补数 65536·单批≤500 / 回环绑定 + 单连接 `0x0302` / 帧信封与不透明 payload 透传 / 流式切帧 / `PayloadCodec` 接缝 / **真实回环 socket E2E**；**余项 `S-1`~`S-5` 待 `CH-013`**〔字段级 schema 未定〕；见 §2 备注） |
+| T-031 | 搭建 C++ 交易组件工程骨架与构建 + arch-check 聚合入口与 CI 接线 | NFR-COMPAT-1/2/7, NFR-MAINT-4/6 | backend-engineer#cpp | P0 | T-030 | 24 人时 | 初版 | **DONE**（判据 = **授权 + 独立验证**；**依据链见 §2 备注**：原 `TODO` 系**账实背离**，2026-09-22 编排者订正） |
+| T-032 | 实现 HGCP 帧编解码与元协议（鉴权/心跳/补数） | FR-TRADE-14, FR-CONFIG-6/9, NFR-SEC-3, NFR-REL-2 | backend-engineer#cpp | P0 | T-031 | 32 人时 | 初版 | **IN_PROGRESS**（**部分交付**：帧层 32B+CRC32+大端+1MiB / 鉴权 SHA-256+常量时间+零令牌日志 / 心跳 1000ms·3 次·≤3s / 退避 500ms→8s / 补数 65536·单批≤500 / 回环绑定 + 单连接 `0x0302` / 帧信封与不透明 payload 透传 / 流式切帧 / `PayloadCodec` 接缝 / **真实回环 socket E2E**；**`S-1`~`S-5` 已随 `CH-013` 落地**（`proto/hgcp.proto` 已转录并经独立复核通过；**余项 = `MSG_RESUME_DATA` 接 schema**〔跨侧 `T-042` 对齐〕）；见 §2 备注） |
 | T-033 | 实现 CTP 适配层 ctp_adapter（交易+行情+资金划转） | FR-TRADE-2/4/5/6/12, FR-FUND-5/6/8 | backend-engineer#cpp | P0 | T-031 | 24 人时 | 初版 | TODO |
 | T-034 | 实现风控内存状态 risk_state（不可变快照 + 原子替换） | FR-RISK-9/10, ARCH §4.4, NFR-PERF-1 | backend-engineer#cpp | P0 | T-031 | 24 人时 | 初版 | TODO |
 | T-035 | 实现事前风控引擎 risk_engine（8 规则 + 三层限额 + 双层校验） | FR-RISK-1~8, FR-TRADE-3, NFR-PERF-1 | backend-engineer#cpp | P0 | T-034 | 32 人时 | 初版 | TODO |
@@ -722,7 +722,7 @@
 - **依赖**：T-030
 - **估时**：24 人时
 - **来源**：初版
-- **状态**：**TODO**（2026-09-21 `T-030` 汇签解锁，由 `BLOCKED` 转）
+- **状态**：**DONE**（判据 = **授权 + 独立验证**）。**⚠️ 状态订正（2026-09-22 编排者）**：本条原标 `TODO`，而其**制品早已交付**（C++ 骨架 + `arch-check` 聚合入口 + CI 接线）⇒ 属**账实背离**，现订正。**依据链**：① 独立复核 `te-verify-t031` = **有条件通过**，其 3 处缺陷（探路内容锚不重现 / `stub`·`fetch` 非 6/6 / link 仅 protobuf）经查**均为「回执文本级」、非制品缺陷**；② 该 3 处的事实性内容已由 `T-120` 的 `README.md` 实测订正（三轨数字表 + 链接证据行）并经 `te-verify-t120` **独立复检通过**；③ 其制品已被后续**多轮独立复核实际覆盖**：`te-verify-t031` 三轨 `ctest`（`6/6`·`5/5`·`6/6`）、`te-verify-t120` 聚合入口**实扫**（`E4` `N=6`、非 SKIP）、`te-verify-t032`/`te-verify-proto`/`te-verify-proto2` 的 C++ 全栈 `ctest`。**披露**：**未单独跑一次「`T-031` delta 复检」**（因该 3 处非制品级、且制品已由上述复核覆盖）—— 若事后认为仍需一次专项复检，请指示。
 - **验收标准**：
   1. CMake ≥ 3.16 + FetchContent 工程建立，`CMAKE_CXX_STANDARD 11`，`CTP_FOUND`/`CTP_USE_FETCH_DEPS` 双轨构建可用；`ctest` 可跑；
   2. 按 `ARCHITECTURE.md` §3.1~§3.6 建立六模块目录（`ctp_adapter/order_engine/risk_engine/risk_state/flow_store/hgcp`）；
