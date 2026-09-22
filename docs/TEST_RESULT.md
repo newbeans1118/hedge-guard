@@ -2567,3 +2567,116 @@ $ T099ScopeOfDeprecationTest.xml: testcase = {scopeOfMustNotBeRedeclared, interf
 - **不可判定（据实）**：**阶段一（`be-t099`）的原始产物**（「只给实现加 `@Deprecated`」的中间态）**未落入仓库**（已被阶段二取代）⇒ §T099.1 中阶段一细节为**引述**；但**其改判依据（探针）已由我独立复现**，故改判结论**可判定**。
 - **待回写（非缺陷，承 `TASKS.md` 写权）**：`T-099` 验收标准仍作「(a)/(b) 二者择一」，实际交付为「(c) 删除」⇒ 建议项目经理回写并登记改判授权链（见 §T099.6(e)）。
 - **守卫的已知边界（观察，非缺陷）**：守卫只断言 `(long, String)` 形参签名；**异形参**的同名方法（或加在别的类型上）不在断言面内 —— 属**可接受**范围（历史签名即 `(long, String)`）。
+
+# `T-032`（首批 + 装配下沉返工）独立复核证据（事后补录，2026-09-22）
+
+> 复核人：`test-engineer` / 实例 `te-verify-t032`。**只读取证** —— 除本章外未改共享树任何制品；构建与变异**一律在 `/` 下隔离副本**内完成。
+
+## T032.0 冻结与基线
+
+- 树级锚（cwd = 仓库根；命令 `find cpp/src -type f | LC_ALL=C sort | xargs md5sum | md5sum`）= **`e29a4979512503a3ae213e2f3a0250af` / 52 文件**；`09:50:56` / `09:51:06` / `09:51:17` 三次取样不变（**3×10s 静默确认**）；复核结束 `09:56:30` 复测同值。
+- 隔离副本布局 **`/t032iso/{docs,java,tools,web,cpp}`**：**必须含 `tools/`**（否则 `arch-check`/`mvn` 侧假失败）、**必须含 `docs/`**（否则路径型测试假红）；**副本与 `TMPDIR` 均置 `/` 下**（`/tmp` 为 804MB tmpfs，源码构建必 `No space left on device`）。
+- 构建配置：`cmake -S cpp -B cpp/build-iso -DCTP_USE_FETCH_DEPS=OFF`（`CTP_FOUND=OFF`，系统 protobuf 3.21.12）。
+- 逐文件 md5 / 行数与自报**逐一命中**：`server_loop.h` `94a4db948cce3e1d30ecd4bd3c881ea5`/112、`server_loop.cc` `9a0247cdfadf81c3ccf3a935a9e8792d`/233、`transport_test.cc` `75f6bd9f2e6eba35eda0fafb0f6c5bf5`/542、`tcp.h` `51fb5d4547c4085941340b0062c7c68f`/74、`hgcp/CMakeLists.txt` `5efc7c47ef02ee8f60ec46710bc091b1`/70、`T032_GAP_ANALYSIS.md` `c456411aecf9f8ad4fecba0afe957b26`/190。
+
+## T032.1 装配归属复核（核心）
+
+装配原语的**装配调用点唯一落在 `src/server_loop.cc`**：
+
+| 原语 | 定义 | **装配调用** |
+|---|---|---|
+| `accept_one` | `tcp.cc:173` | `server_loop.cc:75` |
+| `on_new_connection` | `endpoint.cc:44` / `session.cc:127` | `server_loop.cc:80` |
+| `on_connected` | `session.cc:34` | `server_loop.cc:87` |
+| `on_tick` | `session.cc:94` | `server_loop.cc:136` |
+| `build_resume` | `session.cc:121` | `server_loop.cc:161` |
+
+- `grep -rn "TestServer\|ServerLoop\|class .*Server" cpp/src/hgcp/tests/` → **无 `TestServer`/`ServerLoop` 类定义**（仅命中对生产类 `HgcpServerLoop` 的**使用**）。
+- `send_all` **单一定义**（`tcp.cc:43`）+ 单一声明（`tcp.h:37`）；`server*` / `socket_util*` 死代码已删（`find` 只剩 `server_loop.{h,cc}`）。
+- `CMakeLists` 源列表 ↔ 磁盘 `.cc` **12 = 12**（程序化比对 `MATCH: True`）；无 `.orig` / `.bak` / `.rej`。
+
+## T032.2 `transport_test` 驱动器化 + E2E 覆盖逐项落点
+
+`./src/hgcp/hgcp_transport_test` → **`transport_test: 742 checks, 0 failures -> PASS`**。
+
+| 覆盖项 | 落点 | 备注 |
+|---|---|---|
+| 握手回环（body 逐字节、通道 SEQ） | `transport_test.cc:234-278` | |
+| 半包 / 粘包 | `:319-333` / `:335-346` | |
+| **逐字节喂** | **`session_test.cc:51-59`** | **更正：不在 `transport_test`**（session 级最坏分片） |
+| 重复连接拒 `0x0302`（既有连接不受影响） | `:351-389` | |
+| 心跳判死（`0x0301`） | `:391-430` | |
+| 退避序列 500→8000 | `:432-462` | |
+| 补数批 ≤500 | `:511-527` | |
+| 端口 0 内核分配 / 非回环拒启动 | `:222-231` / `:216-220` | |
+| 握手前业务帧拒 | `:280-304` | **仅帧级**：ERROR body 为空、线上无 `0x0107` code（见 §T032.7 O-1） |
+
+驱动器化证据：文件仅含 `TestClient`（`:100-148`）、`connect_client`（`:150-165`）、driver glue（`:186-209`）、`TestPolicy`（body 接缝测试双）；**无服务端 accept / 握手门禁 / 心跳定时器装配**。
+
+## T032.3 门禁原始输出
+
+```
+cmake --build cpp/build-iso -j$(nproc)   → exit 0 ; grep -ci warning = 0 ; grep -ci error = 0
+ctest                                     → 100% tests passed, 0 tests failed out of 13 (5.73s)
+bash tools/arch-check/arch-check.sh       → 聚合 exit 0
+  #   通过(0)=6  命中(1)=0  用法/前置错误(2)=0
+  #   E1 0 / E2 0 / E3 0 / E4 0 / E5 0 / E6 0
+```
+
+`-Wall -Wextra -Werror` **零告警**（Werror 下构建成功 + `grep -ci warning` 复核）。**E4 实扫**（非 SKIP）：`扫描根 cpp/src/{order_engine,risk_engine,risk_state} 并集`、**`待扫描文件: 6 个`**。
+13 项 = `arch_check` + `rsk01×3` + `hg.skeleton_modules` + `hgcp.{frame,envelope,crypto_auth,timing,resume_buffer,endpoint,session,transport}_test`。
+
+## T032.4 自设变异（4/4 全杀）+ 复位证明
+
+| 变异 | 位点 | 内容 | 结果 | 承重断言（原始输出） |
+|---|---|---|---|---|
+| M1 | `server_loop.cc:181` | 握手门禁 `==` → `!=` | 红 | `48 checks, 11 failures`（`:301/302/317/362/402/443/475`） |
+| M2 | `server_loop.cc:140` | 心跳判死后不再 `close_conn()` | 红 | `742 checks, 1 failure`（`:420 !srv.has_connection()`） |
+| M3 | `server_loop.cc:80` | 重复连接判据 `kRejectDuplicate` → `kAccept` | 红 | `35 checks, 9 failures` |
+| M4 | `session.cc:124` | 批次上限 `kResumeMaxBatchFrames`×2 | 红 | `737 checks, 1 failure`（`:522 bs.size()==2u`） |
+
+**M1–M3 均打在新增生产文件 `src/server_loop.cc`** ⇒ 直接证「新装配承重 + 被 `transport_test` 真实驱动（非影子副本）」。
+复位证明：`cp *.orig` 回原文件、`diff` 空；`md5sum` 复原 `server_loop.cc=9a0247cdfadf81c3ccf3a935a9e8792d`、`session.cc=05c6e418daf6c5dad15f5216a5768d66`；**全量 clean 重编译**（`rm -rf build-mut` 重配）→ **13/13、0 warning**；`grep -rn "MUTATION\|MUT-M" cpp/src` = **(none)**；副本锚点复原 `e29a4979…`/52。
+**共享源树零瞬时变异态**：`grep -rn "MUTATION\|MUT-M" cpp/` 仅命中**既有第三方** `cpp/build-fetch/_deps/protobuf-src/**`（protobuf 自带 PDDM 宏，先前既存，与本任务无关）。
+
+## T032.5 `0x0104` / `0x0308` 标注复核
+
+显式标注「待 `CH-013` 裁定」的全部位点：
+
+- `include/hg/hgcp/frame.h:41-42`（`kFrameTooLarge` 注释）+ `:49-50`（独立⚠️块）；
+- `src/frame.cc:106-108`（取更具体者 `0x0308`、定案前不得视为权威）；
+- `T032_GAP_ANALYSIS.md` 表项 `I-2`；
+- 另 `server_loop.h:17`、`server_loop.cc:137/167/179`、`payload_codec.h:31`、`hgcp/CMakeLists.txt:13` 均指向 `CH-013`。
+
+## T032.6 零污染 + 非本任务改动归属
+
+- **零改动**：`tools/**`、`java/**`、`cpp/proto_smoke/**`、`cpp/ctp_smoke/**`；`proto/hgcp.proto` **未产出**（符合 blocked 纪律）。
+- `git status --short`（受跟踪）：`cpp/src/hgcp/CMakeLists.txt`（T-032）+ 下列四 docs（**非本任务**）：
+
+| 文件 | 真实作者（编排者裁定） |
+|---|---|
+| `docs/ARCHITECTURE.md`（+206/-0 **纯追加**） | 架构席 `tl-proto-gap`（附录 C `CH-013` 提案，**未生效 / 未升版**） |
+| `docs/BOARD.md` / `docs/TASKS.md` | 编排者（`T-032` 状态推进、看板轮次、`CH-012` 登记） |
+| `docs/REQUIREMENTS/INDEX.md` | 编排者（`CH-012` 确认 + `CH-013` 编号登记） |
+
+## T032.7 三条观察与处置裁定
+
+| # | 观察 | 处置 |
+|---|---|---|
+| O-1 | 「拒 `0x0107`」**仅帧级**、线上 ERROR body 为空 | **非缺陷**（源于字段级 schema 未定，`GAP §5 S-3` 已披露）⇒ 记为「**已知限制**」，挂 `CH-013` 验收延伸：`PbPayloadCodec` 接入后须补线上 code + `test_not_handshaken_rejected` 增断言 |
+| O-2 | `wait_readable` 在 `server_loop.cc:18-31` 与 `transport_test.cc:85-98` **各一份** | **接受、不返工**（消费者不同；强去重会使测试依赖生产内部实现细节） |
+| O-3 | `test_resume_batches` B 段（`:511-527`）用独立 `HgcpSession` 做结构断言 | **接受**（driver 级 session 契约断言，符合边界口径） |
+
+## T032.8 度量与「纯追加」证明
+
+- 追加前：`docs/TEST_RESULT.md` = **`c5d6f38f992c9d9eae3017c8abe25bc1` / 2569 行**（`09:57:26` / `09:57:36` / `09:57:46` 三次取样不变 ⇒ 已静默）。
+- **纯追加口径**：追加后 `head -2569 docs/TEST_RESULT.md | md5sum` = **`c5d6f38f992c9d9eae3017c8abe25bc1`**（与追加前逐字节相同 ⇒ 前 2569 行未被改写）；**本单仅追加、未改写任何既有章**。
+- 追加后**行数 / 新章落点 / 全文 `md5` 一律以实时 `md5sum` 为准**（本行数字回填会再次改变全文 `md5`）。
+- **写权核对**：本单**仅**写 `docs/TEST_RESULT.md`；其余 `docs/**`、`tools/**`、`java/**`、`cpp/**` 全程只读。
+
+## T032.9 未决 / 不适用项
+
+- **不适用（非本单）**：`NONFUNCTIONAL.md` / `BOUNDARY.md` 用例执行；Java/前端门禁实扫 —— 本单为 `#cpp` 返工**增量复核**，仅核 `arch-check` 聚合入口 E5 退出码 `0`（未跑 Java 单测）。
+- **阻塞（非本单）**：`proto/hgcp.proto` 与元协议 payload 编解码受 `CH-013` 阻塞（`T032_GAP_ANALYSIS.md §5` 已单列）。
+- **无阻断未决**；待裁定项：`docs/*` 四文件改动归属（**非 T-032**，见 §T032.6）。
+- **已知限制（承接 `CH-013`）**：`0x0107` 线上码缺失（§T032.7 O-1）。

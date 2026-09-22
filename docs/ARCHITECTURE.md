@@ -1,10 +1,10 @@
 # 架构方案
 
-> 负责人：技术负责人 ｜ 阶段：S2 ｜ 版本：v1.5.14
+> 负责人：技术负责人 ｜ 阶段：S2 ｜ 版本：v1.5.15
 
 - **项目**：企业期货套期保值管理系统（HedgeGuard）
 - **编写人**：技术负责人
-- **编写时间**：2026-09-20（v1.0）；2026-09-20（v1.1，传导 `CH-001` / `CH-002`）；2026-09-20（v1.4，传导 `CH-006`，用户技术栈裁决）；2026-09-20（v1.5，传导 `CH-007`，协议承载层冻结范围澄清 + 标称版本 v1.0.1）；2026-09-20（v1.5.1，M2 探路结论登记 + CTP 合并版 API 名称勘误）；2026-09-20（v1.5.2，§1.1 FR 计数勘误：`181` → `183`；非变更、不触协议实质）；2026-09-20（v1.5.3，§7.1.11 选项 A 措辞勘误 → **A′**（`HttpServer` 无协议升级能力）+ §9 `RSK-06` 定调 A′ 并登记「引库路径已事实关闭」+ §4.1.2 补 `/ws/alert` 子账户数据权限过滤（`NFR-SEC-7` / `10004`）+ §11.2 `CFG-32` 取值登记与 `CFG-33` 补登记；含 §7.1.7 / §4.2.1 / §7.2.2 / §7.2.4 / §10.2 / §11.3 的**连锁订正**，另含 `CFG-33 hg.web.threads` 取值订正（`32`→`16`，以实测实现值为准）与 `NFR-SEC-7` 承载章节补全（§8.9 / §10.2 追溯表补记 §4.1.2）+ §3.0.2 `E5` 判据**段二收紧**（驱动/连接串由裸词收为 `jdbc:` / `odbc:` URL scheme 与 `jdbcUrl` / `jdbc_url` 常量名，消除 `FakeTx` 散文 `JDBC` 误报）+ **新增 `tools/arch-check/scan_cpp_sql.sh`（`E2` 判据脚本）** 与登记 `tools/arch-check/scan_java_sql.sh`（`E5` 判据脚本）；**同一修订轮，不另升版**；非变更、不触协议实质）；2026-09-20（v1.5.4，WebSocket 选型**内容缺口补全**：§4.1.2 补**客户端→服务端订阅消息 `W-1` 逐字段清单**（补齐 `T-040` 验收 3「与冻结清单逐字段一致」所缺的架构侧清单）+ §4.1.2 显式声明 **`CH-007` 对 WS 下发路径的适用**（补数批次中的行情帧**接收侧不消费、不触发任何下发**）+ §7.1.11 登记 **A′ 形态基线**（`T-040` 实现基线、**不得重新选型**）；非变更、不触协议实质）；2026-09-20（v1.5.5，§7.2.2 补 **Java 侧「依赖准入判据」** 作为依赖纪律：① **传递依赖清单**（`dependency:tree` 全量 + 名称/版本/许可/原生依赖 + 与禁引名单逐项比对）+ ② **冒烟实例化证据**（隔离探针实跑，防 `provided` / `optional` / 反射 / `ServiceLoader`）；内容缺口补全、非 `CH-xxx`，不触协议实质）；2026-09-20（v1.5.6，§3.0.2 **`E5` 判据修订**：**预处理剔 Java 注释**（新增 `tools/arch-check/strip_java_comments.awk`，**字符串字面量内不视为注释**）+ **② 由单一"驱动/连接串形态"拆为 `②a`（可执行连接创建，**锚「调用形态」而非类名/导入**；全仓）/ `②a2`（`DriverManager.registerDriver(`，**仅生产**）/ `②b`（内嵌连接串，**仅适用非 `src/test/**` 的生产代码**）/ `②c`（其它关键字，全仓）** —— 消除 5 处误报（javadoc 内 SQL 1 处 + 装配类测试配置值 4 处），并追加"判据形态与被判对象合法取值形状/夹具形态重合 ⇒ 须按是否构成执行路径分流"的留痕（含本席作业期间 23:57 落地的 `FakeJdbcDriver.java` 所带来的 2 处误报的处置）；**勘误 + 判据修订、非 `CH-xxx`，不触协议实质**）；2026-09-20（v1.5.7，S7 首审两条裁定：**§6.4 补「过渡口径与字段级判定」**（`CR-002`：`R-PLAN-3` 阻断式预校验**服务端强制**、M1 强制 6 项 / ③ 规模红线归 M3 且以 `unverified` 显式标注、错误码与四项载荷、归属分界）+ **§3.0.2 新增「落点状态标注约定」**（`CR-006`：`（✅ 已实现）` vs `（🔴 落点待建：T-09x）`）+ §4.3.1 `10012` 触发条件补「计划数量超未覆盖量」；**勘误与口径补全、非 `CH-xxx`，不触协议实质**）；2026-09-21（v1.5.7 **追加四项**：`GET /api/v1/plan` 跨子账户隔离裁定〔§8.2〕+ 路由判据目标形态与覆盖边界〔§4.1.1〕+ `PageQuery` 缺省方向约定〔§4.1.1〕+ §1.2「控制性需求的服务端强制点」通则；**同一修订轮，不另升版**）；2026-09-21（**v1.5.8**，`GET /plan` 隔离缺口的**机制订正**：§8.2 的「服务端强制点」② 由 `UserSubAccountPermDao.scopeOf` 改为 **`AuthService.visibleSubAccountIds`（含 `perm_type` 语义）→ `SubAccountScope.of` → `AbstractDmDao.findPageScoped`** —— 实测 `scopeOf`（`DmUserSubAccountPermDao:108–122`）**不读 `permType`**，无法兑现 ① 的 `CROSS_READONLY ⇒ 不加过滤`，会使 `FR-AUTH-13` 静默失效；并**明确 §8.2④ 的装配写者**；非 `CH-xxx`，不触协议实质）；2026-09-21（**v1.5.11**，§8.2 补登「**账户级写面授权点**」（层③ `ACCOUNT_PRODUCT` / `t_product_quota.sub_account_id = 0`）：明确「**不适用子账户维度**」——套用 `assertSubAccountWritable(target=0)` 放行判据自相矛盾 ⇒ **必然误拒**（非「只有 `CROSS_READONLY` 能通过」）+ **`CROSS_READONLY` 不得作写面门禁**（`FR-AUTH-13`/`R-AUTH-5`/`DATA_MODEL.md`）+ **P0 授权盲区定性**（零门禁 ⇒ 零授权者与审计岗均可写、且零留痕）+ **两阶段口径**（M1 角色近似 `assertCanConfigureAccountLevel` → M2 功能权限 `t_role_permission.perm_code`/`hasFunctionPermission`，同一强制点换判据）+ 错误码 `10003`（沿用不新造）+ 留痕 `t_unauthorized_attempt`（`R-AUTH-8`）+ **播种硬前置**（`t_role`/`t_user_role` 须与实现同批，否则修完即误拒）+ 对称先例 `FR-FUND-13`；并在 §8.2① 加注「**该规则仅覆盖子账户维度、不覆盖账户级配置**」；纯承载补登、非 `CH-xxx`，**FR 计数 183 不变、错误码 62 个不变**〔⚠️ **同轮追加后本修订轮 `FR` 计数终值 = `184`**〕，不触协议实质；**同轮追加两笔（2026-09-21）**：(a) **`E3` 判据措辞订正**（`docs/DECISIONS/websocket-selection.md` §3，与 `java/CONTRACTS.md` §4.3「**端点即通道、连接即 `subscribed`**」冻结契约对齐）+ (b) **`FR` 计数 `183` → `184`**（传导 `CH-011` / `FR-SPOT-19`））；2026-09-21（v1.5.12，**§3.0.2 `E4` 判据的「扫描根」口径裁定 + 勘误**：`E4` 原文扫描根写作 `cpp/src/trading/**`，与 §3.1–§3.6 的**六模块布局**矛盾（该目录**不存在**，`T-031` 实施方实测）⇒ 裁定「**交易路径**」= **执行在 T4 单线程上的代码**，扫描根 = `cpp/src/{order_engine,risk_engine,risk_state}`，并**显式排除** `flow_store`（T7 合法 `append + fsync`）/ `hgcp`（T5/T6/T8 合法 socket `send`/`recv`）/ `ctp_adapter`（T2/T3 SPI 回调）以免误报；**父目录 `cpp/src` 方案经隔离探针实测证伪**（对上述三处**合法**调用退 `1`）；**同批诚实披露 `E4` 现状未生效**——脚本默认根仍为旧路径且聚合入口不传 `--root` ⇒ CI 中恒 `SKIP`，并给出两种接线选项；另同批在 §2.4.3 对同名旧路径作**最小加注**。勘误 + 判据口径澄清，**非 `CH-xxx`**，不触协议实质、不改任务分解与依赖清单）；2026-09-21（v1.5.13，§3.0.2 `E4` 判据**接线落地**（`T-120`）：默认扫描根由**已作废**的 `cpp/src/trading` 改为**三目录集合** `cpp/src/{order_engine,risk_engine,risk_state}`（**取并集**、**三目录全部缺位才 `SKIP`**、任一存在即实扫），显式 `--root` 单目录语义与「显式不存在 ⇒ 退 `2`」护栏不变、聚合入口**逻辑零改动**；**判定段（`STRIP_AWK`/`DETECT_AWK`/`WARN_RE`）逐字节未变**；`E4` 在 CI 中**已由 `SKIP` 变为实扫**（实测 `待扫描文件: 6 个`）；判据接线、非 `CH-xxx`，不触协议实质；**同轮追加（`te-verify-t120` 复核后，不另升版）**：订正 `tools/arch-check/README.md` §5 的 `rsk02` 注册条件（真实自变量 = `CTP_SDK_ROOT`，非 `FetchContent`）+ 本节 `E4` 脚注 ⑥ 登记「默认根部分缺席 ⇒ 少扫而不红」的**已接受风险**及兜底判定）；2026-09-21（v1.5.14，§8.2② 订正 `scopeOf` 相关失效表述：`T-099` 已**删除** `scopeOf`（接口声明 + 实现 + 5 处测试假件 `override`，新增反射**防复活守卫** `T099ScopeOfDeprecationTest`）；旧句保留、按现况**追加订正** —— `scopeOf` = **不存在**（非「0 处调用」）、恢复路径**已排除**（探针证「接口类型调用零告警 ⇒ 弃用形态无防护」+ `SubAccountScope` 无法表达"无 scope"）、`visibleSubAccountIds` 路径**已接线**（`T-100`/`T-101`/`T-103`）；**正确入口不变** = `AuthService.visibleSubAccountIds`；**勘误、`非` `CH-xxx`，不触协议实质**）
+- **编写时间**：2026-09-20（v1.0）；2026-09-20（v1.1，传导 `CH-001` / `CH-002`）；2026-09-20（v1.4，传导 `CH-006`，用户技术栈裁决）；2026-09-20（v1.5，传导 `CH-007`，协议承载层冻结范围澄清 + 标称版本 v1.0.1）；2026-09-20（v1.5.1，M2 探路结论登记 + CTP 合并版 API 名称勘误）；2026-09-20（v1.5.2，§1.1 FR 计数勘误：`181` → `183`；非变更、不触协议实质）；2026-09-20（v1.5.3，§7.1.11 选项 A 措辞勘误 → **A′**（`HttpServer` 无协议升级能力）+ §9 `RSK-06` 定调 A′ 并登记「引库路径已事实关闭」+ §4.1.2 补 `/ws/alert` 子账户数据权限过滤（`NFR-SEC-7` / `10004`）+ §11.2 `CFG-32` 取值登记与 `CFG-33` 补登记；含 §7.1.7 / §4.2.1 / §7.2.2 / §7.2.4 / §10.2 / §11.3 的**连锁订正**，另含 `CFG-33 hg.web.threads` 取值订正（`32`→`16`，以实测实现值为准）与 `NFR-SEC-7` 承载章节补全（§8.9 / §10.2 追溯表补记 §4.1.2）+ §3.0.2 `E5` 判据**段二收紧**（驱动/连接串由裸词收为 `jdbc:` / `odbc:` URL scheme 与 `jdbcUrl` / `jdbc_url` 常量名，消除 `FakeTx` 散文 `JDBC` 误报）+ **新增 `tools/arch-check/scan_cpp_sql.sh`（`E2` 判据脚本）** 与登记 `tools/arch-check/scan_java_sql.sh`（`E5` 判据脚本）；**同一修订轮，不另升版**；非变更、不触协议实质）；2026-09-20（v1.5.4，WebSocket 选型**内容缺口补全**：§4.1.2 补**客户端→服务端订阅消息 `W-1` 逐字段清单**（补齐 `T-040` 验收 3「与冻结清单逐字段一致」所缺的架构侧清单）+ §4.1.2 显式声明 **`CH-007` 对 WS 下发路径的适用**（补数批次中的行情帧**接收侧不消费、不触发任何下发**）+ §7.1.11 登记 **A′ 形态基线**（`T-040` 实现基线、**不得重新选型**）；非变更、不触协议实质）；2026-09-20（v1.5.5，§7.2.2 补 **Java 侧「依赖准入判据」** 作为依赖纪律：① **传递依赖清单**（`dependency:tree` 全量 + 名称/版本/许可/原生依赖 + 与禁引名单逐项比对）+ ② **冒烟实例化证据**（隔离探针实跑，防 `provided` / `optional` / 反射 / `ServiceLoader`）；内容缺口补全、非 `CH-xxx`，不触协议实质）；2026-09-20（v1.5.6，§3.0.2 **`E5` 判据修订**：**预处理剔 Java 注释**（新增 `tools/arch-check/strip_java_comments.awk`，**字符串字面量内不视为注释**）+ **② 由单一"驱动/连接串形态"拆为 `②a`（可执行连接创建，**锚「调用形态」而非类名/导入**；全仓）/ `②a2`（`DriverManager.registerDriver(`，**仅生产**）/ `②b`（内嵌连接串，**仅适用非 `src/test/**` 的生产代码**）/ `②c`（其它关键字，全仓）** —— 消除 5 处误报（javadoc 内 SQL 1 处 + 装配类测试配置值 4 处），并追加"判据形态与被判对象合法取值形状/夹具形态重合 ⇒ 须按是否构成执行路径分流"的留痕（含本席作业期间 23:57 落地的 `FakeJdbcDriver.java` 所带来的 2 处误报的处置）；**勘误 + 判据修订、非 `CH-xxx`，不触协议实质**）；2026-09-20（v1.5.7，S7 首审两条裁定：**§6.4 补「过渡口径与字段级判定」**（`CR-002`：`R-PLAN-3` 阻断式预校验**服务端强制**、M1 强制 6 项 / ③ 规模红线归 M3 且以 `unverified` 显式标注、错误码与四项载荷、归属分界）+ **§3.0.2 新增「落点状态标注约定」**（`CR-006`：`（✅ 已实现）` vs `（🔴 落点待建：T-09x）`）+ §4.3.1 `10012` 触发条件补「计划数量超未覆盖量」；**勘误与口径补全、非 `CH-xxx`，不触协议实质**）；2026-09-21（v1.5.7 **追加四项**：`GET /api/v1/plan` 跨子账户隔离裁定〔§8.2〕+ 路由判据目标形态与覆盖边界〔§4.1.1〕+ `PageQuery` 缺省方向约定〔§4.1.1〕+ §1.2「控制性需求的服务端强制点」通则；**同一修订轮，不另升版**）；2026-09-21（**v1.5.8**，`GET /plan` 隔离缺口的**机制订正**：§8.2 的「服务端强制点」② 由 `UserSubAccountPermDao.scopeOf` 改为 **`AuthService.visibleSubAccountIds`（含 `perm_type` 语义）→ `SubAccountScope.of` → `AbstractDmDao.findPageScoped`** —— 实测 `scopeOf`（`DmUserSubAccountPermDao:108–122`）**不读 `permType`**，无法兑现 ① 的 `CROSS_READONLY ⇒ 不加过滤`，会使 `FR-AUTH-13` 静默失效；并**明确 §8.2④ 的装配写者**；非 `CH-xxx`，不触协议实质）；2026-09-21（**v1.5.11**，§8.2 补登「**账户级写面授权点**」（层③ `ACCOUNT_PRODUCT` / `t_product_quota.sub_account_id = 0`）：明确「**不适用子账户维度**」——套用 `assertSubAccountWritable(target=0)` 放行判据自相矛盾 ⇒ **必然误拒**（非「只有 `CROSS_READONLY` 能通过」）+ **`CROSS_READONLY` 不得作写面门禁**（`FR-AUTH-13`/`R-AUTH-5`/`DATA_MODEL.md`）+ **P0 授权盲区定性**（零门禁 ⇒ 零授权者与审计岗均可写、且零留痕）+ **两阶段口径**（M1 角色近似 `assertCanConfigureAccountLevel` → M2 功能权限 `t_role_permission.perm_code`/`hasFunctionPermission`，同一强制点换判据）+ 错误码 `10003`（沿用不新造）+ 留痕 `t_unauthorized_attempt`（`R-AUTH-8`）+ **播种硬前置**（`t_role`/`t_user_role` 须与实现同批，否则修完即误拒）+ 对称先例 `FR-FUND-13`；并在 §8.2① 加注「**该规则仅覆盖子账户维度、不覆盖账户级配置**」；纯承载补登、非 `CH-xxx`，**FR 计数 183 不变、错误码 62 个不变**〔⚠️ **同轮追加后本修订轮 `FR` 计数终值 = `184`**〕，不触协议实质；**同轮追加两笔（2026-09-21）**：(a) **`E3` 判据措辞订正**（`docs/DECISIONS/websocket-selection.md` §3，与 `java/CONTRACTS.md` §4.3「**端点即通道、连接即 `subscribed`**」冻结契约对齐）+ (b) **`FR` 计数 `183` → `184`**（传导 `CH-011` / `FR-SPOT-19`））；2026-09-21（v1.5.12，**§3.0.2 `E4` 判据的「扫描根」口径裁定 + 勘误**：`E4` 原文扫描根写作 `cpp/src/trading/**`，与 §3.1–§3.6 的**六模块布局**矛盾（该目录**不存在**，`T-031` 实施方实测）⇒ 裁定「**交易路径**」= **执行在 T4 单线程上的代码**，扫描根 = `cpp/src/{order_engine,risk_engine,risk_state}`，并**显式排除** `flow_store`（T7 合法 `append + fsync`）/ `hgcp`（T5/T6/T8 合法 socket `send`/`recv`）/ `ctp_adapter`（T2/T3 SPI 回调）以免误报；**父目录 `cpp/src` 方案经隔离探针实测证伪**（对上述三处**合法**调用退 `1`）；**同批诚实披露 `E4` 现状未生效**——脚本默认根仍为旧路径且聚合入口不传 `--root` ⇒ CI 中恒 `SKIP`，并给出两种接线选项；另同批在 §2.4.3 对同名旧路径作**最小加注**。勘误 + 判据口径澄清，**非 `CH-xxx`**，不触协议实质、不改任务分解与依赖清单）；2026-09-21（v1.5.13，§3.0.2 `E4` 判据**接线落地**（`T-120`）：默认扫描根由**已作废**的 `cpp/src/trading` 改为**三目录集合** `cpp/src/{order_engine,risk_engine,risk_state}`（**取并集**、**三目录全部缺位才 `SKIP`**、任一存在即实扫），显式 `--root` 单目录语义与「显式不存在 ⇒ 退 `2`」护栏不变、聚合入口**逻辑零改动**；**判定段（`STRIP_AWK`/`DETECT_AWK`/`WARN_RE`）逐字节未变**；`E4` 在 CI 中**已由 `SKIP` 变为实扫**（实测 `待扫描文件: 6 个`）；判据接线、非 `CH-xxx`，不触协议实质；**同轮追加（`te-verify-t120` 复核后，不另升版）**：订正 `tools/arch-check/README.md` §5 的 `rsk02` 注册条件（真实自变量 = `CTP_SDK_ROOT`，非 `FetchContent`）+ 本节 `E4` 脚注 ⑥ 登记「默认根部分缺席 ⇒ 少扫而不红」的**已接受风险**及兜底判定）；2026-09-21（v1.5.14，§8.2② 订正 `scopeOf` 相关失效表述：`T-099` 已**删除** `scopeOf`（接口声明 + 实现 + 5 处测试假件 `override`，新增反射**防复活守卫** `T099ScopeOfDeprecationTest`）；旧句保留、按现况**追加订正** —— `scopeOf` = **不存在**（非「0 处调用」）、恢复路径**已排除**（探针证「接口类型调用零告警 ⇒ 弃用形态无防护」+ `SubAccountScope` 无法表达"无 scope"）、`visibleSubAccountIds` 路径**已接线**（`T-100`/`T-101`/`T-103`）；**正确入口不变** = `AuthService.visibleSubAccountIds`；**勘误、`非` `CH-xxx`，不触协议实质**）；2026-09-22（**v1.5.15，传导 `CH-013`（L3 架构级，**用户批准**）：HGCP 字段级 schema 定版** —— §4.2 新增 **§4.2.8「字段级 schema」**〔40 条消息的**字段号 / 字段类型 / 必填性 / 枚举名与显式值** + 9 个复合类型 + 显式枚举表〕，一并裁定 `I-1`~`I-4` 与 `G-1`/`G-6`/`G-7`；**§4.2 冻结对象由「语义」补全为「语义 + 线格式表示」**；**消息集 40 / 错误码 62 / 线格式 `VER` `0x0100` / `FR` 计数 184 均不变**；另含 **`I-3` 勘误**〔§4.3.2 标题「共 50 个」→ 实 62，只加不改〕；**不改任何代码 / 不改任务分解编号**）
 - **状态**：待评审（M1 门禁：`DATA_MODEL.md` 三方会签；M2 门禁：本文件 §4.2 TCP 协议冻结）
 - **上游锚点**：`PROJECT.md` v1.2（唯一事实源；**§5.1 已于 2026-09-20 由用户裁决收紧，见 `CH-006`**）｜ `docs/REQUIREMENTS/`（S1 已过门禁，11 模块 / **184 FR**〔`CH-011` 新增 `FR-SPOT-19`，2026-09-21〕 / **129 R** / 50 NFR；**17 条待澄清问题已全部解决**，见 `INDEX.md` §9.1）
 - **配套制品**：`docs/DATA_MODEL.md`（并列主产物，库表结构的唯一事实源）
@@ -705,15 +705,15 @@ L5 前端 ──→ L4 接口层 ──→ L3 应用服务 ──→ L2a DAO ─
 > |----|----|
 > | 协议名称 | **HGCP**（HedgeGuard Component Protocol） |
 > | 协议版本 | **v1.0.1**（2026-09-20 由 `v1.0` 升版，`CH-007`：**向后兼容的澄清性修订**；**线格式 `VER` 仍 `0x0100`**） |
-> | Schema 文件 | `proto/hgcp.proto`（**唯一定义**，两侧同源生成）｜⚠️ **时序缺口（v1.5.1 登记）**：该文件**仓库中尚不存在**（由 `T-032` 产出，受 `T-030` 汇签约束）。**真实 schema 落地后须以 C++11 重跑 `cpp/proto_smoke` 并附证据**，方可确认 `RSK-01`（§9）闭环 |
-> | **冻结状态** | ✅ **FROZEN（已冻结）** ｜ **最近变更**：`CH-007`（2026-09-20，L3，**技术负责人单方签署**；**消息集 40 / 错误码 62 不变**；标称版本 → **v1.0.1**，向后兼容） |
+> | Schema 文件 | `proto/hgcp.proto`（**唯一定义**，两侧同源生成）｜⚠️ **时序缺口（v1.5.1 登记）**：该文件**仓库中尚不存在**（由 `T-032` 产出，受 `T-030` 汇签约束）。**真实 schema 落地后须以 C++11 重跑 `cpp/proto_smoke` 并附证据**，方可确认 `RSK-01`（§9）闭环 ｜ **✅ `CH-013` 化（2026-09-22）**：Schema 的**线格式表示**（字段号 / 字段类型 / 必填性 / 枚举名与显式值）**已在 §4.2.8 定版**（原缺口 = §4.2 只冻结语义、未定义线格式）⇒ **`T-032` 现可依 §4.2.8 逐条转录产出**；**唯一剩余** = 转录落盘 + 以 C++11 重跑 `cpp/proto_smoke`（`RSK-01` 闭环判据不变） |
+> | **冻结状态** | ✅ **FROZEN（已冻结）** ｜ **最近变更**：**`CH-013`**（2026-09-22，L3 架构级，**用户批准**；**对冻结对象「线格式表示」的补全**〔字段号 / 字段类型 / 必填性 / 枚举名值 → **§4.2.8**〕；**性质 = completeness（补全）、非 semantic（不改语义）**；**消息集 40 / 错误码 62 / 线格式 `VER` `0x0100` / `FR` 计数 184 均不变**）｜ 前序：`CH-007`（2026-09-20，L3，**技术负责人单方签署**；**消息集 40 / 错误码 62 不变**；标称版本 → **v1.0.1**，向后兼容） |
 > | **本版新增规则**（`CH-007` ③） | `IS_RESUME_DATA` 批次中的 `EVT_MARKET_QUOTE` **接收侧不消费**（§4.2.6）；**线路侧仍全量回放**，不产生 `SEQ` 缺口、不触发 `0x0106`。**性质：新增规则（非澄清）**，但**不触冻结实质范围**（帧格式 / 消息类型与字段定义 / 序列化 / 错误码 / 时序 / 心跳与重连约定均不变） |
 > | 冻结签署 | 技术负责人（单方签署，`PROJECT.md` §9 M2 门禁） |
 > | 冻结日期 | 2026-09-20 |
 > | 变更规则 | 冻结后任何变更须走 `CH-xxx` 变更流程（L3 级），**由技术负责人批准**并**同步更新本文档与 `proto/hgcp.proto`**，且**必须重跑双组件协议专项测试**（`NFR-TEST-5`）。**禁止口头放行、禁止单侧先行修改**。 |
 > | 未冻结即开工的后果 | C++ 与 Java 会各自"实现"出一套协议，联调期才发现不一致，返工范围是**两个组件同时返工** |
 >
-> **冻结范围**：§4.2.1–§4.2.7 全部内容——帧格式、消息类型、字段定义、序列化、错误码、时序、心跳与重连约定。
+> **冻结范围**：§4.2.1–§4.2.8 全部内容——帧格式、消息类型、字段定义、序列化、错误码、时序、心跳与重连约定（**§4.2.8 为 `CH-013` 新增的「线格式表示」定义：字段号 / 字段类型 / 必填性 / 枚举名与显式值**）。
 >
 > **🆕 冻结实质范围（`CH-007` 显式切开，防误读）**：**冻结实质范围** = **帧格式 / 消息类型与字段定义 / 序列化 /
 > 错误码 / 时序 / 心跳与重连约定**。**传输通道构成（通道数量与承载划分）属承载层描述**：其收敛或调整
@@ -776,7 +776,7 @@ L5 前端 ──→ L4 接口层 ──→ L3 应用服务 ──→ L2a DAO ─
 | `RESERVED` | 2 | `uint16` | 恒 `0`；接收方忽略但仍校验 |
 | `SEQ` | 8 | `uint64` | **通道级单调递增**（见 §4.2.6）；`uint64` 大端，从 1 开始 |
 | `MSG_ID` | 8 | `uint64` | 消息唯一 id，用于**请求-回执关联**；由发送方单调分配 |
-| `LEN` | 4 | `uint32` | payload 字节数；上限 `HG.MAX_FRAME = 1 MiB`，超限 → `0x0104` 断连 |
+| `LEN` | 4 | `uint32` | payload 字节数；上限 `HG.MAX_FRAME = 1 MiB`，超限 → `0x0104` 断连 〔⚠️ **`CH-013` `I-2` 订正（只加不改，原句保留以留痕）**：**帧超限（`LEN > 1 MiB`）的权威码 = `0x0308 ERR_FRAME_TOO_LARGE`**（§4.3.2）；**行为 = 拒绝该帧 + 回 `0x0308` + 提示使用分片 + **不中断连接**（`0x0308` 为唯一**专码**，`0x0104` 为兼码；两行均明载「不中断连接」）〕 |
 | `PAYLOAD` | N | bytes | **protobuf** 序列化消息体（见 §4.2.5） |
 | `CRC32` | 4 | `uint32` | 覆盖 `VER..PAYLOAD`（不含 MAGIC 与 CRC 自身）的标准 CRC-32（IEEE 802.3 多项式，大端存储）；不匹配 → `0x0103` |
 
@@ -791,7 +791,7 @@ L5 前端 ──→ L4 接口层 ──→ L3 应用服务 ──→ L2a DAO ─
 
 | # | 类型码 | 名称 | 方向 | 用途 | 关键字段 |
 |---|--------|------|------|------|---------|
-| 1 | `0x0001` | `MSG_HELLO` | 双向（客户端发） | 建连后首个消息：版本协商 + 鉴权 | `proto_version`, `component_id`, `component_role`, `auth_token`, `client_boot_id`, `last_received_seq` |
+| 1 | `0x0001` | `MSG_HELLO` | 双向（客户端发） | 建连后首个消息：版本协商 + 鉴权 | `proto_version`, `component_id`, `component_role`, `auth_token`, `client_boot_id`, `last_received_seq`, **`token_version`**〔`CH-013` `I-1` 补登——原列**漏列**该字段，§4.2.6 令牌轮换已为规范条款；字段定义为 `token_version`(**7** : `uint32`)，见 §4.2.8〕 |
 | 2 | `0x0002` | `MSG_HELLO_ACK` | 双向（服务端回） | 鉴权与版本协商结果 | `accepted`, `server_proto_version`, `session_id`, `server_state`(`NOT_READY`/`REPLAYING`/`READY`/`STOPPING`), `param_version`, `reason_code` |
 | 3 | `0x0003` | `MSG_AUTH_FAIL` | 服务端 → 客户端 | 鉴权失败（随后关闭连接） | `reason_code`(0x02xx), `detail` |
 | 4 | `0x0004` | `MSG_HEARTBEAT` | 双向 | 心跳（见 §4.2.6） | `sent_ts_ms`, `last_received_seq`, `component_state` |
@@ -1058,6 +1058,189 @@ C++ (服务端, 监听 127.0.0.1:P)                        Java (客户端)
 | T10 | **大消息分片** | 预加载 10 万条额度，分片传输后全部生效，条数与 Java 侧一致 |
 | T11 | **性能** | 通道 A 吞吐 ≥ 1000 帧/秒（`NFR-PERF-6`）；判定 P99 ≤ 5 ms（`NFR-PERF-1`） |
 
+#### 4.2.8 字段级 schema（线格式表示的定义）—— **`CH-013` 定版（2026-09-22，用户批准）**
+
+> **本节地位（先读）**
+>
+> - **前身** = 附录 C 的 `CH-013` 提案（技术负责人席 `tl-proto-gap` 提出；2026-09-22 经**用户批准**，**条件 = 先并入 `G-1`〔37 条消息字段必填性〕与 `G-6`〔4 个复合类型内部字段〕后方视为定稿**）。本节 = 该条件已满足后的**生效态**。
+> - **本节 = HGCP「线格式表示」（字段号 / 字段类型 / 必填性 / 枚举名与显式值）的唯一定义**，与 §4.2.1–§4.2.7 的**语义定义**（消息集 / 字段名 / 取值域 / 序列化**规定**）**并列**，共同构成 §4.2 冻结对象。
+> - **`proto/hgcp.proto` 必须由本节逐条转录产出**（转录动作归 `T-032`；**本节不落 `proto/**`**）。**附录 C 保留为提案留痕，非权威**（权威 = 本节）。
+> - **冻结-不变量（本节一律不改动）**：消息集 **40**、组件错误码 **62**、线格式 `VER` = **`0x0100`**、`FR` 计数 **184**。
+> - **变更纪律**：本节落笔后即受 §4.2「变更规则」约束 —— 改字段号 / 改字段类型 / 复用已删除字段号 / 改枚举已取值语义 → **禁止**；新增字段分配新号、新增枚举值（追加，不复用号）→ 须走 `CH-xxx`（§4.2.5）。
+
+##### 4.2.8.1 通则（编号 / 类型 / 必填 / 枚举）—— 含 `G-7` 裁定
+
+| 项 | 规定 |
+|----|------|
+| **编号空间（`G-7`）** | 字段号**按 message 独立分配**，各 message **自 `1` 起连续、不跳号、不预留**（`CH-013` 裁定；理由：`§4.2.5` 只规定「新增字段**分配新号**」，未要求预留空洞；**预留空洞反而永久浪费号段**）。**同一 message 内字段号唯一**。 |
+| **顶层字段号总量** | **40 条消息的顶层字段合计 = 214**（元协议 **38** + 控制指令 **77** + 事件流 **99**）。**复合类型（§4.2.8.6）为独立 `message`，其字段号空间独立、不计入 214**。 |
+| **新增字段** | 冻结后新增字段一律**追加该 message 当前最大号 + 1**（§4.2.5）；**不得**复用已删除号（`proto` 保留号语义）。 |
+| **类型映射** | 照 §4.2.5：金额 / 价格 / 比率 → `string`（十进制，`BigDecimal` ↔ 定点 `int64` scale=1e6）；数量 → `int32`（手数）/ `int64`（折算后，scale=1e4）；时间 → `int64`（ms，UTC epoch）；业务日期 → `string`（`yyyy-MM-dd`）；标识符 → `string`（ASCII）；`*_seq` → `uint64`；`*_ts_ms` / `*_time` → `int64`。 |
+| **必填性语义** | proto3 **无 `required`** ⇒ 本表「必填性」列 = **接收侧校验语义**（§4.2.5）：`必` = **缺失即拒绝**并回明确错误码（**不得**静默使用默认值——数值 `0` / 字符串 `""` **不视为合法值**）；`可` = 允许缺省；`条件` = 见 **§4.2.8.5 条件必填清单**。 |
+| **枚举** | 一律**显式赋值**，`0` 保留为 `*_UNSET`（§4.2.5）；完整枚举与显式值见 **§4.2.8.7**。 |
+| **命名派生（确定性）** | `message` 名 = 冻结名去前缀转 TitleCase 再加回 `Msg` / `Cmd` / `Evt`（`MSG_HELLO_ACK` → `MsgHelloAck`、`CMD_PLACE_ORDER` → `CmdPlaceOrder`、`EVT_PRE_TRADE_REJECT` → `EvtPreTradeReject`）。**`TYPE` 由 32B 帧头 `uint16` 承载、不在 payload 内**；`enum MsgType` 仅供代码可读性，**非线格式**。 |
+| **与 §4.2.4 的分工** | §4.2.4 已给**字段级说明**的 3 条消息（`CMD_PLACE_ORDER` / `CMD_CONFIRM_ORDER` / `EVT_PRE_TRADE_REJECT`）**必填性以 §4.2.4 为准**（本节**转录**其号 / 类型 / 必填，**不重复其文字说明**）；**说明权威 = §4.2.4，编号权威 = §4.2.8**，二者不冲突。 |
+
+##### 4.2.8.2 元协议（9 条，双向）
+
+> 记法：`` `字段名`(号:类型·必填) ``；必填 ∈ {`必`, `可`, `条件`}。
+
+| # | 类型码 | message | 字段（号:类型·必填） | 字段数 |
+|---|--------|---------|--------------------|-------|
+| 1 | `0x0001` | `MsgHello` | `proto_version`(1:uint32·必), `component_id`(2:string·必), `component_role`(3:ComponentRole·必), `auth_token`(4:string·必), `client_boot_id`(5:string·必), `last_received_seq`(6:uint64·必〔首连填 `0`〕), `token_version`(7:uint32·必)〔`I-1` 补登〕 | 7 |
+| 2 | `0x0002` | `MsgHelloAck` | `accepted`(1:bool·必), `server_proto_version`(2:uint32·必), `session_id`(3:string·条件), `server_state`(4:ServerState·必), `param_version`(5:uint64·可), `reason_code`(6:uint32·条件) | 6 |
+| 3 | `0x0003` | `MsgAuthFail` | `reason_code`(1:uint32·必), `detail`(2:string·可) | 2 |
+| 4 | `0x0004` | `MsgHeartbeat` | `sent_ts_ms`(1:int64·必), `last_received_seq`(2:uint64·必), `component_state`(3:ComponentState·可)〔值域 `I-4` 新增〕 | 3 |
+| 5 | `0x0005` | `MsgHeartbeatAck` | `echo_ts_ms`(1:int64·必), `server_ts_ms`(2:int64·必) | 2 |
+| 6 | `0x0006` | `MsgAck` | `ack_msg_id`(1:uint64·必), `result`(2:int32·必〔`0`=成功〕), `reason_code`(3:uint32·条件), `detail`(4:string·可), `applied_version`(5:uint64·可) | 5 |
+| 7 | `0x0007` | `MsgError` | `err_code`(1:uint32·必), `err_msg`(2:string·可), `related_msg_id`(3:uint64·可), `rule_id`(4:string·条件), `current_value`(5:string·可), `threshold_value`(6:string·可) | 6 |
+| 8 | `0x0008` | `MsgResumeReq` | `last_received_seq`(1:uint64·必), `session_id`(2:string·必), `max_resume_count`(3:int32·可) | 3 |
+| 9 | `0x0009` | `MsgResumeData` | `from_seq`(1:uint64·必), `to_seq`(2:uint64·必), `is_last`(3:bool·必), `frames`(4:repeated bytes·条件〔非 `is_last` 时非空〕) | 4 |
+| | | | **小计** | **38** |
+
+##### 4.2.8.3 控制指令（17 条，Java→C++）
+
+| # | 类型码 | message | 字段（号:类型·必填） | 字段数 |
+|---|--------|---------|--------------------|-------|
+| 10 | `0x0101` | `CmdPlaceOrder` | `client_order_ref`(1:string·必), `trade_plan_id`(2:uint64·必), `exposure_id`(3:uint64·必), `sub_account_id`(4:uint32·必), `product_id`(5:uint32·必), `instrument_id`(6:string·必), `instrument_type`(7:InstrumentType·必), `direction`(8:Direction·必), `offset_flag`(9:OffsetFlag·必), `price_type`(10:PriceType·必), `limit_price`(11:string·条件), `volume`(12:int32·必), `operator_id`(13:uint64·必), `strategy_id`(14:uint64·可), `leg_no`(15:int32·条件), `trade_reason_code`(16:TradeReasonCode·必), `trade_reason_time_desc`(17:TradeReasonTimeDesc·必), `trade_reason_text`(18:string·可), `related_plan_id`(19:uint64·必), `related_exposure_id`(20:uint64·必), `client_ts_ms`(21:int64·必) 〔**必填性照 §4.2.4**〕 | 21 |
+| 11 | `0x0102` | `CmdConfirmOrder` | `order_id`(1:uint64·必), `operator_id`(2:uint64·必), `confirm_ts_ms`(3:int64·必), `confirm_token`(4:string·必) 〔**必填性照 §4.2.4**〕 | 4 |
+| 12 | `0x0103` | `CmdCancelOrder` | `order_id`(1:uint64·必), `operator_id`(2:uint64·必), `reason`(3:string·可) | 3 |
+| 13 | `0x0111` | `CmdLoadRiskParams` | `param_version`(1:uint64·必), `batch_index`(2:uint32·必), `batch_total`(3:uint32·必), `varieties`(4:repeated VarietySpec·可), `whitelist`(5:repeated WhitelistEntry·可), `quotas`(6:repeated QuotaEntry·可), `position_limits`(7:repeated PositionLimitEntry·可), `exposures`(8:repeated ExposureEntry·可), `permissions`(9:repeated PermissionEntry·可), `thresholds`(10:RiskThresholds·可), `total_limits`(11:TotalLimits·可), `annual_scale_factors`(12:repeated AnnualScaleFactor·可) | 12 |
+| 14 | `0x0112` | `CmdUpdateWhitelist` | `param_version`(1:uint64·必), `sub_account_id`(2:uint32·必), `add_product_ids`(3:repeated uint32·可), `remove_product_ids`(4:repeated uint32·可) | 4 |
+| 15 | `0x0113` | `CmdUpdateQuota` | `param_version`(1:uint64·必), `entries`(2:repeated QuotaEntry·必) | 2 |
+| 16 | `0x0114` | `CmdUpdatePositionLimit` | `param_version`(1:uint64·必), `entries`(2:repeated PositionLimitEntry·必) | 2 |
+| 17 | `0x0115` | `CmdUpdateRiskThreshold` | `param_version`(1:uint64·必), `thresholds`(2:RiskThresholds·必)〔**嵌套复用**，`G-5` 裁定；替代 §4.2.3 的扁平罗列〕 | 2 |
+| 18 | `0x0116` | `CmdUpdatePermission` | `param_version`(1:uint64·必), `entries`(2:repeated PermissionEntry·必) | 2 |
+| 19 | `0x0117` | `CmdUpdateExposure` | `param_version`(1:uint64·必), `entries`(2:repeated ExposureEntry·必) | 2 |
+| 20 | `0x0118` | `CmdSetTradingSuspend` | `param_version`(1:uint64·必), `sub_account_id`(2:uint32·必〔`0`=全账户〕), `scan_scope`(3:ScanScope·必), `suspended`(4:bool·必), `reason`(5:string·可), `operator_id`(6:uint64·必) | 6 |
+| 21 | `0x0119` | `CmdSetReadyState` | `target_state`(1:TargetState·必), `reason`(2:string·可) | 2 |
+| 22 | `0x011A` | `CmdReload` | `reason`(1:string·可), `operator_id`(2:uint64·必) | 2 |
+| 23 | `0x011B` | `CmdTriggerReplay` | `reason`(1:string·可), `operator_id`(2:uint64·必) | 2 |
+| 24 | `0x011C` | `CmdQueryStatus` | `what`(1:uint32·必〔bitmask〕) | 1 |
+| 25 | `0x011D` | `CmdFundTransfer` | `idempotency_key`(1:string·必), `apply_id`(2:string·必), `direction`(3:FundDirection·必), `amount`(4:string·必), `sub_account_id`(5:uint32·必), `operator_id`(6:uint64·必), `bank_id`(7:string·必), `bank_account`(8:string·必) | 8 |
+| 26 | `0x011E` | `CmdQueryFundResult` | `idempotency_key`(1:string·必), `apply_id`(2:string·必) | 2 |
+| | | | **小计** | **77** |
+
+##### 4.2.8.4 事件流（14 条，C++→Java）
+
+| # | 类型码 | message | 字段（号:类型·必填） | 字段数 |
+|---|--------|---------|--------------------|-------|
+| 27 | `0x0201` | `EvtOrderAccepted` | `order_id`(1:uint64·必), `client_order_ref`(2:string·必), `risk_passed`(3:bool·必), `effective_timeout_ms`(4:int64·必), `accepted_ts_ms`(5:int64·必) | 5 |
+| 28 | `0x0202` | `EvtPreTradeReject` | `client_order_ref`(1:string·必), `sub_account_id`(2:uint32·必), `product_id`(3:uint32·必), `instrument_id`(4:string·必), `rule_id`(5:string·必), `reason_code`(6:uint32·必), `limit_layer`(7:LimitLayer·条件), `current_value`(8:string·必), `threshold_value`(9:string·必), `order_digest`(10:string·必), `operator_id`(11:uint64·必), `reject_ts_ms`(12:int64·必) 〔**必填性照 §4.2.4**〕 | 12 |
+| 29 | `0x0203` | `EvtOrderReport` | `order_id`(1:uint64·必), `order_sys_id`(2:string·条件), `order_local_id`(3:string·可), `status`(4:OrderStatus·必), `volume_total`(5:int32·必), `volume_traded`(6:int32·必), `volume_left`(7:int32·必), `ctp_error_id`(8:int32·条件), `ctp_error_msg`(9:string·可), `report_ts_ms`(10:int64·必) | 10 |
+| 30 | `0x0204` | `EvtTradeFill` | `trade_id`(1:string·必), `order_id`(2:uint64·必), `order_sys_id`(3:string·必), `instrument_id`(4:string·必), `direction`(5:Direction·必), `offset_flag`(6:OffsetFlag·必), `price`(7:string·必), `volume`(8:int32·必), `trade_ts_ms`(9:int64·必), `sub_account_id`(10:uint32·必), `trade_plan_id`(11:uint64·必), `exposure_id`(12:uint64·必) | 12 |
+| 31 | `0x0205` | `EvtPositionChange` | `sub_account_id`(1:uint32·必), `instrument_id`(2:string·必), `direction`(3:Direction·必), `position_type`(4:PositionType·必), `position_qty`(5:int32·必), `available_qty`(6:int32·必), `frozen_qty`(7:int32·必), `change_reason`(8:string·可), `as_of_ts_ms`(9:int64·必) | 9 |
+| 32 | `0x0206` | `EvtOrderCancelResult` | `order_id`(1:uint64·必), `cancelled_volume`(2:int32·必), `released_quota`(3:string·可), `restored_plan_qty`(4:int64·可), `result`(5:int32·必), `reason_code`(6:uint32·条件) | 6 |
+| 33 | `0x0207` | `EvtOrderExpired` | `order_id`(1:uint64·必), `client_order_ref`(2:string·必), `expired_ts_ms`(3:int64·必), `timeout_ms`(4:int64·必) | 4 |
+| 34 | `0x0208` | `EvtCommandFlow` | `order_id`(1:uint64·必), `flow_type`(2:FlowType·必), `flow_ts_ms`(3:int64·必), `detail`(4:string·可) | 4 |
+| 35 | `0x0209` | `EvtReplayProgress` | `state`(1:ServerState·必), `replayed_records`(2:int64·必), `total_records`(3:int64·必), `started_ts_ms`(4:int64·必), `finished_ts_ms`(5:int64·条件), `result`(6:ReplayResult·必), `mismatch_detail`(7:string·条件) | 7 |
+| 36 | `0x020A` | `EvtSystemState` | `state`(1:ServerState·必), `param_version_applied`(2:uint64·必), `loaded_counts`(3:string·可〔JSON 摘要〕), `reason`(4:string·可), `ts_ms`(5:int64·必) | 5 |
+| 37 | `0x020B` | `EvtFundReceipt` | `idempotency_key`(1:string·必), `apply_id`(2:string·必), `result`(3:FundResult·必), `amount`(4:string·必), `ctp_error_id`(5:int32·条件), `ctp_error_msg`(6:string·可), `receipt_ts_ms`(7:int64·必) | 7 |
+| 38 | `0x020C` | `EvtMarketQuote` | `instrument_id`(1:string·必), `last_price`(2:string·必), `bid_price1`(3:string·可), `ask_price1`(4:string·可), `bid_volume1`(5:int32·可), `ask_volume1`(6:int32·可), `pre_settlement`(7:string·可), `quote_ts_ms`(8:int64·必), `source_ts_ms`(9:int64·可) | 9 |
+| 39 | `0x020D` | `EvtCtpState` | `trade_connected`(1:bool·必), `md_connected`(2:bool·必), `front_addr`(3:string·可), `state_change_ts_ms`(4:int64·必), `reason`(5:string·可) | 5 |
+| 40 | `0x020E` | `EvtTradingAlert` | `alert_code`(1:uint32·必), `level`(2:AlertLevel·必), `detail`(3:string·可), `alert_ts_ms`(4:int64·必) | 4 |
+| | | | **小计** | **99** |
+
+> **顶层字段号合计 = 38 + 77 + 99 = 214**（与 §4.2.8.1 口径一致；复合类型不计入）。
+
+##### 4.2.8.5 `条件` 必填的判定清单（`G-1` 的落地形式）
+
+> 「条件」= **仅在该条件成立时必填**；条件不成立时该字段**可缺省**（缺省语义 = `*_UNSET` / 空串，**接收侧不得据此拒绝**）。
+
+| 消息 | 字段 | 条件 |
+|------|------|------|
+| `MsgHelloAck` | `session_id` | `accepted = true` |
+| `MsgHelloAck` | `reason_code` | `accepted = false` |
+| `MsgAck` | `reason_code` | `result ≠ 0`（失败必带原因码） |
+| `MsgError` | `rule_id` | 错误源自**事前风控规则**时必填（`NFR-USE-3`：阻断提示必须含规则编号） |
+| `MsgResumeData` | `frames` | `is_last = false` 时**非空**（最后一批可为空） |
+| `CmdPlaceOrder` | `limit_price` | `price_type = LIMIT` |
+| `CmdPlaceOrder` | `leg_no` | `strategy_id ≠ 0` |
+| `EvtPreTradeReject` | `limit_layer` | **限额类拒绝必填**；非限额类拒绝填 `NONE`（`R-RISK-2`） |
+| `EvtOrderReport` | `order_sys_id` | CTP 已受理并回报后必填（回报前可为空） |
+| `EvtOrderReport` | `ctp_error_id` | `status = REJECTED_CTP` |
+| `EvtOrderCancelResult` | `reason_code` | `result ≠ 0` |
+| `EvtReplayProgress` | `finished_ts_ms` | 重放完成时必填 |
+| `EvtReplayProgress` | `mismatch_detail` | `result = MISMATCH` |
+| `EvtFundReceipt` | `ctp_error_id` | `result = FAIL` |
+| 复合类型 `QuotaEntry` | `instrument_id` | 仅 `limit_layer = SUB_INSTRUMENT`（层②）必填 |
+
+##### 4.2.8.6 复合类型（嵌套 `message`）—— 含 `G-6` 补全
+
+> **编号口径**：复合类型各为**独立 `message`**，字段号**各自自 `1` 连续**，**不计入 214 顶层字段号**（§4.2.8.1）。
+
+| 类型 | 字段（号:类型·必填） | 字段数 | 来源 / 依据 |
+|------|--------------------|-------|------------|
+| `QuotaEntry` | `limit_layer`(1:LimitLayer·必), `sub_account_id`(2:uint32·必〔层③取哨兵 `0`〕), `product_id`(3:uint32·必), `instrument_id`(4:string·条件), `quota_limit`(5:string·必), `used`(6:string·必), `frozen`(7:string·必) | 7 | §4.2.3 `CMD_UPDATE_QUOTA`（`G-2`：额度口径 = `string` 十进制）+ `DATA_MODEL.md` `TB-PRODUCT-6` |
+| `PositionLimitEntry` | `sub_account_id`(1:uint32·必), `product_id`(2:uint32·必), `instrument_id`(3:string·必), `limit`(4:string·必) | 4 | §4.2.3 `CMD_UPDATE_POSITION_LIMIT`（`G-2`） |
+| `PermissionEntry` | `operator_id`(1:uint64·必), `sub_account_id`(2:uint32·必), `product_ids`(3:repeated uint32·必), `quota_limit`(4:string·可), `is_enterprise_leader`(5:bool·必), `is_management_role`(6:bool·必), `has_risk_role`(7:bool·必), `has_settle_role`(8:bool·必) | 8 | §4.2.3 `CMD_UPDATE_PERMISSION` |
+| `ExposureEntry` | `sub_account_id`(1:uint32·必), `product_id`(2:uint32·必), `direction`(3:Direction·必), `contract_unexecuted_qty`(4:int64·必), `inventory_qty`(5:int64·必), `production_plan_qty`(6:int64·必), `total_qty`(7:int64·必), `unit_factor`(8:string·必), `snapshot_time`(9:int64·必), `snapshot_id`(10:uint64·必) | 10 | §4.2.3 `CMD_UPDATE_EXPOSURE` + `Q-17`（三类分量 + 快照时点须齐备） |
+| `RiskThresholds` | `scale_ratio_commodity`(1:string·必), `scale_ratio_trade`(2:string·必), `scale_base`(3:ScaleBase·必), `scale_scope`(4:ScaleScope·必), `term_max_months`(5:int32·必), `term_grace_days`(6:int32·必), `term_action`(7:TermAction·必), `price_base`(8:PriceBase·必), `price_warn_pct`(9:string·必), `price_block_pct`(10:string·必), `position_check_mode`(11:PositionCheckMode·必), `freq_intraday_warn`(12:int32·必), `freq_intraday_block`(13:int32·必), `freq_7d_rounds_warn`(14:int32·必), `freq_min_hold_days`(15:int32·必), `margin_ratio_threshold`(16:string·必) | 16 | §4.2.3 `CMD_UPDATE_RISK_THRESHOLD`（`G-5`：**嵌套复用**，与 `CMD_LOAD_RISK_PARAMS.thresholds` 同型，避免两处漂移） |
+| **`VarietySpec`**〔**`G-6` 须设计**〕 | `product_id`(1:uint32·必), `product_code`(2:string·必), `category`(3:ProductCategory·必), `status`(4:ProductStatus·必), `unit_factor`(5:string·必) | 5 | §4.2.3 `varieties[]` **未给内部字段**；**依据 = §4.4.1 `VarietyMeta`**（品种 ID / 编码 / 分类〔商品类/贸易类〕/ 状态 / 单位换算系数）+ `DATA_MODEL.md` `TB-PRODUCT-1`（`category` / `status`）+ `TB-PRODUCT-2`（`convert_factor`） |
+| **`WhitelistEntry`**〔**`G-6` 须设计**〕 | `sub_account_id`(1:uint32·必), `product_ids`(2:repeated uint32·必) | 2 | §4.2.3 `whitelist[]` **未给内部字段**；**依据 = §4.4.1 `SubVarietyWhitelist`**（子账户 → 品种集合）+ `DATA_MODEL.md` `TB-PRODUCT-5`（唯一键 `(sub_account_id, product_id)`） |
+| **`TotalLimits`**〔**`G-6` 须设计**〕 | `total_limit`(1:string·必), `total_used`(2:string·必), `total_frozen`(3:string·必), `by_product`(4:repeated TotalLimitByProduct·可) | 4 | §4.2.3 `total_limits` **未给内部字段**；**依据 = §4.4.1 `TotalLimits`**（总账户总限额与已用，**含按品种汇总**）+ `DATA_MODEL.md` `TB-PRODUCT-6`（层③ `ACCOUNT_PRODUCT`、哨兵 `0`） |
+| **`TotalLimitByProduct`**〔**`G-6` 须设计**〕 | `product_id`(1:uint32·必), `limit`(2:string·必), `used`(3:string·必), `frozen`(4:string·必) | 4 | `TotalLimits.by_product` 的**元素类型**（「按品种汇总」的结构化落地；依据同上） |
+| **`AnnualScaleFactor`**〔**`G-6` 须设计**〕 | `product_id`(1:uint32·必), `scope_type`(2:ScopeType·必), `sub_account_id`(3:uint32·必〔`TOTAL_ACCOUNT` ⇒ 哨兵 `0`〕), `scale_year`(4:int32·必), `expected_spot_business_qty`(5:string·必〔**分母**〕), `accumulated_hedge_qty`(6:string·必〔**分子**〕) | 6 | §4.2.3 `annual_scale_factors[]`（品种年度预计实物经营量 + 年度累计新开仓折算量）；**依据 = §4.4.1 `AnnualScaleFactor`**（分母/分子）+ `DATA_MODEL.md` `TB-RISK-11`（`Q-1` **子账户与全账户双算** ⇒ 须 `scope_type` + `sub_account_id`） |
+
+> **`G-6` 设计说明（`CH-013` 裁定）**：4 个复合类型在 §4.2.3 **完全无字段可依**（`:811` 仅以 `varieties[]` / `whitelist[]` / `total_limits` / `annual_scale_factors[]` **提名**）⇒ 属**内容缺口**（**须设计**，非「转录」），其**补全成本与字段号同属「一次性、不可回收」的协议设计决定**，故**必须与本 CH 一次批完**（用户 2026-09-22 条件）。设计**严格限定在 §4.2.3 语义 + §4.4.1 内存模型 + `DATA_MODEL.md` 既有列**三者可支撑的范围内，**未新增业务语义**；`TotalLimitByProduct` 系 `TotalLimits.by_product` 的必要元素类型（同批设计）。
+> **一处显式缺口（不掩盖）**：`Q-2` 的**品种级分类覆盖**（`t_sub_product_whitelist.category_override`）在 §4.2.3 **无对应协议字段**（§4.2.3 只载 `sub_account.category`，见 `:815`）⇒ 本节**不新增字段**（新增将越出 `CH-013` 授权范围）；登记为**待评估项**（见 §4.2.8.9）。
+
+##### 4.2.8.7 枚举（显式赋值；`0` 保留 `*_UNSET`）
+
+> **值名约定**：proto3 要求**同包内枚举值名唯一** ⇒ 值名**加枚举名前缀**（如 `SERVER_STATE_READY`）。**线格式只传数值，值名不落线路** ⇒ 加前缀**不影响** §4.2.3 的标签语义。
+
+| 枚举 | 取值（名=值） | 来源 / 依据 |
+|------|--------------|------------|
+| `MsgType` | `MSG_TYPE_UNSET`=0 + **40 个冻结名逐字 = §4.2.3 类型码**（`MSG_HELLO`=0x0001 … `EVT_TRADING_ALERT`=0x020E） | §4.2.3 |
+| `ServerState` | `*_UNSET`=0, `NOT_READY`=1, `REPLAYING`=2, `READY`=3, `STOPPING`=4 | §4.2.3 `:795` |
+| `TargetState` | `*_UNSET`=0, `READY`=1, `STOPPING`=2, `SUSPENDED`=3 | §4.2.3 `:819` |
+| `ComponentRole` | `*_UNSET`=0, `ROLE_JAVA`=1, `ROLE_CPP`=2 | §4.2.3 `:794` + §4.2.6 `:929`（`role=JAVA`） |
+| **`ComponentState`**（`I-4` 新增） | `*_UNSET`=0, `STARTING`=1, `READY`=2, `DEGRADED`=3, `STOPPING`=4, `STOPPED`=5 | `I-4` 缺口（§4.2.3 `:797` 未给值域）⇒ **独立 5 值枚举，不复用 `ServerState`**（`CH-013` 裁定，理由见 §4.2.8.8） |
+| **`ProductCategory`**（`G-6` 新增） | `*_UNSET`=0, `COMMODITY`=1, `TRADE`=2 | §11.1 `CFG-02c`（`COMMODITY`/`TRADE`）+ `DATA_MODEL.md` `t_product.category` / `t_sub_account.category` |
+| **`ProductStatus`**（`G-6` 新增） | `*_UNSET`=0, `ENABLED`=1, `DISABLED`=2 | `DATA_MODEL.md` `t_product.status`（`ENABLED`/`DISABLED`，**无 `DELETED`**） |
+| **`ScopeType`**（`G-6` 新增） | `*_UNSET`=0, `SUB_ACCOUNT`=1, `TOTAL_ACCOUNT`=2 | `DATA_MODEL.md` `TB-RISK-11.scope_type`（`Q-1` 双算；**行级二值，不含 `BOTH`**） |
+| `InstrumentType` | `*_UNSET`=0, `FUTURES`=1, `OPTION`=2 | §4.2.4 `:860` |
+| `Direction` | `*_UNSET`=0, `BUY`=1, `SELL`=2 | §4.2.4 `:861` |
+| `OffsetFlag` | `*_UNSET`=0, `OPEN`=1, `CLOSE`=2, `CLOSE_TODAY`=3 | §4.2.4 `:862` |
+| `PriceType` | `*_UNSET`=0, `LIMIT`=1, `MARKET`=2 | §4.2.4 `:863` |
+| `TradeReasonCode` | `*_UNSET`=0, `NEW_EXPOSURE`=1, `EXPOSURE_DECREASE`=2, `PLAN_EXECUTION`=3, `ROLLOVER`=4, `RISK_DISPOSAL`=5, `ERROR_CORRECTION`=6 | §4.2.4 `:869` |
+| `TradeReasonTimeDesc` | `*_UNSET`=0, `CONTRACT_SIGNED`=1, `PRICE_TRIGGERED`=2, `MONTHLY_REBALANCE`=3, `EXPIRY_ROLLOVER`=4, `RISK_REQUIRED`=5 | §4.2.4 `:870` |
+| `LimitLayer` | `*_UNSET`=0, `SUB_PRODUCT`=1, `SUB_INSTRUMENT`=2, `ACCOUNT_PRODUCT`=3, `AUTH_QUOTA`=4, `NONE`=5 | §4.2.4 `:894` |
+| `PositionType` | `*_UNSET`=0, `TODAY`=1, `YESTERDAY`=2 | §4.2.3 `:834` |
+| `FlowType` | `*_UNSET`=0, `SENT`=1, `REPORTED`=2, `REJECTED`=3, `EXPIRED`=4, `CANCELLED`=5 | §4.2.3 `:837` |
+| `ScanScope` | `*_UNSET`=0, `OPEN_ONLY`=1 | §4.2.3 `:818` |
+| `FundDirection` | `*_UNSET`=0, `IN`=1, `OUT`=2 | §4.2.3 `:823` |
+| `FundResult` | `*_UNSET`=0, `SUCCESS`=1, `FAIL`=2, `PROCESSING`=3, `UNKNOWN`=4 | §4.2.3 `:840` |
+| `ReplayResult` | `*_UNSET`=0, `OK`=1, `MISMATCH`=2 | §4.2.3 `:838` |
+| **`ScaleBase`**（值域补全） | `*_UNSET`=0, `EXPOSURE_QTY`=1, `REVENUE`=2, `PURCHASE_QTY`=3 | §11.1 `CFG-01` 取值范围 |
+| **`ScaleScope`**（值域补全） | `*_UNSET`=0, `SUB_ACCOUNT`=1, `TOTAL_ACCOUNT`=2, `BOTH`=3 | §11.1 `CFG-02` 取值范围（`Q-1` 双算取严） |
+| **`TermAction`**（值域补全） | `*_UNSET`=0, `WARN_THEN_BLOCK`=1, `BLOCK`=2, `WARN_AND_APPROVE`=3 | §11.1 `CFG-03b` 取值范围 |
+| **`PositionCheckMode`**（值域补全） | `*_UNSET`=0, `PRE_TRADE_AND_EOD`=1, `ON_ORDER`=2, `EOD_ONLY`=3 | §11.1 `CFG-04` 取值范围 |
+| **`PriceBase`**（值域补全） | `*_UNSET`=0, `PREV_SETTLEMENT`=1 | §4.2.3 `:815` + §11.1 `CFG-15`（**既有制品仅载 `PREV_SETTLEMENT` 一值**；补足其它候选值属「新增枚举值」⇒ **走 `CH-xxx` 追加，本 CH 不臆造**） |
+| **`AlertLevel`**（值域补全） | `*_UNSET`=0, `INFO`=1, `WARNING`=2, `CRITICAL`=3 | `DATA_MODEL.md` `TB-RISK-4.alert_level` / `CFG-12`（`INFO`/`WARNING`/`CRITICAL`；§4.2.6 的 `level=警告` ⇒ `WARNING`） |
+| **`OrderStatus`**（值域补全） | `*_UNSET`=0, `PENDING_CONFIRM`=1, `REJECTED_PRECHECK`=2, `SUBMITTED`=3, `SENT_CTP`=4, `PARTIAL_FILLED`=5, `ALL_FILLED`=6, `CANCELLED`=7, `REJECTED_CTP`=8, `EXPIRED`=9 | `DATA_MODEL.md` `TB-TRADE-1.status`（**逐值对齐**）；`EVT_ORDER_REPORT` 实际取**报告态子集**（`SUBMITTED`/`PARTIAL_FILLED`/`ALL_FILLED`/`CANCELLED`/`REJECTED_CTP`/`EXPIRED`） |
+
+##### 4.2.8.8 三项裁定的落地条目（`I-1` / `I-2` / `I-4`）
+
+| # | 裁定 | 落地位置 |
+|---|------|---------|
+| **`I-1`** | **`MSG_HELLO` 必须携带 `token_version`** —— §4.2.6 `:948` 为**规范条款**（令牌轮换），§4.2.3 `:794` 的「**关键**字段」列系**漏列**（该列名即"关键字段"、属**摘要**非穷尽） | §4.2.3 `:794` 列**补登** `token_version`（只加不改）；字段定义 = `MsgHello.token_version`(7:uint32·必)（§4.2.8.2） |
+| **`I-2`** | **帧超限（`LEN > 1 MiB`）权威码 = `0x0308 ERR_FRAME_TOO_LARGE`**；**行为 = 拒绝该帧 + 回 `0x0308` + 提示使用分片 + 不中断连接**。**专码优先于兼码**。**`0x0104` 的触发条件中「帧超 1 MiB」一项**：**自 `0x0104` 移出**（该情形归 `0x0308`），**但原句保留以留痕**（只加不改） | §4.2.2 `:779` 追加订正注记（原句保留）；§4.3.2 `:1107` 追加「该项移出」注记（原句保留）。**理由**：62 码**集合不变、各码语义不变**，仅**在冻结码集合内重新划清职责**（`0x0104` = 载荷解析失败；`0x0308` = 帧超限） |
+| **`I-4`** | **采 `ComponentState` 独立 5 值枚举，不复用 `ServerState`**（`STARTING`/`READY`/`DEGRADED`/`STOPPING`/`STOPPED` + `0` 保留 `*_UNSET`） | §4.2.8.7 `ComponentState`；`MsgHeartbeat.component_state`（§4.2.8.2 第 4 条）。**理由**：`MSG_HEARTBEAT.component_state`（**组件自述**运行状态；§4.2.3 `:797`，`0x0004`）与 `MSG_HELLO_ACK.server_state`（**服务端**就绪状态；§4.2.3 `:795`，`0x0002`）是**两个不同消息、不同语义**的字段，**复用会把两套状态机耦合**（组件 `DEGRADED` 在服务端就绪状态里无对应语义）。⚠️ **勘误**：`I-4` **不是** `MSG_HELLO_ACK.component_state`（前序表述有误）——`:797` 属 `MSG_HEARTBEAT` |
+
+##### 4.2.8.9 随本节一并定稿的其它项（`G-2`~`G-5`、`G-7`、新增 `G-8`）
+
+| # | 项 | 定稿 |
+|---|----|------|
+| `G-2` | 额度字段口径 | `quota_limit` / `used` / `frozen` / `limit` / `released_quota` 一律 `string`（十进制）——与 `DATA_MODEL.md` `DECIMAL(20,4)` 列交叉核对一致（**金额/数量均走十进制字符串，避免精度**） |
+| `G-3` | 比率表示 | `scale_ratio_*` / `price_*_pct` / `margin_ratio_threshold` 一律 `string`（十进制） |
+| `G-4` | `loaded_counts` / `total_limits` 承载形态 | `EvtSystemState.loaded_counts` = `string`（JSON 摘要）；`total_limits` = **结构化 `TotalLimits`**（§4.2.8.6） |
+| `G-5` | `CmdUpdateRiskThreshold` 扁平 vs 嵌套 | **嵌套复用 `RiskThresholds`**（与 `CMD_LOAD_RISK_PARAMS.thresholds` 同型，**消除两处漂移**）；§4.2.3 `:815` 的扁平罗列**仅作取值与默认值说明**，**非线格式** |
+| `G-6` | 4 个复合类型内部字段 | **已补全**（§4.2.8.6）；字段号与 214 顶层口径**自洽**（复合类型独立号空间，不计入 214） |
+| `G-7` | 字段号预留策略 | **自 `1` 连续、不预留**；新增字段追加尾号（§4.2.8.1） |
+| **`G-8`**（本席新增登记） | **7 个枚举值域未给** | `OrderStatus` / `ScaleBase` / `ScaleScope` / `TermAction` / `PriceBase` / `PositionCheckMode` / `AlertLevel` —— §4.2.3 **未给值域**，但 §4.2.8 **必须给出**（否则 `proto` 不可产出）⇒ **同批定稿**（§4.2.8.7），依据一律取**既有制品**（§11.1 配置取值范围 / `DATA_MODEL.md` 列 `CHECK`），**未臆造**；`PriceBase` 仅 1 值可依，其余候选**留待追加** |
+| — | **待评估项（`G-6` 说明附注）** | `Q-2` 的**品种级分类覆盖**（`t_sub_product_whitelist.category_override`）在 §4.2.3 **无对应协议字段** ⇒ **本 CH 不新增字段**，登记为**待评估**（若两侧确需线上携带，须另开 `CH-xxx`） |
+
 ### 4.3 错误码表
 
 > **说明**：存在两套错误码，职责不同、**不得混用**。
@@ -1096,6 +1279,8 @@ C++ (服务端, 监听 127.0.0.1:P)                        Java (客户端)
 
 #### 4.3.2 组件错误码（HGCP，C++ ↔ Java）—— **共 50 个**
 
+> ⚠️ **`CH-013` `I-3` 勘误（只加不改；标题原句保留以留痕）**：本标题「共 **50** 个」系**笔误**，**实测 = 62 个**（本节表体 **62 行** + 下方「错误码统计」分场合计 = **62**；`:1182` 已自注「原『50 个』与『59 个』的表述均为笔误，冻结口径以 62 为准」；全项目含 `CH-007` 一律 **62**）⇒ **冻结口径以 62 为准**。**本勘误不改任何错误码**（62 码集合不变、各码语义不变）。
+
 > 所有错误码为 `uint32`。分段：`0x00xx` 通用 / `0x01xx` 协议 / `0x02xx` 鉴权 / `0x03xx` 会话与链路 / `0x04xx` 就绪状态 / `0x10xx` **事前风控** / `0x20xx` 指令与 CTP / `0x30xx` 组件内部。
 
 | 错误码 | 名称 | 含义 | 触发条件 | 发送方 | 处理建议 |
@@ -1104,7 +1289,7 @@ C++ (服务端, 监听 127.0.0.1:P)                        Java (客户端)
 | `0x0101` | `ERR_VERSION_MISMATCH` | 协议版本不匹配 | `HELLO.proto_version` ≠ 本端支持版本 | 服务端 | 拒绝连接；要求两端版本一致后重启 |
 | `0x0102` | `ERR_BAD_MAGIC` | 同步字错误 | 帧首 4 字节 ≠ `"HGCP"` | 双向 | 断连 + 告警；排查非本协议的连接 |
 | `0x0103` | `ERR_CRC_MISMATCH` | CRC 校验失败 | 帧尾 CRC32 不匹配 | 双向 | 断连 + 告警；触发重连补数 |
-| `0x0104` | `ERR_PAYLOAD_INVALID` | 载荷解析失败 | protobuf 反序列化失败 / `LEN` 与实际不符 / 帧超 1 MiB | 双向 | 丢弃该帧 + 告警；不中断连接（除非连续 N 次） |
+| `0x0104` | `ERR_PAYLOAD_INVALID` | 载荷解析失败 | protobuf 反序列化失败 / `LEN` 与实际不符 / 帧超 1 MiB | 双向 | 丢弃该帧 + 告警；不中断连接（除非连续 N 次） 〔`CH-013` `I-2`（只加不改，原句保留）：触发条件中「**帧超 1 MiB**」一项**自本码移出**——该情形归 **`0x0308 ERR_FRAME_TOO_LARGE`**（专码优先于兼码，见下行 `:1122`）；本码余下触发条件不变〕 |
 | `0x0105` | `ERR_UNKNOWN_TYPE` | 未知消息类型 | `TYPE` 不在 §4.2.3 清单内 | 双向 | 丢弃 + 告警（版本不一致的信号） |
 | `0x0106` | `ERR_SEQ_OUT_OF_ORDER` | 序号乱序或跳号 | `SEQ` ≤ 已收最大 或 出现缺口（**补数批次中的行情帧不构成缺口**——线路侧未过滤、`SEQ` 连续；`CH-007`） | 双向 | 触发 `MSG_RESUME_REQ` 补数 |
 | `0x0107` | `ERR_NOT_HANDSHAKEN` | 未完成握手 | 握手前收到业务消息 | 服务端 | 丢弃 + 断连 |
@@ -1119,7 +1304,7 @@ C++ (服务端, 监听 127.0.0.1:P)                        Java (客户端)
 | `0x0305` | `ERR_OPERATOR_MISMATCH` | 操作人不一致 | `CONFIRM.operator_id` ≠ 提交人 | C++ | 拒绝 + 告警（防代确认）+ 审计留痕 |
 | `0x0306` | `ERR_RESUME_GAP_TOO_LARGE` | 缺口超出补数缓冲 | `last_received_seq` < 缓冲最小 `SEQ` | 双向 | 触发**全量状态重建**；期间拒绝交易指令（`0x0401`） |
 | `0x0307` | `ERR_CONFIRM_TOKEN_INVALID` | 确认令牌无效或过期 | `confirm_token` 校验失败 | C++ | 拒绝；提示重新提交指令 |
-| `0x0308` | `ERR_FRAME_TOO_LARGE` | 帧超限 | `LEN` > 1 MiB | 双向 | 拒绝 + 提示使用分片 |
+| `0x0308` | `ERR_FRAME_TOO_LARGE` | 帧超限 | `LEN` > 1 MiB | 双向 | 拒绝 + 提示使用分片 〔`CH-013` `I-2`：**帧超限（`LEN > 1 MiB`）的权威码**；**行为 = 拒绝该帧 + 回本码 + 提示使用分片 + 不中断连接**；§4.2.2 原句「超限 → `0x0104` 断连」为陈旧表述，仅保留留痕〕 |
 | `0x0401` | `ERR_SYSTEM_NOT_READY` | **系统未就绪**（重放中 / 预加载未完成） | `flow_store.state() ≠ READY` 或 `param_version=0` | C++ | **拒绝一切新指令**；Java 提示"系统未就绪"（`R-TRADE-13`、`R-RISK-9`） |
 | `0x0402` | `ERR_PARAM_LOAD_INCOMPLETE` | 预加载未完成 | 分批预加载尚未收齐 `batch_total` | C++ | 拒绝业务指令；等待剩余批次 |
 | `0x0403` | `ERR_PARAM_VERSION_STALE` | 参数版本陈旧 | 收到的 `param_version` ≤ 当前版本 | C++ | 丢弃该变更 + 告警（保证顺序） |
@@ -2717,11 +2902,13 @@ CTP 行情 ─▶ C++ ctp_md_spi(T3) ─▶ quoteQueue（满则丢旧）─▶ T
 | **`CH-004`**（产品经理） | §6.14①、`DATA_MODEL.md` §4.4 / `TB-TRADE-4` | **交易理由 `Q-13` 双层口径定稿**：①「关联对象必选、提交时校验不通过即拒绝」（服务层三层校验）②「审计侧『理由缺失 / 关联缺失』并列独立筛查」；`related_*` **可空 + 条件非空 `CHECK`**，**保留** `related_object_missing_flag`；`RELATED_MISSING` 与 `REASON_MISSING` **并列保留** | ✅（数据模型侧见 `DC-024`） |
 | **`CH-006`**（**用户裁决**，2026-09-20） | §1.2、§2.4.2、§2.4.3、§3.6、§3.7、§4.1.2、§4.2.1、§4.2.3、§4.2.6、§4.5.3、§6.13、§7.1.2、§7.1.7、§7.1.8、§7.1.11、§7.2.1、§7.2.2、§7.2.4、§8.1.1、§8.5、§8.6、§9 `RSK-06/07`、§10.1、§10.2、§11.2 `CFG-20/32`、§11.3、§12.1/12.2/12.3 | **技术栈收紧**：**HTTP / WebSocket 全部在 Java 端实现**（可引入轻量第三方库）；C++ 侧**移除 `websocketpp` + `Boost::system`**，收敛为 **CTP SDK + protobuf**；行情改经 **HGCP 事件流 `EVT_MARKET_QUOTE`（本地 TCP 回环）→ Java →（Java 端 WebSocket）→ 前端**；**C++ 组件不提供 HTTP / WebSocket**（§4.2.1 显式给出「行情通道 B」组件定界：**C++ 仅做行情事件源，Java 做 WebSocket 服务端**）；预留 `CFG-32`（Java WebSocket 配置项，待选型论证后填值） | ✅ |
 | **`CH-007`**（**技术负责人单方签署**，2026-09-20） | §4.2（冻结登记块）、§4.2.1、§4.2.2 `VER` 字段、§3.6、§4.2.6、§12.5、§13 | **协议承载层治理（如实分三项）**：**① 承载层界定（澄清）**——把 §4.2 冻结对象显式切分为「**冻结实质范围**」（帧格式 / 消息类型与字段定义 / 序列化 / 错误码 / 时序 / 心跳与重连约定）与「**承载层描述**」（传输通道构成 = 通道数量与承载划分）；承载层的收敛/调整**不构成协议实质变更**，但**须 `CH-xxx` 留痕**（`CH-006` 的单通道化即属此类），且**不得**改变实质范围。**② 标称版本 `v1.0` → `v1.0.1`（澄清）**——**线格式 `VER` 仍 `0x0100`**、**消息集 40 / 错误码 62 均不变**。**③ 新增一条消费侧规则（`§4.2.6`）**——`IS_RESUME_DATA` 批次中的 `EVT_MARKET_QUOTE` **接收侧不消费**（线路侧仍全量回放，以保 `SEQ` 连续）；**性质 = 承载 / 消费层行为的新增澄清，不改动冻结实质范围**（帧 / 消息 / 字段 / 序列化 / 错误码 / 时序 / 心跳重连）——**过滤发生在消费侧而非线路侧，故不产生 `SEQ` 缺口、不触发 `0x0106`** | ✅ |
+| **`CH-013`**（**L3 架构级，用户批准**，2026-09-22） | §4.2（冻结登记块「Schema 文件」/「冻结状态」/「冻结范围」三行）、§4.2.2 `LEN` 行、§4.2.3 `MSG_HELLO` 关键字段列、**§4.2.8（新增节）**、§4.3.2 标题与 `0x0104`/`0x0308` 两行、§12.5、§13、附录 C（状态转「已生效」，保留为提案留痕） | **HGCP 字段级 schema 定版（对冻结对象「线格式表示」的补全，completeness，**非** semantic）**：新增 **§4.2.8**，逐条给出 **40 条消息**的 **字段号 / 字段类型 / 必填性 / 枚举名与显式值**（顶层字段号合计 **214** = 38+77+99）+ **9 个复合类型**（含 `G-6` 设计的 `VarietySpec` / `WhitelistEntry` / `TotalLimits`〔+`TotalLimitByProduct`〕/ `AnnualScaleFactor`）+ **显式枚举表**（含 `G-8` 补全的 7 个值域）；一并裁定 **`I-1`**（`MSG_HELLO` 补 `token_version`(7:uint32)）/ **`I-2`**（帧超限权威码 = `0x0308`，行为 = 拒绝 + 提示分片 + 不中断连接；`0x0104` 触发条件中「帧超 1 MiB」移出）/ **`I-4`**（新增独立 5 值 `ComponentState`，**不复用 `ServerState`**）；**`G-1`/`G-6`/`G-7` 已并入**（用户批准之条件）；另含 **`I-3` 勘误**（§4.3.2 标题「共 50 个」→ 实 62，只加不改）。**批准后由 `T-032` 依 §4.2.8 转录为 `proto/hgcp.proto`** | ✅ |
 
 > **传导结论**：`CH-001` / `CH-002` 的全部口径与新条目已在 v1.1 中**逐项落到架构章节**；
 > `CH-003` / `CH-004` 于 v1.2 传导；**`CH-006`（用户技术栈裁决）于 v1.4 传导**（依赖清单、行情承载、Java WebSocket 归宿、配置项预留）；
 > **`CH-007`（技术负责人单方签署）于 v1.5 传导**（三项：① §4.2「冻结实质范围」声明；② 协议标称版本 `v1.0.1`；③ §4.2.6 消费侧行情过滤规则——**线路侧仍全量回放以保 `SEQ` 连续，接收侧不消费 `IS_RESUME_DATA` 批次中的 `EVT_MARKET_QUOTE`**）。
-> 配套的库表修订见 `docs/DATA_MODEL.md` §7（`DC-` 变更登记）；`CH-006` **不涉及库表变更**。
+> **`CH-013`（L3 架构级，用户批准）于 v1.5.15 传导**（§4.2 新增 **§4.2.8 字段级 schema**：40 条消息的**字段号 / 类型 / 必填性 / 枚举名与显式值** + 9 个复合类型 + 显式枚举表；**§4.2 冻结对象由「语义」补全为「语义 + 线格式表示」**——即 `T-032` 转录 `proto/hgcp.proto` 的唯一依据；**消息集 40 / 错误码 62 / 线格式 `VER` `0x0100` / `FR` 计数 184 均不变**）。
+> 配套的库表修订见 `docs/DATA_MODEL.md` §7（`DC-` 变更登记）；`CH-006` **不涉及库表变更**；**`CH-013` 亦不涉及库表变更**（**不改 `DATA_MODEL.md`**）。
 > 剩余未闭环项：**无**。**`DEV-1` 已闭环（`CH-006`：回归单一本地 TCP 回环通道）**；**`DEV-2` 已闭环**（`Q-ARCH-001` 裁定口径 A + `CH-003` 用户批准：`spot.price.scope` 收敛为唯一取值 `GLOBAL`，`PER_SUB_ACCOUNT` 废弃）；**`DEV-3` 已消除（`CH-006`：websocketpp 移除）**。
 
 ---
@@ -2730,6 +2917,7 @@ CTP 行情 ─▶ C++ ctp_md_spi(T3) ─▶ quoteQueue（满则丢旧）─▶ T
 
 | 版本 | 日期 | 变更内容 | 变更编号 | 原因 |
 |------|------|---------|---------|------|
+| **v1.5.15** | 2026-09-22 | **`CH-013` 定版：HGCP 字段级 schema 补全（L3 架构级 · 用户批准 · `I-1`~`I-4` + `G-1`~`G-8` 一并裁定）**：§4.2 **新增 §4.2.8「字段级 schema」**——逐条给出 **40 条消息**（元协议 9 / 控制指令 17 / 事件流 14）的**字段名 / 字段号 / 类型 / 必填性 / 枚举名与显式值**（**顶层字段号合计 214** = 38+77+99；`G-7` 裁定：**按 message 独立自 `1` 连续、不预留**）＋ **9 个复合类型**（`QuotaEntry`/`PositionLimitEntry`/`PermissionEntry`/`ExposureEntry`/`RiskThresholds` + **`G-6` 设计**：`VarietySpec`/`WhitelistEntry`/`TotalLimits`〔+`TotalLimitByProduct`〕/`AnnualScaleFactor`，依据 = §4.2.3 语义 + §4.4.1 内存模型 + `DATA_MODEL.md` 既有列，**未新增业务语义**）＋ **显式枚举表**（**`G-8` 补全** 7 个原「值域未给」枚举：`OrderStatus`/`ScaleBase`/`ScaleScope`/`TermAction`/`PriceBase`/`PositionCheckMode`/`AlertLevel`，依据取 §11.1 配置取值范围与 `DATA_MODEL.md` 列 `CHECK`）＋ **`G-1`**（37 条消息字段必填性，含 §4.2.8.5「条件必填清单」）。**三项内部不一致裁定**：**`I-1`** `MSG_HELLO` **补 `token_version`(7:uint32)**（§4.2.6 `:948` 为规范条款、§4.2.3 `:794` 属漏列；§4.2.3 列**补登**）；**`I-2`** **帧超限（`LEN > 1 MiB`）权威码 = `0x0308 ERR_FRAME_TOO_LARGE`**，**行为 = 拒绝该帧 + 回 `0x0308` + 提示使用分片 + 不中断连接**，`0x0104 ERR_PAYLOAD_INVALID` 触发条件中「帧超 1 MiB」一项**移出**（§4.2.2 `:779` 与 §4.3.2 `:1107`/`:1122` 均**只加不改**：原句保留 + 追加订正注记）；**`I-4`** **新增独立 5 值 `ComponentState`**（`STARTING`/`READY`/`DEGRADED`/`STOPPING`/`STOPPED` + `0` 保留）**不复用 `ServerState`**（`MSG_HEARTBEAT.component_state` 与 `MSG_HELLO_ACK.server_state` 属**不同消息、不同语义**；并**勘误**前序「`MSG_HELLO_ACK.component_state`」之说——`:797` 属 `MSG_HEARTBEAT`）。另含 **`I-3` 勘误**（§4.3.2 标题「共 **50** 个」→ **实测 62**；标题原句保留 + 追加注记，**不改任何码**）。**附录 C 状态由〔未生效〕转〔已生效〕**（保留为**提案留痕**，C.4 各待决项标注闭环指针；**权威 = §4.2.8**，**同一内容不在两处并存为权威**）。**§4.2 冻结登记块**三行同步（Schema 行补「线格式已定版、`T-032` 可转录」/「冻结状态」`最近变更` 前移 `CH-013`/「冻结范围」`§4.2.1–§4.2.8`）。**§12.5 补 `CH-013` 传导行 + 传导结论；§13 升版 v1.5.14 → v1.5.15；抬头「编写时间」追加 v1.5.15 段** | **`CH-013`**（L3 架构级；**用户 2026-09-22 批准**，**条件 = 并入 `G-1`/`G-6` 后方视为定稿 —— 本版即该条件满足后的生效态**；提出 = 技术负责人席 `tl-proto-gap`） | **对冻结对象「线格式表示」的补全（completeness），非 semantic**：**消息集 40 不变 / 错误码 62 不变（`I-3` 仅订正标题计数）/ 线格式 `VER` 仍 `0x0100` / `FR` 计数 184 不变 / `DATA_MODEL.md` 不改**；**不改 `cpp/**`、`java/**`、`tools/**` 一行代码**（`proto/hgcp.proto` 的转录归 `#cpp` `T-032`）；锚点一律**以实时 `md5sum` 为准** |
 | **v1.5.14** | 2026-09-21 | **§8.2② 订正 `scopeOf` 相关失效表述（`T-099` 落地；勘误，`非` `CH-xxx`）**：`UserSubAccountPermDao.scopeOf` 经 `T-099` **删除**（接口声明 + 实现 + 5 处测试假件 `override` 全部删除，新增反射**防复活守卫** `T099ScopeOfDeprecationTest`；`java/src/main` 内 `scopeOf` 零声明/零实现/零调用）；§8.2② 内三条**时点陈述**（「为何不以 `scopeOf` 作入口」/「若要恢复以 `scopeOf` 为入口」/「`visibleSubAccountIds` 与 `scopeOf` 全仓均 0 处调用〔未接线〕」）按现况**追加订正**（**旧句保留、不回改**）——`scopeOf` = **不存在**（非「0 处调用」）、恢复路径**已排除**（两条理由：**(a)** 探针实证「**接口方法未弃用 + 实现 `forRemoval`** ⇒ 经**接口引用**调用零告警 ⇒ 弃用形态无防护〔「控制看起来有、实际没有」〕；**(b)** `SubAccountScope` **无法表达"无 scope"**）、`visibleSubAccountIds` 路径**已接线**（`T-100`/`T-101`/`T-103`）；**正确入口不变** = `AuthService.visibleSubAccountIds(userId)` → `SubAccountScope.of(...)`。**不改 `java/**` 一行代码**（本节为架构侧一致性勘误） | `T-099`（勘误，`非` `CH-xxx`；技术负责人） | **不改变架构分层与接口契约**：**FR 计数 184 不变 / 消息集 40 种 / 错误码 62 个不变**；**线格式 `VER` 仍 `0x0100`**；**不改依赖清单、不改任务分解编号**；锚点一律**以实时 `md5sum` 为准** |
 | **v1.5.13** | 2026-09-21 | **§3.0.2 `E4` 判据「接线」落地（`T-120`；判据接线，`非` `CH-xxx`）**：把 `E4` 的**默认扫描根**由旧路径 `cpp/src/trading`（**该目录不存在、已作废**）改为 **`cpp/src/{order_engine,risk_engine,risk_state}` 三目录集合取并集**（`tools/arch-check/scan_lock_free.sh`），使其在 CI 中**由 `SKIP` 变为实扫** —— **① `SKIP` 条件 = 三目录全部不存在**（**任一存在即实扫**，不因另两个缺位而 `SKIP`）；**② 显式 `--root <dir>` 的单目录语义 + 「显式路径不存在 ⇒ 退 `2`」护栏原样保留**；**③ 聚合入口 `arch-check.sh` 逻辑零改动**（仅注释 / `usage` 文案），「不显式传 `--root`」的既定调用口径保持不变；**④ 判定段逐字节未变**（`STRIP_AWK` `2d45b42d1d84302a4f2f2c83e726a9d5`（17 行）/ `DETECT_AWK` `932573376c20cc05ef1fdf80eb8f6f27`（61 行）/ `WARN_RE` `a676da63c8f4f3f784c760f818f76a3a`（1 行），抽段后 `md5sum` + `cmp` 复算同值）；**⑤ 实测（2026-09-21，仓库根）**：`bash tools/arch-check/arch-check.sh` ⇒ 聚合退出码 `0`、六条各 `0`、**`E4` 实扫 `待扫描文件: 6 个`（非 `SKIP`）**；注入 `std::mutex` 探针 ⇒ 退 `1`、删净 ⇒ 退 `0` 且 `cpp/src` 内容级锚点复位；`--root cpp/src/order_engine` ⇒ `0`、`--root /no/such` ⇒ `2`；被排除三模块（`flow_store`/`hgcp`/`ctp_adapter`）的合法 `fsync`/`send`/`recv` 探针**不进扫描面**（退 `0`），同批探针在父目录 `--root cpp/src` 下 ⇒ 命中 **3** 处、退 `1`（**排除非空转**）。**§3.0.2 `E4` 表行与脚注 ④ 的「恒 `SKIP` = 判据未生效」陈述已按实测回写为「已接线 / 已生效」**；§2.4.3 的「旧称」加注不变（其映射指针已指向本节 `E4` 脚注）。另同批订正 `tools/arch-check/README.md`（§2 调用口径 / §3 `E4` 默认根 / §4 映射「已固定」 / §5 三轨 `ctest` 实测 + 链接证据）；**同轮追加（`te-verify-t120` 独立复核〔有条件通过〕后的订正，不另升版）**：**(甲)** 订正 `README.md` §5 的**事实错误**（`TE-T120-001`）—— `rsk02` 注册的**真实自变量 = `CTP_SDK_ROOT`**（`cpp/ctp_smoke/CMakeLists.txt:87` 判定 ⇒ `CTP_FOUND`，`:128` 为注册守卫），**与 `FetchContent` 无关**（后者只取 protobuf，`build-fetch/_deps` 实测仅 protobuf）；并把 `6/6` 显式标为**条件性结果**（前置 = 该构建目录 `CTP_SDK_ROOT` 非空；无 CTP SDK 的环境一律退化为 `5/5`）；**(乙)** 本节 `E4` 脚注**追加 ⑥「残留风险（已接受）」** —— 默认根**部分缺席**时只扫现存者、退出码仍 `0`（`stderr` 有「跳过」提示）⇒ 模块**改名 / 迁移**可致**少扫而不红＝假通过面**；**兜底判定 = 「部分兜底」**：构建期耦合（`cpp/src/CMakeLists.txt:14`–`:19` `add_subdirectory` + `:25`–`:31` 链接 + `cpp/src/main.cc:15`–`:20` `#include`）使「**删 / 改名而未同步**」**构建失败（CI 红）**；`hg.skeleton_modules`（`cpp/src/CMakeLists.txt:35`）仅断言六模块**名**可链接可调用、**不**把扫描根集合与实际目录绑定 ⇒ **对「已同步的完整迁移」当前无自动化兜底**，由代码审查（§8.1.3）承接；裁定**不改**脚本行为与退出码（理由见 ⑥） | `T-120`（编排者新立；依赖 `T-031`；`te-verify-t031` 复核意见判其为**独立任务**、非 `T-031` 缺陷） | **不改变架构分层与接口契约**：**消息集 40 种 / 错误码 62 个不变**、**`FR` 计数 `184` 不变**、**线格式 `VER` 仍 `0x0100`**；**不改依赖清单、不改任务分解编号、不改 `java/**` 与 `cpp/**` 一行代码**（仅 `tools/arch-check/**` + 本文）；锚点一律**以实时 `md5sum` 为准** |
 | **v1.5.12** | 2026-09-21 | **§3.0.2 `E4`「扫描根」口径裁定 + 勘误（`T-031` 实施方实测发现；`非` `CH-xxx`）**：`E4` 原文扫描根写作 `cpp/src/trading/**`，与 §3.1–§3.6 的**六模块布局**矛盾（该目录**不存在**）⇒ **① 定「交易路径」= 执行在 T4 单线程上的代码**（依据 §2.4.2 / §2.4.3 / §4.4.3 / §8.1.3）；**② 定扫描根 = `cpp/src/{order_engine,risk_engine,risk_state}`**（T4 独占 / 判定函数本体 / 快照原子读）；**③ 显式排除** `flow_store`（T7 合法 `append + fsync`）、`hgcp`（T5/T6/T8 合法 `send`/`recv`）、`ctp_adapter`（T2/T3 SPI 回调）—— 三者的同步 I/O 由 §4.4.3「**落盘与网络发送发生在判定之后、由其他线程承担**」明确豁免；**父目录 `cpp/src` 方案经隔离探针实测证伪**（对 3 处**合法**调用退 `1`）；**④ 诚实披露 `E4` 现状未生效**（脚本默认根仍为旧路径 + 聚合入口不传 `--root` ⇒ CI 恒 `SKIP`），并给出两种接线选项（推荐：默认根改为三目录集合；备选：聚合入口显式传三个 `--root`）；**⑤ 披露覆盖残留** `ctp_adapter` 的 T4 可达面（如 `CtAdapter::sendOrder`）不在扫描面内、由代码审查兜底。另同批对 §2.4.3「CI 静态扫描禁止 `trading/` 目录出现 `mutex`」作**最小加注**（保留「旧称」、指向本节脚注） | 勘误 + 判据口径澄清（`非` `CH-xxx`） | `T-031` 实施方实测发现 `E4` 默认根（`cpp/src/trading`）不存在 ⇒ 恒 `SKIP`；原 `T-092` 验收「实际映射须在 `README` 写明」暴露**架构侧口径缺失**（映射的权威定义应在架构，README 只作操作说明）。**不触协议实质**（消息 40 种 / 错误码 62 个不变，线格式 `VER` 仍 `0x0100`）、**不改依赖清单、不改任务分解、不改 `java/**` 与 `cpp/**` 一行代码**；锚点一律以实时 `md5sum` 为准 |
@@ -2784,3 +2972,245 @@ CTP 行情 ─▶ C++ ctp_md_spi(T3) ─▶ quoteQueue（满则丢旧）─▶ T
 8. **敏感字段写入配置/DB/日志/核心转储** → 违反 `NFR-SEC-1`（最高优先级红线）。
 9. **监听 `0.0.0.0` 或关闭连接鉴权** → 违反 `NFR-SEC-3`（最高优先级红线）。
 10. **在存在断点时输出"链条完整"结论** → 违反 `R-AUDIT-2`（审计诚信底线）。
+
+---
+
+## 附录 C：`CH-013` 提案留痕（HGCP 字段级 schema 补全）〔✅ **已生效（2026-09-22）**；内容已并入 **§4.2.8**，**本附录非权威**〕
+
+> **效力声明（先读）**
+>
+> - **✅ 状态更新（2026-09-22，`CH-013` 生效）**：本提案**已经用户批准** —— **条件 = 须先并入 `G-1`（37 条消息字段必填性）与 `G-6`（4 个复合类型内部字段）后方视为定稿**；该条件**已满足**（技术负责人同日补齐 `G-1`/`G-6`/`G-7`〔+ 新登记 `G-8`〕），并已**正式落为 §4.2.8「字段级 schema」**（`ARCHITECTURE.md` **v1.5.15**）。⇒ **本附录的权威地位终止**：**权威 = §4.2.8**（含 `G-1`~`G-8` 的补齐内容与 `I-1`~`I-4` 的落地条目）；**本附录 = 提案历史留痕**，其 **C.3 / C.3.4 / C.3.5 各表为「提案当时」形态**（**不得**据以实现或转录）。**`proto/hgcp.proto` 的转录依据 = §4.2.8**（转录动作归 `T-032`）。**同一内容不在两处并存为权威**。
+> - 本附录为**纯追加**（"只加不改"）：**未改动 §4.2 冻结块及本文其它章节一字**；§4.2 冻结状态仍为 **FROZEN / v1.0.1 / 线格式 `VER` = `0x0100` / 消息集 40 / 错误码 62**。
+> - **提出方**：技术负责人席（`tl-proto-gap`）｜**提出日期**：2026-09-22｜**触发**：`T-032`（C++，`#cpp`）阻塞上报 —— `cpp/src/hgcp/T032_GAP_ANALYSIS.md`。
+> - **背景一句话**：§4.2 冻结了 HGCP 的**语义**（消息集 40 / 字段名 / 取值域 / 序列化**规定**），但**未定义线格式表示**（字段号 / 字段类型 / 枚举名与值）；而 proto3 每个字段**必须有号** ⇒ `proto/hgcp.proto` **无法仅凭"逐字转录"产出**。
+
+### C.1 裁定：属**对 M2 冻结对象的实质变更**（须 `CH-xxx`），非"实现载体/转录"
+
+**结论**：补齐「字段号 + 字段类型 + 枚举名与值」**不是**冻结语义的"实现载体/转录"（情形 (i)），**而是**对 M2 冻结对象（§4.2）的**实质变更**（情形 (ii)）⇒ **须走 `CH-013`（L3，架构级）**，并依用户本轮明确要求**提请用户批准**。
+
+**依据 1（冻结范围自述含「字段定义 / 序列化」）** —— §4.2 `:716` 明文：「冻结范围：§4.2.1–§4.2.7 全部内容——帧格式、消息类型、**字段定义**、**序列化**、错误码、时序、心跳与重连约定」；`CH-007` 又把它显式切成「**冻结实质范围**」（含 **消息类型与字段定义 / 序列化**）与「**承载层描述**」。**字段号 / 字段类型 / 枚举名值正是「字段定义 / 序列化」的实体内容**；冻结对象缺之，即冻结了一份**不完整**的序列化契约，**补全它 = 修改冻结对象**。
+
+**依据 2（§4.2.5 自证「字段号属契约级」）** —— §4.2.5 `:915` 明文：冻结后**禁止**「改字段类型、**改字段号**、复用已删除字段号、改枚举已有取值语义」；**允许**（走 `CH-xxx`）「**新增**字段并**分配新号**、新增枚举值」。**若字段号属实现细节、可由实现方自由分配，此条无须"禁止改字段号"、亦无须把"分配新号"列为须走 CH 的事项** ⇒ 该行的存在本身即证明：**架构把「字段号 / 字段类型 / 枚举取值语义」列为契约级、变更须走 CH 的对象**；而这些对象**从未发布** ⇒ 属冻结对象的**内容缺口**（completeness gap），其补全只能经**同一 CH 通道**。
+
+**依据 3（字段号不可回收 —— 正面处理）** —— 字段号一旦被任一侧发布（生成代码 / 发帧）即**永久占用、不可复用**（§4.2.5 明文「禁止复用已删除字段号」）。故：
+- **它无法"转录"，只能"设计"**：本席实测 §4.2 全篇 **0 处** `= N` 形态字段号（扫描见 §C.7）——**没有任何源可转录**。transcription 的前提是有源；**无源而赋值 = 一次性、不可逆的协议设计决定**。
+- **它是一次性的（one-shot）**：40 条消息、**214 个顶层字段号**（§C.3 逐条可核）须**一次性、单点、全局一致**地分配。若留给两侧"就近取号"，必生**同号异义 / 同义异号**，联调期才暴露 ⇒ 返工范围是**两个组件同时返工**——这正是 §4.2「未冻结即开工的后果」行 `:714` 所警告的失败模式，也正是 `PROJECT.md` §9「协议由"**实现巧合**"决定，不是由设计决定」所要防者。
+- **故判 (i) 会自相矛盾**：等于承认「一份被宣告 FROZEN 的协议，其线格式表示可由实现方**一次性、单方面、不可逆**地决定」——与"冻结"的定义直接冲突。
+
+**依据 4（`T-032` 的"产出义务" ≠ "内容决定权"）** —— §4.2 `:708` 记 `proto/hgcp.proto`「**由 `T-032` 产出**」，但该句只委派**文件的产出动作**，**未委派内容的决定权**（同句仍把 §4.2 定为"**唯一定义**"）；`T-030` 汇签 §3 条件 1 亦**只登记了"schema 落地后重跑 `proto_smoke`"的义务**，**未批准任何字段号分配**。内容来源（§4.2）不完整 ⇒ `T-032` **无法凭转录产出该文件** ⇒ 缺口须由**架构方**经 CH 补全。
+
+**依据 5（变更纪律的排他性）** —— §4.2 `:713`：「冻结后**任何变更须走 `CH-xxx` 变更流程（L3 级），由技术负责人批准**并**同步更新本文档与 `proto/hgcp.proto`**……**禁止口头放行、禁止单侧先行修改**」；附录 B 红线第 3 条：「**事后修改 `hgcp.proto` 而未走 `CH-xxx`** → 违反 M2 冻结」。补全字段级 schema 必然是"更新本文档 §4.2 + 定义 `proto/hgcp.proto`"，**其唯一合法通道就是 CH**。
+
+**性质细分（重要）**：本变更是**冻结对象的「补全」（completeness gap）**，**不是语义变更（semantic change）**——**不触及**已冻结的**消息集 40 / 错误码 62 / 字段名（唯一例外 `I-1`，见 §C.4）/ 既有取值域 / `VER` `0x0100`**；**`FR` 计数 `184` 不变**。但因**触及冻结对象本体**，仍**须 CH（L3）**且**须用户批准**。
+
+### C.2 `CH-013` 提案（全文）
+
+| 项 | 内容 |
+|----|------|
+| **编号** | **`CH-013`**（全局顺延；`docs/REQUIREMENTS/INDEX.md` §10 变更记录已至 `CH-012`。编号按全局序**推定**——与 `CH-010` 行同例——**待编排者登记确认**） |
+| **日期** | 2026-09-22 |
+| **性质** | **架构级 · 实质变更（L3）** —— 「M2 冻结对象（HGCP）**线格式表示的补全**」（completeness，非 semantic） |
+| **提出方 / 批准** | 提出 = 技术负责人席（`tl-proto-gap`）；L3 批准权 = **技术负责人**；因涉**冻结契约** ⇒ 依用户本轮要求**提请用户批准** |
+| **变更内容** | ① 在 §4.2 内**新增**「字段级 schema」定义（建议新增 **§4.2.8**），逐条给出 **40 条消息**的：message 名 / 字段名 / **字段号** / **类型** / **必填性** / **枚举类型名与显式数值**（`0` 保留 `*_UNSET`）—— 全文见 **§C.3**。② 一并裁定 §C.4 的文档内不一致（`I-1`~`I-4`）与取值域/类型缺口。③ 批准后由 `T-032` 转录为 `proto/hgcp.proto`，Java 侧 `T-042` 用**同一份**（`TASKS.md` `T-032` 备注：同源生成、结构上不可能字段漂移）。 |
+| **影响面** | `docs/ARCHITECTURE.md`（§4.2 新增节 + §4.2.1 冻结块「时序缺口」注记收敛 + §12.5 传导登记 + §13 变更记录）；`proto/hgcp.proto`（**批准后由 `T-032` 产出**）；`docs/TASKS.md`（`T-032` 产出 / 验收面 —— **项目经理回写**）；`docs/gates/M2-recon-signoff/SIGN-OFF.md`（**追认登记，不重开**）；`java/CONTRACTS.md`（**评估：暂不需改**，见下） |
+| **依据** | `FR-TRADE-14`（Java↔C++ 协议承载）+ §4.2 冻结范围与变更规则 + §4.2.5 + `T-032` 产出义务 + `T-030` 汇签 §3 条件 1 |
+| **是否触及冻结项** | **消息集 40：不触及**（逐条照 §4.2.3 转录，不增删）；**错误码 62：不触及**（不动 §4.3.2）；**字段名：不触及**（照 §4.2.3「关键字段」列，**唯一例外 `I-1`**）；**既有取值域：不触及**（照 §4.2.3 标签）；**`VER` `0x0100`：不触及**；**`FR` 计数 `184`：不变** |
+| **门禁影响** | M2 首周探路门禁（`T-030`）**结论不重开**（探路三项 `T-026`/`T-027`/`T-028` 的实质与字段号无关）；**`RSK-01` 的"协议级闭环"仍待** `T-032` 依本 CH 落地真实 schema 后重跑 `proto_smoke`（§3 条件 1 义务**不变**）；批准后应在 `SIGN-OFF.md` **追认登记**（不改 `T-030` 结论） |
+
+**`java/CONTRACTS.md` 影响评估（本席结论：暂不需改）**：`java/CONTRACTS.md` 的冻结对象是 **Java 对外 HTTP / WebSocket 契约**（`HGC-1.x`）与 `bridge` 侧类型映射约定；HGCP 线格式由 §4.2 + `proto/hgcp.proto` 承载。`CONTRACTS.md` `:400` 明载「（需求侧实体）**不做二次命名**（映射到 protobuf 由 `bridge` 层完成）」⇒ 本 CH **不改其冻结内容**。**但**：批准落地后须**复核 `bridge` 层 DTO↔protobuf 映射**是否需在 `CONTRACTS.md` 补登（**归 `T-042` 实施面，非本席写域**）。
+
+### C.3 拟补全的字段级 schema（提案内容）
+
+> ⚠️ **本小节各表为「提案当时」形态（**非权威**）**：定稿内容（含 **`G-1` 必填性**、**`G-6` 复合类型设计**、**`G-8` 枚举值域**）见 **§4.2.8**（`v1.5.15`）；**执行 / 转录一律以 §4.2.8 为准**。
+
+> **形态**：`syntax = "proto3";` ｜ `package hgcp.v1;`。字段记法 `名(号:类型)`。
+> **命名派生规则（确定性，消除二义）**：`message` 名 = 冻结名去前缀后转 TitleCase 再加回 `Msg`/`Cmd`/`Evt`（`MSG_HELLO_ACK`→`MsgHelloAck`、`CMD_PLACE_ORDER`→`CmdPlaceOrder`、`EVT_PRE_TRADE_REJECT`→`EvtPreTradeReject`）；`enum MsgType` 的**值名 = 冻结名逐字**（避免与 message 名在 proto 同包作用域冲突）。**注**：`TYPE` 由 **32B 帧头**（`uint16`）承载，**不在 payload 内**，`MsgType` 枚举仅为**代码可读性**便利，**非线格式**。
+> **类型映射（照 §4.2.5 `:909`–`:912`）**：金额 / 价格 / 比率 → `string`（十进制）；数量 → `int32`（手数）/ `int64`（折算后，scale=1e4）；时间 → `int64`（ms）；业务日期 → `string`（`yyyy-MM-dd`）；标识符 → `string`（ASCII）；`*_seq` → `uint64`；`*_ts_ms` → `int64`。
+> **「源」标记**：`§4.2.4` = 文档明载；`§4.2.5` = 按规则推得；**`〔建议〕` = 本席设计决定，须本 CH 批准**。
+> **必填性**：proto3 无 `required`；§4.2.4 已给 3 条消息的必填性，其余按 §4.2.5 `:913`「必填语义由 §4.2.4 定义并由接收侧校验」⇒ **本 CH 未覆盖的 37 条消息的必填性须在批准前补齐**（列为 §C.4 待决项）。
+
+#### C.3.1 元协议（9 条，双向）
+
+| # | 类型码 | message | 字段（号:类型） | 字段数 |
+|---|--------|---------|----------------|-------|
+| 1 | `0x0001` | `MsgHello` | `proto_version`(1:uint32), `component_id`(2:string), `component_role`(3:ComponentRole), `auth_token`(4:string), `client_boot_id`(5:string), `last_received_seq`(6:uint64), **`token_version`(7:uint32)**〔`I-1` 新增〕 | 7 |
+| 2 | `0x0002` | `MsgHelloAck` | `accepted`(1:bool), `server_proto_version`(2:uint32), `session_id`(3:string), `server_state`(4:ServerState), `param_version`(5:uint64), `reason_code`(6:uint32) | 6 |
+| 3 | `0x0003` | `MsgAuthFail` | `reason_code`(1:uint32), `detail`(2:string) | 2 |
+| 4 | `0x0004` | `MsgHeartbeat` | `sent_ts_ms`(1:int64), `last_received_seq`(2:uint64), `component_state`(3:ComponentState)〔值域 `I-4`，**新增**〕 | 3 |
+| 5 | `0x0005` | `MsgHeartbeatAck` | `echo_ts_ms`(1:int64), `server_ts_ms`(2:int64) | 2 |
+| 6 | `0x0006` | `MsgAck` | `ack_msg_id`(1:uint64), `result`(2:int32), `reason_code`(3:uint32), `detail`(4:string), `applied_version`(5:uint64) | 5 |
+| 7 | `0x0007` | `MsgError` | `err_code`(1:uint32), `err_msg`(2:string), `related_msg_id`(3:uint64), `rule_id`(4:string), `current_value`(5:string), `threshold_value`(6:string) | 6 |
+| 8 | `0x0008` | `MsgResumeReq` | `last_received_seq`(1:uint64), `session_id`(2:string), `max_resume_count`(3:int32) | 3 |
+| 9 | `0x0009` | `MsgResumeData` | `from_seq`(1:uint64), `to_seq`(2:uint64), `is_last`(3:bool), `frames`(4:repeated bytes) | 4 |
+| | | | **小计** | **38** |
+
+#### C.3.2 控制指令（17 条，Java→C++）
+
+| # | 类型码 | message | 字段（号:类型） | 字段数 |
+|---|--------|---------|----------------|-------|
+| 10 | `0x0101` | `CmdPlaceOrder` | `client_order_ref`(1:string), `trade_plan_id`(2:uint64), `exposure_id`(3:uint64), `sub_account_id`(4:uint32), `product_id`(5:uint32), `instrument_id`(6:string), `instrument_type`(7:InstrumentType), `direction`(8:Direction), `offset_flag`(9:OffsetFlag), `price_type`(10:PriceType), `limit_price`(11:string), `volume`(12:int32), `operator_id`(13:uint64), `strategy_id`(14:uint64), `leg_no`(15:int32), `trade_reason_code`(16:TradeReasonCode), `trade_reason_time_desc`(17:TradeReasonTimeDesc), `trade_reason_text`(18:string), `related_plan_id`(19:uint64), `related_exposure_id`(20:uint64), `client_ts_ms`(21:int64) 〔**逐字段类型与必填性照 §4.2.4 `:854`–`:874`**〕 | 21 |
+| 11 | `0x0102` | `CmdConfirmOrder` | `order_id`(1:uint64), `operator_id`(2:uint64), `confirm_ts_ms`(3:int64), `confirm_token`(4:string) 〔照 §4.2.4 `:880`–`:883`〕 | 4 |
+| 12 | `0x0103` | `CmdCancelOrder` | `order_id`(1:uint64), `operator_id`(2:uint64), `reason`(3:string) | 3 |
+| 13 | `0x0111` | `CmdLoadRiskParams` | `param_version`(1:uint64), `batch_index`(2:uint32〔建议〕), `batch_total`(3:uint32〔建议〕), `varieties`(4:repeated VarietySpec), `whitelist`(5:repeated WhitelistEntry), `quotas`(6:repeated QuotaEntry), `position_limits`(7:repeated PositionLimitEntry), `exposures`(8:repeated ExposureEntry), `permissions`(9:repeated PermissionEntry), `thresholds`(10:RiskThresholds), `total_limits`(11:TotalLimits), `annual_scale_factors`(12:repeated AnnualScaleFactor) | 12 |
+| 14 | `0x0112` | `CmdUpdateWhitelist` | `param_version`(1:uint64), `sub_account_id`(2:uint32), `add_product_ids`(3:repeated uint32), `remove_product_ids`(4:repeated uint32) | 4 |
+| 15 | `0x0113` | `CmdUpdateQuota` | `param_version`(1:uint64), `entries`(2:repeated QuotaEntry) | 2 |
+| 16 | `0x0114` | `CmdUpdatePositionLimit` | `param_version`(1:uint64), `entries`(2:repeated PositionLimitEntry) | 2 |
+| 17 | `0x0115` | `CmdUpdateRiskThreshold` | `param_version`(1:uint64), `thresholds`(2:RiskThresholds)〔**形状建议**：嵌套复用，替代 §4.2.3 的扁平 17 字段罗列；扁平/嵌套见 §C.4〕 | 2 |
+| 18 | `0x0116` | `CmdUpdatePermission` | `param_version`(1:uint64), `entries`(2:repeated PermissionEntry) | 2 |
+| 19 | `0x0117` | `CmdUpdateExposure` | `param_version`(1:uint64), `entries`(2:repeated ExposureEntry) | 2 |
+| 20 | `0x0118` | `CmdSetTradingSuspend` | `param_version`(1:uint64), `sub_account_id`(2:uint32), `scan_scope`(3:ScanScope), `suspended`(4:bool), `reason`(5:string), `operator_id`(6:uint64) | 6 |
+| 21 | `0x0119` | `CmdSetReadyState` | `target_state`(1:TargetState), `reason`(2:string) | 2 |
+| 22 | `0x011A` | `CmdReload` | `reason`(1:string), `operator_id`(2:uint64) | 2 |
+| 23 | `0x011B` | `CmdTriggerReplay` | `reason`(1:string), `operator_id`(2:uint64) | 2 |
+| 24 | `0x011C` | `CmdQueryStatus` | `what`(1:uint32〔bitmask〕) | 1 |
+| 25 | `0x011D` | `CmdFundTransfer` | `idempotency_key`(1:string), `apply_id`(2:string), `direction`(3:FundDirection), `amount`(4:string), `sub_account_id`(5:uint32), `operator_id`(6:uint64), `bank_id`(7:string), `bank_account`(8:string) | 8 |
+| 26 | `0x011E` | `CmdQueryFundResult` | `idempotency_key`(1:string), `apply_id`(2:string) | 2 |
+| | | | **小计** | **77** |
+
+#### C.3.3 事件流（14 条，C++→Java）
+
+| # | 类型码 | message | 字段（号:类型） | 字段数 |
+|---|--------|---------|----------------|-------|
+| 27 | `0x0201` | `EvtOrderAccepted` | `order_id`(1:uint64), `client_order_ref`(2:string), `risk_passed`(3:bool), `effective_timeout_ms`(4:int64), `accepted_ts_ms`(5:int64) | 5 |
+| 28 | `0x0202` | `EvtPreTradeReject` | `client_order_ref`(1:string), `sub_account_id`(2:uint32), `product_id`(3:uint32), `instrument_id`(4:string), `rule_id`(5:string), `reason_code`(6:uint32), `limit_layer`(7:LimitLayer), `current_value`(8:string), `threshold_value`(9:string), `order_digest`(10:string), `operator_id`(11:uint64), `reject_ts_ms`(12:int64) 〔照 §4.2.4 `:889`–`:899`〕 | 12 |
+| 29 | `0x0203` | `EvtOrderReport` | `order_id`(1:uint64), `order_sys_id`(2:string), `order_local_id`(3:string), `status`(4:OrderStatus)〔值域待定，见 §C.4〕, `volume_total`(5:int32), `volume_traded`(6:int32), `volume_left`(7:int32), `ctp_error_id`(8:int32〔建议〕), `ctp_error_msg`(9:string), `report_ts_ms`(10:int64) | 10 |
+| 30 | `0x0204` | `EvtTradeFill` | `trade_id`(1:string), `order_id`(2:uint64), `order_sys_id`(3:string), `instrument_id`(4:string), `direction`(5:Direction), `offset_flag`(6:OffsetFlag), `price`(7:string), `volume`(8:int32), `trade_ts_ms`(9:int64), `sub_account_id`(10:uint32), `trade_plan_id`(11:uint64), `exposure_id`(12:uint64) 〔幂等键 `trade_id`，§4.2.4 `:901`〕 | 12 |
+| 31 | `0x0205` | `EvtPositionChange` | `sub_account_id`(1:uint32), `instrument_id`(2:string), `direction`(3:Direction), `position_type`(4:PositionType), `position_qty`(5:int32), `available_qty`(6:int32), `frozen_qty`(7:int32), `change_reason`(8:string), `as_of_ts_ms`(9:int64) | 9 |
+| 32 | `0x0206` | `EvtOrderCancelResult` | `order_id`(1:uint64), `cancelled_volume`(2:int32), `released_quota`(3:string〔**额度口径待定**，见 §C.4〕), `restored_plan_qty`(4:int64), `result`(5:int32), `reason_code`(6:uint32) | 6 |
+| 33 | `0x0207` | `EvtOrderExpired` | `order_id`(1:uint64), `client_order_ref`(2:string), `expired_ts_ms`(3:int64), `timeout_ms`(4:int64) | 4 |
+| 34 | `0x0208` | `EvtCommandFlow` | `order_id`(1:uint64), `flow_type`(2:FlowType), `flow_ts_ms`(3:int64), `detail`(4:string) | 4 |
+| 35 | `0x0209` | `EvtReplayProgress` | `state`(1:ServerState〔**建议复用**〕), `replayed_records`(2:int64), `total_records`(3:int64), `started_ts_ms`(4:int64), `finished_ts_ms`(5:int64), `result`(6:ReplayResult), `mismatch_detail`(7:string) | 7 |
+| 36 | `0x020A` | `EvtSystemState` | `state`(1:ServerState), `param_version_applied`(2:uint64), `loaded_counts`(3:string〔**承载形态待定**：JSON 或结构化，见 §C.4〕), `reason`(4:string), `ts_ms`(5:int64) | 5 |
+| 37 | `0x020B` | `EvtFundReceipt` | `idempotency_key`(1:string), `apply_id`(2:string), `result`(3:FundResult), `amount`(4:string), `ctp_error_id`(5:int32〔建议〕), `ctp_error_msg`(6:string), `receipt_ts_ms`(7:int64) | 7 |
+| 38 | `0x020C` | `EvtMarketQuote` | `instrument_id`(1:string), `last_price`(2:string), `bid_price1`(3:string), `ask_price1`(4:string), `bid_volume1`(5:int32), `ask_volume1`(6:int32), `pre_settlement`(7:string), `quote_ts_ms`(8:int64), `source_ts_ms`(9:int64) | 9 |
+| 39 | `0x020D` | `EvtCtpState` | `trade_connected`(1:bool), `md_connected`(2:bool), `front_addr`(3:string), `state_change_ts_ms`(4:int64), `reason`(5:string) | 5 |
+| 40 | `0x020E` | `EvtTradingAlert` | `alert_code`(1:uint32), `level`(2:AlertLevel〔值域待定〕), `detail`(3:string), `alert_ts_ms`(4:int64) | 4 |
+| | | | **小计** | **99** |
+
+> **顶层字段号合计 = 38 + 77 + 99 = 214**。
+
+#### C.3.4 复合类型（repeated 元素 / 嵌套消息）
+
+| 类型 | 字段（号:类型） | 来源 |
+|------|----------------|------|
+| `QuotaEntry` | `limit_layer`(1:LimitLayer), `sub_account_id`(2:uint32), `product_id`(3:uint32), `instrument_id`(4:string), `quota_limit`(5:string〔建议〕), `used`(6:string〔建议〕), `frozen`(7:string〔建议〕) | §4.2.3 `:813` |
+| `PositionLimitEntry` | `sub_account_id`(1:uint32), `product_id`(2:uint32), `instrument_id`(3:string), `limit`(4:string〔建议〕) | §4.2.3 `:814` |
+| `PermissionEntry` | `operator_id`(1:uint64), `sub_account_id`(2:uint32), `product_ids`(3:repeated uint32), `quota_limit`(4:string〔建议〕), `is_enterprise_leader`(5:bool), `is_management_role`(6:bool), `has_risk_role`(7:bool), `has_settle_role`(8:bool) | §4.2.3 `:816` |
+| `ExposureEntry` | `sub_account_id`(1:uint32), `product_id`(2:uint32), `direction`(3:Direction), `contract_unexecuted_qty`(4:int64), `inventory_qty`(5:int64), `production_plan_qty`(6:int64), `total_qty`(7:int64), `unit_factor`(8:string〔建议〕), `snapshot_time`(9:int64), `snapshot_id`(10:uint64) | §4.2.3 `:817` |
+| `RiskThresholds` | `scale_ratio_commodity`(1:string〔建议〕), `scale_ratio_trade`(2:string〔建议〕), `scale_base`(3:ScaleBase), `scale_scope`(4:ScaleScope), `term_max_months`(5:int32), `term_grace_days`(6:int32), `term_action`(7:TermAction), `price_base`(8:PriceBase), `price_warn_pct`(9:string〔建议〕), `price_block_pct`(10:string〔建议〕), `position_check_mode`(11:PositionCheckMode), `freq_intraday_warn`(12:int32), `freq_intraday_block`(13:int32), `freq_7d_rounds_warn`(14:int32), `freq_min_hold_days`(15:int32), `margin_ratio_threshold`(16:string〔建议〕) | §4.2.3 `:815` |
+| **`VarietySpec`** | **内部字段未给**（§4.2.3 仅列 `varieties[]`）⇒ 须第二趟设计 | §4.2.3 `:811` |
+| **`WhitelistEntry`** | **内部字段未给**（仅列 `whitelist[]`）⇒ 须第二趟设计 | §4.2.3 `:811` |
+| **`TotalLimits`** | **内部字段未给**（仅列 `total_limits`）⇒ 须第二趟设计 | §4.2.3 `:811` |
+| **`AnnualScaleFactor`** | **内部字段未给**（业务语义 = 品种年度预计实物经营量 + 年度累计新开仓折算量，§4.2.3 `:811`）⇒ 须第二趟设计 | §4.2.3 `:811` |
+
+#### C.3.5 枚举（显式赋值；`0` 保留 `*_UNSET`）
+
+> **值名约定（建议）**：proto3 要求**同包内枚举值名唯一** ⇒ 值名**加枚举名前缀**（如 `SERVER_STATE_READY`）。**线格式只传数值，值名不落线路** ⇒ 加前缀**不影响** §4.2.3 的标签语义。
+
+| 枚举 | 取值（名=值） | 来源 |
+|------|--------------|------|
+| `MsgType` | `MSG_TYPE_UNSET`=0 + **40 个冻结名逐字 = §4.2.3 类型码**（`MSG_HELLO`=0x0001 … `EVT_TRADING_ALERT`=0x020E） | §4.2.3 |
+| `ServerState` | `*_UNSET`=0, `NOT_READY`=1, `REPLAYING`=2, `READY`=3, `STOPPING`=4 | §4.2.3 `:795` |
+| `TargetState` | `*_UNSET`=0, `READY`=1, `STOPPING`=2, `SUSPENDED`=3 | §4.2.3 `:819` |
+| `ComponentRole` | `*_UNSET`=0, `ROLE_JAVA`=1, `ROLE_CPP`=2 | §4.2.3 `:794` + §4.2.6 `:929`（`role=JAVA`） |
+| `ComponentState` | `*_UNSET`=0, `STARTING`=1, `READY`=2, `DEGRADED`=3, `STOPPING`=4, `STOPPED`=5 —— **新增，须批准** | `I-4` 缺口（§4.2.3 `:797` 未给值域） |
+| `InstrumentType` | `*_UNSET`=0, `FUTURES`=1, `OPTION`=2 | §4.2.4 `:860` |
+| `Direction` | `*_UNSET`=0, `BUY`=1, `SELL`=2 | §4.2.4 `:861` |
+| `OffsetFlag` | `*_UNSET`=0, `OPEN`=1, `CLOSE`=2, `CLOSE_TODAY`=3 | §4.2.4 `:862` |
+| `PriceType` | `*_UNSET`=0, `LIMIT`=1, `MARKET`=2 | §4.2.4 `:863` |
+| `TradeReasonCode` | `*_UNSET`=0, `NEW_EXPOSURE`=1, `EXPOSURE_DECREASE`=2, `PLAN_EXECUTION`=3, `ROLLOVER`=4, `RISK_DISPOSAL`=5, `ERROR_CORRECTION`=6 | §4.2.4 `:869` |
+| `TradeReasonTimeDesc` | `*_UNSET`=0, `CONTRACT_SIGNED`=1, `PRICE_TRIGGERED`=2, `MONTHLY_REBALANCE`=3, `EXPIRY_ROLLOVER`=4, `RISK_REQUIRED`=5 | §4.2.4 `:870` |
+| `LimitLayer` | `*_UNSET`=0, `SUB_PRODUCT`=1, `SUB_INSTRUMENT`=2, `ACCOUNT_PRODUCT`=3, `AUTH_QUOTA`=4, `NONE`=5 | §4.2.4 `:894` |
+| `PositionType` | `*_UNSET`=0, `TODAY`=1, `YESTERDAY`=2 | §4.2.3 `:834` |
+| `FlowType` | `*_UNSET`=0, `SENT`=1, `REPORTED`=2, `REJECTED`=3, `EXPIRED`=4, `CANCELLED`=5 | §4.2.3 `:837` |
+| `ScanScope` | `*_UNSET`=0, `OPEN_ONLY`=1 | §4.2.3 `:818` |
+| `FundDirection` | `*_UNSET`=0, `IN`=1, `OUT`=2 | §4.2.3 `:823` |
+| `FundResult` | `*_UNSET`=0, `SUCCESS`=1, `FAIL`=2, `PROCESSING`=3, `UNKNOWN`=4 | §4.2.3 `:840`（`EVT_FUND_RECEIPT.result`） |
+| `ReplayResult` | `*_UNSET`=0, `OK`=1, `MISMATCH`=2 | §4.2.3 `:838` |
+| `OrderStatus` / `ScaleBase` / `ScaleScope` / `TermAction` / `PriceBase` / `PositionCheckMode` / `AlertLevel` | **值域未给**（§4.2.3 仅给个别标签如 `EXPOSURE_QTY`/`BOTH`/`WARN_THEN_BLOCK`/`PREV_SETTLEMENT`/`PRE_TRADE_AND_EOD`）⇒ `0` 保留 `*_UNSET`、其余**须本 CH 一并裁定** | §4.2.3 `:815`/`:832`/`:842` |
+
+### C.4 文档内不一致（`I-1`~`I-4`）与取值域 / 类型缺口（`G-1`~`G-7`）
+
+#### C.4.1 冻结文档内部不一致 —— `I-1`~`I-4` 的**裁定**（权威值 + 触冻结判定 + 落地方式）
+
+| # | 项 | 事实（本席实测行号） | **裁定（权威值）** | 触冻结契约？ | **落地方式** |
+|---|----|---------------------|-------------------|-------------|-------------|
+| `I-1` | `MSG_HELLO.token_version` 归属冲突 | §4.2.6 `:948` 明述「`HELLO` 携带 `token_version`」（**规范条款**），§4.2.3 `:794` 的 HELLO「**关键**字段」列**漏列**该字段 | **`MSG_HELLO` 必须携带 `token_version`** —— `:794` 系**漏列**（§4.2.3 列名即"关键字段"、属**摘要**非穷尽；仅 §4.2.4 称"字段级定义"）⇒ **采 §4.2.6** | **是**（§4.2 `:718` 含"字段定义"；补字段＝新增字段） | **并入 `CH-013`**：§4.2.3 HELLO 列补 `token_version` + §4.2.8 给 `token_version`(7:uint32)。**批准前不得落笔** |
+| `I-2` | 帧超限错误码双记 | §4.2.2 `:779`「超限 → `0x0104` 断连」；§4.3.2 `:1122` 专码 `0x0308 ERR_FRAME_TOO_LARGE`；`:1107` `0x0104 ERR_PAYLOAD_INVALID` 触发条件**亦含**"帧超 1 MiB" | **帧超限（`LEN > 1 MiB`）权威码 = `0x0308`（`ERR_FRAME_TOO_LARGE`）**；**行为 = 拒绝该帧 + 回 `0x0308` + 提示使用分片，且不中断连接**（**专码优先于兼码**：`0x0308` 为唯一专门码；`:1107`/`:1122` 两行均明载"不中断连接"）。⇒ §4.2.2 `:779` 的「`0x0104` 断连」**系陈旧/笔误**；`:1107` 触发条件内"帧超 1 MiB"一项亦属**陈旧兼含**（建议删项） | **否** —— **62 码集合不变、各码语义不变**，仅订正 §4.2.2 的指向 | **勘误（事实性订正），免 `CH` 编号**（项目惯例：纠错类勘误可免 CH，须记动因+授权链）⇒ **"只加不改"**：`:779` **保留原句 + 追加订正注记**（引 §4.3.2 `:1122`）+ §13 变更记录登记。**本席不直改原句**（直改须编排者授权） |
+| `I-3` | §4.3.2 标题「共 50 个」vs 表体 62 | 标题 `:1097` 写「共 50 个」；表体 `:1103`–`:1178` 实测 **62** 行；`:1182` 已自注 50/59 为笔误；全项目（含 `CH-007`）一律 **62** | **62**（标题为**笔误**） | **否**（错误码集合不变） | **勘误，免 `CH`** ⇒ "只加不改"订正标题（或追加注记）+ §13 登记。**不改任何码** |
+| `I-4` | `MSG_HEARTBEAT.component_state` 值域未给 | §4.2.3 `:797` = **`MSG_HEARTBEAT`**（`0x0004`）—— ⚠️ **非** `MSG_HELLO_ACK`；其 `component_state` **0 值**（同行 `:795` 的 `server_state` 有 4 值） | **属"字段定义"缺口** ⇒ **由 `CH-013` 新增枚举 `ComponentState`**（`0` 保留 `*_UNSET`）；**本席提案** `STARTING=1/READY=2/DEGRADED=3/STOPPING=4/STOPPED=5`（**建议，须批准**）；**备选** = 复用 `ServerState`（若两侧状态机同构） | **是**（新增取值域 ⇒ §4.2.5「新增枚举值」） | **并入 `CH-013`**：批准后落 §4.2.8。**批准前不得落笔** |
+
+> **`I-2` / `I-3` 与本 CH 的关系**：二者**不触冻结集合**（62 码不变）、**不属 schema 补全** ⇒ **不必并入 `CH-013`**；建议由编排者**另行走"勘误 + §13 登记"**。若编排者要求并入本 CH 一并落，本席无异议（**待编排者定**）。
+
+> **▶ 定稿处置（2026-09-22，`CH-013` 生效；本席＝技术负责人，落于 §4.2.8.8）** —— 上表「落地方式」列系**提案当时**建议，**最终裁定如下（与提案有两处不同，已按用户/编排者裁决执行）**：
+>
+> | # | **最终处置** | 与提案的差异 / 落地落点 |
+> |---|-------------|----------------------|
+> | `I-1` | **采 §4.2.6**（`MSG_HELLO` 必须携带 `token_version`）→ §4.2.3 `:794` 列**补登**；字段定义 `token_version`(**7** : `uint32`) | 与提案一致 | §4.2.3 `:794`（只加不改）＋ §4.2.8.2 / §4.2.8.8 |
+> | `I-2` | **并入 `CH-013`**（**用户裁定，否决提案「免 CH」之建议**）—— **帧超限权威码 = `0x0308`**，行为 = 拒绝 + 回 `0x0308` + 提示分片 + **不中断连接**；**`0x0104` 触发条件中「帧超 1 MiB」一项**：**自 `0x0104` 移出**（归 `0x0308`），**原句保留以留痕** | **差异**：提案建议「免 CH 编号、仅勘误」；**用户裁定 = 契约级（须 CH）** —— 理由：**不是"§4.2.2 指向写错"，而是冻结的 62 码表内把「帧超 1 MiB」同时挂给两个码且处置不同** ⇒ 须在**冻结码集合内重新划清职责** | §4.2.2 `:779`、§4.3.2 `:1107`/`:1122`（均只加不改）；§4.2.8.8 |
+> | `I-3` | **勘误，免 `CH`，已授权落笔**：§4.3.2 标题「共 **50** 个」→ **实测 62**（表体 62 行 + 统计表合计 62 + `:1182` 已自注）；标题原句保留 + 追加注记 | 与提案一致 | §4.3.2 `:1097` 之后（只加不改） |
+> | `I-4` | **采「独立 5 值枚举」**（**用户裁定 `ComponentState` 不复用 `ServerState`**）：`STARTING`/`READY`/`DEGRADED`/`STOPPING`/`STOPPED` + `0` 保留 `*_UNSET` | **差异**：提案把「复用 `ServerState`」列为**备选**；**用户裁定取独立枚举** —— 理由：`MSG_HEARTBEAT.component_state`（**组件自述**，§4.2.3 `:797`）与 `MSG_HELLO_ACK.server_state`（**服务端就绪态**，`:795`）是**两个不同消息、不同语义**的字段，复用会把两套状态机耦合。⚠️ **同时勘误提案的事实错误**：`:797` 属 **`MSG_HEARTBEAT`**（`0x0004`），**非** `MSG_HELLO_ACK` | §4.2.8.7 / §4.2.8.8 |
+
+#### C.4.2 取值域 / 类型 / 必填性缺口 —— `G-1`~`G-7`（随 `CH-013` 一并定）
+
+| # | 项 | 事实（本席实测行号） | 拟处置（**须批准**） |
+|---|----|---------------------|---------------------|
+| `G-1` | **37 条消息的必填性未给** | §4.2.4 仅覆盖 3 条（`CMD_PLACE_ORDER`/`CMD_CONFIRM_ORDER`/`EVT_PRE_TRADE_REJECT`） | 批准前补齐；可照 §4.2.5 `:913`「接收侧校验」逐字段标必填/可选 |
+| `G-2` | **额度字段口径（金额 or 数量）** | `quota_limit`/`used`/`frozen`/`limit`/`released_quota`（§4.2.3 `:813`/`:814`/`:816`/`:836`） | 建议 `string`（十进制）；**须与 `DATA_MODEL.md` 对应列类型交叉核对后再定** |
+| `G-3` | **比率表示** | `scale_ratio_*`/`price_*_pct`/`margin_ratio_threshold`（§4.2.3 `:815`） | 建议 `string`（十进制，照 §4.2.5「避免 `double` 精度问题」精神） |
+| `G-4` | **`loaded_counts` / `total_limits` 承载形态** | §4.2.3 `:811`/`:839` 仅提名 | 建议 `EvtSystemState.loaded_counts` 用 `string`（JSON 摘要）；`total_limits` 定 `TotalLimits` 结构化（内部字段待设计） |
+| `G-5` | **`CmdUpdateRiskThreshold` 扁平 vs 嵌套** | §4.2.3 `:815` 以扁平字段 + 默认值罗列，且以 `...` 结尾（**开放集**） | 建议**嵌套复用** `RiskThresholds`（与 `CMD_LOAD_RISK_PARAMS.thresholds` 同型，避免两处漂移） |
+| `G-6` | **4 个复合类型内部字段未给** | `VarietySpec`/`WhitelistEntry`/`TotalLimits`/`AnnualScaleFactor`（§4.2.3 `:811`） | **须第二趟设计**（建议作为 `CH-013` 批准后的**紧接子项**） |
+| `G-7` | **字段号预留策略** | §4.2.5 仅规定"新增字段分配新号" | 本提案取**自 1 连续分配、不预留**；新增字段追加尾号即可（**待确认**） |
+| **`G-8`**（**定稿时新登记**） | **7 个枚举值域未给**（提案 C.3.5 未列为 `G-*`，但 `proto` 不可缺） | `OrderStatus` / `ScaleBase` / `ScaleScope` / `TermAction` / `PriceBase` / `PositionCheckMode` / `AlertLevel`（§4.2.3 `:815`/`:832`/`:842`） | **同批定稿**（否则 `proto/hgcp.proto` 仍不可产出）⇒ 依据**既有制品**（§11.1 配置取值范围 / `DATA_MODEL.md` 列 `CHECK`）给出显式值域；`PriceBase` 仅 1 值可依，其余候选**留待追加** |
+
+> **▶ 定稿处置（2026-09-22，`CH-013` 生效）** —— `G-1` / `G-6` 系**用户批准的附条件项**（**须并入后方视为定稿**），**该条件已满足**；全部 `G-*` 的最终形态见 **§4.2.8.1（`G-7`）/ §4.2.8.5（`G-1`）/ §4.2.8.6（`G-6`）/ §4.2.8.7（`G-8`）/ §4.2.8.9（`G-2`~`G-5`）**：
+> - **`G-1`**：37 条消息字段必填性**已逐条给出**（§4.2.8.2–§4.2.8.4 各行 `·必/·可/·条件`；§4.2.8.5 为「条件必填」集中清单）。
+> - **`G-6`**：4 个复合类型**已设计**（§4.2.8.6）—— 字段集**严格限定在 §4.2.3 语义 + §4.4.1 内存模型 + `DATA_MODEL.md` 既有列**所支撑的范围内，**未新增业务语义**；`TotalLimitByProduct` 为 `TotalLimits.by_product` 的必要元素类型；**一处显式缺口不掩盖**：`Q-2` 的品种级分类覆盖在 §4.2.3 无对应字段 ⇒ **本 CH 不新增**，登记为**待评估**（§4.2.8.9 末行）。
+> - **`G-6`/`G-7` 字段号总量自洽说明**：顶层 **214** = 元协议 **38** + 控制指令 **77** + 事件流 **99**，**仅统计 40 条消息的顶层字段**；**复合类型为独立 `message`、字段号各自自 `1` 连续，不计入 214**（proto 的字段号是**每 message 一个命名空间**）⇒ 补入 `G-6` 的 4 个类型（共 **5+2+4+4+6 = 21** 个字段，含 `TotalLimitByProduct` 的 4 个）**不改变 214**。
+> - **`G-8`**：7 个枚举值域**已同批补齐**（§4.2.8.7），依据一律取既有制品、**未臆造**。
+> - **`G-2`~`G-5`**：**已定稿**（§4.2.8.9）。
+
+### C.5 与 `be-t032` 建议稿的关系（建议稿**非权威**）
+
+- `be-t032` 的建议稿 = `cpp/src/hgcp/T032_GAP_ANALYSIS.md` §3（**其实测行号基于现行 `ARCHITECTURE.md`**）。**本席核实其结论行**：其 §1 覆盖对照表逐项**与本席实测一致**（消息名 40/40、字段名 40/40、类型 3/40、字段号 **0/40**、枚举名值 ❌）；其 §5「因 schema 未定而暂不可判定」列 `S-1`~`S-5` **成立**。
+- **采纳**：其元协议 9 条的字段**顺序与类型取向**（自 1 连续取号、类型映射与 §4.2.5 一致）**本席采纳**（本席独立复核后**定稿**）。
+- **修改**：① 为 `MsgHello` **追加 `token_version`(7)**（其草稿未含 —— `I-1`）；② 枚举**补全类型名与显式数值**（其草稿仅 2 个枚举示意）；③ 由 9 条**扩展至 40 条**。
+- **纪律**：**建议稿非权威，定稿权在本席**；`be-t032` **不得**据其自拟稿落笔 `proto/hgcp.proto`（须待本 CH 批准）。
+
+### C.6 版本与门禁影响
+
+- **`ARCHITECTURE.md`**：**批准前不升版** —— 本附录为**未生效提案**；批准后按 §4.2 `:713` 落 **§4.2.8** + §12.5 传导登记 + §13 变更记录（届时升版）。
+- **M2 门禁（`T-030`）**：**结论不重开**；`RSK-01` 的**协议级闭环**仍待 `T-032` 依本 CH 落地真实 schema 后重跑 `proto_smoke`（`SIGN-OFF.md` §3 条件 1 义务**不变**）⇒ 建议批准后在 `SIGN-OFF.md` **追加追认登记**（不改 `T-030` 结论）。
+- **`cpp/proto_smoke`（`T-026` 探路件）处置建议**：其头部已自声明「`proto/hgcp.proto` 一旦落地，本文件即应废弃（它只用于探路取证）」。**建议**：真实 schema 落地并重跑取证后，**保留 `hgcp_smoke.proto` 作为探路留痕、并加注"**已被真实 schema 取代（`CH-013`）**"**（删除与否由 `#cpp` 按 `cpp/proto_smoke/**` 写作边界决定）；`T-026` 结论（**技术风险已排除**）**不受影响**。**本席不动 `cpp/**`**。
+- **数据模型 / `FR` 计数**：**均不变**（本 CH 不触 `DATA_MODEL.md`、`FR` 计数 `184` 不变、错误码 `62` 不变）。
+
+### C.7 本裁定的可复现锚点与扫描证据
+
+> **扫描面（本席自设，超出派单给定范围）**：`docs/ARCHITECTURE.md` §4.2 全域 + `java/CONTRACTS.md` + `docs/DECISIONS/**` + `docs/REQUIREMENTS/**` + `cpp/src/**` + `web/**` + `tools/**`（均排除 `cpp/build*/**` 与 `**/_deps/**` 构建产物）。
+> **结论：已扫描，确认全仓（除 2 份自声明**非契约**的草稿外）无任何字段号 / 字段类型定义。**
+> 证据命令与结果：
+> - `grep -rn --include='*.md' --include='*.proto' --include='*.h' --include='*.cc' --include='*.cpp' --include='*.java' --include='*.js' -E '^[[:space:]]*[A-Za-z_][A-Za-z0-9_.<>, ]*[[:space:]]+[a-z_][a-z0-9_]*[[:space:]]*=[[:space:]]*[0-9]+[[:space:]]*;' . | grep -v '/build' | grep -v '/target/' | grep -v '_deps'` ⇒ **0 处** proto 字段号（仅 `java/src/test` 的普通 Java 局部变量赋值，与协议无关）。
+> - `awk 'NR>=700 && NR<=1060' docs/ARCHITECTURE.md | grep -nE '=[[:space:]]*[0-9]+[[:space:]]*;'` ⇒ **空**（§4.2 全篇无 `= N` 字段号）。
+> - `grep -rn '字段号' docs/` ⇒ 仅 §4.2.5 `:915`（规定句）+ `cpp/src/hgcp/T032_GAP_ANALYSIS.md`（缺口稿）。
+> - 全仓 `*.proto` 仅 **`cpp/proto_smoke/proto/hgcp_smoke.proto`**（**自声明"不是 M2 冻结契约…不得被任何一侧当作协议定义引用"**）与 `T032_GAP_ANALYSIS.md` 内草稿；`proto/hgcp.proto` **不存在**（`proto/` 目录不存在）。
+> - `java/CONTRACTS.md`：**0 处** proto 字段/字段号定义（`:400` 明载"映射到 protobuf 由 `bridge` 层完成"）；`docs/DECISIONS/websocket-selection.md`：仅 Java 侧 WS 的 **JSON** 载荷，**无** HGCP 帧字段定义。
+> **锚点口径**：本附录**不自嵌** `docs/ARCHITECTURE.md` 自身**追加后**的 `md5sum`（落痕文档无法自洽，且本附录落笔后本文件可能仍被写入）⇒ **追加后一律以实时 `md5sum` 为准**。**可复现的稳定锚点 = 追加前基线**：**`head -2786 docs/ARCHITECTURE.md | md5sum` = `e9a61b3134fe1fa04cdfe2d7bfdd7845`**（= 追加前全文，**逐字节未变**）；本附录为**纯增量追加**（追加前 2786 行；追加后行数以**实时**为准）。
+> **不变量实测（同一时刻）**：`FR` 计数 **184**（§10.1 追溯表实测 **184** 行、标题"（184 条）"）；消息集 **40**（§4.2.3 实测 40 行）；错误码 **62**（§4.3.2 表体实测 62 行）。
+> ⚠️ **锚点时效勘误（2026-09-22，`v1.5.15`，`CH-013`）**：上一行的 `head -2786 … = e9a61b31…` 是**本附录追加时点**的成立事实；**自 `v1.5.15` 起该命令不再可复现**（`CH-013` 修改了第 2786 行**之前**的正文）——**实测现 `head -2786 docs/ARCHITECTURE.md \| md5sum` = `652eb05344e6be3807bf545ae5c9e5a3`**。**等价且可复现的锚点 = `git show 7f9e3da:docs/ARCHITECTURE.md \| md5sum` = `e9a61b3134fe1fa04cdfe2d7bfdd7845`**（2786 行；`7f9e3da` = `T-099`/`v1.5.14` checkpoint）。**正文其余部分一字未改，仅此处追加勘误**。
+
+### C.8 定稿与生效记录（`CH-013`，2026-09-22）
+
+| 项 | 内容 |
+|----|------|
+| **申请** | `CH-013`（L3 架构级）：HGCP **字段级 schema 补全**（对冻结对象「线格式表示」的**补全**，completeness，**非** semantic） |
+| **用户裁决** | **批准，附条件**：**须先并入 `G-1`（37 条消息字段必填性）与 `G-6`（4 个复合类型内部字段）后方视为定稿**（理由：`G-6` 是**内容缺口**，与字段号同属「一次性、不可回收」的协议设计决定；若留到批准后补，等于**再开一次冻结契约变更**） |
+| **条件满足** | ✅ **同日满足** —— `G-1` / `G-6` / `G-7` 已补齐，并**新登记 `G-8`**（7 个枚举值域）一并补全（否则 `proto` 仍不可产出）。⇒ **`CH-013` = 定稿（已获用户批准），不再需要二次提请** |
+| **生效落点** | **§4.2.8「字段级 schema」**（本文件 **v1.5.15**）—— 权威内容**唯一**在此 |
+| **本附录地位** | **提案历史留痕（非权威）** —— 保留以存审计链；**执行 / 转录一律以 §4.2.8 为准** |
+| **转录承接** | `proto/hgcp.proto` 由 **`#cpp`（`T-032`）** 依 §4.2.8 逐条转录；**本节与 §4.2.8 均不落 `proto/**`** |
+| **门禁** | **M2 首周探路门禁（`T-030`）结论不重开**；`RSK-01` 的**协议级闭环**仍待 `T-032` 依 §4.2.8 落地真实 schema 后重跑 `cpp/proto_smoke`（`SIGN-OFF.md` §3 条件 1 义务**不变**）；追认登记落 = `docs/gates/M2-recon-signoff/SIGN-OFF.md` **§9**（2026-09-22 追加，**只加不改**） |
+| **`FR` 计数** | **184 不变**（本 CH **不新增 / 不删改** `FR`） |
+| **不变量（同一时刻实测）** | 消息集 **40** / 组件错误码 **62** / 线格式 `VER` **`0x0100`** / `FR` **184** —— **均不变** |
+| **未决 / 待评估** | ① 预留字段号策略 = **不预留**（`G-7`）—— 若后续确需预留，须另开 `CH-xxx`；② `Q-2` 品种级分类覆盖在 §4.2.3 **无协议字段**（§4.2.8.9 末行，**本 CH 不新增**，待评估）；③ `PriceBase` 仅登记 `PREV_SETTLEMENT` 一值，补其它候选属「新增枚举值」⇒ 走 `CH-xxx` |
+| **锚点口径** | 本附录**不自嵌**本文件落笔后的 `md5sum`（落痕文档无法自洽）⇒ **一律以实时 `md5sum` 为准**；**本附录追加前基线 = `git show 7f9e3da:docs/ARCHITECTURE.md \| md5sum` = `e9a61b3134fe1fa04cdfe2d7bfdd7845`（2786 行）**（⚠️ 原「`head -2786 …`」口径**自 `v1.5.15` 起失效**，见 §C.7 末尾勘误） |
