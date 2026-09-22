@@ -3555,3 +3555,134 @@ E7 通过：§4.2.8 与 proto 逐条一致（消息 40+10、字段 214+66、枚�
 
 **结论行补充（追加于 T033.12 之上，不改原文）**：
 > **本结论的 SDK 基线 = CTP Mini；基线切换后 SDK 相关项须重验。**
+
+---
+
+# `T-035` 独立复核证据（2026-09-22）
+
+> 复核方：**测试工程师（独立复核，非产出方）** ｜ 实例 `te-verify-t035` ｜ 时刻 `2026-09-22T19:41+08:00`
+> 立场：`DONE` 判据 = **授权 + 独立验证**；产出方一切自报视为**待证命题**，本席不使用其用例与数字；
+> 全文分栏「**独立实测**」与「**产出方自述（我未复现者单独标注）**」。**未修改任何交付制品**；`TASKS.md`/`BOARD.md`/`ARCHITECTURE.md` **零改动**；**不自评 `DONE`**。
+
+## T035.0 快照 / 锚点与自报逐项比对
+
+| 项 | 产出方自述 | 本席独立实测 | 一致 |
+|---|---|---|---|
+| 冻结点锚（`cwd=仓库根`）`find cpp/src/risk_engine -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum` | `fc086003667fe0a890a69358c3a51c56` / 28 文件 | **`fc086003667fe0a890a69358c3a51c56` / 28 文件** | ✅ |
+| `git` 版本 | （未给） | `HEAD = 1249ba9`（工作树含多模块未提交改动；`risk_engine/**` 属未提交态） | — |
+| 构建 0 warning / 0 error | 是（18 TU 带三开关） | **是**（新构建目录 `/root/b-t035v`；`grep -icE 'warning:'`=0、`'error:'`=0） | ✅ |
+| `ctest -R risk_engine` | 13/13 | **13/13**（`rc=0`；名单以 `ctest -N` 为准） | ✅ |
+| 聚合 `rc` | 0（`E1`–`E7` 全 0） | **0**（`E1`–`E7` 逐条 0） | ✅ |
+| `E4` 实扫 | 45 文件、命中 0 | **45 文件、命中 0**（3 处 `WARN` 全在 `risk_state` 的 `new`，非本模块） | ✅ |
+| P99 | 33–83 µs | **33.6–40.5 µs**（5 次独立采样） | ✅ |
+| 4 例变异全杀 | 是 | **自设 4 例（不复用其 M1–M4）全部杀**（见 T035.7） | ✅ |
+
+**构建环境（独立）**：`/root/b-t035v`（`cmake 4.2.3` / `g++ 15.2.0` / `RelWithDebInfo` / `-DCTP_USE_FETCH_DEPS=OFF`，系统 protobuf `3.21.12`）；构建目录与 `TMPDIR` 置 `/`；`-j1` 串行（构建前 `uptime` 负载 ≤ 2.1）。隔离副本 `/root/iso-t035v`（含 `docs/cpp/tools/proto/java/web`）。
+
+## T035.1 门禁自证（原始输出摘要）
+
+1. **零告警**：`grep -icE 'warning:' build.log = 0`、`grep -icE 'error:' = 0`（`rc=0`）。
+2. **三开关（`compile_commands.json`）**：本模块 **18 个 TU**，逐条断言 `-std=c++11` ∧ `-Wall` ∧ `-Wextra` ∧ `-Werror` —— **缺任一者为 0**。TU 明细：`clock/module/order_request/quota_selection/risk_engine/risk_result`（6 库）+ `bench_risk_check`（1）+ 11 个单测。
+3. **`ctest -N -R risk_engine` = 13**：`arch_check`(fixture, #1) + 11 单测（#8–#18）+ `bench_risk_check`(#19)。**`rc=0`，13/13 Passed**（100%）。
+4. **聚合**：`bash tools/arch-check/arch-check.sh` ⇒ **`rc 0`**；逐条 `E1=0 E2=0 E3=0 E4=0 E5=0 E6=0 E7=0`；`E4` **「待扫描文件: 45 个」**、命中 0（WARN 3 = `risk_state` 三处 `new`）。
+5. **单测断言规模（独立复跑）**：whitelist 16 / quota_layers 31 / selector 14 / position_limit 14 / scale_redline 16 / net_position 14 / term 18 / permission 20 / price_deviation 22 / double_layer 13 / purity 21（**checks 合计 199，全 0 failures**）。
+6. **本席未新增 ctest 用例**（复核方不改交付制品）；自撰**只读探针** `/root/probe_t035.cc`（链接共享树静态库；不属仓库）。
+
+## T035.2 验收 1（8 条规则全内存判定）—— 两栏
+
+| 规则 | 独立实测 | 产出方自述 | 判定 |
+|---|---|---|---|
+| `R-RISK-1` 白名单/合约归属/境内场内 | `evalWhitelist`（`risk_engine.cc:179`）三态齐备；`whitelist_test` 全过 | 同 | ✅ |
+| `R-RISK-2` 三层限额 | 见 T035.3；**但平仓未豁免（TE-T035-001）** | 称达标 | ❌（部分） |
+| `R-RISK-3` 持仓上限（**平仓不受限**） | `is_open` 豁免在位（`:262`）；探针 `P4` 平仓放行 | 同 | ✅ |
+| `R-RISK-4` 规模红线 90%/80%，基数=年度敞口累计实物量 | `evalScale`：`ratio` 按 `effectiveCategory`（商品 90/贸易 80）；分子 `accumulated+inc`，分母 `expected_spot_business_qty`；**子账户 + 全账户双算取严**（`:297–313`）；平仓豁免 | 同 | ✅ |
+| `R-RISK-5` 时点净持仓 ≤ 敞口 | `evalNetPosition`（`:319`）同口径折算、标注快照时点、平仓豁免；**缺敞口 fail-open（EXP-T035-003）** | 自列未决⑤ | ✅（含观察） |
+| `R-RISK-6` 期限红线三级处置 | `evalTerm`：`allowed=min(建仓+12M, 合同+30d)`；超期未审批拒绝、剩余≤30d 告警、已审批放行、平仓豁免 | 同 | ✅ |
+| `R-RISK-7` 权限与授权 | `evalPermission`：未授权/超品种/超额度/风控岗/负责人；**结算岗缺失 = EXP-T035-002** | 称「已核实非缺陷」⑥ | ❌（部分） |
+| `R-RISK-8` 价格偏离（昨结算价基准，2%/5%，市价不适用） | `evalPrice`：`prev_settlement_price` 基准；`>5%` 阻断、`(2%,5%]` 告警、≤2% 通过、市价 `price_deviation_na` | 同 | ✅ |
+| 全内存 / 零 DB | `E1`=0（不链接 DB 客户端库）、`E2`=0（无 SQL/驱动）；本模块 `ldd` 仅 `libstdc++/gcc_s/c/m` | 同 | ✅ |
+
+**备注「平仓/减仓方向按规则豁免」**：`R-RISK-3/4/5/6` **四规则逐条实测豁免**；**唯 `R-RISK-2` 未豁免** ⇒ 与备注及 `R-RISK-5` 冲突（缺陷 TE-T035-001）。
+
+## T035.3 验收 2（三层限额全序 / 并列取一 / `entries[]` 全命中）
+
+- **全序（层② > 层① > 层③，层③不参与「最细」）**：**引擎端到端独立实测** —— 探针 `P5`（三层同时超）⇒ `code=0x1017 / limit_layer=SUB_INSTRUMENT / entries=3`；`quota_layers_test` 用例④/⑤（三层超→层②；层①+层③→层①）全过。**承重**：变异 M1（交换层序）⇒ 两条端到端断言 + 选择器断言 **必红**（T035.7）。 ✅
+- **同层并列取一（占用率最高 → `id` 升序）**：**本席独立证实前提** —— 三层容器类型（`risk_snapshot.h:163–165`）分别为 `unordered_map<uint64_t,QuotaEntry>`（层①键 `packKey2(sub,product)` / 层②键 `packKey2(sub,instrument)`）与 `unordered_map<uint32_t,QuotaEntry>`（层③键 `product`）；`findQuota`（`risk_snapshot.cc:81–98`）每层**单键查找**；`evalQuota`（`risk_engine.cc:215–234`）**每层只查一次** ⇒ `check()` 每层**至多 1 条命中**、`h.id` 恒写 0 ⇒ **「同层并列」分支在引擎端不可达**。该规则**仅由选择器单测**（`risk_engine_selector_test`：占用率高者/交叉相乘/id 升序/frozen 计入）覆盖。
+  **判定：防御性代码（合规），不需改判据** —— 判据的并列分支在当前数据模型下**空满足**；`selectFinestQuotaHit`/`quotaHitBetter` 提供了确定性契约，供未来「单层多候选」情形使用。**建议**：在判据/文档处加注「引擎端不可达、由选择器单测承载」，避免后续误判为漏测。**非缺陷**。
+- **`entries[]` 携带全部命中项**：探针 `P5` `entries=3`；变体 M4（仅记首条）⇒ `entry_count==3/2` 断言 **必红**。 ✅
+
+## T035.4 验收 3（双层校验 + 纯函数式）
+
+- **双层（子账户 + 总账户均生效）**：`quota` 层①/②=子账户、层③=账户（探针：`sub=2` 仅层③命中 → `0x1005`）；`scale` 子账户 + 总账户（哨兵 `sub=0`）双算取严。`double_layer_test` 5 例全过。 ✅
+- **`RiskEngine::check` 纯函数式**：`const` 成员、只读 `const` 快照 + 入参；`const RiskEngine&` 可调用（编译期）；同入参重复求值逐字节一致（`purity_test`）。**承重**：变异 M3（`check` 内经 `const_cast` 改 `thresholds_`）⇒ `purity_test` 的「无可观测状态改变」断言 **必红**（T035.7）。 ✅
+
+## T035.5 验收 4（P99 ≤ 5 ms + 超限未发往 CTP）
+
+- **P99 ≤ 5 ms** —— **测量方法**：`bench_risk_check`（规模 §4.4.1：10 子账户/200 品种/2000 合约；**预热 1000 次**；`steady_clock` **单次调用**计时；100000 次；排序后取 `P99=ns[(n*99)/100]`；断言 `p99 > 5ms ⇒ 退出 1`）。
+  **独立实测（5 次采样）**：`P50 ≈ 10.2 µs`、**`P99 = 33.6 / 34.5 / 34.8 / 36.5 / 40.5 µs`**、`P99.9 = 78–174 µs`、`max = 2.25–6.75 ms`（2 核调度抖动，非判定路径）。**结论：P99 ≪ 5 ms，满足**（余量 > 100×）。环境受限说明：`max` 偶超 1 ms 系本机共享调度，非算法复杂度；`P99` 稳定在 40 µs 内。
+- **超限被拒且「未发往 CTP」**：**本模块只能证到「判定 = `kReject`」**（探针 `P1a/P5`）。**本模块无法独立判定「未发送」** —— 链接面仅 `libhg_risk_engine.a + libhg_risk_state.a`（`link.txt`）、`ldd` 无 CTP/网络库，`CTP_FOUND=OFF`（本机无 SDK）。「不发送」由调用方 `order_engine`（`T-036`）承接 ⇒ **记为范围划分，非缺陷**（与产出方未决②一致）。
+
+## T035.6 §3 七项未决 —— 逐项独立判定
+
+| # | 产出方主张 | 本席独立复判 | 结论 |
+|---|---|---|---|
+| ① | 「同层并列」引擎端不可达，仅选择器单测生效 | **前提成立**（容器/键/查找三重取证，见 T035.3） | **防御性代码（合规）**；建议加注；**非缺陷** |
+| ② | 「未发往 CTP」本模块不可独立判定 | **属实**（无 CTP 链接；`link.txt`/`ldd`） | 范围划分（归 `T-036`）；**非缺陷** |
+| ③ | `R-RISK-8` 品种级覆盖未承载 | **属实**（`RiskThresholds` 仅全局键；`evalPrice` 无 product 入参；`thresholds()` 无品种级键约定） | 真实承载缺口 → `EXP-T035-005`（低） |
+| ④ | `CFG-16` `risk.limit.layers` 未显式解析 | **属实**（`CFG-16` 实体见 `ARCHITECTURE.md:2799`；引擎无该键读取；三层恒参与） | 承载在加载侧 → `EXP-T035-004`（低） |
+| ⑤ | `R-RISK-5` 无敞口记录时静默通过 | **属实**（`evalNetPosition`：`if (ex != nullptr)`）；**同族 fail-open**：`evalScale` 无记录 `continue`、`evalPositionLimit` 无记录 `return` | 须产品澄清 → `EXP-T035-003`（中） |
+| ⑥ | 已核实非缺陷（`0x0202` 无「基数」槽位；`is_management_role`→`is_responsible`） | **部分否定**：(a) 「无基数槽位」**成立**，但 `FR-RISK-4` 输出「与 §4.2.4 一致」**待澄清**（规模 vs 使用率，`EXP-T035-006`）；(b) `is_management_role` **不可判为非缺陷**（引擎无字段）；**反向遗漏**：**结算岗亦无字段** ⇒ `EXP-T035-002`（中） | **不能维持「非缺陷」**（见下） |
+| ⑦ | 裸 `applySnapshot(const RiskSnapshot&)` 无读句柄保护，已文档化 | **属实**（`risk_engine.h:49–57` 注明 + 推荐 `applySnapshot(const RiskState&)`） | 已文档化取舍；**非缺陷** |
+
+**⑥ 的详证（`R-RISK-7` 岗位/角色维度）**：`ARCHITECTURE.md §3.3`（`:446`）明列 `R-RISK-7` 需 `permissionSnapshot`、`conflictFlags`、**`isManagementRole`**；`§4.3.2` `0x100E`（`:1352`）「岗位冲突：操作人具备**风控岗/结算岗**权限」；`REQUIREMENTS/RISK.md:194`（`FR-RISK-7`）「具备风控或结算岗位权限的账号不得下单」。而引擎消费的 `PermissionEntry`（`risk_state/model.h:220–233`）字段仅 `has_risk_post`（+ `is_responsible`）——**无 `is_management_role`、无 `has_settle_role`**；实测全仓 `cpp/src` 对 `has_settle_role` **0 命中**。故：① 产出方「加载侧把 `is_management_role` 折叠为 `is_responsible`」之说**无文档依据**（`§4.4.1` 仅笼统写「岗位标记 / 负责人标记」）；② **仅具结算岗的账号当前可放行操盘**（漏判）。判为**跨任务承载缺口**（模型 `T-034` 冻结 / 加载侧 `T-038`），**须裁定**，**不宜归为 `T-035` 单方面缺陷**。
+
+## T035.7 反退化变异（本席自设，不复用产出方 M1–M4）
+
+> 全部在隔离副本 `/root/iso-t035v` 内进行；逐例「注入 → 构建 `rc` → 断言红 → 复位（`.orig`）→ clean 重编译 → 回绿」；**共享树与隔离树 `*.orig/*.bak/*MUTATION*` 残留均为 0**（复核后实测）；复位后隔离树 `risk_engine` 锚 = `fc086003…`（逐字节回原）。
+
+| 变异 | 施加点 | 期望 | 实测结果 | 承重 |
+|---|---|---|---|---|
+| **MUT-A** 层序反转（层① 排层② 前） | `quota_selection.h::quotaLayerRank` | 全序断言红 | `quota_layers_test` **2 红**（用例④ `code==0x1017`、`layer==SUB_INSTRUMENT`）+ `selector_test` **2 红** | ✅ 三层限额全序（**含引擎端到端**） |
+| **MUT-B** 撤平仓豁免 | `risk_engine.cc::evalPositionLimit`（`if(!is_open)return;`→`(void)is_open;`） | 平仓豁免断言红 | `position_limit_test` **1 红**（`test_close_is_exempt`） | ✅ 平仓豁免 |
+| **MUT-C** 破纯函数式 | `risk_engine.cc::check` 内 `const_cast` 改 `thresholds_.term_max_months` | 无副作用断言红 | `purity_test` **1 红**（`test_no_observable_state_change`） | ✅ 纯函数式 |
+| **MUT-D**（附加）`entries[]` 仅记首条 | `risk_engine.cc::evalQuota` 循环上界 | 全命中项断言红 | `quota_layers_test` **2 红**（`entry_count==3`、`==2`） | ✅ `entries[]` 全命中项 |
+
+**过程事故（如实披露）**：MUT-B 首版（直接删 `if(!is_open)return;`）触发 `-Werror=unused-parameter` ⇒ **构建 `rc=2`**，此时旧二进制未更新、单独运行显示 `PASS`（**假绿**）—— 本席据「构建 `rc≠0`」判该次运行无效，改为 `(void)is_open;` 后重测得真红。
+
+## T035.8 误伤方向（自建合法指令探针）
+
+**样本**：6 类合法/边界指令（开仓恰好等于限额、市价单、平仓（持仓上限+敞口双超时）、三层全超的开仓（应拒）、未就绪、三类非法入参）+ 确定性复算。
+
+| 探针 | 期望 | 实测 |
+|---|---|---|
+| `P2` 开仓 `used+req == limit`（边界） | 放行 | **PASS** ✅ |
+| `P3` 市价单（偏离不适用） | 放行 + `na=1` | **PASS / na=1** ✅ |
+| `P4` 平仓（`R-RISK-3`+`R-RISK-5` 双超） | 放行 | **PASS** ✅ |
+| `P5` 开仓三层全超 | 拒，`0x1017` | **REJECT/0x1017/entries=3** ✅ |
+| `P6a` 未就绪（无快照） | 拒 `0x0401` | **REJECT/0x0401** ✅ |
+| `P6b/c/d` 非法 `sub_account_id=0` / `volume=0` / `direction=99` | 拒 `0x3003` | **REJECT/0x3003** ✅ |
+| `P7` 同入参连续求值 | 逐字节一致 | **一致** ✅ |
+| **`P1b` 平仓（额度耗尽）** | **放行（`R-RISK-5`）** | **REJECT/0x1004** ❌ ⇒ **TE-T035-001** |
+
+⇒ **发现 1 处误伤**（额度类对平仓）；其余合法方向**未见过度拒绝**（含边界恰好值、市价、平仓在其它规则超限时）。
+
+## T035.9 缺陷 / 观察清单
+
+| 编号 | 类型 | 级别 | 标题 | 状态 |
+|---|---|---|---|---|
+| **TE-T035-001** | **缺陷** | **P1** | 额度校验（`R-RISK-2`）未对平仓豁免 ⇒ 额度耗尽时合法平仓被误拒 `0x1004`（违反 `R-RISK-5`、`T-035` 备注） | **已建 `BUG-002` + 投 `backend-engineer#cpp`**（`docs/BUGS/BUG-002.md`、`dev-team/inbox/backend-engineer#cpp/BUG-002-bug.md`） |
+| `EXP-T035-002` | 观察（待裁定） | 中 | `R-RISK-7` 岗位/角色维度承载不完整：引擎 `PermissionEntry` 无 `has_settle_role`（`0x100E` 要求「风控岗/**结算岗**」）与 `is_management_role`（`§3.3`/`0x100F` 要求）；仅具结算岗者当前可操盘。依赖未文档化的加载侧折叠。 | 待技术负责人裁定归属（`T-034` 模型 / `T-038` 加载侧） |
+| `EXP-T035-003` | 观察（待澄清） | 中 | `R-RISK-5` 无敞口记录时 **fail-open**（`evalNetPosition` 仅 `!=nullptr` 才判）；`evalScale`/`evalPositionLimit` 同类。需求未明确「缺数据是否拒绝」。 | 须产品侧澄清（与 `R-RISK-9`「不得以不完整数据对外服务」相关） |
+| `EXP-T035-004` | 观察 | 低 | `CFG-16` `risk.limit.layers` 未被引擎解析（三层恒参与）；承载应在加载侧。 | 归 `T-038` 观察 |
+| `EXP-T035-005` | 观察 | 低 | `R-RISK-8`「品种级可覆盖」未承载（`RiskThresholds` 仅全局键、`evalPrice` 无 product 入参）。 | 须架构定键（疑随 `T-038`） |
+| `EXP-T035-006` | 观察（待澄清） | 低 | `R-RISK-4` 输出 `current_value` = 规模（qty）而非「使用率」（`§4.2.4` 示例 `0.93` / `FR-RISK-4` 验收 4）——语义轴待澄清（无「基数」槽位为真）。 | 须产品/架构澄清 |
+| `EXP-T035-007` | 观察 | 低 | `OffsetFlag` 仅 `kOpen/kClose`（无「展期置换」表示）；`FR-RISK-6` 三级处置含「展期置换不受阻断」，映射由 `T-036` 承接。 | 归 `T-036` 观察 |
+
+## T035.10 结论
+
+> **结论：不通过（退回修复）。**
+>
+> - **阻断项（1）**：`TE-T035-001`（P1，已建 `BUG-002`）—— 事前风控**额度校验未对平仓豁免**，使额度耗尽时**合法平仓被误拒**（`0x1004`），违反 `R-RISK-5` 与 `T-035` 备注「平仓/减仓方向按规则豁免」；且与同引擎 `R-RISK-3/4/5/6` 的平仓豁免**口径不一致**。修复并经本席复检通过前，`T-035` **不满足**验收 1 备注，**不置 `DONE`**。
+> - **两向验证**：**「该防的已防」** —— 三层全序（含引擎端到端）、`entries[]` 全命中、双层校验、纯函数式、8 规则主体、P99 预算、平仓豁免（除 `R-RISK-2`）均**独立实测通过**，且经本席 4 例自设变异**双向承重**；**「误伤」方向** —— 捕获 1 处（额度×平仓），其余合法/边界方向未见过度拒绝。
+> - **独立实测基线**：构建 `rc 0`、告警/错误 `0/0`；`ctest -R risk_engine` **13/13**；聚合 `arch-check` **`rc 0`**（`E1`–`E7` 全 0）；`E4` 实扫 **45 文件、命中 0**；`P99 = 33.6–40.5 µs`（5 采样）；自撰探针 8 例（7 通过 1 失败）；隔离变异 4 杀 + 1 假绿事故已披露；共享树/隔离树残留 **0**。
+> - **不置 `DONE`**（门禁结论由编排者落）；`TASKS.md`/`BOARD.md`/`ARCHITECTURE.md` **零改动**。
