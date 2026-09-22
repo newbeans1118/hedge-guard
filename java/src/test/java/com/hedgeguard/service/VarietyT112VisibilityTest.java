@@ -302,7 +302,7 @@ class VarietyT112VisibilityTest {
     /** 真实 {@link AuthService}（仅装配可见性判定所需的两个 DAO；其余入参不被驱动 → 传 {@code null}）。 */
     private static AuthService authService(FakePermDao permDao, FakeAttemptDao attemptDao) {
         return new AuthService(FakeTx.newTemplate(), null, null, null, null, null, null, null,
-                permDao, attemptDao, null);
+                permDao, attemptDao, null, null, null, null, null);
     }
 
     private static UserSubAccountPerm perm(long userId, int subAccountId, String permType) {

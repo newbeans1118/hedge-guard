@@ -13,6 +13,7 @@
 //   · 心跳到点发送 + 连续 3 次未 ACK 判死（0x0301 告警）
 //   · 断线重连退避序列（500→8s 上限，≥10 次严重告警）
 //   · 补数批次装配（按 last_received_seq 回放；单批 ≤ 500）
+//   · 补数体按 §4.2.8.2 `MsgResumeData` 编码（`from_seq`/`to_seq`/`is_last`/`frames`；往返）
 //
 // ⚠️ 本文件主要**验证帧层/承载层**（不解释字段）：握手 / 控制帧 / 补数批的 body 多由
 //    `TestPolicy` 注入**不透明字节**；而**服务端缺省策略** = `PbTransportPolicy`
@@ -200,6 +201,16 @@ class TestPolicy : public TransportPolicy {
     v[1] = static_cast<std::uint8_t>((err_code >> 16) & 0xFFu);
     v[2] = static_cast<std::uint8_t>((err_code >> 8) & 0xFFu);
     v[3] = static_cast<std::uint8_t>(err_code & 0xFFu);
+    return v;
+  }
+  virtual std::vector<std::uint8_t> resume_data_body(
+      std::uint64_t /*from_seq*/, std::uint64_t /*to_seq*/, bool /*is_last*/,
+      const std::vector<std::vector<std::uint8_t> >& frames) const {
+    // 占位标记（非权威）：非空不透明 body，仅验证 `TransportPolicy` 接缝确实被调用。
+    // （真实 `MsgResumeData` 编码见 `PbTransportPolicy` / `test_resume_data_body_schema`。）
+    std::vector<std::uint8_t> v;
+    v.push_back(0x52);  // 'R' 占位
+    v.push_back(static_cast<std::uint8_t>(frames.size() & 0xFFu));
     return v;
   }
 };
@@ -588,7 +599,11 @@ void test_resume_batches() {
   HG_CHECK_EQ(batches[0][0].seq, static_cast<std::uint64_t>(2));
   HG_CHECK_EQ(batches[0][4].seq, static_cast<std::uint64_t>(6));
 
-  // 生产侧补数装配：经 `send_resume` 回放为 MSG_RESUME_DATA（body = 批内帧字节拼接）
+  // 生产侧补数装配：经 `send_resume` 回放为 MSG_RESUME_DATA。
+  // ⚠️ **订正（2026-09-22，`T-032` 残余收口）**：原注释写「body = 批内帧字节**拼接**」，
+  //    系 `send_resume` **未接 schema** 时的**中间态**行为（该中间态即缺陷）。现 body 经
+  //    `TransportPolicy` 接缝注入 —— 本用例注入 `TestPolicy`（**不透明占位**）；真实
+  //    `MsgResumeData{from_seq,to_seq,is_last,frames}` 编码见 `test_resume_data_body_schema`。
   HG_CHECK(srv.send_resume(1) == ReplayStatus::kOk);
   Frame rd;
   HG_REQUIRE(cli.recv_frame(1000, &rd));
@@ -620,6 +635,181 @@ void test_resume_batches() {
   HG_CHECK(s.build_resume(600, &bs) == ReplayStatus::kNothingToReplay);
 }
 
+// `T-032` 残余收口（2026-09-22）：`MSG_RESUME_DATA` 的 body 须按 §4.2.8.2 `MsgResumeData`
+// 编码（经 `TransportPolicy` 接缝注入）—— 字段 `from_seq`/`to_seq`/`is_last`/`frames`。
+void test_resume_data_body_schema() {
+  // A) E2E：**缺省策略**（`PbTransportPolicy`）下 `send_resume` 的线上 body 可被真实
+  //    `PbPayloadCodec` 解码为 `MsgResumeData`，且 `frames` = 各帧**原始帧字节**（可复解）。
+  {
+    HgcpServerLoop srv(any_port_cfg());
+    // 不注入策略 ⇒ 缺省 `PbTransportPolicy`（真实 protobuf body）。
+    const std::uint16_t port = start_loop(&srv);
+    HG_REQUIRE(port != 0);
+    TestClient cli(connect_client(port));
+    HG_REQUIRE(cli.valid());
+    std::vector<Frame> in;
+    srv.pump(1000, 0, &in);  // accept
+    HG_REQUIRE(do_handshake(&srv, &cli, &in));
+
+    // 服务端发 5 帧（通道 SEQ 2..6：HELLO_ACK 占 SEQ 1）并取空
+    for (int i = 0; i < 5; ++i) {
+      HG_REQUIRE(srv.send_frame(0x0203, 0u,
+                                std::vector<std::uint8_t>(1, static_cast<std::uint8_t>(i))));
+    }
+    for (int i = 0; i < 5; ++i) {
+      Frame ev;
+      HG_REQUIRE(cli.recv_frame(1000, &ev));
+    }
+
+    HG_CHECK(srv.send_resume(1) == ReplayStatus::kOk);
+    Frame rd;
+    HG_REQUIRE(cli.recv_frame(1000, &rd));
+    HG_CHECK_EQ(rd.header.type, mt(MessageType::kMsgResumeData));
+    HG_CHECK((rd.header.flags & fl(hg::hgcp::kFlagIsResumeData)) != 0u);
+
+    pbv1::MsgResumeData d;
+    HG_REQUIRE(PbPayloadCodec::decode(rd.body, &d));
+    HG_CHECK_EQ(d.from_seq(), 2u);
+    HG_CHECK_EQ(d.to_seq(), 6u);
+    HG_CHECK(d.is_last());  // 单批 ⇒ 最后一批
+    HG_CHECK_EQ(d.frames_size(), 5);
+    for (int k = 0; k < d.frames_size(); ++k) {
+      const std::string& w = d.frames(k);
+      Frame f;
+      std::size_t consumed = 0;
+      HG_REQUIRE(hg::hgcp::parse_frame(reinterpret_cast<const std::uint8_t*>(&w[0]), w.size(),
+                                       &f, &consumed) == FrameStatus::kOk);
+      HG_CHECK_EQ(consumed, w.size());
+      HG_CHECK_EQ(f.header.seq, static_cast<std::uint64_t>(2 + k));
+      HG_CHECK_EQ(f.header.type, 0x0203);
+      HG_REQUIRE_EQ(f.body.size(), 1u);
+      HG_CHECK_EQ(f.body[0], static_cast<std::uint8_t>(k));
+    }
+    cli.close();
+  }
+
+  // A2) E2E 多批：501 帧 ⇒ `send_resume` 产出 2 批（500 + 1）——
+  //     第 1 批 `is_last=false`、第 2 批 `is_last=true`（覆盖「恰好 500 帧」边界与前后批标记）。
+  {
+    HgcpServerLoop srv(any_port_cfg());
+    const std::uint16_t port = start_loop(&srv);
+    HG_REQUIRE(port != 0);
+    TestClient cli(connect_client(port));
+    HG_REQUIRE(cli.valid());
+    std::vector<Frame> in;
+    srv.pump(1000, 0, &in);  // accept
+    HG_REQUIRE(do_handshake(&srv, &cli, &in));
+
+    const int kN = 501;  // HELLO_ACK 占 SEQ 1 ⇒ 业务帧 SEQ 2..502
+    for (int i = 0; i < kN; ++i) {
+      HG_REQUIRE(srv.send_frame(0x0203, 0u,
+                                std::vector<std::uint8_t>(1, static_cast<std::uint8_t>(i & 0xFF))));
+    }
+    for (int i = 0; i < kN; ++i) {
+      Frame ev;
+      HG_REQUIRE(cli.recv_frame(2000, &ev));
+    }
+
+    HG_CHECK(srv.send_resume(1) == ReplayStatus::kOk);
+    for (int b = 0; b < 2; ++b) {
+      Frame rd;
+      HG_REQUIRE(cli.recv_frame(2000, &rd));
+      HG_CHECK_EQ(rd.header.type, mt(MessageType::kMsgResumeData));
+      pbv1::MsgResumeData d;
+      HG_REQUIRE(PbPayloadCodec::decode(rd.body, &d));
+      if (b == 0) {
+        HG_CHECK(!d.is_last());  // 非最后一批
+        HG_CHECK_EQ(d.from_seq(), static_cast<std::uint64_t>(2));
+        HG_CHECK_EQ(d.to_seq(), static_cast<std::uint64_t>(501));
+        HG_CHECK_EQ(d.frames_size(), 500);
+      } else {
+        HG_CHECK(d.is_last());   // 最后一批
+        HG_CHECK_EQ(d.from_seq(), static_cast<std::uint64_t>(502));
+        HG_CHECK_EQ(d.to_seq(), static_cast<std::uint64_t>(502));
+        HG_CHECK_EQ(d.frames_size(), 1);
+      }
+    }
+    cli.close();
+  }
+
+  // B) `is_last` 语义 + 「单批 ≤ 500」边界（session 级，直连 `PbTransportPolicy`）。
+  {
+    PbTransportPolicy pol;
+    {  // 恰好 500 帧 ⇒ 单批（is_last=true）
+      HgcpSession s;
+      s.on_connected(0);
+      for (int i = 0; i < 500; ++i) {
+        Frame f;
+        HG_REQUIRE(s.make_outbound(0x0203, 0u, std::vector<std::uint8_t>(1, 0x11), &f) ==
+                   FrameStatus::kOk);
+      }
+      std::vector<std::vector<BufferedFrame> > bs;
+      HG_REQUIRE(s.build_resume(0, &bs) == ReplayStatus::kOk);
+      HG_REQUIRE_EQ(bs.size(), 1u);
+      HG_REQUIRE_EQ(bs[0].size(), static_cast<std::size_t>(500));
+      std::vector<std::vector<std::uint8_t> > frames;
+      for (std::size_t k = 0; k < bs[0].size(); ++k) {
+        frames.push_back(bs[0][k].bytes);
+      }
+      pbv1::MsgResumeData d;
+      HG_REQUIRE(PbPayloadCodec::decode(
+          pol.resume_data_body(bs[0][0].seq, bs[0][bs[0].size() - 1u].seq, true, frames), &d));
+      HG_CHECK(d.is_last());
+      HG_CHECK_EQ(d.frames_size(), 500);
+      HG_CHECK_EQ(d.from_seq(), static_cast<std::uint64_t>(1));
+      HG_CHECK_EQ(d.to_seq(), static_cast<std::uint64_t>(500));
+    }
+    {  // 600 帧 ⇒ 2 批（500 + 100）：第 1 批 is_last=false、第 2 批 is_last=true
+      HgcpSession s;
+      s.on_connected(0);
+      for (int i = 0; i < 600; ++i) {
+        Frame f;
+        HG_REQUIRE(s.make_outbound(0x0203, 0u, std::vector<std::uint8_t>(1, 0x22), &f) ==
+                   FrameStatus::kOk);
+      }
+      std::vector<std::vector<BufferedFrame> > bs;
+      HG_REQUIRE(s.build_resume(0, &bs) == ReplayStatus::kOk);
+      HG_REQUIRE_EQ(bs.size(), 2u);
+      for (std::size_t i = 0; i < bs.size(); ++i) {
+        std::vector<std::vector<std::uint8_t> > frames;
+        for (std::size_t k = 0; k < bs[i].size(); ++k) {
+          frames.push_back(bs[i][k].bytes);
+        }
+        const bool is_last = (i + 1u == bs.size());
+        pbv1::MsgResumeData d;
+        HG_REQUIRE(PbPayloadCodec::decode(
+            pol.resume_data_body(bs[i][0].seq, bs[i][bs[i].size() - 1u].seq, is_last, frames),
+            &d));
+        HG_CHECK_EQ(d.is_last(), is_last);
+        HG_CHECK_EQ(d.from_seq(), bs[i][0].seq);
+        HG_CHECK_EQ(d.to_seq(), bs[i][bs[i].size() - 1u].seq);
+        HG_CHECK_EQ(static_cast<std::size_t>(d.frames_size()), bs[i].size());
+      }
+    }
+  }
+
+  // C) 往返：`resume_data_body` 编码 → **同一 codec** 解码 ⇒ 逐字段与输入相等
+  //    （含空帧元素 / 含 `0x00` / 300 字节大帧）。
+  {
+    PbTransportPolicy pol;
+    std::vector<std::vector<std::uint8_t> > frames;
+    frames.push_back(std::vector<std::uint8_t>());            // 空帧（proto `bytes` 合法）
+    frames.push_back(std::vector<std::uint8_t>(1, 0xAB));
+    frames.push_back(std::vector<std::uint8_t>(3, 0x00));     // 含 0x00
+    frames.push_back(std::vector<std::uint8_t>(300, 0x7F));   // 大帧
+    pbv1::MsgResumeData d;
+    HG_REQUIRE(PbPayloadCodec::decode(pol.resume_data_body(41u, 44u, false, frames), &d));
+    HG_CHECK_EQ(d.from_seq(), 41u);
+    HG_CHECK_EQ(d.to_seq(), 44u);
+    HG_CHECK(!d.is_last());
+    HG_REQUIRE_EQ(d.frames_size(), 4);
+    for (std::size_t k = 0; k < frames.size(); ++k) {
+      const std::string want(frames[k].begin(), frames[k].end());
+      HG_CHECK(d.frames(static_cast<int>(k)) == want);
+    }
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -633,5 +823,6 @@ int main() {
   test_heartbeat_send_and_timeout_death();
   test_reconnect_backoff();
   test_resume_batches();
+  test_resume_data_body_schema();
   return hg::hgcp::testutil::report("transport_test");
 }

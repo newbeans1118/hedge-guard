@@ -1,6 +1,8 @@
 // `TransportPolicy` 的 protobuf 实现（CH-013 / §4.2.8）。
 #include "hg/hgcp/pb_transport_policy.h"
 
+#include <string>
+
 namespace hg {
 namespace hgcp {
 
@@ -62,6 +64,29 @@ std::vector<std::uint8_t> PbTransportPolicy::frame_too_large_body() const {
 
 std::vector<std::uint8_t> PbTransportPolicy::error_body(std::uint32_t err_code) const {
   return encode_error(err_code);
+}
+
+std::vector<std::uint8_t> PbTransportPolicy::resume_data_body(
+    std::uint64_t from_seq, std::uint64_t to_seq, bool is_last,
+    const std::vector<std::vector<std::uint8_t> >& frames) const {
+  // `MsgResumeData`（§4.2.8.2）：`from_seq`/`to_seq`/`is_last` + `repeated bytes frames`。
+  //   `frames[k]` = 本批第 k 帧的**原始帧字节**（逐字节回放，线路侧不得过滤，§4.2.6）。
+  pbv1::MsgResumeData m;
+  m.set_from_seq(from_seq);
+  m.set_to_seq(to_seq);
+  m.set_is_last(is_last);
+  for (std::size_t k = 0; k < frames.size(); ++k) {
+    // 空帧合法（proto `bytes` 允许零长度）⇒ 显式构造空串，避免以空迭代器构串。
+    const std::string bytes = frames[k].empty()
+                                  ? std::string()
+                                  : std::string(frames[k].begin(), frames[k].end());
+    m.add_frames(bytes);
+  }
+  std::vector<std::uint8_t> body;
+  if (!PbPayloadCodec::encode(m, &body)) {
+    return empty();
+  }
+  return body;
 }
 
 }  // namespace hgcp

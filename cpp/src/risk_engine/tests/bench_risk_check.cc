@@ -133,7 +133,7 @@ int main() {
     std::printf("bench_risk_check: rebuild FAILED code=%d\n", rr.code);
     return 1;
   }
-  eng.applySnapshot(st.snapshot());
+  eng.applySnapshot(st);  // acquire() 强保护
 
   OrderRequest q;
   q.client_order_ref = 1;

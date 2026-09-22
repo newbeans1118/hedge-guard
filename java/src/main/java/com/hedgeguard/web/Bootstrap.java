@@ -21,9 +21,11 @@ import com.hedgeguard.dao.impl.DmLoginLogDao;
 import com.hedgeguard.dao.impl.DmLoginSessionDao;
 import com.hedgeguard.dao.impl.DmParamDispatchDao;
 import com.hedgeguard.dao.impl.DmPasswordHistoryDao;
+import com.hedgeguard.dao.impl.DmPermissionChangeLogDao;
 import com.hedgeguard.dao.impl.DmPlanApprovalDao;
 import com.hedgeguard.dao.impl.DmPlanStateLogDao;
 import com.hedgeguard.dao.impl.DmPositionConflictDao;
+import com.hedgeguard.dao.impl.DmPositionGroupDao;
 import com.hedgeguard.dao.impl.DmProductChangeLogDao;
 import com.hedgeguard.dao.impl.DmProductContractDao;
 import com.hedgeguard.dao.impl.DmProductDao;
@@ -119,9 +121,8 @@ public final class Bootstrap {
      * @return 装配产物（含分发器与可关闭资源）
      */
     static Assembly assembleWithResources(Config config) {
-        // ---- 无条件装配（与既有实现一致）：会话、认证过滤、静态托管、路由、ping ----
+        // ---- 无条件装配（与既有实现一致）：会话、静态托管、路由、ping ----
         SessionStore sessionStore = new SessionStore.InMemory();
-        AuthFilter authFilter = new SessionAuthFilter(sessionStore, config.sessionCookieName());
         StaticHandler staticHandler = new StaticHandler(config.webRoot());
 
         Router router = new Router();
@@ -130,6 +131,7 @@ public final class Bootstrap {
 
         DataSourcePool pool = null;
         JdbcConnectionFactory factory = null;
+        AuthFilter authFilter;
 
         // ---- 条件装配：仅当 hg.db.url 已配置时才接入数据库层 ----
         if (config.databaseConfigured()) {
@@ -145,10 +147,15 @@ public final class Bootstrap {
             }
             pool = new DataSourcePool(factory, poolConfig(config));
             TxTemplate tx = new TxTemplate(pool);
-            registerBusinessRoutes(router, tx, sessionStore);
+            AuthService authService = registerBusinessRoutes(router, tx, sessionStore, config);
+            // 认证时经 AuthService.touchSession 续期 ⇒ 会话为「空闲 30 min」滑动超时（FR-AUTH-15 验收 2）
+            authFilter = new SessionAuthFilter(sessionStore, config.sessionCookieName(),
+                    authService::touchSession);
             LOG.info("已装配数据库层：url=" + factory.url() + "（口令不落盘、不入日志）；"
                     + "业务服务 5 个已接线，路由总数=" + router.routes().size());
         } else {
+            // 未配库：无服务可续期，认证过滤器回退为「只查不续期」（进程保持可用，不因缺配置而启动失败）
+            authFilter = new SessionAuthFilter(sessionStore, config.sessionCookieName());
             LOG.info("未装配数据库（" + Config.KEY_DB_URL + " 为空）：仅提供 "
                     + ApiRoutes.full(ApiRoutes.PING) + " 与 " + StaticHandler.URL_PREFIX + "/**；"
                     + "业务接口不可达（受配置保护装配，进程保持可用，不因缺配置而启动失败）");
@@ -192,8 +199,11 @@ public final class Bootstrap {
      *
      * <p>抽出的公共 DAO（{@code DmProductSpotCategoryDao} / {@code DmExposureDao} /
      * {@code DmProductContractDao}）在多个服务间<b>复用同一实例</b>（DAO 无状态，仅持 {@link TxTemplate}）。
+     *
+     * @return 已装配的 {@link AuthService}（供认证过滤器注入会话续期器）
      */
-    private static void registerBusinessRoutes(Router router, TxTemplate tx, SessionStore sessionStore) {
+    private static AuthService registerBusinessRoutes(Router router, TxTemplate tx,
+                                                      SessionStore sessionStore, Config config) {
         DmProductSpotCategoryDao productSpotCategoryDao = new DmProductSpotCategoryDao(tx);
         DmExposureDao exposureDao = new DmExposureDao(tx);
         DmProductContractDao productContractDao = new DmProductContractDao(tx);
@@ -204,7 +214,9 @@ public final class Bootstrap {
                 new DmUserAccountDao(tx), new DmRoleDao(tx), new DmUserRoleDao(tx),
                 new DmPositionConflictDao(tx), new DmLoginSessionDao(tx), new DmLoginLogDao(tx),
                 new DmPasswordHistoryDao(tx), new DmUserSubAccountPermDao(tx),
-                new DmUnauthorizedAttemptDao(tx), sessionStore);
+                new DmUnauthorizedAttemptDao(tx), sessionStore,
+                new DmAuthorizationDao(tx), new DmPermissionChangeLogDao(tx),
+                new DmPositionGroupDao(tx), config);
 
         ConfigService configService = new ConfigService(tx,
                 new DmSubAccountDao(tx), new DmConfigItemDao(tx), new DmConfigChangeLogDao(tx),
@@ -237,6 +249,7 @@ public final class Bootstrap {
         ProductRoutes.register(router, varietyService);
         SpotRoutes.register(router, spotService);
         PlanRoutes.register(router, planService);
+        return authService;
     }
 
     /**

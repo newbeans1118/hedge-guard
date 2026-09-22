@@ -206,8 +206,12 @@ void evalWhitelist(const RiskSnapshot& s, const OrderRequest& req, const Instrum
 
 // =============================================================================
 // R-RISK-2 三层限额（FR-RISK-2；全序 + 并列取一 + entries[] 全命中项）
+//   **平仓不受限**：`R-RISK-5` 明列「额度阻断」属限制类处置，一律不得阻断平仓
+//   （否则风险无法释放）⇒ 与 `R-RISK-3/4/5/6` 的平仓豁免口径一致。
 // =============================================================================
-void evalQuota(const RiskSnapshot& s, const OrderRequest& req, Fixed cm, Fixed cf, RiskResult& r) {
+void evalQuota(const RiskSnapshot& s, const OrderRequest& req, Fixed cm, Fixed cf, bool is_open,
+               RiskResult& r) {
+  if (!is_open) return;  // 平仓 / 减仓不受额度限制（R-RISK-5）
   QuotaHit hits[3];
   Fixed hit_req[3] = {0, 0, 0};
   int nh = 0;
@@ -488,6 +492,19 @@ void RiskEngine::applySnapshot(const RiskSnapshot& s) {
   snapshot_.store(&s, std::memory_order_release);
 }
 
+void RiskEngine::applySnapshot(const hg::risk_state::RiskState& state) {
+  // 经 acquire() 取 RCU 读句柄并由引擎持有：快照在句柄存活期内**必不被回收**。
+  guard_ = state.acquire();
+  const RiskSnapshot& s = guard_.get();
+  thresholds_.price_warn_pct = s.thresholdFixed("risk.price.warn_pct", 20000);
+  thresholds_.price_block_pct = s.thresholdFixed("risk.price.block_pct", 50000);
+  thresholds_.scale_ratio_commodity = s.thresholdFixed("hedge.scale.ratio_commodity", 900000);
+  thresholds_.scale_ratio_trade = s.thresholdFixed("hedge.scale.ratio_trade", 800000);
+  thresholds_.term_max_months = s.thresholdInt("risk.term.max_months", 12);
+  thresholds_.term_grace_days = s.thresholdInt("risk.term.grace_days", 30);
+  snapshot_.store(&s, std::memory_order_release);
+}
+
 const RiskSnapshot* RiskEngine::currentSnapshot() const {
   return snapshot_.load(std::memory_order_acquire);
 }
@@ -532,7 +549,7 @@ RiskResult RiskEngine::check(const OrderRequest& req) const {
 
   // 规范顺序：R-RISK-1 → R-RISK-8（首次拒绝者为上报规则；全部规则均求值以收集 entries[]）
   evalWhitelist(*s, req, inst, r);
-  evalQuota(*s, req, cm, cf, r);
+  evalQuota(*s, req, cm, cf, is_open, r);
   evalPositionLimit(*s, req, is_open, r);
   evalScale(*s, req, var, inst, thresholds_, year, is_open, r);
   evalNetPosition(*s, req, var, inst, is_open, r);

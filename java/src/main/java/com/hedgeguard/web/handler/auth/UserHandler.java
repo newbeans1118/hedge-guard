@@ -1,0 +1,210 @@
+package com.hedgeguard.web.handler.auth;
+
+import com.hedgeguard.dao.PageQuery;
+import com.hedgeguard.dao.PageResult;
+import com.hedgeguard.dao.entity.UserAccount;
+import com.hedgeguard.service.AuthService;
+import com.hedgeguard.web.ApiResponse;
+import com.hedgeguard.web.ApiRoutes;
+import com.hedgeguard.web.BizException;
+import com.hedgeguard.web.ErrorCode;
+import com.hedgeguard.web.HttpResult;
+import com.hedgeguard.web.JsonCodec;
+import com.hedgeguard.web.PageData;
+import com.hedgeguard.web.RequestContext;
+import com.hedgeguard.web.RouteHandler;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 用户管理 {@code GET|POST|PUT /api/v1/auth/user}（{@code FR-AUTH-1~5}）。
+ *
+ * <ul>
+ *   <li>{@code GET} 列表（默认创建时间倒序；<b>绝不回任何口令字段</b>，{@code FR-AUTH-5} 验收 3）；</li>
+ *   <li>{@code POST} 新增用户（{@code FR-AUTH-1}）；</li>
+ *   <li>{@code PUT} 变更：{@code action=UPDATE|DISABLE|ENABLE}（{@code FR-AUTH-2/3/4}）。</li>
+ * </ul>
+ */
+public final class UserHandler implements RouteHandler {
+
+    /** 注册路径（逐字取自 {@code §4.1.1}）。 */
+    public static final String PATH = ApiRoutes.full("/auth/user");
+
+    private final AuthService authService;
+
+    /**
+     * 构造。
+     *
+     * @param authService 认证服务
+     */
+    public UserHandler(AuthService authService) {
+        this.authService = authService;
+    }
+
+    @Override
+    public HttpResult handle(RequestContext ctx) {
+        String method = ctx.method().toUpperCase(java.util.Locale.ROOT);
+        if ("GET".equals(method)) {
+            return list(ctx);
+        }
+        if ("POST".equals(method)) {
+            return create(ctx);
+        }
+        return mutate(ctx);
+    }
+
+    private HttpResult list(RequestContext ctx) {
+        PageQuery query = PageQuery.of(ctx.queryParam("page"), ctx.queryParam("size"),
+                ctx.queryParam("sort"), "created_time", "desc");
+        PageResult<UserAccount> page = authService.listUsers(query,
+                ctx.queryParam("status"), ctx.queryParam("leader"));
+        List<UserView> items = new ArrayList<>();
+        for (UserAccount user : page.items()) {
+            items.add(UserView.of(user, authService.roleCodesOf(user.id),
+                    authService.visibleSubAccountIds(user.id)));
+        }
+        return HttpResult.json(200, ApiResponse.ok(
+                new PageData<>(items, page.total(), page.page(), page.size()), ctx.traceId()));
+    }
+
+    private HttpResult create(RequestContext ctx) {
+        CreateRequest request = JsonCodec.fromJson(ctx.body(), CreateRequest.class);
+        if (request == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "新增用户须提交 {username, realName, naturalPersonKey, initialPassword, ...}；"
+                            + "复现=按 §4.1.1 提交 application/json");
+        }
+        long id = authService.createUser(request.username, request.realName,
+                request.naturalPersonKey, request.department, request.isEnterpriseLeader,
+                request.initialPassword, ctx.currentUserId());
+        return HttpResult.json(200, ApiResponse.ok(id, ctx.traceId()));
+    }
+
+    private HttpResult mutate(RequestContext ctx) {
+        MutateRequest request = JsonCodec.fromJson(ctx.body(), MutateRequest.class);
+        if (request == null || request.action == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "变更须提交 {action: UPDATE|DISABLE|ENABLE, ...}；复现=按 §4.1.1 提交");
+        }
+        long operatorId = ctx.currentUserId();
+        switch (request.action.toUpperCase(java.util.Locale.ROOT)) {
+            case "UPDATE":
+                authService.updateUser(request.userId, request.realName, request.department,
+                        request.isEnterpriseLeader, operatorId, request.reviewerId);
+                return HttpResult.json(200, ApiResponse.ok(null, ctx.traceId()));
+            case "DISABLE":
+                authService.disableUser(request.userId, request.reason, operatorId);
+                return HttpResult.json(200, ApiResponse.ok(null, ctx.traceId()));
+            case "ENABLE":
+                String oneTime = authService.enableUser(request.userId, operatorId, request.reviewerId);
+                return HttpResult.json(200, ApiResponse.ok(new ResetView(oneTime), ctx.traceId()));
+            default:
+                throw BizException.of(ErrorCode.PARAM_INVALID,
+                        "未知 action：" + request.action + "；复现=改用 UPDATE|DISABLE|ENABLE");
+        }
+    }
+
+    /** 新增请求体。 */
+    public static final class CreateRequest {
+
+        /** 登录名（唯一）。 */
+        public String username;
+
+        /** 姓名。 */
+        public String realName;
+
+        /** 自然人唯一键。 */
+        public String naturalPersonKey;
+
+        /** 部门。 */
+        public String department;
+
+        /** 是否企业负责人（{@code Y}/{@code N}）。 */
+        public String isEnterpriseLeader;
+
+        /** 初始口令（仅内存）。 */
+        public String initialPassword;
+    }
+
+    /** 变更请求体。 */
+    public static final class MutateRequest {
+
+        /** 动作：{@code UPDATE} / {@code DISABLE} / {@code ENABLE}。 */
+        public String action;
+
+        /** 目标用户 ID。 */
+        public long userId;
+
+        /** 姓名（UPDATE）。 */
+        public String realName;
+
+        /** 部门（UPDATE）。 */
+        public String department;
+
+        /** 企业负责人标记（UPDATE）。 */
+        public String isEnterpriseLeader;
+
+        /** 停用原因（DISABLE）。 */
+        public String reason;
+
+        /** 复核人（UPDATE 标记变更 / ENABLE 必填）。 */
+        public Long reviewerId;
+    }
+
+    /** 一次性口令视图（仅回一次，不落盘不入日志）。 */
+    public static final class ResetView {
+
+        /** 一次性口令。 */
+        public String oneTimePassword;
+
+        ResetView(String oneTimePassword) {
+            this.oneTimePassword = oneTimePassword;
+        }
+    }
+
+    /** 用户视图（<b>无任何口令字段</b>）。 */
+    public static final class UserView {
+
+        /** 用户 ID。 */
+        public long id;
+
+        /** 登录名。 */
+        public String username;
+
+        /** 姓名。 */
+        public String realName;
+
+        /** 部门。 */
+        public String department;
+
+        /** 企业负责人标记。 */
+        public String isEnterpriseLeader;
+
+        /** 状态。 */
+        public String status;
+
+        /** 最后登录时间（ISO-8601）。 */
+        public String lastLoginTime;
+
+        /** 角色编码集合。 */
+        public List<String> roleCodes;
+
+        /** 可见子账户范围（含哨兵 0 = 跨账户只读）。 */
+        public List<Integer> subAccountScope;
+
+        static UserView of(UserAccount user, List<String> roleCodes, List<Integer> scope) {
+            UserView view = new UserView();
+            view.id = user.id;
+            view.username = user.username;
+            view.realName = user.realName;
+            view.department = user.department;
+            view.isEnterpriseLeader = user.isEnterpriseLeader;
+            view.status = user.status;
+            view.lastLoginTime = user.lastLoginTime == null ? null : user.lastLoginTime.toString();
+            view.roleCodes = roleCodes;
+            view.subAccountScope = scope;
+            return view;
+        }
+    }
+}

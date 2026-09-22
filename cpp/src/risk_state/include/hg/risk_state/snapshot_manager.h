@@ -121,7 +121,9 @@ class SnapshotManager {
   std::uint64_t reclaimed_count() const {
     return reclaimed_count_.load(std::memory_order_relaxed);
   }
-  std::size_t retired_pending() const { return retired_.size(); }
+  std::size_t retired_pending() const {
+    return retired_count_.load(std::memory_order_relaxed);
+  }
   std::int64_t active_readers() const { return active_.load(std::memory_order_seq_cst); }
   SnapshotStats stats() const;
 
@@ -136,6 +138,10 @@ class SnapshotManager {
   mutable std::atomic<std::int64_t> active_;
   std::atomic<RiskSnapshot*> published_;
   std::vector<Retired> retired_;  // **写者独占**（单写者，无需同步）
+  // `retired_.size()` 的**无锁镜像**（与 `retired_` 的每次写入并行更新）。
+  // 诊断访问器 `retired_pending()` / `stats()` 由任意线程读取 ⇒ 只读本原子计数，
+  // **不得**读 `retired_.size()`（后者与写者的 push_back/swap 并发 = 数据竞争）。
+  std::atomic<std::size_t> retired_count_;
   std::atomic<std::uint64_t> publish_count_;
   std::atomic<std::uint64_t> reclaimed_count_;
 

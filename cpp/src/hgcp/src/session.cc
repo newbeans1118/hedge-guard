@@ -23,6 +23,11 @@ std::vector<std::uint8_t> EmptyTransportPolicy::error_body(
     std::uint32_t /*err_code*/) const {
   return std::vector<std::uint8_t>();
 }
+std::vector<std::uint8_t> EmptyTransportPolicy::resume_data_body(
+    std::uint64_t /*from_seq*/, std::uint64_t /*to_seq*/, bool /*is_last*/,
+    const std::vector<std::vector<std::uint8_t> >& /*frames*/) const {
+  return std::vector<std::uint8_t>();  // 占位：见 pb_transport_policy.h（真实字段编码）
+}
 
 HgcpSession::HgcpSession()
     : hb_(kHeartbeatIntervalMs, kHeartbeatMissThreshold),

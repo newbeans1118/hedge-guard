@@ -69,9 +69,9 @@ void test_no_observable_state_change() {
   RiskEngine eng(&clk);
   HG_CHECK(bind(&st, &eng, happyBatch(1)));
 
-  const std::size_t before_records = st.snapshot().record_count();
+  const std::size_t before_records = st.acquire().get().record_count();
   const hg::risk_state::Fixed before_limit =
-      st.snapshot().findQuota(hg::risk_state::QuotaLayer::kSubProduct, 1, 10, 0)->limit;
+      st.acquire().get().findQuota(hg::risk_state::QuotaLayer::kSubProduct, 1, 10, 0)->limit;
   const hg::risk_engine::RiskThresholds before_th = eng.thresholds();
 
   (void)eng.check(baseOrder());
@@ -79,8 +79,8 @@ void test_no_observable_state_change() {
   bad.volume = 0;  // 非法
   (void)eng.check(bad);
 
-  HG_CHECK_EQ(st.snapshot().record_count(), before_records);
-  HG_CHECK_EQ(st.snapshot().findQuota(hg::risk_state::QuotaLayer::kSubProduct, 1, 10, 0)->limit,
+  HG_CHECK_EQ(st.acquire().get().record_count(), before_records);
+  HG_CHECK_EQ(st.acquire().get().findQuota(hg::risk_state::QuotaLayer::kSubProduct, 1, 10, 0)->limit,
               before_limit);
   HG_CHECK_EQ(eng.thresholds().price_block_pct, before_th.price_block_pct);
   HG_CHECK_EQ(eng.thresholds().term_max_months, before_th.term_max_months);
@@ -109,7 +109,7 @@ void test_two_engines_same_snapshot_same_result() {
   RiskEngine e1(&clk);
   RiskEngine e2(&clk);
   HG_CHECK(bind(&st, &e1, happyBatch(1)));
-  e2.applySnapshot(st.snapshot());
+  e2.applySnapshot(st);  // acquire() 强保护
   HG_CHECK(same(e1.check(baseOrder()), e2.check(baseOrder())));
 }
 

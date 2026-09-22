@@ -22,6 +22,7 @@
 #include "hg/risk_engine/order_request.h"
 #include "hg/risk_engine/risk_result.h"
 #include "hg/risk_state/risk_snapshot.h"
+#include "hg/risk_state/risk_state.h"
 
 namespace hg {
 namespace risk_engine {
@@ -45,10 +46,15 @@ class RiskEngine {
   explicit RiskEngine(const IClock* clock = nullptr);
   ~RiskEngine();
 
-  // 原子替换判定快照（§3.3）。写侧（T4 单线程）：解析阈值 → 发布快照指针。
-  // 传引用、**不取得所有权**（所有权归 `RiskState`，其 RAII + RCU 保证生命周期；
-  // 调用方须保证 `RiskState` 比本引擎活得久）。
+  // 原子替换判定快照（§3.3 literal）。传引用、**不取得所有权**；调用方须自证该快照
+  // 在引擎使用期间存活（**推荐改用下方位保护重载**，见其说明）。
   void applySnapshot(const hg::risk_state::RiskSnapshot& s);
+
+  // 强保护绑定（**推荐**）：经 `RiskState::acquire()` 取 RCU 读句柄并**由引擎持有**，
+  // 从而跨任意多次 `rebuild`/`publish` 期间，本引擎所用的快照**必不被回收** —— 消除
+  // 「裸指针未被读者计数、却可能被 RCU 宽限期回收」的 use-after-free（§4.4.3）。
+  // 同时从该快照解析阈值。
+  void applySnapshot(const hg::risk_state::RiskState& state);
 
   // 当前快照指针（未设置 ⇒ nullptr）。仅供观测 / 测试。
   const hg::risk_state::RiskSnapshot* currentSnapshot() const;
@@ -63,6 +69,7 @@ class RiskEngine {
   const IClock* clock_;
   SystemClock default_clock_;
   std::atomic<const hg::risk_state::RiskSnapshot*> snapshot_;
+  hg::risk_state::SnapshotManager::ReadGuard guard_;  // 推荐路径下持有的 RCU 读句柄
   RiskThresholds thresholds_;
 
   RiskEngine(const RiskEngine&) = delete;

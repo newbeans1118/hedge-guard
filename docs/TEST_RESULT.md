@@ -3861,3 +3861,271 @@ E7 通过：§4.2.8 与 proto 逐条一致（消息 40+10、字段 214+66、枚�
 - 追加前基线：`md5 04a87a2d5631a68c127b89e05cad4e9c` / **3817 行**（落笔前 3×≥9s 取样不变）。
 - 校验：`head -3817 docs/TEST_RESULT.md | md5sum` 应与上式一致（⇒ 纯追加）。
 - 追加后全文 md5 / 行数：**以实时 `md5sum docs/TEST_RESULT.md` / `wc -l` 为准**（自指值不可写死）。
+
+---
+
+# `T-010` 修复 delta 复检证据（`TE-T010b-001`）（2026-09-22）
+
+> 复检人：`test-engineer`（独立复核方，席位 `te-rec-t010`）。被复检对象：`be-t010fix` 对 **`TE-T010b-001`**（`T109EndpointRegistrationTest` 段② 守卫空转）的修复。
+> 立场：产出方一切自报**视为待证命题**；本章分「**独立实测**」与「**产出方自述（本席未复现/仅转述）**」两栏；**不复用产出方变异手法**（另设等价变异）。**本席不置 `DONE`**，不改 `TASKS.md`/`BOARD.md`/`ARCHITECTURE.md`。
+
+## T010rec.0 快照与锚点比对
+
+- **共享树锚**（`cwd=仓库根`，`LC_ALL=C`）：`find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum` = **`8bf0e1d6c2e83a52e62d511616324c4b` / 335 文件**（本席独立重测，3×≥9s 不变；实测 2026-09-22 20:22 CST）—— 与产出方自报**一致**。
+- **被修复文件**：`java/src/test/java/com/hedgeguard/web/T109EndpointRegistrationTest.java` md5 **`2a48eb17f6399d131ff0756fd509d7b2` / 182 行**；`git diff`(HEAD→工作区) = **+29 / −5**（与产出方自报逐字一致），**仅此一文件**。
+- **`ConfigRoutes.java`** md5 **`aa92832f8299801066ffd4515972eb65`**（= 产出方自报的复位值，一致）。
+- **隔离副本** `/root/hgt010rec`（含 `docs/`+`java/`+`tools/`，防路径型测试假红与 `mvn validate` 的 `arch-check` exec `127`）。**所有变异仅在副本内**；副本 `java/src` 锚 = `8bf0e1d6…`/335（= 交付冻结点 ⇒ 变异已完全复位）。
+- **共享树残留**：开局与收尾扫 `*.orig`/`*.rej`/`*MUTATION*`/`TeRecT010*` = **0**；收尾锚仍 `8bf0e1d6…`/335。
+
+## T010rec.1 基线（独立实测）
+
+| 项 | 独立实测 | 产出方自述（我未复现） |
+|----|---------|----------------------|
+| `mvn -B -o -T1 clean test`（副本，`TMPDIR=/`）| **484 / 0 / 0 / 0**，BUILD SUCCESS | 484/0/0/0（一致）|
+| surefire XML 合计（60 文件）| tests **484** failures **0** errors **0** skipped **0** | 484（一致）|
+| `@Test` 行首锚 `^\s*@Test\b` vs 裸 `grep -c` | **484 == 484**（无注释吞并）| 484==484（一致）|
+| 聚合 `arch-check.sh` | **rc 0**；`E1`–`E7` 逐条 0（`E5`=0；`E4` 实扫、WARN 3 为信息项）| rc 0（一致）|
+| `T109EndpointRegistrationTest` surefire | tests=**2** failures=**0** | 2/2 绿（一致）|
+
+## T010rec.2 §2.1 原守卫确为空转（复现）—— **缺陷真实存在**
+
+机制取证（自撰探针 `TeRecT010PreFixGuardTest#vacuityProbe`，**未复用产出方手法**；M1 变异态下）：
+
+```
+[vacuity] GET  /api/v1/config/ctp                 assembly=500 plain=405   ← 被摘掉的端点
+[vacuity] POST /api/v1/config/ctp                 assembly=500 plain=400
+...（其余 18 条 DISPATCH 条目）...                  assembly=500 plain=500/400
+[vacuity] UNREGISTERED /api/v1/config/definitely-not-a-route  assembly=500 plain=404
+```
+
+- **经装配分发器（含 `SessionRenewer`）**：19 条 DISPATCH + 1 条根本不存在路径，**一律 `500`**（假驱动下 `touchSession` 写库 NPE）。
+- ⇒ 原段② 只收集 `404/405` 的 `problems.isEmpty()` **恒真**（既非注册面、也非反面）。
+- **等价还原「修复前形态」**（段② 主断言经 `assembly.dispatcher()`、反向对照用 2 参直连 `plain`；与 `te-verify-t010b` 记录的工作区形态一致）：**M1 变异下 `preFixMainViaAssembly` = 绿（PASS）** —— 摘掉一个**真实注册**而断言不红 ⇒ **空转证实**。
+
+## T010rec.3 §2.2 新守卫确会咬（双向）
+
+同一 M1 变异（删 `ConfigRoutes` 的 `GET /config/ctp` 注册）下：
+
+- **修复后段② → 红**：`T109EndpointRegistrationTest.t109EndpointsNot404Not405:167` FAILURE，`T-109 端点仍返回 404/405：[GET /api/v1/config/ctp → 405]`。
+- **复位（字节复原 + clean 重编译）→ 绿**：`ConfigRoutes.java` md5 逐字节回 `aa92832f…`；`mvn -o clean test -Dtest=…` ⇒ 段② 2/2、还原态 1/1，BUILD SUCCESS。
+
+## T010rec.4 §2.3 锚「行为」不锚实现；无关变更不误红
+
+- 断言只检**路由结果**：未注册 ⇒ `404`；路径在而方法缺 ⇒ `405`；已注册 ⇒ **非** `404/405`（handler 因无真实库可 4xx/5xx）。不依赖类名/字段/调用形态等实现细节。
+- **无关变更旁证**（M2：在 `ConfigRoutes` 另注册一条**与 T-109 无关**的新端点 `GET /api/v1/config/zzz-rec-unrelated-probe`）⇒ 段② **仍绿（2/2）**，段① 亦绿 ⇒ **未见误红**。
+
+## T010rec.5 §2.4 未为过测试而放宽（改动清单）
+
+`T109EndpointRegistrationTest.java`（行号为**现行文件**）：
+
+| 行 | 修复前 | 修复后 | 性质 |
+|----|-------|-------|------|
+| 32–36（javadoc）| 「经 `RequestDispatcher` 进程内分发」| 增「**直连分发**（2 参 `SessionAuthFilter`＝不续期）」+ ⚠️ 说明原段② 经装配分发器致恒 500 | **文档** |
+| 138–148 | （无）| 新增 `// 【T-010 修正 · TE-T010b-001（守卫空转）】` 加注：原文写明「假驱动下**已认证请求一律 500** ⇒ `problems.isEmpty()` **恒真、不再守卫端点注册**」 | **加注（已写明成因）** |
+| 149–157 | （无）| 新增 `plainRouter` + `ConfigRoutes/SpotRoutes/PlanRoutes` 直连注册 + `RequestDispatcher plain`（2 参过滤器）| **测试装配** |
+| 161 | `assembly.dispatcher().dispatch(` | `plain.dispatch(` | **分发路径** |
+| 169–170 | `// …应 404…` + `assembly.dispatcher()` | `// …应 404/405…` + `plain.dispatch(` | **分发路径 + 注释** |
+
+- **断言集合前后逐条一致**，**无一条**被改成「只查长度 / 非空 / 不抛异常」：
+  - `assertTrue(problems.isEmpty(), …)`（L167）**未变**；
+  - `assertNotEquals(200, unknown.status)`（L173）**未变**；
+  - `assertTrue(unknown.status == 404 || unknown.status == 405, …)`（L174–175）**未变**；
+  - 装配冒烟 `assertDoesNotThrow(() -> Bootstrap.assembleWithResources(…))`（L131–132）**保留**。
+- 唯一行为变化 = **分发器由装配改为直连** ⇒ 守卫由**空转**变**承重**（强度**升**，非降）。
+
+## T010rec.6 §2.5 `src/main` 零改动（独立核）
+
+- `git diff --stat HEAD -- java/src/main` = 5 文件（`Config.java`/`AuthService.java`/`Bootstrap.java`/`SessionAuthFilter.java`/`AuthRoutes.java`），**全部属 `T-010` 退回重做的既有改动**（内容与本修复无关；修复自述范围仅测试）。
+- **mtime 佐证**：`java/src/main` 全部文件 mtime ≤ **17:04:49**；被修复的测试文件 mtime = **20:02:37** ⇒ 修复写入晚于最后一次 `src/main` 写入约 3 小时，其间 `src/main` 零写入。
+- ⚠️ **证据强度限制（据实标注）**：修复前工作树**不可重建**（无 `be-t010fix` 落笔前的整树快照），故此项为「**diff 范围 + mtime 次序**」佐证，**非**与修复前树逐字节 diff。
+
+## T010rec.7 §2.6 / §2.7 回归、门禁与「方案 (ii) 三重重复」理由
+
+- **回归 / 门禁**：见 §T010rec.1（484/0/0/0、`@Test`==surefire、聚合 rc 0、`E1`–`E7` 全 0）。
+- **§2.7 理由核查 = 成立**：`BootstrapAssemblyTest.java:140` **确有** `assertEquals(82, assembly.routeCount(), …)`；M1 变异下**实测红**：`expected: <82> but was: <81>` ⇒ 该守卫**确能拦住「少注册端点」**。选 (i) 合理。
+- **措辞订正（观察级）**：产出方「(ii) 系**三重**重复」略宽 —— 严格说 (ii) 与 `BootstrapAssemblyTest:140` 为**完全重复**，与段① 为**部分重叠**（段① 更强：逐条点名 19 对）。**不影响**选 (i) 的正确性。
+- ⚠️ **值得下游知悉的覆盖移交**：修复后段② 只验「直连注册表」（不经 `Bootstrap`），故「`Bootstrap` 是否调用 `ConfigRoutes.register`」不再由段② 承担 —— 已由 `BootstrapAssemblyTest:140` 兜住（本席实测其在 M1 下红），**全局覆盖未失**。
+
+## T010rec.8 变异表（隔离副本 `/root/hgt010rec`）
+
+| 变异 | 目标 | 修复前形态 | 修复后 | 复位后 | 副本路径 |
+|------|------|-----------|--------|--------|---------|
+| **M1**（摘端点）| 删 `ConfigRoutes:46` 的 `GET /config/ctp` 注册 | `preFixMainViaAssembly` = **绿（PASS，空转证实）** | `t109EndpointsNot404Not405` = **红**（`GET /api/v1/config/ctp → 405`）| **绿**（clean 重编译后 2/2、还原态 1/1）| `java/src/main/java/com/hedgeguard/web/handler/config/ConfigRoutes.java` |
+| **M2**（无关新增）| 另注册 `GET /api/v1/config/zzz-rec-unrelated-probe` | —— | **绿**（2/2，无误红）| —— | 同上 |
+| **M1 下附加判定** | `T109EndpointRegistrationTest#allT109RoutesRegistered`（段①）| —— | **红**（`[GET /api/v1/config/ctp]` 未注册）| 绿 | 同上 |
+| **M1 下附加判定** | `BootstrapAssemblyTest#configuredDatabaseRegistersAllBusinessRoutes:140` | —— | **红**（`82` vs `81`）| 绿 | 同上 |
+
+- 修复前形态还原源：`/root/hgt010rec/mut/TeRecT010PreFixGuardTest.java`（**仅副本，非交付制品**）。
+- 「**修复前主+反向皆装配**」变体（更早提交形态）在 M1 下**亦红**，但其红点在**反向对照**（`不存在的路径应 404/405，实际=500`），**非**主断言 —— 说明产出方「修复前 2/2 绿」只在**中间态**（反向已直连）成立；此为历史事实澄清，**不构成缺陷**。
+
+## T010rec.9 缺陷 / 观察清单
+
+| 编号 | 严重度 | 类别 | 结论 |
+|------|--------|------|------|
+| —— | —— | 缺陷 | **无**（未发现新增缺陷；原 `TE-T010b-001` 已被**独立复现并证实修复有效**）|
+| `OBS-T010rec-1` | 观察 | 覆盖移交 | 段② 不再经 `Bootstrap`；装配面注册完整性由 `BootstrapAssemblyTest:140` 承接（**已实测在 M1 下红**）⇒ 覆盖未失 |
+| `OBS-T010rec-2` | 观察 | 措辞 | 「三重重复」宜作「1 完全重复 + 1 部分重叠」；不影响结论 |
+| `OBS-T010rec-3` | 观察 | 证据强度 | `src/main` 零改动为 mtime + diff 范围佐证（修复前树不可重建），非逐字节 diff |
+
+## T010rec.10 结论
+
+**结论：`通过`。**
+
+- **§2.1（原守卫空转）**：**复现成功** —— 等价还原的修复前段② 在 M1 下**仍绿**；装配分发器对 19+1 条请求**一律 500**。
+- **§2.2（新守卫咬合）**：**双向成立** —— M1 下修复后段② **红**（405）、复位后**绿**。
+- **§2.3 / 2.4 / 2.5 / 2.6 / 2.7**：行为锚定 ✅；无关变更不误红 ✅；断言未放宽 ✅；`src/main` 零改动 ✅（附强度限制）；回归 484/0/0/0 + 聚合 rc 0 ✅；(ii) 理由成立 ✅。
+- **独立实测基线**：`mvn -B -o -T1 clean test` **484/0/0/0**；surefire **484** == `@Test` **484**；聚合 `arch-check` **rc 0**（`E1`–`E7` 全 0）；副本 `java/src` 锚 = `8bf0e1d6…`/335；共享树锚不变、残留 0。
+- **本席不置 `DONE`**；不改 `TASKS.md`/`BOARD.md`/`ARCHITECTURE.md`。
+
+**纯追加证明**（自指值不写死）：
+- 追加前基线：`md5 1243a62b49cc508b72f1ab6b075aec50` / **3863 行**（落笔前 3×≥9s 取样不变 ⇒ 已静默）。
+- 校验：`head -3863 docs/TEST_RESULT.md | md5sum` 应与上式一致（⇒ 纯追加）。
+- 追加后全文 md5 / 行数：**以实时 `md5sum docs/TEST_RESULT.md` / `wc -l` 为准**（自指值不可写死）。
+
+---
+
+# `T-035` 修复复检证据（`TE-T035-001`）（2026-09-22）
+
+> 独立复核方：**测试工程师**（席位 `te-verify-t035b`）｜ 时刻 `2026-09-22T20:2x+08:00`
+> 对象：`be-t035fix` 对 P1 缺陷 `TE-T035-001` / `BUG-002` 的修复（**退回修复后的 delta 复检**，非重新全量复核）。
+> 立场：**不复用产出方用例、不采信其自报数字**；变异/探针一律在隔离副本；**不修改任何交付制品**；`TASKS.md`/`BOARD.md`/`ARCHITECTURE.md` **零改动**；**不自评 `DONE`**。分栏「**独立实测**」vs「**产出方自述（本席未复现者标注）**」。
+
+## T035vb.1 快照 / 锚点（独立实测）
+
+| 项 | 独立实测值 | 与产出方自报 |
+|---|---|---|
+| 修复后 `cpp/src/risk_engine` 锚（`cwd=仓库根`，`find cpp/src/risk_engine -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum`） | **`35cf08187b4354df81aeed6cf1213342` / 29 文件** | ✅ **逐字节吻合** |
+| 修复前 同口径锚（**本席独立重建**：隔离副本内回退本次三处改动 + 删新用例后重算） | **`fc086003667fe0a890a69358c3a51c56` / 28 文件** | ✅ 与产出方「改前」**逐字节吻合**，亦与上一轮复核章 `T035.0` 所述一致 |
+| `risk_engine.cc` mtime | `2026-09-22 19:45:53`（开工/收工两次实测**未变**⇒复核期无并发写者） | —— |
+| 构建环境（独立） | `cmake 4.2.3` / `g++ 15.2.0` / `RelWithDebInfo` / 系统 protobuf `3.21.12` / `CTP_FOUND=OFF` | —— |
+
+- 本席工作区：共享树**只读**；基线构建 `/root/b-t035vb`；隔离副本 `/root/iso-t035vb` + 构建 `/root/iso-t035vb-build`；工作区 `/root/vb-probe-t035.cc`（自撰）。
+- 共享树残留扫描（`*.orig` / `*.bak` / `*MUTATION*` / `*.rej`）：**0**（`find` 实测）。
+
+## T035vb.2 独立实测基线（`/root/b-t035vb`，共享树源码；`-j1`）
+
+| 项 | 独立实测 | 产出方自报 | 判 |
+|---|---|---|---|
+| 构建 | rc=0，`warning:`=**0**、`error:`=**0**（`-Wall -Wextra -Werror`） | rc 0 / 0 / 0 | ✅ 一致 |
+| `ctest`（名单以 `ctest -N` 为准，Test #1..#32） | **32/32 通过**（含 #19 `close_exemption`） | 32/32 | ✅ 一致 |
+| 新用例直接运行 | `risk_engine_close_exemption_test: 72 checks, 0 failures -> PASS` | 9 用例 / 72 断言 | ✅ 一致 |
+| 聚合 `bash tools/arch-check/arch-check.sh` | rc=**0**；`E1`=0 `E2`=0 `E3`=0 `E4`=0 `E5`=0 `E6`=0 `E7`=0 | rc 0 / 全 0 | ✅ 一致 |
+| `E4`（实扫） | 扫描根 = `order_engine,risk_engine,risk_state` **三目录并集**；**待扫描 46 文件、命中 0**；WARN 3（未覆盖判据 C/D 信息性） | 46 / 0 | ✅ 一致 |
+
+## T035vb.3 缺陷确已消除 + 反向（防误伤）—— 本席自建探针
+
+探针 `/root/vb-probe-t035.cc`（**不复用**产出方 `risk_engine_close_exemption_test.cc`；独立编译链接 `libhg_risk_engine.a` + `libhg_risk_state.a`）⇒ **94 checks, 0 failures -> PASS**。
+
+| 场景（同一快照，仅改 `offset`） | 开仓 `kOpen` 实测 | 平仓 `kClose` 实测 | 判 |
+|---|---|---|---|
+| 层① `SUB_PRODUCT` 耗尽 | REJECT rule=2 `0x1004` layer=1 entries=1 | **PASS rule=0 entries=0** | ✅ 修复生效 |
+| 层② `SUB_INSTRUMENT` 耗尽 | REJECT rule=2 `0x1017` layer=2 entries=1 | **PASS rule=0 entries=0** | ✅ |
+| 层③ `ACCOUNT_PRODUCT` 耗尽 | REJECT rule=2 `0x1005` layer=3 entries=1 | **PASS rule=0 entries=0** | ✅ |
+| 三层全耗尽 | REJECT rule=2 `0x1017` layer=2 entries=**3** | **PASS rule=0 entries=0** | ✅ 全序/`entries[]` 逻辑未动 |
+| 层① + 方向=卖出（减仓） | REJECT rule=2 `0x1004` layer=1 | **PASS rule=0 entries=0** | ✅ |
+| 其余四条需豁免规则（上限/规模/净持仓/期限） | 各自 REJECT + 正确 code | 各自 **PASS entries=0** | ✅ 未回归 |
+
+**反向方向（防误伤 / 防多豁免）**：① 上表「开仓」列即证**开仓未被 `is_open` 短路放行**（三层耗尽、各层均仍拒）；② 「不豁免」三条在同等条件下**平仓也拒**：白名单（移出后）→ open&close **均** REJECT rule=1 `0x1001`；权限（无权限记录）→ 均 REJECT rule=7 `0x100B`；价格偏离（偏离 100%）→ 均 REJECT rule=8 `0x1010` ⇒ **无多豁免**。
+> 补：`orderRequestInvalidReason`（`src/order_request.cc:13–17`）**先**校验 `offset ∈ {kOpen,kClose}` ⇒ **不存在「非法 offset 被当平仓豁免」的旁路**。
+
+## T035vb.4 ★ 产出方「实测订正」独立复判（重要）
+
+**待判命题**：编排者原派单转述「撤平仓豁免的变异**只在持仓上限/时点净持仓上红**」；产出方称该转述**不准**——`scale`（规模红线）与 `term`（期限红线）的**既有用例也会红（各 1）**，**真正无既有守卫的只有 `quota`**。
+
+**本席做法**：隔离副本 `/root/iso-t035vb` 内**逐处**把 5 条豁免改为 `(void)is_open;`（撤该规则平仓豁免），**逐处**重建后跑**全量 `ctest`**，观察**既有用例**与**新用例**各自红/绿。
+
+| 变异（`risk_engine.cc`） | 新用例 #19 | **既有用例红** | 既有守卫 |
+|---|---|---|---|
+| `:214` 撤 `quota` 豁免 | 红（15 断言） | **无** | **仅新用例** |
+| `:266` 撤 `positionLimit` 豁免 | 红（3） | `#11 position_limit`、`#13 net_position` | 有 |
+| `:291` 撤 `scale` 豁免 | 红（3） | **`#12 scale_redline`** | 有 |
+| `:325` 撤 `netPosition` 豁免 | 红（3） | `#13 net_position` | 有 |
+| `:368` 撤 `term` 豁免 | 红（3） | **`#14 term_test`** | 有 |
+
+**结论：产出方的订正【正确】，编排者原转述【错误】（就 `scale`/`term` 而言）。**
+- `scale` 与 `term` 的既有用例**确实各红 1 个**（`scale_redline_test` / `term_test`）⇒ 二者**本就有平仓豁免守卫**（上一轮复核章 `T035.7` 的 `MUT-B` **只**做了 `evalPositionLimit` 一处，未覆盖 `scale`/`term`，恐为原转述之来源）。
+- **真正无既有守卫的只有 `quota`**：撤其豁免时**唯一变红的是新用例**（既有 11 个单测全绿 —— 与 `BUG-002` §「绿测为何未挡住」所述一致）。
+- ⇒ 「原缺陷为何逃逸」应表述为：**`quota` 是 5 条需豁免规则中唯一缺既有反退化用例者**；而非「所有豁免都无守卫」或「只有上限/净持仓有守卫」。
+- 辨析（录 `OBS-T035vb-2`）：`#13 net_position` 在撤 **`positionLimit`** 豁免时**也红** —— 因其 `test_close_is_exempt` 的持仓 `1e6` 恰等于 `happyBatch` 的持仓上限 `1e6`，平仓被 `R-RISK-3` 拦下 ⇒ 该既有用例的闭包**同时依赖两条豁免**（特异度问题，**非本修复缺陷**）。
+
+## T035vb.5 新用例守卫强度（逐处移除变异 + 双向反证）
+
+| 变异 | 目标 | 新用例 rc | 红点数 | 守的是行为？ |
+|---|---|---|---|---|
+| M1–M5 | 撤 5 条豁免（见 T035vb.4） | 红 | 15 / 3 / 3 / 3 / 3 | ✅ 断言 `decision==kPass` ∧ `rule==kNone` ∧ `entry_count==0`（**放行 + 无命中项**），纯行为 |
+| **M6**（反向） | `:214` 改 `if (is_open) return;`（**开仓豁免、平仓受查**） | **红（35）** | 额外红 `#9 quota_layers`、`#17 double_layer` | ✅ 开仓被要求**必拒** ⇒ 新用例**双向承重** |
+| **M8**（反向） | 调用点 `:552` 传常量 `false`（**开仓也豁免**） | **红（20）** | 额外红 `#9 quota_layers`、`#17 double_layer` | ✅ 既有用例**亦**守住「开仓不得被豁免」 |
+
+- 复位（`cp orig → 源`）后**删除 `risk_engine` 目标文件树强制重编译** ⇒ 锚点回 `35cf08…`、`ctest` **32/32**、零告警（见 T035vb.8）。
+- ⇒ 新用例**守行为而非实现细节**，且**两向**有效（既咬「平仓被误拒」，也咬「开仓被误放」）。
+
+## T035vb.6 `8 规则「需否平仓豁免」`表逐条核（含「不豁免」3 条）
+
+| 规则（`ARCH §3.3` 规则集 / 代码 `RuleId` 口径） | 产出方判 | 本席据需求复核（现址锚点） | 判 |
+|---|---|---|---|
+| `R-RISK-2` 三层限额 | 需豁免 | `R-RISK-5`（`RISK.md:397`）明列「**额度阻断**」属限制类处置、**一律不得阻断平仓** | ✅ |
+| `R-RISK-3` 持仓上限 | 需豁免 | `FR-RISK-3`（`:133`「平仓指令**不受持仓上限限制**」/`:140` 验收2） | ✅ |
+| `R-RISK-4` 规模红线 | 需豁免 | `R-RISK-4`（`:396`「阻断新开仓（平仓与风险处置**不受限**）」）/`FR-RISK-4`（`:148`） | ✅ |
+| `R-RISK-5` 时点净持仓 | 需豁免 | `FR-RISK-5`（`:163`/`:171` 验收3「**平仓方向不受限**」）；`ARCH §3.3:444`「减仓方向不受限」 | ✅ |
+| `R-RISK-6` 期限红线 | 需豁免 | `FR-RISK-6`（`:178`/`:186`「**不阻断平仓与展期置换**」）；`ARCH §3.3:445` | ✅ |
+| `R-RISK-1` 白名单 | **不需** | `FR-RISK-1`（`:102`/`:107–111`）**无平仓例外**；`R-RISK-5` 枚举的三类处置**不含**白名单；`FR-PRODUCT-12` 验收2（`PRODUCT.md:258`）「移除白名单时有未平仓持仓 ⇒ 系统拒绝」**实测确如产出方所述** ⇒ 场景被前置阻断 | ✅ 不需 |
+| `R-RISK-7` 权限与授权 | **不需** | `FR-RISK-7`（`:194`）「**未授权、超品种、超额度一律拒绝**」**无平仓例外**；`ARCH §3.11:562` 的 `scope=OPEN_ONLY` 确指**事中「限制新开仓」处置**（`CMD_SET_TRADING_SUSPEND`），**非身份/授权校验** | ✅ 不需 |
+| `R-RISK-8` 价格偏离 | **不需** | `FR-RISK-8`（`:209`）唯一不适用情形 =「**市价单不适用**」；`R-RISK-8`（`:400`）目的 =「防止误报与异常报单」⇒ 报单合理性校验、非限制类处置 | ✅ 不需 |
+
+**核结论**：「**5 需豁免 / 3 不需**」**分类正确**；实现与分类**双向一致**（需豁免者逐条实测放行；不需者逐条实测平仓仍拒 —— 见 T035vb.3）。
+> 两点**措辞 / 登记级**观察（非缺陷）：
+> - `OBS-T035vb-1`：产出方表头用 `R-RISK-1~8`（**`ARCH §3.3` / 代码 `RuleId` 口径**，`R-RISK-1`=白名单）；但 `RISK.md §4` 的 `R-RISK-n` **另有编号**（`R-RISK-1`=六机制映射、`R-RISK-3`=全内存零 DB、`R-RISK-5`=只限开仓原则）⇒ 同一编号在两制品指不同事物；建议以 FR 号或注明口径消歧（**既有**制品约定分歧，非本修复引入）。
+> - `OBS-T035vb-3`：产出方「同类扫描」表中 `evalPermission`/`evalPrice` 行区间（`:391–438`/`:443–467`）与实测现址（`:395–442`/`:447–471`）**偏移 4 行**（`evalNetPosition`/`evalTerm` 差 1）；`evalQuota`/`positionLimit`/`scale`/`whitelist` 区间吻合。仅定位精度，不影响结论。
+
+## T035vb.7 既有断言未削弱核查
+
+- **本轮（修复轮，`mtime ≥ 19:45:53`）实际改动**（`mtime` + 反向 diff 实测）：`src/risk_engine.cc`（核心修复）、`include/.../order_request.h`（**仅注释**：反向 diff 逐行均为 `//` 行）、`CMakeLists.txt`（**仅新增** 1 行用例注册）、`tests/risk_engine_close_exemption_test.cc`（**新增**）。**无任何既有测试文件的断言被改动 / 放宽**（既有 11 个 `risk_engine_*_test.cc` 的 `mtime` 均 ≤ 15:49，早于修复轮）。
+- **`git diff HEAD` 的额外条目归属**：另含 `risk_engine.h`（`applySnapshot(const RiskState&)` 重载 + `guard_`）、`risk_engine_purity_test.cc`、`bench_risk_check.cc`、`risk_engine_test_util.h`（`st.snapshot()`→`st.acquire().get()` 等）—— **实测 `mtime` 15:43–15:49，属 `T-035` 前一轮交付（早于本修复约 4 小时）**，非本轮改动；其改动为 RCU 强保护接线（**断言未放宽**）。录 `OBS-T035vb-4`（提示：直接 `git diff HEAD` 会看到比修复单「涉及文件」更多的条目，勿误归本修复）。
+- **无签名 / ABI 破坏**：`evalQuota` 属**匿名命名空间**内部函数，参数变更不触头文件 ABI；`risk_engine.h` 本轮未改。
+
+## T035vb.8 回归 / 门禁（独立实测）
+
+- 构建：`cmake -S cpp -B /root/b-t035vb && cmake --build /root/b-t035vb -j1` ⇒ rc=0、`warning:`=0、`error:`=0。
+- `ctest`（名单以 `ctest -N` 为准，**非** grep 计数）：**32/32**，含 #19 新用例。
+- 聚合 `arch-check.sh`：rc=0；逐条 `E1`=0 `E2`=0 `E3`=0 `E4`=0（**实扫 46 文件 / 命中 0**）`E5`=0 `E6`=0 `E7`=0。
+- 隔离副本复位后（强制重编译 `risk_engine`）：锚 `35cf08187b4354df81aeed6cf1213342` / 29 文件；`ctest` **32/32**；`warning:`=0。
+- 共享树残留扫描：0。
+
+## T035vb.9 缺陷 / 观察清单
+
+| 编号 | 严重度 | 类别 | 结论 |
+|---|---|---|---|
+| —— | —— | 缺陷 | **无**（修复有效；未发现新增缺陷；**未见多豁免 / 误差伤**） |
+| `OBS-T035vb-1` | 低 | 登记口径 | `R-RISK-n` 在 `RISK.md §4` 与 `ARCH §3.3`/代码**含义不同** ⇒ 建议消歧（既有分歧） |
+| `OBS-T035vb-2` | 低 | 既有用例特异度 | `net_position_test::test_close_is_exempt` 的闭包**同时依赖** `R-RISK-3` 与 `R-RISK-5`（持仓恰等于上限）⇒ 非最小对偶；本修复新增 `close_exemption_test` 已给**逐条最小对偶**，覆盖未失 |
+| `OBS-T035vb-3` | 低 | 定位精度 | 产出方「同类扫描」表 `evalPermission`/`evalPrice`（及 `evalNetPosition`/`evalTerm`）行区间与现址偏移 ≤4 行 |
+| `OBS-T035vb-4` | 低 | 归属提示 | `git diff HEAD` 另含前一轮交付的 `risk_engine.h`/`purity`/`bench`/`test_util` 改动，勿误归本修复轮 |
+| `OBS-T035vb-5` | 低 | 文档一致性 | `ARCHITECTURE.md §3.3` 的 `R-RISK-2` 行**未**如 `R-RISK-3/4/5` 标注「平仓不受限」；修复依据为 `R-RISK-5`（需求）**已足够**，但架构规则表可就该点补齐（属架构席维护域，本席未改） |
+
+## T035vb.10 结论
+
+**结论：`通过`。**
+
+- **缺陷已消除**：额度三层耗尽时合法平仓**逐层放行**（开仓仍拒）—— 本席自建探针 94/94 独立证实。
+- **无多豁免 / 无误伤**：白名单 / 权限 / 价格偏离三条平仓**仍拒**；开仓在三层耗尽下**仍拒**。
+- **§2.4 归因订正**：产出方**成立** —— `scale`/`term` 既有用例**亦红**、唯一无既有守卫者为 `quota`；编排者原转述**不准**（见 T035vb.4）。
+- **8 规则豁免表**：分类（5/3）与依据**逐条正确**；实现双向一致。
+- **守卫强度**：新用例**双向承重**（M1–M8 逐处 / 反向变异全红）；**既有断言未被削弱**。
+- **回归**：`ctest` 32/32、聚合 rc 0、`E1`–`E7` 全 0、`E4` 实扫 46/0、构建 0 warning / 0 error。
+- **锚点**：修复后 `35cf08…`/29（与自报逐字节吻合）；修复前同口径 `fc086003…`/28（**本席独立重建复现**）。
+- **本席不置 `DONE`**（门禁结论由编排者落）；`TASKS.md`/`BOARD.md`/`ARCHITECTURE.md` 零改动；未修改任何交付制品。
+
+**纯追加证明**（自指值不写死）：
+- 追加前基线：`md5 b4b47f6a9c72a56e5a0f68f6a2137732` / **3983 行**（连续 3 次 ×10s 取样不变）。
+- 追加后：`head -3983 docs/TEST_RESULT.md | md5sum` = `b4b47f6a9c72a56e5a0f68f6a2137732`（⇒ 前 3983 行**逐字节未变**）；`wc -l` 与 `md5sum docs/TEST_RESULT.md` 以**实时**为准。
+
+### T035vb.11 追加：`R-RISK-7` 的 `individual_quota` 子项平仓行为（应编排者点询）
+
+探针 `/root/vb-probe-t035-r7.cc`（自撰）：`PermissionEntry{allow_all_sub_accounts=true, allow_all_products=true, has_trading_post=true, individual_quota=1}`，`volume=10000`。
+- 开仓：`REJECT rule=7 code=0x100D layer=4(kAuthQuota) entries=1`
+- 平仓（仅改 `offset=kClose`）：**同 `REJECT`（**未**豁免）**
+
+⇒ **现状：`R-RISK-7`（含 `individual_quota` 子项）平仓不豁免** —— 与产出方「不需豁免」一致；依据 `FR-RISK-7`（`RISK.md:194`）「**未授权、超品种、超额度一律拒绝**」（**无**平仓例外）。
+> `OBS-T035vb-6`（低，建议产品确认）：「单笔授权额度」（`0x100D` / `kAuthQuota`）字面含「额度」，**若**产品视其为 `R-RISK-5` 的「额度阻断」，则须豁免平仓；但 `FR-RISK-7` 明文「一律拒绝」无例外、且 `R-RISK-5` 枚举的三类处置指向三层限额（`FR-RISK-2`）⇒ 现实现**忠实于 `FR-RISK-7`**，判**非缺陷**；是否需产品口径澄清由产品/架构席裁定。
+
+> **纯追加（第二次）**：追加前 `md5 4d1716284eae5a2310771d339ba0e063` / 4120 行；`head -4120 | md5sum` = `4d171628…`（前 4120 行未变）；追加后 `wc -l` 与 `md5sum` 以实时为准。

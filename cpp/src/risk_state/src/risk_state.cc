@@ -33,7 +33,7 @@ RebuildResult RiskState::rebuild(const LoadBatch& batch) {
     r.ok = false;
     r.code = kRebuildVersionNotMonotonic;
     r.record_count = mgr_.peek().record_count();
-    last_ = r;
+    publishLastResult(r);
     return r;
   }
 
@@ -55,7 +55,7 @@ RebuildResult RiskState::rebuild(const LoadBatch& batch) {
     r.ok = false;
     r.code = code;
     r.record_count = mgr_.peek().record_count();
-    last_ = r;
+    publishLastResult(r);
     return r;
   }
 
@@ -66,8 +66,36 @@ RebuildResult RiskState::rebuild(const LoadBatch& batch) {
   r.ok = true;
   r.code = kRebuildOk;
   r.record_count = next->record_count();
-  last_ = r;
+  publishLastResult(r);
   return r;
+}
+
+// 无锁发布（单写者）：写入前后各递增一次 seq_（偶数 = 稳定 / 奇数 = 写入中）。
+// 各字段以 relaxed 存取 —— 生产者不依赖与读者之间的数据传递，仅依赖版本戳的
+// 前后一致（acquire/release）来界定「读者看到的各字段来自同一次写入」。
+void RiskState::publishLastResult(const RebuildResult& r) {
+  last_.seq_.fetch_add(1, std::memory_order_release);  // → 奇数：标记写入中
+  last_.ok_.store(r.ok, std::memory_order_relaxed);
+  last_.code_.store(r.code, std::memory_order_relaxed);
+  last_.version_.store(r.version, std::memory_order_relaxed);
+  last_.record_count_.store(r.record_count, std::memory_order_relaxed);
+  last_.seq_.fetch_add(1, std::memory_order_release);  // → 偶数：标记稳定
+}
+
+// 无锁读（任意线程）：重复直到取到「前后 seq_ 相等且为偶数」的自洽快照。
+// 单写者下写入窗口极短，诊断访问器非热路径 ⇒ 至多重读若干次。
+RebuildResult RiskState::last_result() const {
+  for (;;) {
+    const std::uint64_t s1 = last_.seq_.load(std::memory_order_acquire);
+    if ((s1 & 1U) != 0U) continue;  // 写者写入中：等待其发布稳定版本
+    RebuildResult r;
+    r.ok = last_.ok_.load(std::memory_order_relaxed);
+    r.code = last_.code_.load(std::memory_order_relaxed);
+    r.version = last_.version_.load(std::memory_order_relaxed);
+    r.record_count = last_.record_count_.load(std::memory_order_relaxed);
+    const std::uint64_t s2 = last_.seq_.load(std::memory_order_acquire);
+    if (s1 == s2) return r;
+  }
 }
 
 }  // namespace risk_state

@@ -4,6 +4,7 @@ import com.hedgeguard.common.Clocks;
 import com.hedgeguard.dao.LoginLogDao;
 import com.hedgeguard.dao.LoginSessionDao;
 import com.hedgeguard.dao.PasswordHistoryDao;
+import com.hedgeguard.dao.PermissionChangeLogDao;
 import com.hedgeguard.dao.PositionConflictDao;
 import com.hedgeguard.dao.RoleDao;
 import com.hedgeguard.dao.UnauthorizedAttemptDao;
@@ -13,6 +14,7 @@ import com.hedgeguard.dao.UserSubAccountPermDao;
 import com.hedgeguard.dao.entity.LoginLog;
 import com.hedgeguard.dao.entity.LoginSession;
 import com.hedgeguard.dao.entity.PasswordHistory;
+import com.hedgeguard.dao.entity.PermissionChangeLog;
 import com.hedgeguard.dao.entity.PositionConflict;
 import com.hedgeguard.dao.entity.Role;
 import com.hedgeguard.dao.entity.UnauthorizedAttempt;
@@ -62,6 +64,7 @@ class AuthServiceTest {
     private FakePasswordHistoryDao historyDao;
     private FakeUserSubAccountPermDao permDao;
     private FakeUnauthorizedAttemptDao attemptDao;
+    private FakePermissionChangeLogDao changeLogDao;
     private SessionStore store;
     private AuthService service;
 
@@ -77,9 +80,11 @@ class AuthServiceTest {
         historyDao = new FakePasswordHistoryDao();
         permDao = new FakeUserSubAccountPermDao();
         attemptDao = new FakeUnauthorizedAttemptDao();
+        changeLogDao = new FakePermissionChangeLogDao();
         store = new SessionStore.InMemory();
         service = new AuthService(FakeTx.newTemplate(), userDao, roleDao, userRoleDao, conflictDao,
-                sessionDao, loginLogDao, historyDao, permDao, attemptDao, store);
+                sessionDao, loginLogDao, historyDao, permDao, attemptDao, store,
+                null, changeLogDao, null, null);
     }
 
     @AfterEach
@@ -195,7 +200,8 @@ class AuthServiceTest {
                 Clocks.now().minusSeconds(1));
         noPurge.save(stale);
         AuthService dbBacked = new AuthService(FakeTx.newTemplate(), userDao, roleDao, userRoleDao,
-                conflictDao, sessionDao, loginLogDao, historyDao, permDao, attemptDao, noPurge);
+                conflictDao, sessionDao, loginLogDao, historyDao, permDao, attemptDao, noPurge,
+                null, changeLogDao, null, null);
         BizException e = assertThrows(BizException.class, () -> dbBacked.touchSession("stale-session"));
         assertEquals(ErrorCode.NOT_AUTHENTICATED, e.errorCode(), "超时应 10006");
         assertNull(noPurge.find("stale-session"), "超时会话应被作废");
@@ -217,6 +223,7 @@ class AuthServiceTest {
     @Test
     @DisplayName("岗位互斥：持 TRADER 岗位组时授予 FIN_RISK 角色被拒（10005）并记越权尝试")
     void grantRoleRejectsPositionConflict() {
+        addUser(1L, "trader01", "ENABLED");
         roleDao.put(role(10L, AuthService.ROLE_TRADER, 1, "Y"));          // 岗位组 1
         roleDao.put(role(20L, "FIN_RISK", 2, "N"));                        // 岗位组 2
         userRoleDao.put(userRole(100L, 1L, 10L));
@@ -825,7 +832,6 @@ class AuthServiceTest {
     /** 内存假越权尝试 DAO。 */
     private static final class FakeUnauthorizedAttemptDao
             extends UnsupportedBaseDao<UnauthorizedAttempt, Long> implements UnauthorizedAttemptDao {
-
         private final List<UnauthorizedAttempt> rows = new ArrayList<>();
 
         @Override
@@ -848,6 +854,31 @@ class AuthServiceTest {
                 }
             }
             return n;
+        }
+    }
+
+    /** 内存假权限变更留痕 DAO（只增；供 grantRole 等留痕调用）。 */
+    private static final class FakePermissionChangeLogDao
+            extends UnsupportedBaseDao<PermissionChangeLog, Long> implements PermissionChangeLogDao {
+
+        private final List<PermissionChangeLog> rows = new ArrayList<>();
+
+        @Override
+        public int insert(PermissionChangeLog entity, long operatorId) {
+            rows.add(entity);
+            return 1;
+        }
+
+        @Override
+        public List<PermissionChangeLog> findRejectedSince(LocalDateTime from) {
+            return new ArrayList<>(rows);
+        }
+
+        @Override
+        public List<PermissionChangeLog> findByTargetUserBetween(long targetUserId,
+                                                                 LocalDateTime from,
+                                                                 LocalDateTime to) {
+            throw com.hedgeguard.testsupport.FakeDao.unsupported("findByTargetUserBetween");
         }
     }
 }

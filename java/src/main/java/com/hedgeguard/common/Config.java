@@ -38,6 +38,14 @@ public final class Config {
     public static final String KEY_SESSION_COOKIE = "hg.auth.session_cookie";
     /** 会话空闲超时分钟数（{@code CFG-23b}，默认 30）。 */
     public static final String KEY_SESSION_IDLE_MINUTES = "hg.auth.session_idle_minutes";
+    /** 登录失败锁定阈值（{@code CFG-23 hg.auth.login_fail_limit}，默认 5）。 */
+    public static final String KEY_LOGIN_FAIL_LIMIT = "hg.auth.login_fail_limit";
+    /** 登录锁定时长分钟（{@code CFG-23 hg.auth.login_lock_minutes}，默认 5）。 */
+    public static final String KEY_LOGIN_LOCK_MINUTES = "hg.auth.login_lock_minutes";
+    /** 口令最小长度（{@code CFG-23b hg.auth.password_min_length}，默认 12）。 */
+    public static final String KEY_PASSWORD_MIN_LENGTH = "hg.auth.password_min_length";
+    /** 近期口令历史条数（{@code CFG-23b hg.auth.password_history_size}，默认 5）。 */
+    public static final String KEY_PASSWORD_HISTORY_SIZE = "hg.auth.password_history_size";
     /** 组件通信绑定地址（{@code CFG-20}）。 */
     public static final String KEY_TCP_BIND = "hg.tcp.bind";
     /** 组件通信端口（{@code CFG-20}）。 */

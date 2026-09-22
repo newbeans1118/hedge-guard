@@ -29,8 +29,11 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
  * <ol>
  *   <li><b>注册登记</b>：{@code CONFIG} 9 / {@code SPOT} 5 / {@code PLAN} 1 共 15 条路径对应的
  *       <b>19 个 (方法,路径) 对</b>必须被 {@code *Routes} 真实注册（{@code Router} 级，防漏注册）；</li>
- *   <li><b>调用可达</b>：经 {@link RequestDispatcher} 进程内分发，逐条断言<b>不再 404/405</b>
- *       （{@code 404=未注册}、{@code 405=路径在而方法未注册}，二者正是本单要消灭的症状）。</li>
+ *   <li><b>调用可达</b>：经 {@link RequestDispatcher} <b>直连分发</b>（2 参 {@code SessionAuthFilter}＝不续期）
+ *       进程内分发，逐条断言<b>不再 404/405</b>
+ *       （{@code 404=未注册}、{@code 405=路径在而方法未注册}，二者正是本单要消灭的症状）。
+ *       <br>⚠️ 段②<b>不再经</b> {@code Bootstrap} 装配分发器：T-010 起认证链含 {@code SessionRenewer}
+ *       （写库），在假驱动下已认证请求一律 500 ⇒ 原断言恒真（空转，见 {@code TE-T010b-001}）。</li>
  * </ol>
  *
  * <p>本用例即「反退化」判据：若删除任一条 {@code router.register(...)}，段 1 必红；
@@ -132,9 +135,30 @@ class T109EndpointRegistrationTest {
                     Clocks.now().plusMinutes(30)));
             Map<String, String> auth = Collections.singletonMap("X-HG-Session", "S-1");
 
+            // 【T-010 修正 · `TE-T010b-001`（守卫空转）】
+            //   原段② 经 `assembly.dispatcher()`（含 `SessionRenewer`）分发。T-010 起 `Bootstrap` 为
+            //   认证过滤器注入 `authService::touchSession`（认证成功即写 `t_login_session` 并顺延会话）；
+            //   在本环境的**假驱动**下该写抛 NPE ⇒ **已认证请求一律 500**（注册/未注册**皆然**，已实测）
+            //   ⇒ 只收 404/405 的 `problems.isEmpty()` **恒真、不再守卫「端点注册」**（空转，等于没有断言）。
+            //   现改为**直连分发**（2 参 `SessionAuthFilter` = 不续期，与产出方已改的反向对照同形）：
+            //   认证通过后才进入路由匹配，恢复 404/500 的区分力 ——
+            //   已注册 ⇒ 命中处理（handler 因无真实库而 5xx，但**非** 404/405）；未注册 ⇒ 404（路径在而方法缺 ⇒ 405）。
+            //   判据 =「19 条逐条不被 404/405 拒绝」；**删掉任一端点注册 ⇒ 其条目必 404/405 ⇒ 本断言必红**（已双向实测）。
+            //   与 `AUTHEndpointRegistrationTest` 段② 同形；装配面注册完整性另由 `BootstrapAssemblyTest`
+            //   的 `routeCount == 82` 守卫，本用例不重复承担该职责（仅保留装配冒烟：假驱动下装配不抛）。
+            Router plainRouter = new Router();
+            plainRouter.register("GET", ApiRoutes.full(ApiRoutes.PING),
+                    new com.hedgeguard.web.handler.PingHandler());
+            ConfigRoutes.register(plainRouter, null);
+            SpotRoutes.register(plainRouter, null);
+            PlanRoutes.register(plainRouter, null);
+            RequestDispatcher plain = new RequestDispatcher(plainRouter,
+                    new StaticHandler(java.nio.file.Paths.get(".")),
+                    new SessionAuthFilter(assembly.sessionStore(), "HGSESSION"));
+
             List<String> problems = new ArrayList<>();
             for (String[] route : DISPATCH) {
-                HttpResult result = assembly.dispatcher().dispatch(
+                HttpResult result = plain.dispatch(
                         new RequestContext(route[0], route[1], null, auth, "", "HGT109", "127.0.0.1"));
                 if (result.status == 404 || result.status == 405) {
                     problems.add(route[0] + " " + route[1] + " → " + result.status);
@@ -142,8 +166,8 @@ class T109EndpointRegistrationTest {
             }
             assertTrue(problems.isEmpty(),
                     "T-109 端点仍返回 404/405（=未注册 / 方法未注册）：" + problems);
-            // 反向对照：仍不存在的路径应 404（证明"非 404"并非因为分发器盲放行）
-            HttpResult unknown = assembly.dispatcher().dispatch(new RequestContext(
+            // 反向对照：仍不存在的路径应 404/405（证明"非 404"并非因为分发器盲放行）。
+            HttpResult unknown = plain.dispatch(new RequestContext(
                     "GET", "/api/v1/config/definitely-not-a-route", null, auth, "", "HGT109",
                     "127.0.0.1"));
             assertNotEquals(200, unknown.status);

@@ -189,11 +189,11 @@ inline OrderRequest baseOrder() {
   return r;
 }
 
-// 用 RiskState 构建 → 绑定引擎（保持 RiskState 存活；本函数不取得所有权）
+// 用 RiskState 构建 → 绑定引擎（内部经 acquire() 取 RCU 读句柄并由引擎持有；保持 RiskState 存活）
 inline bool bind(RiskState* st, RiskEngine* eng, const LoadBatch& batch) {
   const hg::risk_state::RebuildResult rr = st->rebuild(batch);
   if (!rr.ok) return false;
-  eng->applySnapshot(st->snapshot());
+  eng->applySnapshot(*st);  // RiskState 重载：acquire() 强保护
   return true;
 }
 

@@ -19,6 +19,12 @@ import java.util.Set;
  *   <li>{@code GET /api/v1/ping} —— 进程存活探针（运维/健康检查，<b>不返回任何业务数据</b>）。</li>
  * </ul>
  * 白名单外的任何请求（含所有业务查询）缺失/失效会话 → {@code 10006}。
+ *
+ * <p><b>空闲超时（{@code FR-AUTH-15} 验收 2 / {@code CFG-23b}）</b>：认证成功时<b>续期</b>会话
+ * （滑动过期）——经 {@link SessionRenewer} 委托服务层
+ * {@link com.hedgeguard.service.AuthService#touchSession(String)}（同时顺延内存会话与库内
+ * {@code t_login_session} 行）。<b>未注入续期器</b>（{@code null}）时回退为「只查不续期」，
+ * 等价于绝对过期——这保留既有 2 参构造调用点（WS / 单测桩）的语义。
  */
 public final class SessionAuthFilter implements AuthFilter {
 
@@ -28,16 +34,29 @@ public final class SessionAuthFilter implements AuthFilter {
 
     private final SessionStore sessionStore;
     private final String cookieName;
+    private final SessionRenewer renewer;
 
     /**
-     * 构造。
+     * 构造（不续期：绝对过期语义；向后兼容既有调用点）。
      *
      * @param sessionStore 会话存储
      * @param cookieName   会话 Cookie 名（默认 {@code HGSESSION}，见 {@code ARCHITECTURE.md} §4.1.1）
      */
     public SessionAuthFilter(SessionStore sessionStore, String cookieName) {
+        this(sessionStore, cookieName, null);
+    }
+
+    /**
+     * 构造（带续期器：空闲滑动超时）。
+     *
+     * @param sessionStore 会话存储
+     * @param cookieName   会话 Cookie 名
+     * @param renewer      续期器（{@code null} 表示不续期）
+     */
+    public SessionAuthFilter(SessionStore sessionStore, String cookieName, SessionRenewer renewer) {
         this.sessionStore = sessionStore;
         this.cookieName = cookieName;
+        this.renewer = renewer;
     }
 
     @Override
@@ -56,7 +75,8 @@ public final class SessionAuthFilter implements AuthFilter {
             throw BizException.of(ErrorCode.NOT_AUTHENTICATED,
                     "未提供会话凭据：请先登录（Cookie " + cookieName + " 或请求头 X-HG-Session）");
         }
-        Session session = sessionStore.find(sessionId);
+        Session session = renewer == null
+                ? sessionStore.find(sessionId) : renewer.renew(sessionId);
         if (session == null) {
             throw BizException.of(ErrorCode.NOT_AUTHENTICATED,
                     "会话不存在或已超时：请重新登录（空闲超时后需重新认证）");

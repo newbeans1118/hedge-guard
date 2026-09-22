@@ -45,7 +45,7 @@ static const CtCode kCtUnsupportedOperation = 0x3003u;   // UNSUPPORTED_OPERATIO
 // -----------------------------------------------------------------------------
 // 领域枚举
 // -----------------------------------------------------------------------------
-// 标的类别：期货 / 期权（PROJECT.md §10-10；两者共用同一 UserApi 与同一套保额度）
+// 标的类别：期货 / 期权（PROJECT.md §10-10；两者共用同一交易接口与同一套保额度）
 enum class CtMarket { kFutures, kOption };
 // 买卖方向（CTP Direction：'0'=买 / '1'=卖）
 enum class CtDirection { kBuy, kSell };
@@ -55,6 +55,14 @@ enum class CtOffset { kOpen, kClose, kCloseToday };
 enum class CtPriceType { kLimit, kMarket };
 // 银期划转方向：入金（银行→期货）/ 出金（期货→银行）
 enum class CtFundDirection { kIn, kOut };
+// CTP 运行环境（映射 `ARCHITECTURE.md` §11.2 `CFG-22` `hg.ctp.env_type` ∈
+// {SIMULATION, PRODUCTION}）—— 决定官方 `Create*Api()` 的 `bIsProductionMode`：
+//   · kProduction  → `bIsProductionMode=true`  ⇒ 生产版 API（只能连**生产**前置）；
+//   · kSimulation  → `bIsProductionMode=false` ⇒ 评测版 API（只能连**评测**前置）。
+// 依据：官方《6.7.13 API 接口说明》§1.2 / `CreateFtdcTraderApi` 注释
+//   「bIsProductionMode：定义连接的是生产还是评测前置，true:使用生产版本的API
+//     false:使用测评版本的API」；且「生产版 API 只能连生产前置、评测版只能连评测前置」。
+enum class CtEnvType { kSimulation, kProduction };
 
 // -----------------------------------------------------------------------------
 // 登录配置（由 T1 装配；口令仅内存持有）

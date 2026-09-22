@@ -35,7 +35,8 @@ set(RISK_STATE_UNIT_TESTS
   data_model_test
   snapshot_manager_test
   risk_state_test
-  rsk04_conservative_test)
+  rsk04_conservative_test
+  diagnostic_accessor_test)
 
 foreach(_t ${RISK_STATE_UNIT_TESTS})
   add_executable(risk_state_${_t} "tests/${_t}.cc")

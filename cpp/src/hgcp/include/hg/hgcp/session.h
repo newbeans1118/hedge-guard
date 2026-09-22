@@ -44,6 +44,15 @@ class TransportPolicy {
   // 通用 `MSG_ERROR` 的 body（携带 `err_code`）—— §4.2.8.2 `MsgError.err_code`。
   // 用于握手门禁拒绝（`0x0107`）等「不需回执的失败」场景。
   virtual std::vector<std::uint8_t> error_body(std::uint32_t err_code) const = 0;
+  // `MSG_RESUME_DATA` 的 body（§4.2.8.2）—— 字段：`from_seq`(1:uint64·必) /
+  //   `to_seq`(2:uint64·必) / `is_last`(3:bool·必) / `frames`(4:repeated bytes·条件)。
+  //   · `frames` = 本批各帧的**原始帧字节**（线路侧原样回放，§4.2.6）；
+  //   · `is_last` = 本批是否为**最后一批**（§4.2.6：单批 ≤ 500 帧、`is_last` 标识最后一批）；
+  //   · `from_seq`/`to_seq` = 本批**首/末帧**的通道 SEQ（批内 `SEQ` 连续）。
+  // `TransportPolicy` 仍是**出站 body 的单一注入接缝**（不新增第二套符号）。
+  virtual std::vector<std::uint8_t> resume_data_body(
+      std::uint64_t from_seq, std::uint64_t to_seq, bool is_last,
+      const std::vector<std::vector<std::uint8_t> >& frames) const = 0;
 };
 
 // 占位策略：全部返回空 body（**仅测试/无 schema 场景**使用；生产缺省见 `server_loop.h`）。
@@ -55,6 +64,9 @@ class EmptyTransportPolicy : public TransportPolicy {
   virtual std::vector<std::uint8_t> heartbeat_timeout_body() const;
   virtual std::vector<std::uint8_t> frame_too_large_body() const;
   virtual std::vector<std::uint8_t> error_body(std::uint32_t /*err_code*/) const;
+  virtual std::vector<std::uint8_t> resume_data_body(
+      std::uint64_t /*from_seq*/, std::uint64_t /*to_seq*/, bool /*is_last*/,
+      const std::vector<std::vector<std::uint8_t> >& /*frames*/) const;
 };
 
 // 连接会话：帧级 / 序号 / 心跳 / 退避 / 补数 / 单连接。

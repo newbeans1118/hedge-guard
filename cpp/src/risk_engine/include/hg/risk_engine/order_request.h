@@ -26,7 +26,11 @@ using hg::risk_state::Fixed;
 enum class OrderDirection : std::uint8_t { kBuy = 1, kSell = 2 };
 
 // 开平标志（对齐 CTP `CombOffsetFlag` 的语义收敛）：本引擎只区分**开仓 / 平仓**。
-//   · `kClose` = 平仓（含减仓 / 风险处置平仓）；`R-RISK-3/4/5/6` 对其**豁免**。
+//   · `kClose` = 平仓（含减仓 / 风险处置平仓）；
+//   · 限额类规则 `R-RISK-2/3/4/5/6` 对其**豁免**（`R-RISK-5`「只限开仓、不限平仓」原则：
+//     额度阻断 / 持仓上限 / 规模红线 / 时点净持仓 / 期限红线一律不得阻断平仓）；
+//   · 资格 / 授权 / 报单合理性规则（`R-RISK-1` 白名单、`R-RISK-7` 权限与授权、
+//     `R-RISK-8` 价格偏离）**不豁免**——非「限制类处置」，其豁免会放行非授权或数据不符的报单。
 enum class OffsetFlag : std::uint8_t { kOpen = 1, kClose = 2 };
 
 // 价格类型（对齐 §4.2.4 `price_type`）：市价单**不适用**价格偏离校验（`R-RISK-8`）。

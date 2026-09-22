@@ -13,6 +13,8 @@
 //   · `MSG_ERROR`(0x0308)  ← `MsgError{err_code, err_msg}`（帧超限；§4.2.8.8 `I-2` 行为面，
 //                            「提示使用分片」经 `err_msg` 承载）
 //   · `MSG_ERROR`(err_code) ← `MsgError{err_code}`（握手门禁 `0x0107` 等）
+//   · `MSG_RESUME_DATA`    ← `MsgResumeData{from_seq, to_seq, is_last, frames}`
+//                            （补数批次；`frames` = 本批各帧原始帧字节）
 //
 // 接缝不变：仍是 `session.h` 的 `TransportPolicy` **单一符号**——
 //   本类只是其一个实现；帧层与承载层（`tcp`/`session`）**零改动**。
@@ -36,6 +38,9 @@ class PbTransportPolicy : public TransportPolicy {
   virtual std::vector<std::uint8_t> heartbeat_timeout_body() const;
   virtual std::vector<std::uint8_t> frame_too_large_body() const;
   virtual std::vector<std::uint8_t> error_body(std::uint32_t err_code) const;
+  virtual std::vector<std::uint8_t> resume_data_body(
+      std::uint64_t from_seq, std::uint64_t to_seq, bool is_last,
+      const std::vector<std::vector<std::uint8_t> >& frames) const;
 
  private:
   PbTransportPolicy(const PbTransportPolicy&);

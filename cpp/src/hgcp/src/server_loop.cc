@@ -177,15 +177,22 @@ ReplayStatus HgcpServerLoop::send_resume(std::uint64_t last_received_seq) {
     return st;  // kNothingToReplay / kGapTooLarge（0x0306 由上层的全量重建决定）
   }
   for (std::size_t i = 0; i < batches.size(); ++i) {
-    // ⚠️ **残余（单列，未接线）**：body = 批内原始帧字节**顺序拼接**（不透明回放）。
-    //    `MSG_RESUME_DATA` 的字段级编码（`from_seq`/`to_seq`/`is_last` +
-    //    `frames`(repeated bytes)）**已由 §4.2.8.2 定义且 `PbPayloadCodec` 已支持**，
-    //    但本生产装配尚未改接（属**跨侧（`T-042`）须对齐**的补数体格式决定）——
-    //    见 `T-032` 回执「未决项」。原「待 `CH-013`」表述已随 `CH-013` 定稿失效。
-    std::vector<std::uint8_t> body;
+    // body 按 §4.2.8.2 `MsgResumeData{from_seq,to_seq,is_last,frames}` 组装，经
+    //   `TransportPolicy`（**单一出站 body 接缝**）编码 —— 本层不再拼接原始帧字节。
+    //   · `frames` = 批内各帧的**原始帧字节**（逐字节回放，线路侧不过滤，§4.2.6）；
+    //   · `from_seq`/`to_seq` = 本批**首/末帧**的通道 SEQ（批内 `SEQ` 连续）；
+    //   · `is_last` = 本批是否为**最后一批**（§4.2.6：单批 ≤ 500 帧、`is_last` 标识最后一批）。
+    // `batches[i]` 恒非空（`ResumeBuffer::replay_from` 只入非空批）⇒ 首/末帧索引安全。
+    std::vector<std::vector<std::uint8_t> > frames;
+    frames.reserve(batches[i].size());
     for (std::size_t k = 0; k < batches[i].size(); ++k) {
-      body.insert(body.end(), batches[i][k].bytes.begin(), batches[i][k].bytes.end());
+      frames.push_back(batches[i][k].bytes);
     }
+    const std::uint64_t from_seq = batches[i][0].seq;
+    const std::uint64_t to_seq = batches[i][batches[i].size() - 1u].seq;
+    const bool is_last = (i + 1u == batches.size());
+    const std::vector<std::uint8_t> body =
+        policy_->resume_data_body(from_seq, to_seq, is_last, frames);
     send_frame(mt(MessageType::kMsgResumeData), fl(kFlagIsResumeData), body);
   }
   return ReplayStatus::kOk;

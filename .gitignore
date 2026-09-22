@@ -25,5 +25,16 @@ cpp/ctp_smoke/build/
 # ---- 会话基建（harness 生成的 git worktree；非交付物）----
 .codebuddy/
 
-# ---- 第三方 SDK（用户提供的官方 CTP 包；二进制不入库，以 md5 锚点登记）----
-sdk/*.tar
+# ---- 第三方 SDK（用户提供的官方 CTP 包；二进制与厂商文档不入库，以 md5 锚点登记）----
+# 说明：官方 CTP v6.7.13 为「随项目提供但不入库」的输入件；锚点见 docs/TASKS.md §2 `T-027` 备注
+sdk/
+
+# ---- 根级构建残留（CMake 在源码根误生成；本项目「构建产物永不作锚点」）----
+# 仅锚定根级，避免误伤将来任何位置的手写 Makefile
+/CMakeFiles/
+/cmake_install.cmake
+/CMakeCache.txt
+/Makefile
+
+# ---- 会话基建（harness 生成：worker inbox 等；非交付物）----
+dev-team/

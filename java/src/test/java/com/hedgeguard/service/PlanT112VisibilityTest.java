@@ -293,7 +293,7 @@ class PlanT112VisibilityTest {
 
     private static AuthService authService(FakePermDao permDao, FakeAttemptDao attemptDao) {
         return new AuthService(FakeTx.newTemplate(), null, null, null, null, null, null, null,
-                permDao, attemptDao, null);
+                permDao, attemptDao, null, null, null, null, null);
     }
 
     private static HedgePlan plan(int subAccountId) {

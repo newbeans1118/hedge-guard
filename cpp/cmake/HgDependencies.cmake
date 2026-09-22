@@ -7,12 +7,14 @@
 #       protobuf，**无 websocketpp / Boost**，CH-006）、§4.2.5（两侧 protobuf 同大版本）。
 #
 # 本文件对外提供两个事实：
-#   · `CTP_FOUND`          —— CTP SDK（合并版 `ThostFtdcUserApi.h` + `libthost*.so`）是否可得
+#   · `CTP_FOUND`          —— CTP SDK（官方分离式 `ThostFtdcTraderApi.h` + `ThostFtdcMdApi.h`
+#                             + `thosttraderapi_se.so` / `thostmduserapi_se.so`）是否可得
 #   · `hg_deps::protobuf`  —— protobuf 供给目标（系统包 或 FetchContent 源码构建）
 #
 # 双轨口径（两轨均须**真的能编**，不是只有开关）：
 #   CTP_FOUND=ON           → ctp_adapter 以真实 CTP SDK 头编译（SYSTEM 头，抑制第三方告警）
 #   CTP_FOUND=OFF          → ctp_adapter 走空实现，组件仍可完整构建（无 SDK 环境 / CI）
+#   ⚠️ **显式给了 SDK 根却解析失败 ⇒ FATAL_ERROR**（不得静默回落 stub，见 §1 守卫）
 #   CTP_USE_FETCH_DEPS=ON  → protobuf 经 FetchContent 拉取并源码构建
 #   CTP_USE_FETCH_DEPS=OFF → protobuf 用系统包（find_package(Protobuf)）
 #
@@ -27,10 +29,20 @@ include_guard(GLOBAL)
 option(CTP_USE_FETCH_DEPS
   "protobuf 依赖经 FetchContent 拉取（双轨：OFF=系统包）" OFF)
 
+# CTP SDK 根（三种布局皆可，见 cmake/HgCtpLocate.cmake）：
+#   · 官方解包父目录（内部自动探测 *_traderapi_se_linux64 / *_mduserapi_se_linux64）；
+#   · 老式单目录（同时含两套头与两个库）；
+#   · 亦可用 CTP_TRADER_ROOT / CTP_MD_ROOT 分别显式覆盖。
 set(CTP_SDK_ROOT "" CACHE PATH
-  "CTP SDK 目录（含 ThostFtdc*.h 与 libthost*.so）；留空则按环境变量 CTP_SDK_ROOT 查找")
-set(HG_CTP_TRADER_HEADER "ThostFtdcUserApi.h" CACHE STRING
-  "合并版交易头文件（PROJECT.md §5.1：ThostFtdc 合并版 UserApi）")
+  "CTP SDK 根目录（官方解包父目录 或 老式单目录）；留空则按环境变量 CTP_SDK_ROOT 查找")
+set(CTP_TRADER_ROOT "" CACHE PATH
+  "交易 SDK 目录（显式覆盖 CTP_SDK_ROOT 的探测结果；须含交易头）")
+set(CTP_MD_ROOT "" CACHE PATH
+  "行情 SDK 目录（显式覆盖 CTP_SDK_ROOT 的探测结果；须含行情头）")
+set(HG_CTP_TRADER_HEADER "ThostFtdcTraderApi.h" CACHE STRING
+  "交易头文件名（官方分离式 = ThostFtdcTraderApi.h）")
+set(HG_CTP_MD_HEADER "ThostFtdcMdApi.h" CACHE STRING
+  "行情头文件名（官方分离式 = ThostFtdcMdApi.h）")
 set(HG_CTP_REQUIRE_SDK OFF CACHE BOOL
   "ON 时找不到 CTP SDK 即 FATAL_ERROR（CI 严格模式）；OFF 时 CTP_FOUND=OFF 走空实现")
 
@@ -40,25 +52,57 @@ set(HG_PROTOBUF_PREFERRED_VERSION "3.21.12" CACHE STRING
   "首选版本（§7.1.5；须支持 C++11）")
 
 # -----------------------------------------------------------------------------
-# 1. CTP SDK 定位（双轨之一：CTP_FOUND）
+# 1. CTP SDK 定位（双轨之一：CTP_FOUND）—— 判定逻辑**唯一实现** = cmake/HgCtpLocate.cmake
+#    支持官方分离式（父目录 + 两子目录）/ 老式单目录 / CTP_TRADER_ROOT+CTP_MD_ROOT 覆盖。
 # -----------------------------------------------------------------------------
+include("${CMAKE_CURRENT_LIST_DIR}/HgCtpLocate.cmake")
+
 set(_hg_ctp_sdk_source "cache-variable CTP_SDK_ROOT")
 if(NOT CTP_SDK_ROOT AND DEFINED ENV{CTP_SDK_ROOT})
   set(CTP_SDK_ROOT "$ENV{CTP_SDK_ROOT}")
   set(_hg_ctp_sdk_source "environment CTP_SDK_ROOT")
 endif()
 
+# 「用户是否显式给了根」——决定缺件时的处置（显式 ⇒ FATAL，不得静默回落 stub）。
+set(_hg_ctp_explicit 0)
+if(CTP_SDK_ROOT OR CTP_TRADER_ROOT OR CTP_MD_ROOT OR DEFINED ENV{CTP_SDK_ROOT})
+  set(_hg_ctp_explicit 1)
+endif()
+
+set(HG_CL_TRADER_HEADER    "${HG_CTP_TRADER_HEADER}")
+set(HG_CL_MD_HEADER        "${HG_CTP_MD_HEADER}")
+set(HG_CL_TRADER_LIB_NAMES "thosttraderapi_se.so;libthosttraderapi_se.so;libthosttraderapi.so;libthostuserapi.so")
+set(HG_CL_MD_LIB_NAMES     "thostmduserapi_se.so;libthostmduserapi_se.so;libthostmduserapi.so")
+set(HG_CL_SDK_ROOT         "${CTP_SDK_ROOT}")
+set(HG_CL_TRADER_ROOT      "${CTP_TRADER_ROOT}")
+set(HG_CL_MD_ROOT          "${CTP_MD_ROOT}")
+set(HG_CL_EXPLICIT         "${_hg_ctp_explicit}")
+hg_locate_ctp(HG_CTP)
+
 set(CTP_FOUND OFF)
-if(CTP_SDK_ROOT AND EXISTS "${CTP_SDK_ROOT}/${HG_CTP_TRADER_HEADER}")
+if(HG_CTP_FOUND)
   set(CTP_FOUND ON)
-  message(STATUS "[CTP] 发现 CTP SDK（${_hg_ctp_sdk_source}）：${CTP_SDK_ROOT} / ${HG_CTP_TRADER_HEADER}")
+  message(STATUS "[CTP] 发现 CTP SDK（${_hg_ctp_sdk_source}）："
+                 "trader-include=${HG_CTP_TRADER_INCLUDE_DIR} ; md-include=${HG_CTP_MD_INCLUDE_DIR} ; "
+                 "trader-lib=${HG_CTP_TRADER_LIB} ; md-lib=${HG_CTP_MD_LIB}")
 else()
-  message(STATUS "[CTP] CTP SDK 不可得（CTP_SDK_ROOT='${CTP_SDK_ROOT}'，缺 ${HG_CTP_TRADER_HEADER}）"
-                 " → CTP_FOUND=OFF（ctp_adapter 走空实现）")
+  message(STATUS "[CTP] CTP SDK 不可得（CTP_SDK_ROOT='${CTP_SDK_ROOT}' "
+                 "CTP_TRADER_ROOT='${CTP_TRADER_ROOT}' CTP_MD_ROOT='${CTP_MD_ROOT}'；"
+                 "缺：${HG_CTP_MISSING}）")
+  # ★ 静默降级守卫：用户**显式**给了根却解析不出必需头/库 ⇒ 配置期失败。
+  #   不得回落 stub —— 否则「控制看起来有、实际没有」（本项目「假绿」纪律）。
+  if(_hg_ctp_explicit)
+    message(FATAL_ERROR
+      "[CTP] 已显式指定 CTP SDK 根，但解析必需头/库失败：${HG_CTP_MISSING}\n"
+      "      → 拒绝静默回落 stub（否则 ctp_adapter 变成空实现且构建/测试照样『全绿』）。\n"
+      "      请核对 CTP_SDK_ROOT / CTP_TRADER_ROOT / CTP_MD_ROOT 指向；"
+      "若确实想走 stub 轨，请勿显式设置 SDK 根。")
+  endif()
   if(HG_CTP_REQUIRE_SDK)
     message(FATAL_ERROR
       "[CTP] HG_CTP_REQUIRE_SDK=ON 但 CTP SDK 不可得；不得伪造 SDK 源码，请提供 CTP_SDK_ROOT")
   endif()
+  message(STATUS "[CTP] → CTP_FOUND=OFF（ctp_adapter 走空实现）")
 endif()
 
 # -----------------------------------------------------------------------------

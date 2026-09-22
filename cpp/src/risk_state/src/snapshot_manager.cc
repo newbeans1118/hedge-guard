@@ -7,6 +7,7 @@ namespace risk_state {
 SnapshotManager::SnapshotManager(RiskSnapshot* initial)
     : active_(0),
       published_(initial),
+      retired_count_(0),
       publish_count_(0),
       reclaimed_count_(0) {}
 
@@ -19,6 +20,7 @@ SnapshotManager::~SnapshotManager() {
     delete retired_[i].snap;
   }
   retired_.clear();
+  retired_count_.store(0, std::memory_order_relaxed);
 }
 
 SnapshotManager::ReadGuard SnapshotManager::enter() const {
@@ -42,6 +44,8 @@ void SnapshotManager::publish(RiskSnapshot* fresh) {
     r.snap = old;
     r.epoch = epoch;  // 旧快照「最后一个可被取到的纪元」
     retired_.push_back(r);
+    // 无锁镜像：与 retired_ 的写入并行更新，供诊断访问器跨线程读。
+    retired_count_.store(retired_.size(), std::memory_order_relaxed);
   }
   reclaim();
 }
@@ -63,6 +67,7 @@ std::size_t SnapshotManager::reclaim() {
     }
   }
   retired_.swap(keep);
+  retired_count_.store(retired_.size(), std::memory_order_relaxed);
   if (freed != 0) reclaimed_count_.fetch_add(freed, std::memory_order_relaxed);
   return freed;
 }
@@ -71,7 +76,7 @@ SnapshotStats SnapshotManager::stats() const {
   SnapshotStats s;
   s.publish_count = publish_count_.load(std::memory_order_relaxed);
   s.reclaimed_count = reclaimed_count_.load(std::memory_order_relaxed);
-  s.retired_pending = retired_.size();
+  s.retired_pending = retired_count_.load(std::memory_order_relaxed);
   s.active_readers = active_.load(std::memory_order_seq_cst);
   return s;
 }
