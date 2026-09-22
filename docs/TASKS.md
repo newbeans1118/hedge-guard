@@ -871,6 +871,7 @@
   2. **人工确认**：确认人必须与提交人一致，否则拒 `0x0305`（防代确认）；确认时**再跑一次风控**（防确认期状态变化）；校验 `confirm_token`（防重放）；
   3. 确认超时 60 s（`CFG-28`）→ 指令置失效、**释放冻结额度**、发 `EVT_ORDER_EXPIRED`、**不发 CTP**；
   4. 每笔指令携带 `trade_plan_id`/`exposure_id`/`sub_account_id`，缺失（`trade_plan_id=0`/`sub_account_id=0`）→ 拒绝（`R-TRADE-1`）；期权多腿经 `strategy_id`+`leg_no` 关联同一计划（`PROJECT.md` §10-10）。
+  5. **（2026-09-22 新增 · 由 `tl-arch-cd` 的 `§3.1` 签名普查牵连而出）** `order_engine` 实现落地后，**须对 `ARCHITECTURE.md` §3.2 的「对外接口」签名草图做一次同法普查**（**草图 vs 真实签名**），并**按 (A)/(B)/(C) 分类**：**(A) 会误导**（**元数 / 类型 / 返回类别**不同）⇒ **随本单订正**；**(B) 不误导**（仅 `const`/引用/参数名等约定差异）⇒ **列而不改**；**(C) 草图非穷尽（omission）** ⇒ **列而不改**。**理由**：`§3.1` 本次普查查出 1 处 (A) 类（`cancelOrder` 草图元数 2 → 真实 1）⇒ **同类问题在 §3.2 存在与否，当前不可判定**（`cpp/src/order_engine/**` 现仅 3 个文件、`module.h` 为骨架占位且**自述「真实对外接口见 `ARCHITECTURE.md` §3.2」**）⇒ **须待本任务实现落地后补做**。落点 = `docs/ARCHITECTURE.md` §3.2（`docs/**` 须走授权落笔）。
 - **产出**：`cpp/src/order_engine/**`
 - **备注**：**跨栈依赖**：入口 `CMD_PLACE_ORDER`(0x0101)/`CMD_CONFIRM_ORDER`(0x0102)/`CMD_CANCEL_ORDER`(0x0103)；出口 `EVT_ORDER_ACCEPTED`(0x0201)/`EVT_PRE_TRADE_REJECT`(0x0202)/`EVT_ORDER_REPORT`(0x0203)/`EVT_ORDER_CANCEL_RESULT`(0x0206)/`EVT_ORDER_EXPIRED`(0x0207)。 **📌（2026-09-21 台账对齐）阻塞原因 = M2 首周探路门禁未过（`T-028` 未完成）；解除人 = `T-030`（技术负责人汇签）；依 `T-030` 验收原文『任一项不通过 → `T-031` 起保持 `BLOCKED`』。**
   **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条无其他阻塞源 ⇒ `BLOCKED` → `TODO`。
