@@ -8,6 +8,8 @@ import com.hedgeguard.dao.entity.Product;
 import com.hedgeguard.testsupport.FakeDao;
 import com.hedgeguard.testsupport.UnsupportedBaseDao;
 import com.hedgeguard.web.ApiRoutes;
+import com.hedgeguard.web.BizException;
+import com.hedgeguard.web.ErrorCode;
 import com.hedgeguard.web.HttpResult;
 import com.hedgeguard.web.RequestContext;
 import com.hedgeguard.web.Session;
@@ -28,6 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -163,6 +166,21 @@ class ProductListIsolationTest {
 
         assertEquals(2, csv.size(), "仅表头 + 子账户 7 的一条品种");
         assertTrue(csv.get(1).startsWith("CU,"), "仅导出可见品种：" + csv.get(1));
+    }
+
+    @Test
+    @DisplayName("T-096：多键排序须逐键过白名单 —— 品种第 2 键越域亦 10001（仅校验首键会漏）")
+    void rejectsIllegalSecondSortKey() {
+        ScopedProductDao dao = new ScopedProductDao();
+        dao.rows.add(product(1L, "CU"));
+        dao.white(1L, 7);
+        PageQuery query = PageQuery.of(null, null, "created_time,desc,evil_column,asc",
+                VarietyService.DEFAULT_SORT_FIELD);
+
+        BizException e = assertThrows(BizException.class,
+                () -> service(dao, uid -> Arrays.asList(7)).listProducts(1L, query));
+        assertEquals(ErrorCode.PARAM_INVALID, e.errorCode());
+        assertFalse(dao.lastListScoped, "校验失败不得触碰 DAO");
     }
 
     @Test

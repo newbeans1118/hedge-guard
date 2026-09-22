@@ -156,9 +156,11 @@ public abstract class AbstractDmDao<T extends AuditedEntity, ID> implements Base
 
     @Override
     public PageResult<T> findPage(PageQuery query, String where, List<Object> whereArgs) {
+        // ORDER BY 装配点：查询未含本表唯一列（主键 idColumn()）时，自动追加其升序收官，
+        // 保证全序 ⇒ 同排序值跨页不重复 / 不漏行（T-096 边界修订；见 PageQuery.orderByEnsuringUnique）。
         String base = "SELECT " + selectList() + " FROM " + tableName()
                 + (where == null || where.isEmpty() ? "" : " WHERE " + where)
-                + " ORDER BY " + query.sortField() + " " + query.direction();
+                + " ORDER BY " + query.orderByEnsuringUnique(idColumn());
         long total = count(where, whereArgs);
         List<Object> args = new ArrayList<>(whereArgs == null ? Collections.emptyList() : whereArgs);
         // 分页占位符顺序与 DmDialect.paginate 的追加顺序一致：LIMIT（size）在前、OFFSET 在后

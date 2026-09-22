@@ -77,6 +77,9 @@ class DmTradePlanDaoScopedSqlTest {
         assertTrue(count.sql.contains("COUNT(*)"), "第一条须为 COUNT：" + count.sql);
         assertEquals(Collections.singletonList((Object) 1L), count.args,
                 "COUNT 仅绑定计划 ID；恒假条件无参数：" + count.sql);
+        // 注（T-096 边界修订后）：装配层已自动追加主键 tie-break ⇒ 实际子句为
+        // "ORDER BY exec_deadline ASC, id ASC"，仍「包含」下方子串，故本断言保持绿；
+        // 「默认路径全序（并集基数 = 总数）」的正判据见 DmTradePlanStableOrderTest.defaultPathIsStableAcrossPages。
         assertTrue(select.sql.contains("ORDER BY exec_deadline ASC"),
                 "默认排序须为执行期限升序：" + select.sql);
         assertTrue(select.sql.contains("LIMIT ? OFFSET ?"), "SELECT 须分页：" + select.sql);

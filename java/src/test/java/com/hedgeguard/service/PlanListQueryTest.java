@@ -100,6 +100,29 @@ class PlanListQueryTest {
     }
 
     @Test
+    @DisplayName("T-096：多键排序须逐键过白名单 —— 首键合法但第 2 键越域，仍 10001（仅校验首键会漏）")
+    void rejectsIllegalSecondSortKey() {
+        RecordingHedgePlanDao dao = new RecordingHedgePlanDao();
+        PageQuery query = PageQuery.of(null, null, "plan_no,asc,evil_column,asc",
+                PlanService.DEFAULT_SORT_FIELD);
+
+        BizException e = assertThrows(BizException.class, () -> service(dao).listPlans(1L, query, null));
+        assertEquals(ErrorCode.PARAM_INVALID, e.errorCode());
+        assertEquals(0, dao.calls, "第 2 键越域亦须在触碰 DAO 前拒绝");
+    }
+
+    @Test
+    @DisplayName("T-096：多键排序（全部键合法）⇒ 照常放行并触达 DAO（反向：防误拒）")
+    void acceptsAllLegalMultiKeySort() {
+        RecordingHedgePlanDao dao = new RecordingHedgePlanDao();
+        PageQuery query = PageQuery.of(null, null, "plan_no,asc,id,desc", PlanService.DEFAULT_SORT_FIELD);
+
+        service(dao).listPlans(1L, query, null);
+
+        assertEquals(1, dao.calls, "全部键合法 ⇒ 放行并触达 DAO");
+    }
+
+    @Test
     @DisplayName("状态 / 计划类型取值非法 → 10001（校验失败不触碰 DAO）")
     void rejectsInvalidStatusAndPlanType() {
         RecordingHedgePlanDao dao = new RecordingHedgePlanDao();

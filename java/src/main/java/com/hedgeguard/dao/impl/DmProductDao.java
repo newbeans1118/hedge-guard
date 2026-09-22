@@ -123,9 +123,9 @@ public final class DmProductDao extends AbstractDmDao<Product, Long> implements 
      * <p>计数与取数经 {@link AbstractDmDao#findPage} 各执行一条 SQL（{@code COUNT} + {@code SELECT}），
      * 两条<b>均</b>带该 scope 条件（{@code T-105} 验收 6）。
      *
-     * <p><b>排序稳定性（未在本单处理）</b>：单列 {@code ORDER BY} 无 tie-break，同 {@code created_time}
-     * 的记录跨页可能重复 / 漏行；稳定排序（多键 / 唯一 tie-break）由专项任务 <b>{@code T-096}</b> 统一
-     * 承接（改 {@code PageQuery}），本任务<b>不</b>顺手改（避免与他任务重叠）。
+     * <p><b>排序稳定性</b>：{@code T-096} 边界修订后，分页装配层（{@link AbstractDmDao#findPage}）在排序键
+     * 不含唯一列时自动补本表主键 {@code id} 收官 ⇒ {@code ORDER BY created_time DESC, id ASC}，构成全序，
+     * 同 {@code created_time} 的记录跨页不再重复 / 漏行（{@code FR-PLAN-15}「分页排序稳定性」）。
      */
     @Override
     public PageResult<Product> findPageScoped(PageQuery query, SubAccountScope scope,

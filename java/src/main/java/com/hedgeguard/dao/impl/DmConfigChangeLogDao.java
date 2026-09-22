@@ -46,6 +46,9 @@ public final class DmConfigChangeLogDao implements ConfigChangeLogDao {
 
     private static final String TABLE = "t_config_change_log";
 
+    /** 本表主键列（达梦 {@code TB-CONFIG-3}；{@link #selectList()} 与 {@link #findById(Long)} 均以此为 PK）。 */
+    private static final String ID_COLUMN = "id";
+
     /** 方言（默认 DM8；分页与计数经此生成，DM 特性不外泄）。 */
     private static final DmDialect DIALECT = new DmDialect();
 
@@ -129,9 +132,10 @@ public final class DmConfigChangeLogDao implements ConfigChangeLogDao {
         // 通用分页实现（T-109 补位）：本表按 §0.3 排除 updated_* / row_version，
         // 故不复用 AbstractDmDao（其 selectList/mapRow 假设存在这三列），此处按需自实现。
         // 分页占位符顺序与 DmDialect.paginate 追加顺序一致：LIMIT（size）在前、OFFSET 在后。
+        // ORDER BY 装配点：查询未含本表主键时自动追加其升序收官（全序，稳定分页）；见 T-096 边界修订。
         String base = "SELECT " + selectList() + " FROM " + TABLE
                 + (where == null || where.isEmpty() ? "" : " WHERE " + where)
-                + " ORDER BY " + query.sortField() + " " + query.direction();
+                + " ORDER BY " + query.orderByEnsuringUnique(ID_COLUMN);
         long total = count(where, whereArgs);
         List<Object> args = new ArrayList<>(whereArgs == null ? Collections.emptyList() : whereArgs);
         args.add(query.size());

@@ -209,11 +209,7 @@ public final class VarietyService {
      * @return 分页结果（空结果 {@code items} 空、{@code total}=0）
      */
     public PageResult<Product> listProducts(long operatorId, PageQuery query) {
-        if (!PRODUCT_SORT_FIELDS.contains(query.sortField())) {
-            throw BizException.of(ErrorCode.PARAM_INVALID,
-                    "排序字段不在白名单：" + query.sortField() + "；允许=" + PRODUCT_SORT_FIELDS
-                            + "；复现=改用允许的排序字段");
-        }
+        requireSortFieldsAllowed(query, PRODUCT_SORT_FIELDS);
         List<Integer> visible = visibleSubAccountIds(operatorId);
         if (visible.contains(SubAccountScope.ALL_ACCOUNT_SENTINEL)) {
             // 跨账户只读（管理层 / 审计岗）：不构造 scope、不加过滤
@@ -929,6 +925,25 @@ public final class VarietyService {
         if (productDao.findById(productId) == null) {
             throw BizException.of(ErrorCode.PARAM_INVALID,
                     "品种不存在：id=" + productId + "；复现=先创建品种");
+        }
+    }
+
+    /**
+     * 校验分页查询的<b>每一个</b>排序键均在白名单内（T-096：多键排序须逐键过白名单）。
+     *
+     * <p><b>为何逐键</b>：{@code PageQuery} 支持多键（{@code f1,dir1,f2,dir2}），这些键会直接进 DAO
+     * 拼 {@code ORDER BY}；仅校验首键会让第 2+ 键绕开防注入校验。故对全部键逐一校验，任一越界即 {@code 10001}。
+     *
+     * @param query   分页查询
+     * @param allowed 允许的排序字段（列名白名单）
+     */
+    private static void requireSortFieldsAllowed(PageQuery query, Set<String> allowed) {
+        for (String field : query.sortFields()) {
+            if (!allowed.contains(field)) {
+                throw BizException.of(ErrorCode.PARAM_INVALID,
+                        "排序字段不在白名单：" + field + "；允许=" + allowed
+                                + "；复现=改用允许的排序字段");
+            }
         }
     }
 

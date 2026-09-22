@@ -8,6 +8,8 @@ import com.hedgeguard.dao.entity.TradePlan;
 import com.hedgeguard.testsupport.FakeDao;
 import com.hedgeguard.testsupport.UnsupportedBaseDao;
 import com.hedgeguard.web.ApiRoutes;
+import com.hedgeguard.web.BizException;
+import com.hedgeguard.web.ErrorCode;
 import com.hedgeguard.web.HttpResult;
 import com.hedgeguard.web.RequestContext;
 import com.hedgeguard.web.RequestDispatcher;
@@ -32,6 +34,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -139,6 +142,19 @@ class TradePlanSubAccountIsolationTest {
         assertTrue(page.items().isEmpty(), "入口缺位 ⇒ 列表空");
         assertEquals(0L, page.total(), "入口缺位 ⇒ total=0");
         assertTrue(dao.lastScoped, "入口缺位 ⇒ 空集 ⇒ scoped 恒假路径");
+    }
+
+    @Test
+    @DisplayName("T-096：多键排序须逐键过白名单 —— 交易计划第 2 键越域亦 10001（仅校验首键会漏）")
+    void rejectsIllegalSecondSortKeyForTradePlans() {
+        ScopedTradePlanDao dao = fixture();
+        PageQuery query = PageQuery.of(null, null, "exec_deadline,asc,evil_column,asc",
+                PlanService.TRADE_PLAN_DEFAULT_SORT_FIELD);
+
+        BizException e = assertThrows(BizException.class, () -> service(dao, uid -> Arrays.asList(7))
+                .listTradePlans(PLAN_OWNED, 1L, query, null));
+        assertEquals(ErrorCode.PARAM_INVALID, e.errorCode());
+        assertFalse(dao.lastScoped, "校验失败不得触碰 DAO");
     }
 
     @Test

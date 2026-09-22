@@ -1428,11 +1428,7 @@ public final class PlanService {
      */
     public PageResult<TradePlan> listTradePlans(long planId, long operatorId,
                                                 PageQuery query, TradePlanFilter filter) {
-        if (!TRADE_PLAN_SORT_FIELDS.contains(query.sortField())) {
-            throw BizException.of(ErrorCode.PARAM_INVALID,
-                    "排序字段不在白名单：" + query.sortField() + "；允许=" + TRADE_PLAN_SORT_FIELDS
-                            + "；复现=改用允许的排序字段");
-        }
+        requireSortFieldsAllowed(query, TRADE_PLAN_SORT_FIELDS);
         TradePlanFilter f = filter == null ? new TradePlanFilter() : filter;
         if (f.status != null && !TRADE_PLAN_STATUSES.contains(f.status)) {
             throw BizException.of(ErrorCode.PARAM_INVALID,
@@ -1587,11 +1583,7 @@ public final class PlanService {
      * @return 分页结果（{@code items} 为 {@code t_hedge_plan} 实体）
      */
     public PageResult<HedgePlan> listPlans(long operatorId, PageQuery query, PlanFilter filter) {
-        if (!LIST_SORT_FIELDS.contains(query.sortField())) {
-            throw BizException.of(ErrorCode.PARAM_INVALID,
-                    "排序字段不在白名单：" + query.sortField() + "；允许=" + LIST_SORT_FIELDS
-                            + "；复现=改用允许的排序字段");
-        }
+        requireSortFieldsAllowed(query, LIST_SORT_FIELDS);
         PlanFilter f = filter == null ? new PlanFilter() : filter;
         if (f.status != null && !PLAN_STATUSES.contains(f.status)) {
             throw BizException.of(ErrorCode.PARAM_INVALID,
@@ -1636,6 +1628,26 @@ public final class PlanService {
         }
         where.append(clause);
         args.add(value);
+    }
+
+    /**
+     * 校验分页查询的<b>每一个</b>排序键均在白名单内（T-096：多键排序须逐键过白名单）。
+     *
+     * <p><b>为何逐键</b>：{@code PageQuery} 支持多键（{@code f1,dir1,f2,dir2}），而这些键会直接进
+     * DAO 拼 {@code ORDER BY}；仅校验首键会让第 2+ 键绕开防注入校验（{@code evil_column,asc,id,asc}
+     * 的首键合法、第 2 键可越域）。故对全部键逐一校验，任一越界即 {@code 10001}。
+     *
+     * @param query   分页查询
+     * @param allowed 允许的排序字段（列名白名单）
+     */
+    private static void requireSortFieldsAllowed(PageQuery query, java.util.Set<String> allowed) {
+        for (String field : query.sortFields()) {
+            if (!allowed.contains(field)) {
+                throw BizException.of(ErrorCode.PARAM_INVALID,
+                        "排序字段不在白名单：" + field + "；允许=" + allowed
+                                + "；复现=改用允许的排序字段");
+            }
+        }
     }
 
     /**
