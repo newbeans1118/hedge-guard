@@ -75,9 +75,9 @@
 | T-030 | 汇签 M2 探路结论并下达铺开许可 | ARCH §9（三项探路：T-026/T-027/T-028）, §3.13 | tech-lead | P0 | T-026, T-027, T-028 | 4 人时 | 初版 | DONE（见 §2 备注） |
 | T-031 | 搭建 C++ 交易组件工程骨架与构建 + arch-check 聚合入口与 CI 接线 | NFR-COMPAT-1/2/7, NFR-MAINT-4/6 | backend-engineer#cpp | P0 | T-030 | 24 人时 | 初版 | **DONE**（判据 = **授权 + 独立验证**；**依据链见 §2 备注**：原 `TODO` 系**账实背离**，2026-09-22 编排者订正） |
 | T-032 | 实现 HGCP 帧编解码与元协议（鉴权/心跳/补数） | FR-TRADE-14, FR-CONFIG-6/9, NFR-SEC-3, NFR-REL-2 | backend-engineer#cpp | P0 | T-031 | 32 人时 | 初版 | **IN_PROGRESS**（**部分交付**：帧层 32B+CRC32+大端+1MiB / 鉴权 SHA-256+常量时间+零令牌日志 / 心跳 1000ms·3 次·≤3s / 退避 500ms→8s / 补数 65536·单批≤500 / 回环绑定 + 单连接 `0x0302` / 帧信封与不透明 payload 透传 / 流式切帧 / `PayloadCodec` 接缝 / **真实回环 socket E2E**；**`S-1`~`S-5` 已随 `CH-013` 落地**（`proto/hgcp.proto` 已转录并经独立复核通过；**余项 = `MSG_RESUME_DATA` 接 schema**〔跨侧 `T-042` 对齐〕）；见 §2 备注） |
-| T-033 | 实现 CTP 适配层 ctp_adapter（交易+行情+资金划转） | FR-TRADE-2/4/5/6/12, FR-FUND-5/6/8 | backend-engineer#cpp | P0 | T-031 | 24 人时 | 初版 | TODO |
+| T-033 | 实现 CTP 适配层 ctp_adapter（交易+行情+资金划转） | FR-TRADE-2/4/5/6/12, FR-FUND-5/6/8 | backend-engineer#cpp | P0 | T-031 | 24 人时 | 初版 | **IN_PROGRESS**（2026-09-22 编排者派发本席唯一实施实例 `be-t033`；**依赖已满足**；**状态 = 实施中、未交付**；§2 备注将登记派发与验收口径） |
 | T-034 | 实现风控内存状态 risk_state（不可变快照 + 原子替换） | FR-RISK-9/10, ARCH §4.4, NFR-PERF-1 | backend-engineer#cpp | P0 | T-031 | 24 人时 | 初版 | **DONE（授权 + 独立验证）**〔第 42 轮〕（独立复核 `te-verify-t034` = **通过、0 阻断缺陷**；**编排者 2026-09-22 授权**；冻结点 `cpp/src` `22dc2265…`/68 文件复现一致；**3 项建议级观察** `O-1`/`O-2`/`O-3` ⇒ 其中 `O-1`/`O-3` 由 **`T-124`** 承接） |
-| T-035 | 实现事前风控引擎 risk_engine（8 规则 + 三层限额 + 双层校验） | FR-RISK-1~8, FR-TRADE-3, NFR-PERF-1 | backend-engineer#cpp | P0 | T-034 | 32 人时 | 初版 | TODO |
+| T-035 | 实现事前风控引擎 risk_engine（8 规则 + 三层限额 + 双层校验） | FR-RISK-1~8, FR-TRADE-3, NFR-PERF-1 | backend-engineer#cpp | P0 | T-034 | 32 人时 | 初版 | **IN_PROGRESS**（2026-09-22 编排者派发本席唯一实施实例 `be-t035`；**依赖已满足**；**状态 = 实施中、未交付**；§2 备注将登记派发与验收口径） |
 | T-036 | 实现指令生命周期管理 order_engine | FR-TRADE-1/2/6/13, R-TRADE-1/2/5/6/7/12 | backend-engineer#cpp | P0 | T-033, T-035 | 32 人时 | 初版 | TODO |
 | T-037 | 实现指令流水与重放 flow_store | FR-TRADE-15/16, NFR-REL-1 | backend-engineer#cpp | P0 | T-031 | 24 人时 | 初版 | TODO |
 | T-038 | 实现控制指令消费与参数生效（param_version 单调） | FR-RISK-10, FR-CONFIG-6, ARCH §4.2.3B | backend-engineer#cpp | P0 | T-032, T-034 | 16 人时 | 初版 | TODO |
@@ -773,6 +773,7 @@
 - **备注**：**跨栈依赖**：成交/委托/资金回执经 T-039 以 `EVT_*` 推给 Java。 **📌（2026-09-21 台账对齐）阻塞原因 = M2 首周探路门禁未过（`T-028` 未完成）；解除人 = `T-030`（技术负责人汇签）；依 `T-030` 验收原文『任一项不通过 → `T-031` 起保持 `BLOCKED`』。**
   **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条无其他阻塞源 ⇒ `BLOCKED` → `TODO`。
 
+  **📌（2026-09-22 派发登记 · 只加不改）** 编排者派发实施（实例 `be-t033`，唯一写者，产出面 `cpp/src/ctp_adapter/**`）。**本席在派单中给定的硬约束（留痕）**：① **CTP 合并版名称勘误须以头文件实测为准** —— 存在的是 `<ThostFtdcUserApi.h>`，交易 SPI 基类为 **`CThostFtdcUserSpi`**、行情为 **`CThostFtdcMdSpi`**；**`<ThostFtdcTraderApi.h>` / `CThostFtdcTraderSpi` 在合并版不存在**；② 真实 SDK 在 **`/home/ctpmini/ctpmini_admin/ctp_sdk`**（须自行核实并报实测路径）；③ **CTP include 作 SYSTEM 头**（防其告警撞 `-Werror`）；④ `E3` C++11 合规、`E2` 禁 SQL/驱动痕迹、**`E1` 的判据串含 `sqlite`** ⇒ 勿引入任何 DB 客户端库；⑤ **`E4` 扫描根不含 `ctp_adapter`** ⇒ 本模块不禁止锁/同步调用；⑥ **两轨（有 SDK / 无 SDK 降级）都要报**构建与 `ctest`；⑦ 构建串行化（与并行席位 `be-t035` 互斥）。**须自证**：两轨构建零告警 + 两轨 `ctest` 名单 / 聚合 `E1`–`E7` 全 `0` / **至少 3 条承重反退化**（未连接回 `0x2004` 且退回不静默丢弃、SPI 回调仅序列化+入队、期货与期权各覆盖）/ 冻结点锚 + 时刻 / **实测 CTP 头文件路径与 `CThostdFtdc*Spi` 类名清单**（对既有勘误的独立复测）。**状态只能写「已完成（待独立复核）」。**
 ### T-034 实现风控内存状态 risk_state
 
 - **需求追溯**：`FR-RISK-9/10`, `NFR-PERF-1`, `ARCHITECTURE.md` §3.4/§4.4
@@ -810,6 +811,7 @@
 - **备注**：非法判定值一律拒绝；平仓/减仓方向按规则豁免。 **📌（2026-09-21 台账对齐）阻塞原因 = M2 首周探路门禁未过（`T-028` 未完成）；解除人 = `T-030`（技术负责人汇签）；依 `T-030` 验收原文『任一项不通过 → `T-031` 起保持 `BLOCKED`』。**
   **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条无其他阻塞源 ⇒ `BLOCKED` → `TODO`。
 
+  **📌（2026-09-22 派发登记 · 只加不改）** 编排者按**关键路径** `… → T-031 ✔ → T-034 ✔ → **T-035** → T-036 → …` **派发**实施（实例 `be-t035`，唯一写者，产出面 `cpp/src/risk_engine/**`）。**本席在派单中给定的硬约束（留痕）**：① **`E4` 扫描根含 `cpp/src/risk_engine`** ⇒ 代码内**不得**出现 `mutex`/`lock_guard`/`unique_lock`/`condition_variable` 与同步 I/O 调用形态（`read`/`write`/`send`/`recv`/`sleep` 等），**且勿用这些名字命名**；② `E3` C++11 合规（`-std=c++11 -Wall -Wextra -Werror`，禁 `make_unique`/`optional`/`variant`/`string_view`/`if constexpr`/结构化绑定）；③ `E2` 禁 SQL/驱动痕迹；④ 上游 `RiskState` 已冻结（`T-034`，`DONE`）——**须用 `acquire()`，勿用未注册的 `snapshot()`(peek)**；⑤ 构建串行化（与并行席位 `be-t033` 互斥：`-j1`、负载 ≥2.5 则有界等待）、构建目录与 `TMPDIR` 放 `/`（`/tmp` 为小 tmpfs）。**须自证**：构建零告警 / `ctest` 名单（以 `ctest -N` 为准）/ 聚合 `E1`–`E7` 全 `0` 且 **`E4` 实扫命中 0** / **至少 3 条承重反退化**（三层限额全序、平仓豁免、纯函数式或 P99）/ **P99 ≤ 5 ms 的测量方法与实测数** / 冻结点锚 + 时刻。**状态只能写「已完成（待独立复核）」，不得自评 `DONE`。**
 ### T-036 实现指令生命周期管理 order_engine
 
 - **需求追溯**：`FR-TRADE-1/2/6/13`, `R-TRADE-1/2/5/6/7/12`, `ARCHITECTURE.md` §3.2/§6.1

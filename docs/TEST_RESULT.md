@@ -3163,3 +3163,206 @@ E7 通过：§4.2.8 与 proto 逐条一致（消息 40+10、字段 214+66、枚�
 - 追加前基线：`md5 8e914198993fc679b4a6adb67f936a4b` / 2959 行
 - 校验：`head -2959 docs/TEST_RESULT.md | md5sum` = `8e914198993fc679b4a6adb67f936a4b`（**与追加前基线一致 ⇒ 纯追加**）
 - 追加后全文 md5 / 行数：**以实时 `md5sum docs/TEST_RESULT.md` / `wc -l` 为准**（自指值不可写死）
+
+# `T-096` 独立复核证据（2026-09-22）
+
+复核方：`te-verify-t096`（独立复核，**非产出方**）。对象 = `T-096` **追加授权交付**（分页装配层保证 `ORDER BY` 全序 / 默认路径稳定 + 多键逐键白名单）。**产出方自报一律视为待证命题**；本报告分「**独立实测**」与「**产出方自述（我未复现）**」两栏。
+
+## T096.0 快照 / 锚点与自报逐项比对
+
+| 项 | 产出方自报 | 独立实测 | 结论 |
+|---|---|---|---|
+| 仓库版本 | —（未给） | `git rev-parse HEAD` = `64711b551af48aeec1f0de4b3fd8ab9fc70a6c2d`（master，提交=`feat(java): T-096 补充…`），`git status` 干净 | ✅ |
+| 冻结点锚 | `find java/src -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum` = `d71105d257ca82a297f0450ca470ea46` / 320 文件 | **实测一致**（3 次取样均 `d71105d257ca82a297f0450ca470ea46` / 320） | ✅ |
+| 共享树变异残留 | `MUTATION`/`.orig` 残留 0 | `find .`（除 `.git`）`*.orig`/`*.bak`/`*.rej`/`*MUTATION*` **0 命中** | ✅ |
+| 门禁计数 | 464/0/0/0 | **实测 464/0/0/0** + `BUILD SUCCESS`（隔离副本） | ✅ |
+| `@Test` vs surefire | 464 == 464 | **实测 464 == 464**（裸 grep 与「行首注解」两法各 464） | ✅ |
+| `arch-check` 聚合 | rc 0（E1–E7 全 0） | 共享树实测 **rc 0**（`通过(0)=7 命中(0)=0 用法/前置(2)=0`） | ✅ |
+
+隔离副本 `/t096iso/{docs,java,tools,proto}`（缺 `cpp/`、`web/` ⇒ 副本内 E1–E4/E6 走 SKIP；**共享树**（含 `cpp/`、`web/`）实测 E1–E7 全 0，非 SKIP）。`TMPDIR=/root/t096-tmp`；`-T1`。
+
+## T096.1 断言① 默认路径现在是全序
+
+**独立实测**（自建探针 `T096DaoProbeTest`，**未复用产出方用例**；真实 `DmTradePlanDao` + 自建记录型假 JDBC + 自建假排序引擎）：
+- 不传 `sort`（`PageQuery.of("1","10",null,"exec_deadline")`）经 `findPageScoped` 产出真实 SQL 的 `ORDER BY` 子句 = **`exec_deadline ASC, id ASC`**。
+- 15 条同 `exec_deadline`、`size=10`、两页等值组内序取**相反方向**（模型化 DB 对未覆盖键不保证次序）⇒ 两页并集 = **15**、去重 = **15**（无重复 / 漏行）。
+- 对照（自建）：与「修复前装配点」等价的单键子句 `exec_deadline ASC` ⇒ 同数据集两页并集仅 **10**（重复 `[1..5]`、漏 `[11..15]`），复现被修缺陷形状。
+
+**产出方自述（我未复现）**：默认路径 SQL = `exec_deadline ASC, id ASC`、并集 15 / 去重 15（与其 `DmTradePlanStableOrderTest` 一致）。
+
+结论：✅ **成立**。
+
+## T096.2 断言② tie-break 真的是「唯一列」（正确性前提，重点）
+
+- **独立穷举**：`grep -rln "extends AbstractDmDao"` = **43 个子类**；`grep -rn "protected String idColumn()"` 亦 **43**，逐类核 `MISSING` = **空**（**无未实现**）。
+- 43 子类 `idColumn()` **全部 `return "id"`**；非子类 `DmConfigChangeLogDao` 用自带 `ID_COLUMN="id"`。DAO 表集合 = **44**。
+- **唯一性核验（DDL 层）**：`docs/DEPLOY/schema/*.sql` 共 **47 张 `CREATE TABLE`**，**47 张全部 `PRIMARY KEY (id…)`**；44 张 DAO 表**全部包含**（`comm` 差集：DAO 表 ∉ schema = **0**）。
+- 三处 `findPageScoped` 覆写（`DmProductDao` / `DmHedgePlanDao` / `DmTradePlanDao`）**均委托** `abstract.findPage` / `super.findPageScoped` ⇒ **无绕开 tie-break 的私有装配点**。
+- **无** 子类返回非唯一列 / 无 `id` 列的表 ⇒ 追加后**不产生非法 SQL**，且**确为全序**。
+
+结论：✅ **成立**（产出方「43 子类全实现、均返 `id`」独立证实）。
+
+## T096.3 断言③ 不重复追加
+
+**独立实测**（探针 `noDoubleAppend`）：`id,desc` → `id DESC`；`exec_deadline,asc,id,asc` → `exec_deadline ASC, id ASC`；`id,asc,exec_deadline,desc` → `id ASC, exec_deadline DESC`（唯一列非末键亦视为已含，不追加）。✅
+
+**观察（低）**：「已含唯一列」判定为**大小写敏感** `sortFields.contains(uniqueColumn)`。经白名单服务路径不可达（白名单键均小写，大写先被拒）；非白名单读取路径（如 `ConfigService` 各列表直通 DAO）若客户端传大写 `ID`，会产冗余键 `ID ASC, id ASC`（若 DB 视 `ID`/`id` 同列则冗余但合法，**无功能影响**）。见 `O-4`。
+
+## T096.4 断言④ 边界
+
+**独立实测**（探针 `boundarySortInputs`）：
+- `sort` = `null` / `""` ⇒ 走默认字段：`exec_deadline ASC, id ASC`；
+- 仅字段名无方向 ⇒ 用缺省方向（4 参 `ASC`；5 参 `desc` ⇒ `exec_deadline DESC, id ASC`）；
+- 畸形串（`exec_deadline,,id` / `a,b,c` / `exec_deadline,evil` / `,asc`）⇒ **确定性抛 `IllegalArgumentException`**；边界层 `RequestDispatcher` 捕获、`ErrorMapper` 映射为 `PARAM_INVALID`（`10001`）⇒ **4xx，非 500**。✅
+
+## T096.5 断言⑤ 多键逐键白名单 + 归属
+
+**独立实测**（探针 `T096WhitelistProbeTest`，3 个调用点 `listTradePlans` / `listPlans` / `listProducts`）：
+- **第 2 键**越域（`…,asc,evil_column,asc`）⇒ `10001` 且 `dao.calls==0`（不触达 DAO）✅（3 点皆然）；
+- **第 3 键**越域（`…,asc,id,asc,evil_column,desc`）⇒ `10001` 且 `dao.calls==0` ✅（3 点皆然）；
+- **反向**：全部键合法（如 `product_code,asc,status,desc,category,asc`）⇒ **放行并触达 DAO**（`calls==1`）✅（不误拒）。
+- 穷举：`src/main` 中 `query.sortField()` / `query.direction()` 单键白名单检查**残留 0**；三处白名单（`PlanService:1431` / `:1586`、`VarietyService:212`）**全部**改走 `requireSortFieldsAllowed`。
+
+**归属判定独立复核**（「多键支持是否本批引入」）：
+- `git show 772bd27:…/PageQuery.java` **确为单键**（仅 `parts[0]`/`parts[1]`，第 3+ 片段静默忽略）✅（产出方依据**属实**）。
+- **加强证据**：`git log -- …/PageQuery.java` 仅两笔 —— 基线快照 `59b6f70` 与本次提交 `64711b5`；`59b6f70`、`461d39a`（本次提交**父**）**均单键**，multi-key **首现于本次提交 `64711b5`**。
+- **补给前快照**（`T-034` 作业期留存，非本次提交）：`/root/t034v`（13:23）、`/root/t034-iso`（13:30）、`/root/t034-asan-src`（13:48）—— `PageQuery` **已是 multi-key**，而 `PlanService:1431`/`:1590`、`VarietyService:212` **仍为 `contains(query.sortField())`（仅首键）** ⇒ 「multi-key 能力」与「仅校验首键缺口」**同源于 `T-096`**。
+- 结论：**「本批引入 ⇒ 本批闭环」成立** ✅。⚠️ 唯「前一交付」措辞无法由 git 单独证实（multi-key 首现即在受审提交内）——不影响结论，记 `O-6`。
+
+## T096.6 断言⑥ 既有断言订正核对
+
+**独立实测**：
+- `PageQueryTest`：补给前快照 `/root/t034v/…/PageQueryTest.java` **确含旧用例** `singleKeyOrderByCanDuplicateAcrossPages`（断言 `union.size() > set.size()` 且 `set.size() < data.size()` = **锁定缺陷形状**）；现行树为 `singleKeyCompletedToTotalOrder`（断言补全后全序并集 = 20）。**旧→新 已独立复现** ✅。
+- `DmTradePlanDaoScopedSqlTest:83`：断言**确为 `contains`（子串）** `select.sql.contains("ORDER BY exec_deadline ASC")` ✅。**守卫强度事实**：加 tie-break 后 `…, id ASC` 仍「包含」该子串 ⇒ 仍绿；反之**移除 tie-break 亦不会变红** ⇒ 该断言**对 `ORDER BY` 形状已无守卫能力**（产出方已披露）。
+- **穷举 test 目录 ORDER BY 相关断言**（`grep -rn "ORDER BY" java/src/test/java`），全量 5 类 ——
+  1. `DmTradePlanStableOrderTest`（**新文件**，精确串 `"exec_deadline ASC, id ASC"`，**强守卫**）；
+  2. `DmTradePlanDaoScopedSqlTest:83`（**子串，弱**，已披露）；
+  3. `DmProductDaoScopedSqlTest:79`（**子串，弱**，**产出方未披露**）；
+  4. `DmProductDaoScopedSqlTest:148`（同上，**弱**，**产出方未披露**）；
+  5. `DmDialectTest:28–29`（`dialect.paginate` 输入串，**与本机制无关** ✅ 证实）。
+  ⇒ **会因加 tie-break 而需订正的「精确串」恰 3 处**（产出方口径成立）；但**失去 tie-break 守卫能力的子串断言实为 3 处**（产出方仅披露 1 处）⇒ 见 `O-2`。
+- `DmTradePlanStableOrderTest` 旧两例（`singleKeyOrderByDuplicatesAndMissesRows` / `defaultOrderByUnchangedAsSingleKey`）：**无法独立复现** —— 该文件在 git 内为**新增**（`461d39a` 无此文件），且**不在** 13:23–13:48 三份补给前快照中；旧名仅见编排者文档（`TASKS.md` / `BOARD.md`）。记 `O-3`。
+
+## T096.7 反退化（自设变异，隔离副本内；**禁止共享树就地变异**）
+
+| 变异 | 目标（唯一命中） | 变体后 | 复位后 | 副本路径 |
+|---|---|---|---|---|
+| A：`query.orderByEnsuringUnique(idColumn())` → `query.orderBy()`（`AbstractDmDao:163`） | 默认路径判据 | 探针 **2 红**（`defaultPathProducesTotalOrderClause`、`twoPageUnionCompleteUnderTieBreak`：`expected <exec_deadline ASC, id ASC> but was <exec_deadline ASC>`；并集 10≠15） | **14/0/0 绿** | `/t096iso/…` |
+| B：白名单循环退化首键 `query.sortFields()` → `query.sortFields().subList(0,1)`（`PlanService:1644`、`VarietyService:941`） | 逐键白名单判据 | 探针 **6 红**（`tradePlans`/`plans`/`products` 的第 2、第 3 键越域用例：`Expected BizException … nothing was thrown`） | **14/0/0 绿** | `/t096iso/…` |
+
+- 变异前均实测目标串 `count==1`（防「未注入」假绿）；变异仅施加于隔离副本；两轮复位后均 `diff -q` 与共享树**逐字节一致**，且副本 `find java/src … md5sum` 回到冻结锚 `d71105d…`/320。
+- **复位后全量 clean 重编译**：`mvn -B -o clean test` = **464/0/0/0** + `BUILD SUCCESS`（证明无残留）。
+- 自建探针（14 用例）存档 `/root/t096-probes-saved/`；14/0/0 于冻结源。
+
+## T096.8 误伤面（反向验证）
+
+- **主排序语义不变**：tie-break 仅**末尾追加**（`exec_deadline DESC` → `exec_deadline DESC, id ASC`；首键与方向不变）；`sortField()` / `direction()` / `orderBy()` 仍取或等价首键（探针 `tieBreakOnlyAppendsAndDialectIntact`）。✅
+- **方言分页**：`DmDialect.paginate("… ORDER BY exec_deadline ASC, id ASC", q)` 仍正确追加 ` LIMIT ? OFFSET ?`；`DmDialectTest` 全绿。✅
+- **判据**：`arch-check` 聚合 **rc 0**；`E5` 单跑 **rc 0**（`dao 之外未发现 SQL`）。✅
+- 全量 464/0/0/0 为弱证据补充。
+
+## T096.9 缺陷 / 观察汇总
+
+**无阻断缺陷**（0 项达缺陷门槛：无 FR / 架构违背、无功能影响、无契约不符）。
+
+| 编号 | 级别 | 内容 | 处置建议 |
+|---|---|---|---|
+| `O-1` | 信息 | `DmTradePlanDaoScopedSqlTest:83` 子串断言对 `ORDER BY` 形状失去守卫能力（**产出方已披露**） | 维持现状；形状守卫由 `DmTradePlanStableOrderTest` 承接 |
+| `O-2` | 建议 | **同类未披露**：`DmProductDaoScopedSqlTest:79` / `:148` 亦为子串断言 ⇒ 同样失去 tie-break 守卫能力 | 请编排者裁定是否登记 |
+| `O-3` | 信息 | `DmTradePlanStableOrderTest` 旧两例「反转」无法经 VCS / 补给前快照独立复现（git 内新增、快照中缺失、旧名仅见文档） | 属「自述未独立复现」项，非缺陷 |
+| `O-4` | 建议·低 | `orderByEnsuringUnique`「已含唯一列」判定大小写敏感；非白名单路径传大写 `ID` 会产冗余键 | 如需可改 `equalsIgnoreCase`（不阻断） |
+| `O-5` | 信息 | 副本缺 `cpp/` / `web/` 致 E1–E4/E6 SKIP；共享树实测 E1–E7 全 0（非 SKIP） | 引用时注明环境 |
+| `O-6` | 信息 | 「前一交付」措辞无法由 git 单独证实（multi-key 首现即在受审提交内）；「本批引入」结论不受影响 | 措辞层面留痕 |
+
+## T096.10 结论
+
+- **独立实测基线**：`mvn -B -o clean test` = **464/0/0/0**；`@Test` grep **464** == surefire **464**；`arch-check` 聚合 **rc 0**（`E1`–`E7` 全 0）；`E5` 单跑 **rc 0**。
+- 断言 ①②③④⑤⑥ 及反向 / 误伤 / 反退化**全部独立成立**；产出方**核心自报逐项复现一致**，**无「自述与实测不符」的阻断项**。
+- 归属判定「多键本批引入」**成立**（快照 + git 双重独立证据）。
+
+**结论**：**`通过`**（0 阻断缺陷；4 项信息 / 建议级观察，其中 `O-2` 系产出方未披露项，`O-4` 为低 severity 边界建议）。**「产出方自述未独立复现」仅 `O-3`（订正溯源），不影响交付正确性。** 门禁处置由编排者裁定；本席**不自评 `DONE`**。
+
+**纯追加证明**（自指值不写死）：
+- 追加前基线：`md5 1978bbbe93a1ed9a0cd3b50f1fc10202` / **3165 行**
+- 校验：`head -3165 docs/TEST_RESULT.md | md5sum` = `1978bbbe93a1ed9a0cd3b50f1fc10202`（与追加前基线一致 ⇒ **纯追加**）
+- 追加后全文 md5 / 行数：**以实时 `md5sum docs/TEST_RESULT.md` / `wc -l` 为准**（自指值不可写死）
+
+---
+
+# `T-096` 独立复核 —— 测试工程师**二次独立复算**（2026-09-22）
+
+> **性质**：上文 `T-096` 证据章已由复核方 `te-verify-t096` 落盘。本席（`test-engineer`）**不采信其结论**，在**隔离副本**中**逐条独立重跑承重判据**并与产出方核心自报比对；独立复现**一致**。本节**纯追加，不改上文一字**。
+> **纪律**：隔离副本内施加自设变异（**共享树禁止就地变异**）；复位后逐字节核回。
+
+## TE96.0 复核基线（本席实测）
+
+- 仓库 `HEAD` = `6192064`；`git status` 除本文件 `TEST_RESULT.md` 外干净。
+- 冻结锚：`find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum` = **`d71105d257ca82a297f0450ca470ea46` / 320 文件**（与产出方自报一致）。
+- 隔离副本 `/root/t096-verify-iso`（`java` / `tools` / `proto` / `docs` / `web`；无 `cpp/`；`target/` 已清）；`TMPDIR=/root/t096-verify-tmp`。
+
+## TE96.1 承重判据逐条独立重跑
+
+| # | 判据 | 命令（实际执行） | 实测输出 | 结论 |
+|---|------|-----------------|---------|------|
+| 1 | 全量回归 | 隔离副本 `mvn -B -o clean test` | `Tests run: 464, Failures: 0, Errors: 0, Skipped: 0` + `BUILD SUCCESS`（EXIT=0） | ✅ |
+| 2 | `@Test` == surefire | `grep -rn '@Test' java/src/test --include=*.java \| wc -l` | **464** == 464 | ✅ |
+| 3 | 架构聚合 | 共享树 `bash tools/arch-check/arch-check.sh` | `通过(0)=7 命中(0)=0 用法/前置(2)=0`，**rc 0**（`E1`–`E7` 全 0，非 SKIP） | ✅ |
+| 4 | **默认路径全序**（承重） | 隔离副本 `mvn -B -o test -Dtest=DmTradePlanStableOrderTest` | 4/0/0/0；`defaultPathIsStableAcrossPages` / `defaultOrderByAddsPrimaryKeyTieBreak` 断言 **`exec_deadline ASC, id ASC`** 通过 | ✅ |
+| 5 | tie-break 接线穷举 | `grep -rn '" ORDER BY "' java/src/main` | **恰 2 处**：`AbstractDmDao:163`（`orderByEnsuringUnique(idColumn())`）、`DmConfigChangeLogDao:138`（`orderByEnsuringUnique(ID_COLUMN)`）；`\.orderBy()` 残留 **0** | ✅ |
+| 6 | PK 可取得（未写死） | `grep -rn "protected String idColumn()" java/src/main -A1` | **43** 子类 / **43** 覆写，**全部 `return "id"`** | ✅ |
+| 7 | 多键逐键白名单 | `grep -n sortFields() PlanService.java VarietyService.java` | `PlanService:1431/1586`、`VarietyService:212` 均 `for (field : query.sortFields())`（逐键）；首键单校验残留 0 | ✅ |
+| 8 | 断言订正 | `grep -n` 于 `PageQueryTest` / `DmTradePlan*Test` | `singleKeyCompletedToTotalOrder`（原锁定缺陷形状的 `singleKeyOrderByCanDuplicateAcrossPages` 已反转）；`DmTradePlanDaoScopedSqlTest:83` 子串断言**已加注**（`:80–81`） | ✅ |
+
+## TE96.2 反退化（本席自设变异，仅施加于隔离副本）
+
+| 变异 | 目标（唯一命中） | 变体后 | 复位后 |
+|---|---|---|---|
+| **A**：`AbstractDmDao:163` `query.orderByEnsuringUnique(idColumn())` → `query.orderBy()` | 默认路径全序 | `DmTradePlanStableOrderTest` **2 红**：`defaultPathIsStableAcrossPages` / `defaultOrderByAddsPrimaryKeyTieBreak` —— `expected: <exec_deadline ASC, id ASC> but was: <exec_deadline ASC>` | `diff -rq src <共享树>java/src` **逐字节一致**；clean 全量回 **464/0/0/0** |
+| **B**：`PlanService:1644` / `VarietyService:941` `sortFields()` → `sortFields().subList(0,1)` | 多键逐键白名单 | **3 红**：`ProductListIsolationTest.rejectsIllegalSecondSortKey`、`PlanListQueryTest.rejectsIllegalSecondSortKey`、`TradePlanSubAccountIsolationTest.rejectsIllegalSecondSortKeyForTradePlans` —— `nothing was thrown` | 同 A（复位后全量回绿） |
+
+> 变异前均实测目标串唯一（防「未注入」假绿）；两轮复位后副本 `src` 与共享树 `diff -rq` **零差异**。
+
+## TE96.3 归属判定（多键是否本批引入）
+
+- `git log -- java/src/main/java/com/hedgeguard/dao/PageQuery.java` **仅 2 笔**：基线 `59b6f70` + 本批 `64711b5`。
+- `git show 772bd27:…/PageQuery.java` 与 `git show 461d39a:…/PageQuery.java` **均单键**（仅解析 `parts[0]` / `parts[1]`，第 3+ 片段无处理）⇒ **多键能力首现于 `64711b5`（= `T-096`）**。
+- 结论：**「多键本批引入 ⇒ 本批闭环」成立** ✅。
+
+## TE96.4 本席结论
+
+- **`通过`**：**0 阻断缺陷**。`te-verify-t096` 报告的承重判据（默认路径全序 / 逐键白名单 / 反退化必红 / 归属）与断言订正，**经本席独立重跑逐条复现一致**；未发现「自述与实测不符」的阻断项。
+- **承接观察 `O-2`**（产出方未披露项）：`DmProductDaoScopedSqlTest:79` / `:148` 同为**子串断言**、同样失去 tie-break 守卫能力 —— 本席核实**属实**；级别 = **「建议」**（无 `FR` / 架构违背、无功能影响）⇒ **不构成缺陷**，是否登记由编排者裁定。
+- **环境说明**：本复核隔离副本缺 `cpp/` / `web/`，副本内 `E1`–`E4`/`E6` 会 `SKIP`；故 `E1`–`E7` 全 0 的结论取自**共享树**（含 `cpp/`、`web/`，实测非 SKIP）。
+- 门禁处置与 `DONE` 判定由编排者裁定；本席**不自评 `DONE`**。
+
+**纯追加证明**（自指值不写死）：
+- 追加前基线：`md5 582125f8136d727d3e31358b130e1d21` / **3288 行**
+- 校验：`head -3288 docs/TEST_RESULT.md | md5sum` = `582125f8136d727d3e31358b130e1d21`（与追加前基线一致 ⇒ **纯追加**）
+- 追加后全文 md5 / 行数：**以实时 `md5sum docs/TEST_RESULT.md` / `wc -l` 为准**（自指值不可写死）
+
+---
+
+# `BUG-001` 复检记录（`GET /api/v1/plan` 缺省排序方向）
+
+- **复检人**：测试工程师（`test-engineer`） ｜ **复检时间**：2026-09-22T14:50+08:00
+- **复检版本**：`HEAD` = `6192064`；`PlanHandler.java` md5 `eb0961a95a60939b4c992ef65a407b4f`；`PageQuery.java` md5 `1c1d2b8da324f4e1ac7e7045c117b0ef`
+- **对应需求 / 用例**：`FR-PLAN-4 @ REQUIREMENTS/PLAN.md:155`；用例 `PlanListDefaultSortTest.defaultSortIsCreatedTimeDesc` / `explicitSortIsRespected`
+
+| 项 | 结果 |
+|---|---|
+| 原单复现命令 `mvn -B -o test -Dtest=PlanListDefaultSortTest` | `Tests run: 2, Failures: 0, Errors: 0, Skipped: 0` + `BUILD SUCCESS` |
+| 缺省路径（不传 `sort`） | `sortField = "created_time"`、**`direction = "DESC"`、`ascending = false`** ✅（原缺陷态 `ASC`/`true` 已消除） |
+| 显式 `sort=plan_no,asc` | `plan_no` + `ASC`，缺省方向**不覆盖**显式值 ✅ |
+| 反退化（隔离副本内把兜底改回裸字段名） | `defaultSortIsCreatedTimeDesc` **必红**：`FR-PLAN-4 要求默认倒序（BUG-001） ==> expected: <DESC> but was: <ASC>`（与原单修复前实测逐字吻合）⇒ 守卫有效 |
+| 关联回归 | `PlanListDefaultSortTest,PlanListQueryTest,TradePlanListQueryTest,PageQueryTest,ProductListDefaultSortTest` = **34/0/0/0** |
+| 全量回归 | `mvn -B -o clean test` = **464/0/0/0** + `BUILD SUCCESS`；`arch-check` 聚合 **rc 0** |
+| **复检结论** | ✅ **通过 → `CLOSED`**（详见 `docs/BUGS/BUG-001.md`「复检结论」） |
+| 遗留问题 | 无（相邻缺口 `Q-1`/`Q-2`/`Q-3` 另派，非本单；根因②由 `T-096` 收口） |
+
+> ⚠️ **版本差异（非回归）**：现行 `PlanHandler.java` md5 `eb0961a9…` 异于原修复记录 `c3e890d6…`，因修复后工作树又经**已验收变更**（如 `T-100` 装配）；`DEFAULT_SORT = "created_time,desc"` 兜底（`:51`/`:139`）仍在位且有效。
+> **工单闭环**：`dev-team/inbox/` 与 `outbox/` 内**无 `BUG-001` 工单文件**（本单由开发自测直接建档）⇒ 无移单动作，闭环凭证以缺陷档案为准。
+
+**纯追加证明**（自指值不写死）：
+- 追加前基线：`md5 5c60c8b25909dd225d57c3fa6e644400` / **3341 行**
+- 校验：`head -3341 docs/TEST_RESULT.md | md5sum` = `5c60c8b25909dd225d57c3fa6e644400`（与追加前基线一致 ⇒ **纯追加**）
+- 追加后全文 md5 / 行数：**以实时 `md5sum docs/TEST_RESULT.md` / `wc -l` 为准**（自指值不可写死）
