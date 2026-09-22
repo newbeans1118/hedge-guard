@@ -3366,3 +3366,192 @@ E7 通过：§4.2.8 与 proto 逐条一致（消息 40+10、字段 214+66、枚�
 - 追加前基线：`md5 5c60c8b25909dd225d57c3fa6e644400` / **3341 行**
 - 校验：`head -3341 docs/TEST_RESULT.md | md5sum` = `5c60c8b25909dd225d57c3fa6e644400`（与追加前基线一致 ⇒ **纯追加**）
 - 追加后全文 md5 / 行数：**以实时 `md5sum docs/TEST_RESULT.md` / `wc -l` 为准**（自指值不可写死）
+
+---
+
+# `T-033` 独立复核证据（2026-09-22）
+
+> 复核人：`test-engineer` 席位（实例 `te-verify-t033`），**独立复核方**。
+> 立场：产出方（`be-t033`）自报一律视为**待证命题**；本席**独立实测**取证，**未复用**其用例与数字。
+> 纪律：变异仅在**隔离副本**内做；未改任何交付制品；未改 `TASKS.md`/`BOARD.md`/`ARCHITECTURE.md`/`DATA_MODEL.md`；未 `git commit`。
+> 报告分栏：**「独立实测」**（本席亲手跑出的原始输出） vs **「产出方自述（我未复现）」**。
+
+## T033.0 快照 / 锚点与自报逐项比对
+
+| 项 | 独立实测 | 产出方自述 | 一致 |
+|---|---|---|---|
+| cwd | `/root/myspace/hedge-guard` | 同 | ✔ |
+| HEAD（开工时） | `9221262` | —（未自报） | — |
+| HEAD（复核期间被推进） | `5e1bb87`（编排者 ledger 提交，`docs(ledger): 第 46/47 轮 …`） | — | — |
+| 冻结点锚 `find cpp/src/ctp_adapter -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum` | **`4ab77612bc964a3bcdebc11291cbbfab` / 20 文件 / 2845 行**（开工时与提交后**两次**实测均一致） | `4ab77612bc964a3bcdebc11291cbbfab` / 20 文件 / 2845 行 | ✔ |
+| 共享树残留（`*.orig`/`*.bak`/`*.rej`/`*MUTATION*`/`*~`） | **0** | 0 | ✔ |
+| 产出面 | `cpp/src/ctp_adapter/**`（20 文件：头 6 + 源 5 + 测 6 + `CMakeLists.txt` + 未改的 `module.h`/`module.cc`） | 同 | ✔ |
+| `module.h`/`module.cc` 是否改动 | 未改（`git status` 中二者**不出现**；tracked & clean） | 未动 | ✔ |
+| 交付制品是否已提交 | **已提交**（HEAD `5e1bb87` 中 `git ls-files cpp/src/ctp_adapter` = 20 文件，tracked） | 交付时「未 commit」 | ⚠️ 见下注 |
+
+> ⚠️ **注释（树已被推进，非本席改动）**：开工时 `git status` 显示 `ctp_adapter/**` 全为 `??`（untracked），HEAD=`9221262`；本席复核期间 HEAD 推进至 `5e1bb87`（**编排者 ledger 提交**，含 `T-033` 交付 + `T-096` 归档 + 并行席位 `be-t035` 的 `risk_engine` 在制品）。**`ctp_adapter` 内容锚逐字节未变**（`4ab77612…`），故本席两轨构建/测试对其**冻结内容**有效。⇒ 自报「未 commit」在**交付时刻**成立，其后由编排者提交；**非产出方陈述不实**。
+> ⚠️ **移动靶**：`cpp/src` 现含并行席位 `be-t035` 的 `risk_engine`（在制品，`ctest` 用例 +12）⇒ **自报的绝对数 `CTP 22/22` / `stub 19/19` 无法在当前树上原样复现**（现为 34/31）；本席以 **`ctp_adapter` 自身用例**为单位核验（见 T033.5）。
+
+### 自报门禁逐项比对
+
+| 自报项 | 自报值 | 独立实测 | 一致 |
+|---|---|---|---|
+| 两轨构建 rc | 0 / 0 | **CTP rc 0**；**stub rc 0** | ✔ |
+| 两轨 `warning:`/`error:` | 0/0 | **0/0**（两轨） | ✔ |
+| `ctp_adapter` TU 数（CTP/stub） | 9 / 5 | **9 / 5**（`Building CXX object src/ctp_adapter/…`） | ✔ |
+| 编译参数 | `-std=c++11 -Wall -Wextra -Werror` | 逐 TU 实测均带（见 `compile_commands.json`） | ✔ |
+| CTP 轨 `-isystem` | `-isystem /home/ctpmini/ctpmini_admin/ctp_sdk` | 实测命中（且**证明必需**，见 T033.6） | ✔ |
+| `ctest` 计数 | CTP 22/22（基线 18，+4）/ stub 19/19（基线 17，+2） | 现树 **CTP 34/34**、**stub 31/31**；`ctp_adapter` 注册 **4 / 2** 且全过 | ◑ 结构一致、绝对数因移动靶漂移 |
+| 聚合 `arch-check.sh` | `rc 0`，`E1`–`E7` 各 0 | **`rc 0`，`E1`–`E7` 各 0** | ✔ |
+| `E4` 默认三目录扫 | 45 文件，`ctp_adapter` 不在其内 | **45 文件**；扫描根 = `cpp/src/{order_engine,risk_engine,risk_state}`，**不含 `ctp_adapter`** | ✔ |
+| 隔离副本变异 | 4 例全杀（`/root/t033probe`） | 本席**自设** 3 例（不复用其 M1–M4）：2 杀 + 1 守卫强度（见 T033.7） | ◑ 见 T033.7 |
+| SDK 实测类名 | `CThostFtdcUserSpi`/`CThostFtdcUserApi`；`CThostFtdcMdSpi`/`CThostFtdcMdApi`；无 `TraderApi` | **逐条核实一致**（见 T033.1） | ✔ |
+
+## T033.1 验收 1（封装 CTP 合并版 UserApi；登录/登出/连接状态可用）
+
+**独立实测**（读 CTP 头文件 + 源码实现 + 探针驱动）：
+- SDK 头文件实测（`/home/ctpmini/ctpmini_admin/ctp_sdk/`）：
+  - `ThostFtdcUserApi.h`：`class CThostFtdcUserSpi`@`:42`；`class USER_API_DLL_EXPORT CThostFtdcUserApi`@`:533`；`CreateFtdcUserApi`@`:539`；`GetApiVersion`@`:543`。
+  - `ThostFtdcMdApi.h`：`class CThostFtdcMdSpi`@`:25`；`class MD_API_DLL_EXPORT CThostFtdcMdApi`@`:75`；`CreateFtdcMdApi`@`:84`；`GetApiVersion`@`:88`。
+  - `libthostuserapi.so` / `libthostmduserapi.so` 存在；`grep -rl 'CThostFtdcTraderSpi\|ThostFtdcTraderApi'` ⇒ **无命中（rc 1）** ⇒ `ThostFtdcTraderApi.h`/`CThostFtdcTraderSpi` **确不存在**。
+- 实现：`CtSpiImpl : CThostFtdcUserSpi` / `CtMdSpiImpl : CThostFtdcMdSpi`（`ct_spi_impl.h:33`/`:68`）；真实网关 `CtpTradeGateway`/`CtpMdGateway`（`ct_gateway_ctp.cc:36`/`:128`）；`CreateFtdcUserApi`@`ct_gateway_ctp.cc:44`、`CreateFtdcMdApi`@`:136`。
+- `login`/`logout`/`isConnected`（`ct_adapter.cc:91`–`:132`）为**真实实现**（非仅声明）：`login` 先 `trade_->connect`，失败回 `0x2004`；`isConnected()==trade_connected_`，由 `onFrontConnected(false)` 置位。
+- 探针实测状态机：`login→{code=OK, isConnected()==false}`（异步）⇒ `onFrontConnected/onLoginReply` ⇒ `isConnected()&&isLoggedIn()` 为真；`logout()` ⇒ 均复位。**40/40 checks 通过**（见 T033.4）。
+
+**产出方自述（我未复现）**：同上口径。
+
+## T033.2 验收 2（四接口可用；异步 SPI 回调只做序列化并投递队列）
+
+**独立实测**：
+- 四接口**定义存在**（`ct_adapter.cc`）：`sendOrder`@`:134`、`cancelOrder`@`:159`、`subscribeMarket`@`:176`、`reqFundTransfer`@`:192`；**且被测试触达**（`ct_adapter_test.cc` + 探针）。
+- **回调只序列化+入队**——自建证据（探针，独立于产出方夹具）：
+  - `onOrderEvent(ev)` ⇒ `orderEventQueue()->size()` **0→1**、`pollOrderEvent` 取回 `trade_id=="T1"`；`onQuoteEvent(q)` ⇒ `pollQuoteEvent` 取回 `instrument_id=="rb2601"`；
+  - 回调前后 `trade.inserts` **不变**、`transfers==0` ⇒ **回调未触发任何 CTP 请求**（未把业务逻辑塞进回调）。
+  - 另：`ct_spi_test.cc`（真实 SPI 轨）对 `OnRtnTrade`/`OnRtnOrder`/`OnErrRtnOrderInsert`/`OnRspFromBankToFutureByFuture`/`OnRtnDepthMarketData` 逐一断言「队列 +1 且字段一致且无 CTP 请求」。
+- **反例（回调里做重活/阻塞）会怎样** ⇒ 见 T033.7 MUT-C：**现有判据拦不下**（单测仍绿、`E4` 默认根不扫 `ctp_adapter`）⇒ 报为**守卫强度事实**（非缺陷）。
+
+**产出方自述（我未复现）**：同上；其 4 例变异含「`OnRtnTrade` 不入队 ⇒ `spi_test` 红」。
+
+## T033.3 验收 3（期货与期权各一条用例）
+
+**独立实测**（两处各一对，且探针复核）：
+- `ct_adapter_test.cc`：`futures_and_options_are_both_covered` —— 期货 `rb2601`（`kFutures`）/ 期权 `rb2601C3600`（`kOption`），断言两条均 `kCtOk` 转发、`last_order.market==kOption`、`instrument_id=="rb2601C3600"`、`offset==kCloseToday`。
+- `ct_mapping_test.cc`：`futures_order_mapping`（`rb2601`）/ `option_order_mapping_shares_same_structure`（`rb2601C3600`，断言**共用** `CThostFtdcInputOrderField`，类别由 `InstrumentID` 区分）。
+- 探针：期货与期权**均转发成功**（`inserts` 1→2），期权 `market/instrument` 原样传递。
+- 佐证（真实报单结构）：`ct_mapping.cc:35`–`:73` `toInputOrder` 期货/期权走**同一**映射函数，无类别分支。
+
+**产出方自述（我未复现）**：同。
+
+## T033.4 验收 4（承重）：未连接 ⇒ `CMD_CONFIRM_ORDER` 回 `0x2004` 且指令退回保留、不静默丢弃
+
+**独立实测**（自撰探针 `/root/t033v/probe/probe_te.cc` + 反退化变异）：
+- 未连接 ⇒ `sendOrder(合法报单)`：`ack.code == 0x2004`、`ack.retained == true`、`retainedOrderCount()==1`、`trade.inserts==0`（**未发往 CTP**）；`takeRetainedOrder()` 取回**同一条**（`client_order_ref=="REF-A"`、`instrument_id=="rb2601"`），取回后计数归 0 ⇒ **有可取回入口、非静默丢弃**。
+- 同口径：`reqFundTransfer` 未连接 ⇒ `0x2004` + `retainedFundCount()==1`（幂等键原样保留）；`cancelOrder` 未连接 ⇒ `0x2004`。
+- 加固：已连接但 CTP 发送失败（`rc<0`）⇒ 亦 `0x2004` + `retained`（`ct_adapter.cc:152`–`:155`），探针 `REF-NET` 用例通过。
+- **反退化**（本席自设 MUT-A，**非**复用产出方 M1）：删 `ct_adapter.cc` 未连接分支的 `retainOrder(req);` ⇒ `ct_adapter_test` **必红**（4 处 FAIL，`retainedOrderCount()==1`、`takeRetainedOrder` 等），复位后回绿 —— 见 T033.7。
+- 码值基准：`0x2004 CTP_NOT_CONNECTED`（`ARCHITECTURE.md` §4.3.2 指令与 CTP 段）；`FR-TRADE-2` 验收 4「CTP 不可用时指令**不被静默丢弃**」。
+
+**产出方自述（我未复现）**：同（含其 M1「去退回保留 ⇒ adapter_test 红」，本席以**独立 MUT-A** 等效复现）。
+
+## T033.5 两轨真实性（有 SDK / 无 SDK 降级）
+
+| 维度 | 独立实测 CTP 轨（`CTP_FOUND=ON`） | 独立实测 stub 轨（`CTP_FOUND=OFF`） |
+|---|---|---|
+| 构建 rc / `warning:` / `error:` | **0 / 0 / 0** | **0 / 0 / 0** |
+| `ctp_adapter` TU | **9**（`module.cc` / `ct_adapter.cc` / `ct_gateway_ctp.cc` / `ct_mapping.cc` / `ct_spi_impl.cc` + 4 测） | **5**（`module.cc` / `ct_adapter.cc` / `ct_gateway_stub.cc` + 2 测） |
+| 宏 / include | `-DHG_CTP_FOUND=1`、`-isystem <SDK>` | `-DHG_CTP_FOUND=0`、**无** `-isystem` |
+| `ctest` 总数（现树） | **34/34 过** | **31/31 过** |
+| `ctp_adapter` 注册用例（`ctest -N`） | **4**：`ct_queues_test`/`ct_adapter_test`/`ct_mapping_test`/`ct_spi_test` | **2**：`ct_queues_test`/`ct_adapter_test`（`ct_mapping_test`/`ct_spi_test` **不注册**——依赖真实 CTP 头/库） |
+| `ctp_adapter` 测试二进制 checks | **46+81+59+45 = 231 / 0 fail** | **46+81 = 127 / 0 fail** |
+| 差异解释 | 多 `rsk02.ctp_header_cxx11_compat`（`ctp_smoke`）+ `ct_mapping_test` + `ct_spi_test` | 基线少上述三项 |
+
+- **「真降级」核验（重点）**：stub 轨**确实编译并运行被测代码**——`hg_ctp_adapter` 静态库含 `ct_adapter.cc`（SDK 无关适配逻辑）与 `ct_gateway_stub.cc`；`ct_adapter_test` 在 stub 轨**实跑 81 checks**（非跳过）。stub 网关为**真实现**：`connect()` 恒返回 `false` 并给错误串、`req*` 恒 `-1`（`ct_gateway_stub.cc:23`–`:53`）——**未伪造 SDK**、**未把断言跳过**。
+- **等价结构**：`ctp_adapter` 在 CTP 轨注册 4 用例、stub 轨 2 用例；两轨差 = `rsk02` + `ct_mapping_test` + `ct_spi_test` = **3** ⇒ 与自报「CTP 比 stub 多 3」结构一致（绝对数 22/19 因移动靶不可原样复现）。
+
+## T033.6 `-isystem` 是否真的生效 / 为何需要
+
+**独立实测**：以 `-I` 替代 `-isystem` 编译 `ct_gateway_ctp.cc`（其余参数相同）⇒ **rc 2**，报 `ThostFtdcMdApi.h:38/-Werror=unused-parameter` 等**第三方头告警放大为错误**；以 `-isystem` 编译 ⇒ **rc 0**。⇒ `-isystem` **既生效且必需**（防 CTP 头告警撞 `-Werror`），口径与 `TASKS.md` §`T-033` 派单硬约束③一致。
+
+## T033.7 变异表（自设，隔离副本 `/root/t033m`；**未复用产出方 M1–M4**）
+
+| 变异 | 目标 | 变体后 rc | 复位后 rc | 副本路径 |
+|---|---|---|---|---|
+| **MUT-A**：删 `sendOrder` 未连接分支 `retainOrder(req);`（`ct_adapter.cc`） | 验收 4 反退化（退回保留不可静默去掉） | `ct_adapter_test` **FAIL**（`81 checks, 4 failures`，退 **1**） | **PASS**（`81 checks, 0 failures`，退 **0**） | `/root/t033m` |
+| **MUT-B**：`QuoteQueue::pushDropOldest` 的 `pop_front()`→`pop_back()`（`ct_queues.h`） | 「满则丢弃最旧」语义 | `ct_queues_test` **FAIL**（`46 checks, 2 failures`，退 **1**） | **PASS**（退 **0**） | `/root/t033m` |
+| **MUT-C**（守卫强度探针，**非缺陷**）：`onOrderEvent` 内加 `std::mutex` + `sleep_for(2ms)`（回调做重活/阻塞） | 「回调只序列化+入队」纪律 | 单测 **仍 PASS**（`81 checks, 0 failures`）；`E4` **默认根 rc 0（未拦下）**；仅 `scan_lock_free.sh --root cpp/src/ctp_adapter` **rc 1**（命中 `ct_adapter.cc:248/249` + `ct_queues.h` 既有 6 处 = 9 处） | —（探针后已复位，锚复归 `4ab77612…`） | `/root/t033m` |
+
+- 复位核验：每次变异后 `cp` 回原件，`md5sum` 对共享树**逐字节一致**；三例全复位后 `/root/t033m` 的 `ctp_adapter` 锚 = **`4ab77612bc964a3bcdebc11291cbbfab`**（= 共享树锚）。
+- **共享树零污染**：所有变异**仅在 `/root/t033m`**（隔离副本）；共享树残留扫描 **0**。
+
+## T033.8 判据侧：`arch-check` 与 `E4` 扫描根
+
+**独立实测**（隔离副本内 `bash tools/arch-check/arch-check.sh`）：
+- 聚合 **`rc 0`**；逐条：`E1=0`、`E2=0`、`E3=0`、`E4=0`、`E5=0`、`E6=0`（`SKIP`，`web/` 未铺开）、`E7=0`。
+- **`E4` 扫描根确认不含 `ctp_adapter`**（三重证据）：① 读 `scan_lock_free.sh`：`DEFAULT_ROOTS=(cpp/src/order_engine cpp/src/risk_engine cpp/src/risk_state)`；② 读 `arch-check.sh`：调用判据脚本**不传 `--root`**（用默认根）；③ 实跑输出「扫描根: `cpp/src/order_engine, cpp/src/risk_engine, cpp/src/risk_state`」，**待扫描文件 45 个**。
+- 交叉核（**若把 `ctp_adapter` 纳入则立即红**）：`scan_lock_free.sh --root cpp/src/ctp_adapter` ⇒ **rc 1（6 处命中，全在 `ct_queues.h`）** —— 印证架构 `§3.0.2` `E4` 脚注 ⑤「`ctp_adapter` 含 `sendOrder`(T4) 与 T2/T3 回调混合，整目录纳入有误报风险 ⇒ 显式排除」的**披露属实**，且排除面**非空转**。
+
+## T033.9 第 8 项裁定：`quoteQueue` 用互斥体 ——「T4 可达面（`sendOrder`/退回存储）无锁」是否成立
+
+**本席明确判据（定义「T4」与「可达面」）**：`T4` = `ARCHITECTURE.md` §2.4.2 的 `trading`（**单线程交易线程**，交易内存状态唯一写者）；「T4 可达面」= 从 `sendOrder`/`cancelOrder`/`reqFundTransfer`/`takeRetainedOrder`/`retainedOrderCount`/`takeRetainedFund`/`retainedFundCount` 出发**可达**的代码路径。判据 = 该可达面内是否出现 `mutex`/`lock_guard`/`unique_lock`/`condition_variable`。
+
+**独立实测结论：该陈述成立（无锁）**。证据：
+- 全模块锁仅出现在 **`ct_queues.h` 的 `QuoteQueue`**（`:103`/`:115`/`:123`/`:130`/`:138`，`#include <mutex>`@`:23`）。
+- `ct_adapter.cc`（含上述 T4 可达面全部实现）**零锁**（`grep -nE 'mutex|lock_guard|unique_lock|condition_variable|atomic' ct_adapter.cc` ⇒ 无命中）。
+- `quote_events_`（`QuoteQueue` 实例）**仅**由 `onQuoteEvent`（T3）/`pollQuoteEvent`/`quoteQueue()`（T8）访问（`ct_adapter.cc:252`/`:262`/`:266`），**不在** T4 可达面。
+- `sendOrder` 路径 = `validOrder` → `retainOrder`（`std::deque::push_back`）→ `trade_->reqOrderInsert`，**无锁原语**。
+- 与架构一致：§3.0.2 `E4` 脚注 ⑤ 明载「`ctp_adapter` 中仍执行在 T4 上的少数面（如 `CtAdapter::sendOrder`）不在 `E4` 扫描面内」；§2.4.3「禁止在交易路径使用 `std::mutex`」。
+- **提示（非缺陷）**：头注（`ct_adapter.h:26`–`:28`）写「队列为 SPSC 无锁」（对 `orderEventQueue`/`RingBuffer` 成立），紧邻子句已澄清 `quoteQueue` 为 T3/T8、不在 T4 路径 —— 措辞略宽，但同句即勘误，不构成误导。
+
+## T033.10 第 9 项（接口形态风险，报编排者裁定，**本席不判缺陷**）
+
+`sendOrder` 返回形态：**实现 vs 冻结文档并列**如下 ——
+- **冻结文档原文**（`ARCHITECTURE.md` §「3.1 C++ 模块 M1：CTP 适配层（`ctp_adapter`）」的「**对外接口**」列表项，按章节锚点定位，非固定行号）：
+  > `CtAdapter::sendOrder(const CtOrderReq&)` → `OrderLocalId`
+- **实现形态**（`ct_types.h:154`–`:160` + `ct_adapter.cc:134`）：
+  > `struct CtOrderAck { CtCode code; std::string client_order_ref; std::string order_local_id; bool retained; };` ⇒ `sendOrder(...) → CtOrderAck`
+
+**是否构成对冻结接口的偏离 = 待裁定**。并列事实：① 字面上，实现**加宽**了 §3.1 的裸 `OrderLocalId`；② 而验收 4（`TASKS.md` §`T-033` 验收 4）+ §4.3.2 `0x2004` 要求「回 `0x2004` 且退回保留」，**裸 `OrderLocalId` 无法承载「错误码 + 退回标志」**（`CtOrderAck.code`/`.retained` 正是为承载之）。⇒ 二者存在张力，**归属技术席**（产出方亦已在 `TASKS.md` 未决项①单列提请）。本席**不自行判缺陷**。
+
+## T033.11 缺陷表
+
+| 编号 | 严重度 | 摘要 | 证据 | 复现步骤 |
+|---|---|---|---|---|
+| **TE-T033-001** | **中（待裁定）** | `sendOrder` 返回 `CtOrderAck` vs `ARCHITECTURE.md` §3.1 裸 `OrderLocalId` —— **接口形态偏离待技术席裁定**（非本席判缺陷） | `ARCHITECTURE.md` §3.1 原文；`ct_types.h:154`；`ct_adapter.cc:134` | 见 T033.10 |
+| **TE-T033-002** | **信息（守卫强度）** | 「回调只做序列化+入队」**无自动判据拦截**：回调内注入 `mutex`+`sleep` 后单测仍绿、`E4` 默认根不扫 `ctp_adapter` ⇒ 仅代码审查兜底 | MUT-C（T033.7） | 在 `onOrderEvent` 加锁+睡眠 → `ct_adapter_test` 仍 PASS、`scan_lock_free.sh`（默认）`rc 0` |
+| **TE-T033-003** | **信息** | 若将 `ctp_adapter` 纳入 `E4` 扫描根，则**立即 rc 1**（`QuoteQueue` 互斥体 6 处命中）—— 佐证架构 §3.0.2 ⑤「排除」的必要性 | `scan_lock_free.sh --root cpp/src/ctp_adapter` ⇒ rc 1 | 见 T033.8 末 |
+| **TE-T033-004** | **提示（措辞）** | 头注「队列为 SPSC 无锁」对 `quoteQueue` 不成立，但同句已澄清（T3/T8、不在 T4 路径）⇒ 不误导 | `ct_adapter.h:26`–`:28` | 读头注 |
+
+> **阻断级缺陷：0**。以上均为**信息/提示级**或**待裁定级**（`TE-T033-001` 归属技术席）。
+
+## T033.12 结论行
+
+**结论：`有条件通过`。**
+- **唯一条件**（归属=**技术席/编排者**）：对 **`TE-T033-001`** 裁定 —— `sendOrder` 返回由 §3.1 裸 `OrderLocalId` 加宽为 `CtOrderAck{code, client_order_ref, order_local_id, retained}` 是否**追认**（若追认，建议同步 `§3.1` 表述；若不追认，须回改实现或补变更单）。
+- **两向验证结论**：**该防的已防**（验收 4 承重经独立探针 + 独立反退化 MUT-A 双向证实）；**未见「误伤」**（合法流：在线期货/期权/订阅/撤单/资金划转均正常转发；两轨均真编真跑；未把降级轨伪装成通过）。
+- **独立实测基线**：两轨构建 `rc 0`、告警/错误 `0/0`；`ctp_adapter` 注册用例 CTP **4/4**、stub **2/2** 全过（现树总 34/34、31/31）；聚合 `arch-check` **rc 0**（`E1`–`E7` 全 0），`E4` **不含 `ctp_adapter`**；自撰探针 **40 checks / 0 fail（两轨）**；隔离变异 2 杀 + 1 守卫强度；共享树残留 **0**。
+- **本席不置 `DONE`**（门禁结论由编排者落）。
+
+**纯追加证明**（自指值不写死）：
+- 追加前基线：`md5 dbad2d39078001a8cc1d6705a919d818` / **3368 行**（全文 md5，追加前实测）
+- 校验：`head -3368 docs/TEST_RESULT.md | md5sum` = `dbad2d39078001a8cc1d6705a919d818`（与追加前基线一致 ⇒ **纯追加**）
+- 追加后全文 md5 / 行数：**以实时 `md5sum docs/TEST_RESULT.md` / `wc -l` 为准**（自指值不可写死）
+
+## T033.13 基线限定勘误（编排者 2026-09-22 追加口径；`CH-015` 待用户裁定）
+
+> 编排者通知：本机在用 SDK 基线**已被推翻**——实为**上期技术（SFIT）`CTP Mini` API V1.7.7**（**非官方 CTP**）。本席据此**独立复核**并为本章相关判定**加限定语**。
+
+**独立实测（核实该基线）**：
+- `GetApiVersion()` 实测：`CThostFtdcUserApi::GetApiVersion()` = **`V1.7.7`**、`CThostFtdcMdApi::GetApiVersion()` = **`V1.7.7`**（本席自撰 `version_probe.cc` 链接真实 `.so` 运行）。
+- `.so` 标识串：`libthostuserapi.so` / `libthostmduserapi.so` 含 **`V1.7.7`**、**`_sfit_enH`**（SFIT 标记）、`_ZN17CThostFtdcUserApi13GetApiVersionEv` / `_ZN15CThostFtdcMdApi13GetApiVersionEv`。
+- `FindCtpMini.cmake` 实测存在：**`/home/ctpmini/ctpmini_admin/cmake/FindCtpMini.cmake`**（位于 `ctpmini_admin` 项目内；`hedge-guard` 仓内未找到 `FindCtp*.cmake`）。
+- 目录形态（本机 SDK 的事实）：仅 `ThostFtdcUserApi.h`/`ThostFtdcMdApi.h` + `libthostuserapi.so`/`libthostmduserapi.so`；**无**官方分离式 `ThostFtdcTraderApi.h`/`CThostFtdcTraderSpi`/`libthosttraderapi.so`。
+
+**限定语（覆盖本章相关判定）**：
+- 本席在 **T033.1**（封装合并版 UserApi）、**T033.9**（T4 无锁措辞）、**T033.10**（`CtOrderAck` 形态）中凡涉「**与 `ARCHITECTURE.md` §3.1 口径一致**」的判断，**一律以「现行（CTP Mini）基线」为准**，并**显式标注：该基线已被提请变更（`CH-015`，待用户裁定）**。**不**作「符合项目 CTP 口径」的无条件表述 —— 官方 CTP 下 `CThostFtdcUserSpi`/`ThostFtdcUserApi.h` 的形态会变。
+- 本席先前引用的「`ThostFtdcUserApi.h` 存在、`CThostFtdcTraderApi.h` 不存在 ⇒ 合并版」论据，即 **T033.1 / T033.0 自报比对表** 中的 SDK 类名实测，**改为「本机 SDK（CTP Mini）的事实」**，**不再**作为「官方 CTP 的事实」引用。
+- **T033.10 第 9 项（`CtOrderAck` 形态是否偏离 §3.1）判定照旧**，但同样**附基线限定**（以 CTP Mini 基线为准；`CH-015` 待裁定）。
+
+**对本席结论的影响**：本席对**结构 / 行为 / 边界 / 反退化 / 零污染**的验证（T033.2–T033.8、T033.11）**与所用 SDK 无关**，**全部仍然有效**；仅「SDK 相关」项（T033.1、T033.10 的 §3.1 一致性）须挂上述限定语。⇒ 复核**继续成立**，无需更动 T033.12 结论形态（仍为 `有条件通过`）。
+
+**结论行补充（追加于 T033.12 之上，不改原文）**：
+> **本结论的 SDK 基线 = CTP Mini；基线切换后 SDK 相关项须重验。**
