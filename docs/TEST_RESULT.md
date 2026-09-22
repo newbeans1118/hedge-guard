@@ -2957,3 +2957,209 @@ E7 通过：§4.2.8 与 proto 逐条一致（消息 40+10、字段 214+66、枚�
 | `O-4` | 脚本头 `N5` 曾把 `option` 归入「不判（仅登记）」，实测 `option java_package=…;` ⇒ 退 `2`（与「已知取舍」自相矛盾） | 须修；**复核期内 `tl-t121` 已补修**（现行 `N5` 已明载 `option`/`import` ⇒ 退 `2`，见 `8c15eb41…`/807） |
 
 **总评**：`E7` 六类判据**全量机械比对、六类均非空转**；退出码 `0/1/2` 分层与自报一致；未解析行**必 fail、不静默**（正是立项要消灭的失效模式）；聚合 `7/7`、`E1`–`E6` 零改动、接线两侧零改动；零污染。⇒ **`通过`**（0 阻断缺陷）。
+
+# `T-034` 独立复核证据（2026-09-22）
+
+**复核方**：`test-engineer` 席位（`te-verify-t034`） · **立场**：独立取证，**不复用产出方结论/数字/用例**（产出方一切数值均视为待证命题）。
+**被复核对象**：`T-034`「实现风控内存状态 `risk_state`」 · 产出方 `be-t034`。
+**方法**：隔离副本（`/root/t034v`，布局 `<root>/{docs,tools,proto,java,cpp,web}`）+ 自建探针 A–E + ASAN/UBSAN + TSAN + 承重变异；**共享源树只读、零改动、开局扫描无 `MUTATION`/`*.orig`/`*.bak`/`*.rej` 残留**。
+
+## T034.0 快照与时点
+
+**冻结锚点**（内容级口径：`find cpp/src -type f | LC_ALL=C sort | xargs md5sum | md5sum`）：
+
+| 项 | 独立实测（2026-09-22T05:56:11Z） | 产出方自述 | 判定 |
+|---|---|---|---|
+| `cpp/src` 树锚 md5 | `22dc22656fad5cdf5b6872bfcd0c8641` | `22dc22656fad5cdf5b6872bfcd0c8641` | 符合 |
+| `cpp/src` 文件数 | 68 | 68 | 符合 |
+| `risk_state` 文件数 | 17（= 3 骨架 + 14 新） | 14 新 + `CMakeLists.txt` 改 | 符合 |
+| 最大 mtime | 2026-09-22 13:29:15 +0800 = **05:29:15Z** | ≤ 2026-09-22T05:29:15Z | 符合 |
+
+> 说明：`risk_state` 的 `include/hg/risk_state/module.h`、`src/module.cc`（mtime `2026-09-21 17:30`）为 `T-031` 骨架；`CMakeLists.txt` 为**改**（`git status` 记 ` M`），其余 14 文件为**新**（`??`）。故「14 新」成立。
+
+`risk_state` 逐文件（`md5 / 行 / 相对路径`，cwd = 仓库根）：
+
+| md5 | 行 | 文件 |
+|---|---|---|
+| `83f8e477add632e6dbddc35415e0a62d` | 52 | `CMakeLists.txt` |
+| `b4bbc4015b1d104153d308f8232fb7ff` | 146 | `include/hg/risk_state/load_batch.h` |
+| `2fbaa101ff918807c391363fa80b9300` | 284 | `include/hg/risk_state/model.h` |
+| `c12f0ed46a5952ee513ef37026e356e2` | 15 | `include/hg/risk_state/module.h` |
+| `32f45c693e4337acfdc54d05ae517bd7` | 185 | `include/hg/risk_state/risk_snapshot.h` |
+| `a167ca2942d89cfe5e930db7888e5cec` | 78 | `include/hg/risk_state/risk_state.h` |
+| `44734057758cb8b109fd7a6b94d5709c` | 149 | `include/hg/risk_state/snapshot_manager.h` |
+| `cf63bf19da532c851a62bedfdafa8622` | 131 | `src/load_batch.cc` |
+| `fed66ff8e6e336e5ca3f7edfed869b98` | 10 | `src/module.cc` |
+| `3510c50f4ec4c953010dac3d09ef646e` | 343 | `src/risk_snapshot.cc` |
+| `a420aaa2c18670c69cc2cb8200e2c741` | 74 | `src/risk_state.cc` |
+| `2282bb98b821095c580ad7608f2f833a` | 80 | `src/snapshot_manager.cc` |
+| `374b2edfe7fc1d7be93ab37e15886c40` | 303 | `tests/data_model_test.cc` |
+| `07b9f84c7136bfcecc425d7c94020af1` | 179 | `tests/risk_state_test.cc` |
+| `3292af3105cece4afeb828e9819963a2` | 49 | `tests/risk_state_test_util.h` |
+| `6e3f624ad5f2398add882cee2d63f2c9` | 136 | `tests/rsk04_conservative_test.cc` |
+| `e925dfc2e918f5cd11c5a59385cd2cb6` | 143 | `tests/snapshot_manager_test.cc` |
+
+## T034.1 验收标准 1 — 常驻内存数据集齐备
+
+**权威源**：`docs/ARCHITECTURE.md` **§4.4.1**（按 `^#+` 锚点求段，未用固定行号——活跃制品行号会漂移）。
+
+**独立实测**：§4.4.1 表列 **13 类**，逐类核 `RiskSnapshot` 载体（`include/hg/risk_state/risk_snapshot.h`）与访问器：
+
+| # | §4.4.1 类 | 载体字段 | 访问器 | 有/无 |
+|---|---|---|---|---|
+| 1 | `VarietyMeta` | `varieties_` | `findVariety` / `varieties()` | 有 |
+| 2 | `InstrumentMeta` | `instruments_` | `findInstrument` | 有 |
+| 3 | `SubVarietyWhitelist` | `whitelist_` + `whitelist_category_override_` | `isWhitelisted` / `whitelistCategoryOverride` | 有 |
+| 4 | `QuotaState`（三层） | `quota_sub_product_` / `quota_sub_instrument_` / `quota_account_product_` | `findQuota(layer,…)` | 有 |
+| 5 | `PositionState` | `positions_` | `findPosition` | 有 |
+| 6 | `PositionLimit` | `position_limits_` | `findPositionLimit` | 有 |
+| 7 | `ExposureState`（三分量 + `snapshot_time` + `snapshot_id`） | `exposures_`（`ExposureEntry` 含 `contract_unexecuted_qty`/`inventory_qty`/`production_plan_qty`/`exposure_qty`/`unit_convert_factor`/`snapshot_time_ms`/`snapshot_id`） | `findExposure` | 有 |
+| 8 | `AnnualScaleFactor` | `annual_scales_` | `findAnnualScale` | 有 |
+| 9 | `SubAccountCategory`（含品种级覆盖） | `sub_account_category_` + `sub_product_category_` | `effectiveCategory` | 有 |
+| 10 | `PermissionSnapshot` | `permissions_` | `findPermission` / `canTrade` | 有 |
+| 11 | `Thresholds` | `thresholds_` | `threshold*` | 有 |
+| 12 | `TotalLimits` | `total_limit_by_product_` + `account_total_limit_` | `findTotalLimitByProduct` / `accountTotalLimit` | 有 |
+| 13 | `PlanState` | `plans_` | `plans()` | 有 |
+
+**13/13 全有载体，无缺类**；验收点名的 7 项（白名单/三层额度/持仓上限/敞口三分量 `+snapshot_time`/权限/阈值/年度规模因子）亦逐项命中。另核 `LoadBatch::applyTo`（`src/load_batch.cc`）对 13 类**逐类覆盖**，且 `RiskSnapshot::countRecords()` 的类集合与 `applyTo` 一致。
+
+**产出方自述**：承载 13 类（另 `data_model_test.cc` 全 13 类满载）。**独立实测一致**（该单测 70 checks / 0 failures，见 `T034.5`）。
+
+**判定**：✅ **通过**。
+
+## T034.2 验收标准 2 — 不可变快照 + 原子指针替换（RCU）
+
+**独立实测（代码级）**：
+- **不可变**：读取接口全 `const`；写入接口（`varieties()` 等非 `const`）仅供构建期；拷贝构造/赋值 `= delete`（`risk_snapshot.h:178–179`）。
+- **原子读**：`snapshot()` → `mgr_.peek()` → `published_.load(acquire)`（`snapshot_manager.h:58–60`）。
+- **原子替换**：`rebuild()` 构建 `next`（全量 `new` / 增量 `peek().clone()`）→ `checkInvariants()` → `publish(next)`；`publish()` 用 `published_.exchange(seq_cst)` **单指针原子替换**（`snapshot_manager.cc:37`）；校验失败/版本倒退 ⇒ `delete next` 且**不发布**（`risk_state.cc:32–38,53–60`）。
+- **回收**：`active_` 原子读者计数 + `retired_` 纪元宽限（`epoch < cur` 且 `active_==0`）。
+
+**自建探针 E（`probe_publish_gate`）**：5 类校验失败（版本倒退 / 负额度 / 持仓不自洽 / 红线越界 / 缺换算系数）均**未发布**——快照指针 `&st.snapshot()` 与版本保持 v5 不变；同版本幂等重放允许；增量语义保留旧数据。**failures=0 → PASS**。
+**自建探针 B（`probe_tearing`，注册式 `ReadGuard`）**：写者发布 2000 版，读者 **71289 次** 读取，`param_version` / `threshold["marker"]` / `variety.convert_factor` 三者**零撕裂（mismatches=0）**、`badptr=0`，终态版本 2000。
+
+**产出方自述**：`snapshot() 原子读`、`rebuild() 原子替换`、`snapshot_manager_test` 418 checks。**独立实测一致**。
+
+**判定**：✅ **通过**。
+
+## T034.3 验收标准 3 — 交易路径零 DB I/O / 零阻塞 / 零锁（E4）
+
+**独立实测**（`tools/arch-check/scan_lock_free.sh`，隔离副本与共享树**各跑一次，结果同**）：
+
+| 命令 | 待扫描文件 N | 命中 | WARN | rc |
+|---|---|---|---|---|
+| `scan_lock_free.sh --root cpp/src/risk_state` | **16** | 0 | 3 | **0** |
+| `scan_lock_free.sh`（默认并集根 `order_engine+risk_engine+risk_state`） | **20** | 0 | 3 | **0** |
+
+**3 处 WARN 逐条核实**（全为 `new`，属**未覆盖判据 C「无动态分配」**的信息性提示，**不判红**）：
+- `src/risk_snapshot.cc:231` `new RiskSnapshot()`（`clone()`，仅重建线程调用）
+- `src/risk_state.cc:22` `mgr_(new RiskSnapshot())`（构造函数）
+- `src/risk_state.cc:41` `new RiskSnapshot()`（`rebuild` 构建新快照）
+
+> 口径澄清：产出方自述 `N=20` 系**默认并集根**（我实测 N=20 rc=0）；单模块 `--root cpp/src/risk_state` 为 **16**。两口径**不可混引**。E4 覆盖 A（锁原语）+ B（同步 I/O 调用形态），**不覆盖** C（动态分配）/ D（`compare_exchange` 循环 / 异常路径）——由代码审查兜底（脚本头已声明）。
+
+**聚合门禁** `arch-check.sh`：**E1–E7 全 7 判据 rc=0**（E4 rc=0）。
+
+**判定**：✅ **通过**。
+
+## T034.4 验收标准 4 — 快照替换期保守方向（§9 `RSK-04`）+ 反向误拒
+
+**权威源**：`ARCHITECTURE.md` §9 `RSK-04`（方向：① 上限**调低** ⇒ 更易拒、**不会超限放行**；② 上限**调高** ⇒ **不立即生效**）。
+
+**独立实测 —— 自建探针 A（`probe_rsk04_scan`，36917 组穷扫描）**：
+- ① **误拒反例扫描**：对 `used/req/limit` 三网格（步长 7/11/3），凡 `used+req <= limit`（未超限）者，**任何** limit 取值均**未**判「超限」⇒ `viol_false=0`。即 `exceedsLimit` 关于 limit **单调不增**，**不存在误拒**。
+- ② **单调不增**：`limit1 <= limit2` 且 `exceeds(L2)` ⇒ 必 `exceeds(L1)`，`viol_mono=0`。
+- ③ **调低更易拒反例对**：`rej_pairs_ok=551`（旧上限放行 / 新上限拒绝成对成立）。
+- **边界**：`exceedsLimit` 用严格 `>`（`model.h:259–261`）⇒ `used+req == limit` **不放行**、`< limit` 放行（卡线组已含）。
+
+**独立实测 —— 探针 E 补充**：校验失败不发布 ⇒ 「上限调高」在发布前不生效（旧快照按旧上限判定），**不提前放行**。
+
+**产出方自述**：`rsk04_conservative_test` 24 checks（调低/调高/单调）。**独立实测一致**，且本席扫描面（36917 组 / 三网格）**大于**产出方 6 值枚举。
+
+**判定**：✅ **通过**（双向均查：既不超限放行、也无误拒）。
+
+## T034.5 构建与测试门禁
+
+**独立实测**（隔离副本 `/root/t034v` → 构建 `/root/t034-build`，`Release`）：
+- 配置 `cmake -S cpp -B /root/t034-build -DCMAKE_BUILD_TYPE=Release` → rc=0（系统 protobuf 3.21.12；无 CTP SDK ⇒ `CTP_FOUND=OFF`）。
+- 构建 `cmake --build … -j2` → **rc=0**；`grep -icE 'warning:'` = **0**，`grep -icE 'error:'` = **0**。
+- **编译参数**（`compile_commands.json`；5 个 `src/*.cc` + 4 个 `tests/*.cc` **全部**）：`-std=c++11 -Wall -Wextra -Werror` ✅。
+- **`ctest`**：**17/17 通过**（名单以 `ctest -N` 为准，非 `grep -c` 数宏）：
+
+| # | 测试 | # | 测试 |
+|---|---|---|---|
+| 1 | `arch_check` | 10 | `hgcp.frame_test` |
+| 2 | `rsk01.cxx11_standard_in_effect` | 11 | `hgcp.envelope_test` |
+| 3 | `rsk01.empty_message_roundtrip` | 12 | `hgcp.crypto_auth_test` |
+| 4 | `rsk01.fields_message_roundtrip` | 13 | `hgcp.timing_test` |
+| 5 | `hg.skeleton_modules` | 14 | `hgcp.resume_buffer_test` |
+| 6 | `risk_state.data_model_test` | 15 | `hgcp.endpoint_test` |
+| 7 | `risk_state.snapshot_manager_test` | 16 | `hgcp.session_test` |
+| 8 | `risk_state.risk_state_test` | 17 | `hgcp.transport_test` |
+| 9 | `risk_state.rsk04_conservative_test` | | |
+
+- **`risk_state` 四单测实际 checks（以可执行输出为准）**：`data_model_test` 70 / `snapshot_manager_test` 418 / `risk_state_test` 39 / `rsk04_conservative_test` 24 = **551 checks, 0 failures**。
+
+**产出方自述**：`ctest 17/17`、`551 checks`、构建 0 告警。**独立实测逐项一致**。
+
+**判定**：✅ **通过**。
+
+## T034.6 ASAN/UBSAN 与承重变异
+
+**独立实测基线**（`/root/t034-asan-src` → `/root/t034-asan-build`，`-fsanitize=address,undefined`）：
+- `snapshot_manager_test` **418/0 → PASS**、`risk_state_test` **39/0 → PASS**，**ASAN/UBSAN 零报错**。
+- 自建探针 C（`probe_peek_uaf`）：未注册读跨发布边界 ⇒ ASAN `heap-use-after-free`（见 `T034.7 O-2`）。
+
+**变异表**（先测目标串 `count`=1，唯一；按**行号**注入 `awk` line-indexed）：
+
+| 变异 | 目标 | 注入前 `count` | 变体后结果 | 复位后 | 隔离路径 |
+|---|---|---|---|---|---|
+| `MUT1` 破坏读者守卫 | `snapshot_manager.cc:26` `active_.fetch_add(1,seq_cst);` → `;` | 1 | **ASAN heap-use-after-free**（`risk_snapshot.h:35 in param_version()`）rc=1 | clean 重建后 418/0 PASS | `/root/t034-asan-src` → `/root/t034-asan-build` |
+| `MUT2` 去纪元宽限 | `snapshot_manager.cc:58` `epoch < cur` → `<= cur` | 1 | **断言失败** `snapshot_manager_test.cc:117`（`reclaimed_count==0`）rc=1 | clean 重建后 418/0 PASS | 同上 |
+
+> **纪律留痕（作废一次）**：`MUT2` 前两次注入因 `awk` 语法错误致 `build rc=2`（**未编译成功**），其后 `run` 用的是**陈旧二进制**——该次「红」**作废**；改用合法语法重跑、`build rc=0` 方计入。两变异复位后 `snapshot_manager.cc` 的 `md5` 均与原始一致（`2282bb98…`）并 **clean 重编译** 再报基线（418/0 PASS）。
+
+**结论**：`T-034` 的两道 RCU 保护（① 读者登记 ② 纪元宽限）**均承重**——移除后 ASAN 或断言立即转红。
+
+## T034.7 探索性发现
+
+**O-2（观察·低）未注册读 `snapshot()` 的 UAF 窗口**：`RiskState::snapshot()` = `peek()` 返回引用且**不登记读者**；若调用方**跨越发布边界**使用该引用，写者第二轮 `publish()` 即可回收其对象 ⇒ **ASAN 复现 heap-use-after-free**（`probe_peek_uaf`，`risk_snapshot.h:35`）。
+- **判定**：此为 **RCU 设计的固有约束**且**已文档化**（`snapshot_manager.h:56–57`「须在下一个消息边界内用完」；`ARCHITECTURE.md` §4.4.3「用纪元计数或'下一个消息边界'作为宽限点」）。**非缺陷**；§3.4 的 T4 读路径按消息边界消费，跨重建场景有安全替代 `acquire()`。登记为**建议**（审查清单显式约束 `snapshot()` 的使用窗口）。
+
+**O-1（观察·低）`last_result()` 跨线程读的数据竞争**（产出方已披露「写者静止后读取」）：
+- **独立实测核实**：TSAN（探针置于 `-O0` 以阻优化器提升）报 **data race** —— `RiskState::last_result()` 读 `risk_state.h:63` vs `rebuild()` 写 `risk_state.cc:36`（`last_` 非原子）。**产出方披露属实**。
+- **判定**：属**已文档化的使用约束**（`risk_state.h:15–16`），不在交易热路径（热路径为 `snapshot()` / `acquire()`），**非阻断缺陷**。
+
+**O-3（观察·低）`stats()` 跨线程读的同类竞争（产出方未披露）**：
+- **独立实测**：TSAN 报 data race —— `stats()` 读 `retired_.size()`（`snapshot_manager.cc:74`）vs `publish()` 的 `retired_.push_back`（`:44`）（3 个 WARNING 块同一位置）；`retired_` 头注释声明「**写者独占**」。
+- **判定**：与 `O-1` 同类（可观测性接口，非热路径、非判定），**非阻断**；建议 `retired_pending` 改原子计数或声明「仅写者线程可读」。
+
+**O-5（观察·信息）E4 的 N 两口径**：单模块 `--root cpp/src/risk_state`=16 vs 默认并集根=20，非缺陷，引用时须注明根。
+
+## T034.8 缺陷 / 观察汇总
+
+**无阻断缺陷**（0 项达缺陷门槛：无 FR/架构违背、无功能影响、无契约不符）。
+
+| 编号 | 级别 | 内容 | 处置建议 |
+|---|---|---|---|
+| `O-1` | 建议 | `last_result()` 跨线程读竞争（**产出方已披露**） | 维持文档约束，或 `last_` 原子化 |
+| `O-2` | 建议 | `snapshot()`(peek) 跨发布边界 UAF（**已文档化**） | 维持设计；审查清单显式约束 |
+| `O-3` | 建议 | `stats()`/`retired_` 跨线程读竞争（**产出方未披露**） | 建议 `retired_pending` 原子化 |
+| `O-5` | 信息 | E4 N 两口径（16 / 20） | 引用时注明根 |
+
+## T034.9 覆盖核对与结论
+
+- **验收 1**（13 类数据集）：13/13 有载体 ✅
+- **验收 2**（不可变 + RCU 原子替换）：✅（不可变 + 原子读写 + 校验失败不发布）
+- **验收 3**（E4 零锁 / 零 I/O）：✅ rc=0（N=16 单模块 / 20 默认根，WARN 3=`new`）
+- **验收 4**（`RSK-04` 双向 + 误拒）：✅（36917 组扫描 0 误拒 / 0 单调反例）
+- **门禁**：构建 0 告警、`ctest` 17/17、551 checks、`arch-check` E1–E7 全 0
+- **承重**：读者守卫 / 纪元宽限移除后均转红（ASAN / 断言）
+- **共识核对**：产出方自述的每一项（锚 md5 / 68 文件 / 14 新 / mtime / ctest 17/17 / 551 checks / E4 N=20 命中 0 WARN 3=new / ASAN UAF）**均独立复现一致**，**无「自述与实测不符」项**。
+
+**结论**：**`通过`**（0 阻断缺陷；3 项建议级观察，其中 `O-3` 系产出方未披露项）。
+
+**纯追加证明**：
+- 追加前基线：`md5 8e914198993fc679b4a6adb67f936a4b` / 2959 行
+- 校验：`head -2959 docs/TEST_RESULT.md | md5sum` = `8e914198993fc679b4a6adb67f936a4b`（**与追加前基线一致 ⇒ 纯追加**）
+- 追加后全文 md5 / 行数：**以实时 `md5sum docs/TEST_RESULT.md` / `wc -l` 为准**（自指值不可写死）
