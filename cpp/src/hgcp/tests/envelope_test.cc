@@ -1,6 +1,6 @@
-// T-032 帧信封 / 不透明 payload 透传 / 流式切分 / payload 接缝 单测。
-// 证明：帧层在**不依赖消息字段 schema** 的前提下，可承载体（含无 body）消息，
-// 并在 schema 到位后「平移」——见 payload_codec.h 与 T032_GAP_ANALYSIS.md。
+// T-032 帧信封 / 不透明 payload 透传 / 流式切分 / payload 编解码 单测。
+// 证明：帧层在**不解释字段**的前提下承载体（含无 body）消息；
+// payload 层（`PbPayloadCodec`，基于 `proto/hgcp.proto` / CH-013 §4.2.8）可编解码。
 #include "hg/hgcp/frame.h"
 #include "hg/hgcp/payload_codec.h"
 
@@ -16,7 +16,10 @@ using hg::hgcp::Frame;
 using hg::hgcp::FrameStatus;
 using hg::hgcp::FrameStreamReader;
 using hg::hgcp::MessageType;
-using hg::hgcp::OpaquePayloadCodec;
+using hg::hgcp::PbPayloadCodec;
+
+// protoc 生成命名空间（proto `package hgcp.v1` ⇒ `::hgcp::v1`）
+namespace pbv1 = ::hgcp::v1;
 
 std::vector<std::uint8_t> mk_body(std::size_t n, std::uint8_t seed) {
   std::vector<std::uint8_t> v(n);
@@ -150,16 +153,148 @@ void test_stream_reader_frame_boundary() {
 }
 
 void test_payload_codec_seam() {
-  OpaquePayloadCodec c;
-  HG_CHECK_EQ(std::string(c.name()), std::string("opaque"));
-  // Opaque：任意 type / body 均透传（校验恒真）
-  std::vector<std::uint8_t> any = mk_body(7, 0x10);
-  HG_CHECK(c.validate(0x0004, std::vector<std::uint8_t>()));
-  HG_CHECK(c.validate(0x0001, any));
-  HG_CHECK(c.validate(0xFFFF, any));
-  // 通过基类指针调用（平移点：替换实现即可，帧层/服务端零改动）
+  PbPayloadCodec c;
+  HG_CHECK_EQ(std::string(c.name()), std::string("protobuf"));
+  // 可解析 body ⇒ 校验通过
+  pbv1::MsgError e;
+  e.set_err_code(0x0107u);
+  std::vector<std::uint8_t> body;
+  HG_CHECK(PbPayloadCodec::encode(e, &body));
+  HG_CHECK(!body.empty());
+  const std::uint16_t kErrType = static_cast<std::uint16_t>(MessageType::kMsgError);
+  HG_CHECK(c.validate(kErrType, body));
+  // 未知类型 ⇒ false（§4.3.2 0x0105 由 is_known_message_type 判）
+  HG_CHECK(!c.validate(0xFFFFu, body));
+  // 通过基类指针调用（平移点：替换实现即可，帧层/承载层零改动）
   hg::hgcp::PayloadCodec* base = &c;
-  HG_CHECK(base->validate(0x0002, any));
+  HG_CHECK(base->validate(kErrType, body));
+}
+
+// §4.2.8.2 元协议 9 条 —— encode → decode 往返（关键字段逐一比对）。
+void test_meta_messages_roundtrip() {
+  {  // MSG_HELLO
+    pbv1::MsgHello m;
+    m.set_proto_version(0x0100u);
+    m.set_component_id("hg-biz");
+    m.set_component_role(pbv1::ROLE_JAVA);
+    m.set_auth_token("fixture-token");  // 测试夹具；非真实凭据，零落盘
+    m.set_client_boot_id("boot-1");
+    m.set_last_received_seq(0u);
+    m.set_token_version(1u);
+    std::vector<std::uint8_t> b;
+    HG_CHECK(PbPayloadCodec::encode(m, &b));
+    pbv1::MsgHello d;
+    HG_CHECK(PbPayloadCodec::decode(b, &d));
+    HG_CHECK_EQ(d.proto_version(), 0x0100u);
+    HG_CHECK_EQ(std::string(d.component_id()), std::string("hg-biz"));
+    HG_CHECK(d.component_role() == pbv1::ROLE_JAVA);
+    HG_CHECK_EQ(d.token_version(), 1u);
+    HG_CHECK_EQ(std::string(d.auth_token()), std::string("fixture-token"));
+  }
+  {  // MSG_HELLO_ACK
+    pbv1::MsgHelloAck m;
+    m.set_accepted(true);
+    m.set_server_proto_version(0x0100u);
+    m.set_session_id("sess-1");
+    m.set_server_state(pbv1::SERVER_STATE_READY);
+    m.set_param_version(42u);
+    std::vector<std::uint8_t> b;
+    HG_CHECK(PbPayloadCodec::encode(m, &b));
+    pbv1::MsgHelloAck d;
+    HG_CHECK(PbPayloadCodec::decode(b, &d));
+    HG_CHECK(d.accepted());
+    HG_CHECK(d.server_state() == pbv1::SERVER_STATE_READY);
+    HG_CHECK_EQ(d.param_version(), 42u);
+  }
+  {  // MSG_AUTH_FAIL
+    pbv1::MsgAuthFail m;
+    m.set_reason_code(0x0201u);
+    m.set_detail("bad token");
+    std::vector<std::uint8_t> b;
+    HG_CHECK(PbPayloadCodec::encode(m, &b));
+    pbv1::MsgAuthFail d;
+    HG_CHECK(PbPayloadCodec::decode(b, &d));
+    HG_CHECK_EQ(d.reason_code(), 0x0201u);
+    HG_CHECK_EQ(std::string(d.detail()), std::string("bad token"));
+  }
+  {  // MSG_HEARTBEAT
+    pbv1::MsgHeartbeat m;
+    m.set_sent_ts_ms(1758384000000LL);
+    m.set_last_received_seq(123u);
+    m.set_component_state(pbv1::COMPONENT_STATE_READY);
+    std::vector<std::uint8_t> b;
+    HG_CHECK(PbPayloadCodec::encode(m, &b));
+    pbv1::MsgHeartbeat d;
+    HG_CHECK(PbPayloadCodec::decode(b, &d));
+    HG_CHECK_EQ(d.sent_ts_ms(), 1758384000000LL);
+    HG_CHECK_EQ(d.last_received_seq(), 123u);
+    HG_CHECK(d.component_state() == pbv1::COMPONENT_STATE_READY);
+  }
+  {  // MSG_HEARTBEAT_ACK
+    pbv1::MsgHeartbeatAck m;
+    m.set_echo_ts_ms(7);
+    m.set_server_ts_ms(8);
+    std::vector<std::uint8_t> b;
+    HG_CHECK(PbPayloadCodec::encode(m, &b));
+    pbv1::MsgHeartbeatAck d;
+    HG_CHECK(PbPayloadCodec::decode(b, &d));
+    HG_CHECK_EQ(d.echo_ts_ms(), 7);
+    HG_CHECK_EQ(d.server_ts_ms(), 8);
+  }
+  {  // MSG_ACK
+    pbv1::MsgAck m;
+    m.set_ack_msg_id(5u);
+    m.set_result(0);
+    m.set_applied_version(3u);
+    std::vector<std::uint8_t> b;
+    HG_CHECK(PbPayloadCodec::encode(m, &b));
+    pbv1::MsgAck d;
+    HG_CHECK(PbPayloadCodec::decode(b, &d));
+    HG_CHECK_EQ(d.ack_msg_id(), 5u);
+    HG_CHECK_EQ(d.applied_version(), 3u);
+  }
+  {  // MSG_ERROR
+    pbv1::MsgError m;
+    m.set_err_code(0x0308u);
+    m.set_err_msg("frame too large");
+    std::vector<std::uint8_t> b;
+    HG_CHECK(PbPayloadCodec::encode(m, &b));
+    pbv1::MsgError d;
+    HG_CHECK(PbPayloadCodec::decode(b, &d));
+    HG_CHECK_EQ(d.err_code(), 0x0308u);
+    HG_CHECK_EQ(std::string(d.err_msg()), std::string("frame too large"));
+  }
+  {  // MSG_RESUME_REQ
+    pbv1::MsgResumeReq m;
+    m.set_last_received_seq(9u);
+    m.set_session_id("sess-2");
+    m.set_max_resume_count(500);
+    std::vector<std::uint8_t> b;
+    HG_CHECK(PbPayloadCodec::encode(m, &b));
+    pbv1::MsgResumeReq d;
+    HG_CHECK(PbPayloadCodec::decode(b, &d));
+    HG_CHECK_EQ(d.last_received_seq(), 9u);
+    HG_CHECK_EQ(std::string(d.session_id()), std::string("sess-2"));
+    HG_CHECK_EQ(d.max_resume_count(), 500);
+  }
+  {  // MSG_RESUME_DATA（repeated bytes，含空元素）
+    pbv1::MsgResumeData m;
+    m.set_from_seq(2u);
+    m.set_to_seq(3u);
+    m.set_is_last(false);
+    m.add_frames(std::string("\x01\x02", 2));
+    m.add_frames(std::string("", 0));
+    std::vector<std::uint8_t> b;
+    HG_CHECK(PbPayloadCodec::encode(m, &b));
+    pbv1::MsgResumeData d;
+    HG_CHECK(PbPayloadCodec::decode(b, &d));
+    HG_CHECK_EQ(d.from_seq(), 2u);
+    HG_CHECK_EQ(d.to_seq(), 3u);
+    HG_CHECK(!d.is_last());
+    HG_CHECK_EQ(d.frames_size(), 2);
+    HG_CHECK(d.frames(0) == std::string("\x01\x02", 2));
+    HG_CHECK(d.frames(1).empty());
+  }
 }
 
 }  // namespace
@@ -173,5 +308,6 @@ int main() {
   test_stream_reader_split_feed();
   test_stream_reader_frame_boundary();
   test_payload_codec_seam();
+  test_meta_messages_roundtrip();
   return hg::hgcp::testutil::report("envelope_test");
 }

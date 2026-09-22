@@ -8,12 +8,19 @@ TransportPolicy::~TransportPolicy() {}
 
 std::vector<std::uint8_t> EmptyTransportPolicy::heartbeat_body(
     std::int64_t /*now_ms*/, std::uint64_t /*last_received_seq*/) const {
-  return std::vector<std::uint8_t>();  // 占位：body 语义待 schema（S-2/S-3）
+  return std::vector<std::uint8_t>();  // 占位：见 pb_transport_policy.h（真实字段编码）
 }
 std::vector<std::uint8_t> EmptyTransportPolicy::duplicate_connection_body() const {
   return std::vector<std::uint8_t>();
 }
 std::vector<std::uint8_t> EmptyTransportPolicy::heartbeat_timeout_body() const {
+  return std::vector<std::uint8_t>();
+}
+std::vector<std::uint8_t> EmptyTransportPolicy::frame_too_large_body() const {
+  return std::vector<std::uint8_t>();
+}
+std::vector<std::uint8_t> EmptyTransportPolicy::error_body(
+    std::uint32_t /*err_code*/) const {
   return std::vector<std::uint8_t>();
 }
 

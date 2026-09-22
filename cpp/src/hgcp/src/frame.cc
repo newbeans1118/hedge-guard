@@ -103,9 +103,10 @@ ErrorCode error_code_for(FrameStatus s) {
     case FrameStatus::kBadReserved:
       return ErrorCode::kErrPayloadInvalid;     // 0x0104（载格式不变量违规）
     case FrameStatus::kFrameTooLarge:
-      // ⚠️ 冲突项（待 `CH-013` 裁定）：§4.3.2 `:1122` 记 0x0308 ERR_FRAME_TOO_LARGE，
-      //    §4.2.2 `:779` 记 0x0104。此处**取更具体者 0x0308**；定案前不得视为权威。
-      return ErrorCode::kErrFrameTooLarge;      // 0x0308（依 §4.3.2 `:1122`）
+      // **权威码已裁定**（`CH-013` / §4.2.8.8 `I-2`）= `0x0308 ERR_FRAME_TOO_LARGE`；
+      //    §4.2.2 `:779` 的 `0x0104` 为陈旧表述（仅留痕）。
+      //    行为面（`§4.2.8.8` `I-2` 📌）：拒绝该帧 + 尽力回 `0x0308` + 关闭连接。
+      return ErrorCode::kErrFrameTooLarge;      // 0x0308
     case FrameStatus::kCrcMismatch:
       return ErrorCode::kErrCrcMismatch;        // 0x0103
   }

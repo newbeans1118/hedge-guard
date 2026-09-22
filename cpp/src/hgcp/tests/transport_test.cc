@@ -9,12 +9,15 @@
 //   · 帧级握手（HELLO → HELLO_ACK）与回环收发
 //   · 半包 / 粘包增量解码
 //   · 重复连接拒 0x0302（既有连接不受影响）
+//   · 帧超限回 0x0308 后断连（§4.2.8.8 `I-2` 行为面）
 //   · 心跳到点发送 + 连续 3 次未 ACK 判死（0x0301 告警）
 //   · 断线重连退避序列（500→8s 上限，≥10 次严重告警）
 //   · 补数批次装配（按 last_received_seq 回放；单批 ≤ 500）
 //
-// ⚠️ 全程**不解析消息字段**：字段级 schema 待 `CH-013`（见 `T032_GAP_ANALYSIS.md`）。
-//    握手 / 控制帧 / 补数批的 body 均由 `TransportPolicy` 接缝注入**不透明字节**。
+// ⚠️ 本文件主要**验证帧层/承载层**（不解释字段）：握手 / 控制帧 / 补数批的 body 多由
+//    `TestPolicy` 注入**不透明字节**；而**服务端缺省策略** = `PbTransportPolicy`
+//    （基于 `PbPayloadCodec` / `proto/hgcp.proto`，`CH-013` / §4.2.8）——握手门禁
+//    `0x0107` 的线上 ERROR 帧由它编码为真实 `MsgError{err_code}`（见 `test_not_handshaken_rejected`）。
 #include "hg/hgcp/server_loop.h"
 
 #include <arpa/inet.h>
@@ -28,6 +31,8 @@
 #include <string>
 #include <vector>
 
+#include "hg/hgcp/payload_codec.h"
+#include "hg/hgcp/pb_transport_policy.h"
 #include "hgcp_test_util.h"
 
 // 前置断言：失败即记 FAIL 并**从用例返回**，避免后续对空容器/未初始化帧取值（UB）。
@@ -65,10 +70,15 @@ using hg::hgcp::FrameStatus;
 using hg::hgcp::HgcpServerLoop;
 using hg::hgcp::HgcpSession;
 using hg::hgcp::MessageType;
+using hg::hgcp::PbPayloadCodec;
+using hg::hgcp::PbTransportPolicy;
 using hg::hgcp::ReplayStatus;
 using hg::hgcp::TcpConfig;
 using hg::hgcp::TcpListener;
 using hg::hgcp::TransportPolicy;
+
+// protoc 生成命名空间（proto `package hgcp.v1` ⇒ `::hgcp::v1`）
+namespace pbv1 = ::hgcp::v1;
 
 std::uint16_t mt(MessageType m) { return static_cast<std::uint16_t>(m); }
 std::uint16_t fl(hg::hgcp::FlagBits b) { return static_cast<std::uint16_t>(b); }
@@ -180,6 +190,18 @@ class TestPolicy : public TransportPolicy {
   virtual std::vector<std::uint8_t> heartbeat_timeout_body() const {
     return std::vector<std::uint8_t>(1, 0x01);
   }
+  virtual std::vector<std::uint8_t> frame_too_large_body() const {
+    return std::vector<std::uint8_t>(5, 0x08);  // 占位标记（非权威）
+  }
+  virtual std::vector<std::uint8_t> error_body(std::uint32_t err_code) const {
+    // 占位标记（非权威）：4 字节大端 code；用于验证接缝确实被调用。
+    std::vector<std::uint8_t> v(4, 0u);
+    v[0] = static_cast<std::uint8_t>((err_code >> 24) & 0xFFu);
+    v[1] = static_cast<std::uint8_t>((err_code >> 16) & 0xFFu);
+    v[2] = static_cast<std::uint8_t>((err_code >> 8) & 0xFFu);
+    v[3] = static_cast<std::uint8_t>(err_code & 0xFFu);
+    return v;
+  }
 };
 
 // 辅助：启动生产侧服务端循环（端口 0）并返回其端口。
@@ -279,8 +301,8 @@ void test_handshake_and_loopback() {
 
 void test_not_handshaken_rejected() {
   HgcpServerLoop srv(any_port_cfg());
-  TestPolicy pol;
-  srv.set_policy(&pol);
+  // **不注入**策略 ⇒ 采用服务端缺省 `PbTransportPolicy`（CH-013 / §4.2.8）：
+  // 线上 ERROR 帧 body = 真实 protobuf `MsgError{err_code}`。
   const std::uint16_t port = start_loop(&srv);
   HG_REQUIRE(port != 0);
   TestClient cli(connect_client(port));
@@ -300,6 +322,77 @@ void test_not_handshaken_rejected() {
   HG_REQUIRE(cli.recv_frame(1000, &err));
   HG_CHECK_EQ(err.header.type, mt(MessageType::kMsgError));
   HG_CHECK((err.header.flags & fl(hg::hgcp::kFlagIsError)) != 0u);
+  // O-1 延伸（CH-013）：**线上 ERROR 帧须携带错误码** ⇒ 握手前业务帧拒 = `0x0107`
+  pbv1::MsgError em;
+  HG_REQUIRE(PbPayloadCodec::decode(err.body, &em));
+  HG_CHECK_EQ(em.err_code(), 0x0107u);
+  HG_CHECK_EQ(static_cast<std::uint32_t>(ErrorCode::kErrNotHandshaken), 0x0107u);
+  cli.close();
+}
+
+// 缺省策略（`PbTransportPolicy`）的出站 body 可被真实 `PbPayloadCodec` 解码
+// （`MSG_HEARTBEAT` / `MSG_ERROR` 的 `err_code`）。
+void test_pb_transport_policy_bodies() {
+  PbTransportPolicy pol;
+  pbv1::MsgError e;
+  HG_REQUIRE(PbPayloadCodec::decode(pol.duplicate_connection_body(), &e));
+  HG_CHECK_EQ(e.err_code(), 0x0302u);  // ERR_DUPLICATE_CONNECTION
+  HG_REQUIRE(PbPayloadCodec::decode(pol.heartbeat_timeout_body(), &e));
+  HG_CHECK_EQ(e.err_code(), 0x0301u);  // ERR_HEARTBEAT_TIMEOUT
+  HG_REQUIRE(PbPayloadCodec::decode(pol.error_body(0x0107u), &e));
+  HG_CHECK_EQ(e.err_code(), 0x0107u);
+
+  pbv1::MsgHeartbeat hb;
+  HG_REQUIRE(PbPayloadCodec::decode(pol.heartbeat_body(1758384000000LL, 7u), &hb));
+  HG_CHECK_EQ(hb.sent_ts_ms(), 1758384000000LL);
+  HG_CHECK_EQ(hb.last_received_seq(), 7u);
+  HG_CHECK(hb.component_state() == pbv1::COMPONENT_STATE_READY);
+
+  HG_REQUIRE(PbPayloadCodec::decode(pol.frame_too_large_body(), &e));
+  HG_CHECK_EQ(e.err_code(), 0x0308u);  // ERR_FRAME_TOO_LARGE
+  HG_CHECK(!e.err_msg().empty());      // 「提示使用分片」经 err_msg 承载
+}
+
+// §4.2.8.8 `I-2`（行为面裁定）：`LEN > 1 MiB` ⇒ 尽力回 `MSG_ERROR{err_code=0x0308}`
+// （提示分片经 `err_msg`）→ 随后**关闭连接**。
+void test_frame_too_large_replies_0x0308() {
+  HgcpServerLoop srv(any_port_cfg());
+  // 不注入策略 ⇒ 服务端缺省 `PbTransportPolicy`（真实 protobuf body）。
+  const std::uint16_t port = start_loop(&srv);
+  HG_REQUIRE(port != 0);
+  TestClient cli(connect_client(port));
+  HG_REQUIRE(cli.valid());
+
+  std::vector<Frame> in;
+  srv.pump(1000, 0, &in);  // accept
+
+  // 手工构造「帧头声明 LEN > 1 MiB」的 32 字节头
+  // （`decode_header` 在 CRC 之前即判超限；无需真实超大 payload）。
+  hg::hgcp::FrameHeader h;
+  h.ver = hg::hgcp::kWireVersion;
+  h.type = 0x0101;
+  h.flags = 0;
+  h.reserved = 0;
+  h.seq = 1;
+  h.msg_id = 1;
+  h.len = hg::hgcp::kMaxPayloadSize + 1u;  // 越限
+  std::uint8_t hdr[hg::hgcp::kHeaderSize];
+  hg::hgcp::encode_header(h, hdr);
+  HG_REQUIRE(
+      cli.send_wire(std::vector<std::uint8_t>(hdr, hdr + hg::hgcp::kHeaderSize)));
+
+  in.clear();
+  HG_REQUIRE_EQ(srv.pump(300, 0, &in), 0);
+  HG_CHECK(!srv.has_connection());  // 已关闭（I-2：回码后关闭）
+
+  Frame err;
+  HG_REQUIRE(cli.recv_frame(1000, &err));
+  HG_CHECK_EQ(err.header.type, mt(MessageType::kMsgError));
+  HG_CHECK((err.header.flags & fl(hg::hgcp::kFlagIsError)) != 0u);
+  pbv1::MsgError em;
+  HG_REQUIRE(PbPayloadCodec::decode(err.body, &em));
+  HG_CHECK_EQ(em.err_code(), 0x0308u);
+  HG_CHECK_EQ(static_cast<std::uint32_t>(ErrorCode::kErrFrameTooLarge), 0x0308u);
   cli.close();
 }
 
@@ -533,6 +626,8 @@ int main() {
   test_non_loopback_and_port0();
   test_handshake_and_loopback();
   test_not_handshaken_rejected();
+  test_pb_transport_policy_bodies();
+  test_frame_too_large_replies_0x0308();
   test_half_and_sticky();
   test_duplicate_connection_rejected();
   test_heartbeat_send_and_timeout_death();

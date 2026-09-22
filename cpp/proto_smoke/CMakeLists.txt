@@ -46,7 +46,10 @@ option(HG_BUILD_SMOKE_TESTS "构建并注册 ctest 用例" ON)
 option(HG_PROTOBUF_LITE "使用 protobuf-lite 运行时（RSK-01 应对③ 取证用）" OFF)
 
 set(HGCP_SMOKE_SCHEMA_FILE "proto/hgcp_smoke.proto")
-set(HGCP_SMOKE_SCHEMA_IS_FROZEN_CONTRACT "NO (proto/hgcp.proto 尚不存在；本 schema 仅为等价替代物)")
+# ⚠️ 2026-09-22（T-032 验收 6）：真实冻结 schema `proto/hgcp.proto` **已由 `CH-013` 定稿并落盘**
+#    （`ARCHITECTURE.md §4.2.8`）⇒ 本探路工程除原有 smoke 用例（留痕）外，**另以真实 schema 生成
+#    并编译**（见下方 §3b），以客观判定「真实 schema 的生成代码能否在 C++11 -Werror 下构通」。
+set(HGCP_SMOKE_SCHEMA_IS_FROZEN_CONTRACT "NO (本 schema 仅作探路留痕；真实冻结 schema = proto/hgcp.proto，已由 CH-013 / §4.2.8 定稿落盘)")
 
 message(STATUS "[RSK-01] 首选 protobuf = ${HG_PROTOBUF_PREFERRED_VERSION}，回退 = ${HG_PROTOBUF_FALLBACK_VERSION}")
 
@@ -271,6 +274,37 @@ add_custom_command(
 add_custom_target(hgcp_smoke_proto_gen DEPENDS "${_pb_hdr}" "${_pb_src}")
 
 #------------------------------------------------------------------------------
+# 3b. 真实冻结 schema（`proto/hgcp.proto`，CH-013 / §4.2.8）→ 生成并编译
+#     验收 6：以 `-std=c++11 -Wall -Wextra -Werror` 编译真实 schema 的生成代码。
+#     说明：保留上述 smoke 用例（探路留痕）；本段**新增**真实 schema 的生成 + 编译
+#           （生成的 `hgcp.pb.cc` 编入同一可执行目标 ⇒ 施加同一严格编译参数）。
+#------------------------------------------------------------------------------
+set(HGCP_REAL_SCHEMA_ABS
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../proto/hgcp.proto")
+if(NOT EXISTS "${HGCP_REAL_SCHEMA_ABS}")
+  message(FATAL_ERROR "[RSK-01] 找不到真实冻结 schema：${HGCP_REAL_SCHEMA_ABS}（CH-013 / §4.2.8）")
+endif()
+set(_real_gen_dir "${CMAKE_CURRENT_BINARY_DIR}/generated_real")
+file(MAKE_DIRECTORY "${_real_gen_dir}")
+set(_pb_real_hdr "${_real_gen_dir}/hgcp.pb.h")
+set(_pb_real_src "${_real_gen_dir}/hgcp.pb.cc")
+if(HG_PROTOBUF_LITE)
+  set(_cpp_out_real_arg "--cpp_out=lite:${_real_gen_dir}")
+else()
+  set(_cpp_out_real_arg "--cpp_out=${_real_gen_dir}")
+endif()
+add_custom_command(
+  OUTPUT "${_pb_real_hdr}" "${_pb_real_src}"
+  COMMAND ${HGCP_PROTOC_CMD}
+          "--proto_path=${CMAKE_CURRENT_SOURCE_DIR}/../../proto"
+          "${_cpp_out_real_arg}"
+          "${HGCP_REAL_SCHEMA_ABS}"
+  DEPENDS "${HGCP_REAL_SCHEMA_ABS}" ${HGCP_PROTOBUF_FETCH_DEPENDS}
+  COMMENT "[RSK-01] protoc --cpp_out 生成真实 schema（CH-013 / §4.2.8）hgcp.pb.{h,cc}"
+  VERBATIM)
+add_custom_target(hgcp_real_proto_gen DEPENDS "${_pb_real_hdr}" "${_pb_real_src}")
+
+#------------------------------------------------------------------------------
 # 4. 构建信息头（把 CMake 观测到的版本/参数固化进二进制）
 #------------------------------------------------------------------------------
 set(HGCP_SMOKE_CXX_STANDARD_VALUE "${CMAKE_CXX_STANDARD}")
@@ -289,11 +323,15 @@ configure_file(
 add_executable(hgcp_proto_smoke
   "${CMAKE_CURRENT_SOURCE_DIR}/src/hgcp_proto_smoke_main.cpp"
   "${_pb_src}"
-  "${_pb_hdr}")
+  "${_pb_hdr}"
+  "${_pb_real_src}"
+  "${_pb_real_hdr}")
 add_dependencies(hgcp_proto_smoke hgcp_smoke_proto_gen)
+add_dependencies(hgcp_proto_smoke hgcp_real_proto_gen)
 
 target_include_directories(hgcp_proto_smoke PRIVATE
   "${_gen_dir}"
+  "${_real_gen_dir}"
   "${CMAKE_CURRENT_BINARY_DIR}")
 
 target_link_libraries(hgcp_proto_smoke PRIVATE ${HGCP_PROTOBUF_TARGET})

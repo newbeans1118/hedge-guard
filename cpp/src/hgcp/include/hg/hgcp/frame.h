@@ -38,16 +38,19 @@ enum class FrameStatus {
   kBadMagic = 2,       // 0x0102 ERR_BAD_MAGIC
   kBadVersion = 3,     // 0x0101 ERR_VERSION_MISMATCH
   kBadReserved = 4,    // RESERVED ≠ 0（协议不变量违规）
-  kFrameTooLarge = 5,  // ⚠️ 取 §4.3.2 `:1122` 的 `0x0308 ERR_FRAME_TOO_LARGE`
-                       //    —— 与 §4.2.2 `:779` 的 `0x0104` 冲突，**待 `CH-013` 裁定**
+  kFrameTooLarge = 5,  // 帧超限（`LEN > 1 MiB`）⇒ `0x0308 ERR_FRAME_TOO_LARGE`
+                       //    **权威码已裁定**（`CH-013` / §4.2.8.8 `I-2`）= `0x0308`；
+                       //    §4.2.2 `:779` 原句「超限 → `0x0104` 断连」为**陈旧表述、仅留痕**。
+                       //    **行为面**（`§4.2.8.8` `I-2` 📌，2026-09-22 技术负责人裁定）=
+                       //    拒绝该帧（不消费 payload）+ 尽力回 `0x0308`（提示分片经 `err_msg`）
+                       //    + **随后关闭连接**（「不中断连接」仅适用帧边界可信的 `0x0104`/`0x0105`）
   kCrcMismatch = 6     // 0x0103 ERR_CRC_MISMATCH
 };
 
 const char* to_string(FrameStatus s);
 
 // FrameStatus → §4.3.2 组件错误码（kOk/kNeedMore 返回 ErrorCode::kOk）。
-// ⚠️ 冲突项（**待 `CH-013` 裁定**，勿视为权威）：帧超限在 §4.2.2 `:779` 记 `0x0104`、
-//    在 §4.3.2 `:1122` 记 `0x0308 ERR_FRAME_TOO_LARGE`。此处**取更具体者 `0x0308`**。
+// `kFrameTooLarge` = `0x0308 ERR_FRAME_TOO_LARGE`（权威码：`CH-013` / §4.2.8.8 `I-2`）。
 ErrorCode error_code_for(FrameStatus s);
 
 // ---- 大端编解码（网络序）----

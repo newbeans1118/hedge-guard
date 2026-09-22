@@ -23,26 +23,38 @@
 namespace hg {
 namespace hgcp {
 
-// 控制帧 body 注入策略（schema 未定 ⇒ 由调用方提供**不透明** body）。
-// ⚠️ 缺省实现全部返回空 body —— 占位，待架构席字段级定义（见 T032_GAP_ANALYSIS.md）。
+// 控制帧 body 注入策略（**出站 body 的单一注入接缝**）。
+// schema 已由 `CH-013` / §4.2.8 定义（`proto/hgcp.proto`）⇒ 出站 body 的字段级编码
+// 由**实现方**（如 `PbTransportPolicy`，基于 `PbPayloadCodec`）完成；本接缝**只传字节**，
+// 状态机（本层）不解释字段。详见 `pb_transport_policy.h`。
 class TransportPolicy {
  public:
   virtual ~TransportPolicy();
-  // `MSG_HEARTBEAT` 的 body（§4.2.3：`sent_ts_ms`/`last_received_seq`/`component_state`）
+  // `MSG_HEARTBEAT` 的 body（§4.2.8.2：`sent_ts_ms`/`last_received_seq`/`component_state`）
   virtual std::vector<std::uint8_t> heartbeat_body(std::int64_t now_ms,
                                                    std::uint64_t last_received_seq) const = 0;
   // 重复连接（`0x0302`）时回发的 `MSG_ERROR` body
   virtual std::vector<std::uint8_t> duplicate_connection_body() const = 0;
   // 心跳超时（`0x0301`）时的告警帧 body
   virtual std::vector<std::uint8_t> heartbeat_timeout_body() const = 0;
+  // 帧超限（`0x0308 ERR_FRAME_TOO_LARGE`）时的告警帧 body
+  // —— §4.2.8.8 `I-2` 行为面（2026-09-22 技术负责人裁定）：`err_code = 0x0308`，
+  //    「提示使用分片」经 `err_msg` 承载。
+  virtual std::vector<std::uint8_t> frame_too_large_body() const = 0;
+  // 通用 `MSG_ERROR` 的 body（携带 `err_code`）—— §4.2.8.2 `MsgError.err_code`。
+  // 用于握手门禁拒绝（`0x0107`）等「不需回执的失败」场景。
+  virtual std::vector<std::uint8_t> error_body(std::uint32_t err_code) const = 0;
 };
 
+// 占位策略：全部返回空 body（**仅测试/无 schema 场景**使用；生产缺省见 `server_loop.h`）。
 class EmptyTransportPolicy : public TransportPolicy {
  public:
   virtual std::vector<std::uint8_t> heartbeat_body(std::int64_t /*now_ms*/,
                                                    std::uint64_t /*last_received_seq*/) const;
   virtual std::vector<std::uint8_t> duplicate_connection_body() const;
   virtual std::vector<std::uint8_t> heartbeat_timeout_body() const;
+  virtual std::vector<std::uint8_t> frame_too_large_body() const;
+  virtual std::vector<std::uint8_t> error_body(std::uint32_t /*err_code*/) const;
 };
 
 // 连接会话：帧级 / 序号 / 心跳 / 退避 / 补数 / 单连接。

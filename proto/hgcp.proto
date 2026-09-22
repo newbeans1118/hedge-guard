@@ -1,0 +1,801 @@
+// =============================================================================
+// HGCP（HedgeGuard Component Protocol）—— **线格式唯一定义**
+//
+//   权威来源：`docs/ARCHITECTURE.md` **§4.2.8「字段级 schema（线格式表示的定义）」
+//              —— `CH-013` 定版（2026-09-22，用户批准）**。
+//   本文件由 **`§4.2.8` 逐条转录**（转录动作归 `T-032`）；**逐字转录，未新增/未删改
+//   任何字段名 / 字段类型 / 字段号 / 枚举取值**。
+//   冻结-不变量（`§4.2.8`）：消息集 **40**、组件错误码 **62**、线格式 `VER` = **`0x0100`**、
+//   `FR` 计数 **184** —— 本文件不改动上述任一。
+//
+//   序列化规定（§4.2.5）：proto3；枚举一律**显式赋值**且 `0` 保留为 `*_UNSET`；
+//   金额/价格/比率 → `string`（十进制）；数量 → `int32`（手数）/ `int64`（折算后，
+//   scale=1e4）；时间 → `int64`（ms，UTC epoch）；标识符 → `string`（ASCII）。
+//
+//   必填性：proto3 **无 `required`** ⇒ `§4.2.8` 的「必填性」列（`必`/`可`/`条件`）为
+//   **接收侧校验语义**，**不在本文件表达**（见 `§4.2.8.1`「必填性语义」与 `§4.2.8.5`
+//   条件必填清单），仅在下方以注释标注（`必` / `可` / `条件`）。
+//
+//   命名派生（§4.2.8.1）：message 名 = 冻结名去前缀转 TitleCase 再加回
+//   `Msg`/`Cmd`/`Evt`。**`TYPE` 由 32B 帧头 `uint16` 承载、不在 payload 内**；
+//   `enum MsgType` 仅供代码可读性，**非线格式**。
+//
+//   包名：`hgcp.v1`（沿用仓库既有 `cpp/proto_smoke/proto/hgcp_smoke.proto` 的包名；
+//   `§4.2.8` **未规定包名** —— 系 proto3 必需的工程性选择，非字段/类型/字段号/枚举取值）。
+//
+//   C++ / Java 两侧**同源生成**（Java 侧归 `T-042`）；冻结后任何变更须走 `CH-xxx`
+//   （`§4.2` 变更规则、L3）。
+// =============================================================================
+
+syntax = "proto3";
+
+package hgcp.v1;
+
+// -----------------------------------------------------------------------------
+// 枚举（§4.2.8.7；显式赋值；`0` 保留 `*_UNSET`）
+//   值名约定：加枚举名前缀以保证同包内唯一（`§4.2.8.7`「值名约定」）。
+// -----------------------------------------------------------------------------
+
+// 消息类型（§4.2.3 / §4.2.8.7 第 1 行）—— **非线格式**，仅供代码可读性。
+enum MsgType {
+  MSG_TYPE_UNSET      = 0;  // 保留（`0` 不得为有效值）
+  MSG_HELLO           = 0x0001;  // 元协议
+  MSG_HELLO_ACK       = 0x0002;
+  MSG_AUTH_FAIL       = 0x0003;
+  MSG_HEARTBEAT       = 0x0004;
+  MSG_HEARTBEAT_ACK   = 0x0005;
+  MSG_ACK             = 0x0006;
+  MSG_ERROR           = 0x0007;
+  MSG_RESUME_REQ      = 0x0008;
+  MSG_RESUME_DATA     = 0x0009;
+  CMD_PLACE_ORDER             = 0x0101;  // 控制指令（Java→C++）
+  CMD_CONFIRM_ORDER           = 0x0102;
+  CMD_CANCEL_ORDER            = 0x0103;
+  CMD_LOAD_RISK_PARAMS        = 0x0111;
+  CMD_UPDATE_WHITELIST        = 0x0112;
+  CMD_UPDATE_QUOTA            = 0x0113;
+  CMD_UPDATE_POSITION_LIMIT   = 0x0114;
+  CMD_UPDATE_RISK_THRESHOLD   = 0x0115;
+  CMD_UPDATE_PERMISSION       = 0x0116;
+  CMD_UPDATE_EXPOSURE         = 0x0117;
+  CMD_SET_TRADING_SUSPEND     = 0x0118;
+  CMD_SET_READY_STATE         = 0x0119;
+  CMD_RELOAD                  = 0x011A;
+  CMD_TRIGGER_REPLAY          = 0x011B;
+  CMD_QUERY_STATUS            = 0x011C;
+  CMD_FUND_TRANSFER           = 0x011D;
+  CMD_QUERY_FUND_RESULT       = 0x011E;
+  EVT_ORDER_ACCEPTED          = 0x0201;  // 事件流（C++→Java）
+  EVT_PRE_TRADE_REJECT        = 0x0202;
+  EVT_ORDER_REPORT            = 0x0203;
+  EVT_TRADE_FILL              = 0x0204;
+  EVT_POSITION_CHANGE         = 0x0205;
+  EVT_ORDER_CANCEL_RESULT     = 0x0206;
+  EVT_ORDER_EXPIRED           = 0x0207;
+  EVT_COMMAND_FLOW            = 0x0208;
+  EVT_REPLAY_PROGRESS         = 0x0209;
+  EVT_SYSTEM_STATE            = 0x020A;
+  EVT_FUND_RECEIPT            = 0x020B;
+  EVT_MARKET_QUOTE            = 0x020C;
+  EVT_CTP_STATE               = 0x020D;
+  EVT_TRADING_ALERT           = 0x020E;
+}
+
+// 服务端就绪状态（§4.2.8.7，依据 §4.2.3 `MSG_HELLO_ACK.server_state`）
+enum ServerState {
+  SERVER_STATE_UNSET     = 0;
+  SERVER_STATE_NOT_READY = 1;
+  SERVER_STATE_REPLAYING = 2;
+  SERVER_STATE_READY     = 3;
+  SERVER_STATE_STOPPING  = 4;
+}
+
+// 目标状态（§4.2.8.7，依据 §4.2.3 `CMD_SET_READY_STATE.target_state`）
+enum TargetState {
+  TARGET_STATE_UNSET     = 0;
+  TARGET_STATE_READY     = 1;
+  TARGET_STATE_STOPPING  = 2;
+  TARGET_STATE_SUSPENDED = 3;
+}
+
+// 组件角色（§4.2.8.7，依据 §4.2.3 `MSG_HELLO.component_role` + §4.2.6 `role=JAVA`）
+enum ComponentRole {
+  COMPONENT_ROLE_UNSET = 0;
+  ROLE_JAVA            = 1;
+  ROLE_CPP             = 2;
+}
+
+// 组件自述运行状态（§4.2.8.7 / §4.2.8.8 `I-4` 新增；**独立 5 值枚举，不复用 `ServerState`**）
+enum ComponentState {
+  COMPONENT_STATE_UNSET    = 0;
+  COMPONENT_STATE_STARTING = 1;
+  COMPONENT_STATE_READY    = 2;
+  COMPONENT_STATE_DEGRADED = 3;
+  COMPONENT_STATE_STOPPING = 4;
+  COMPONENT_STATE_STOPPED  = 5;
+}
+
+// 品种分类（§4.2.8.7 新增，依据 §11.1 `CFG-02c` + `DATA_MODEL.md`）
+enum ProductCategory {
+  PRODUCT_CATEGORY_UNSET     = 0;
+  PRODUCT_CATEGORY_COMMODITY = 1;
+  PRODUCT_CATEGORY_TRADE     = 2;
+}
+
+// 品种状态（§4.2.8.7 新增，依据 `DATA_MODEL.md t_product.status`；**无 `DELETED`**）
+enum ProductStatus {
+  PRODUCT_STATUS_UNSET    = 0;
+  PRODUCT_STATUS_ENABLED  = 1;
+  PRODUCT_STATUS_DISABLED = 2;
+}
+
+// 规模统计范围行级二值（§4.2.8.7 新增，依据 `DATA_MODEL.md TB-RISK-11.scope_type`）
+enum ScopeType {
+  SCOPE_TYPE_UNSET         = 0;
+  SCOPE_TYPE_SUB_ACCOUNT   = 1;
+  SCOPE_TYPE_TOTAL_ACCOUNT = 2;
+}
+
+// 合约类型（§4.2.8.7，依据 §4.2.4 `CMD_PLACE_ORDER.instrument_type`）
+enum InstrumentType {
+  INSTRUMENT_TYPE_UNSET   = 0;
+  INSTRUMENT_TYPE_FUTURES = 1;
+  INSTRUMENT_TYPE_OPTION  = 2;
+}
+
+// 买卖方向（§4.2.8.7，依据 §4.2.4 `CMD_PLACE_ORDER.direction`）
+enum Direction {
+  DIRECTION_UNSET = 0;
+  DIRECTION_BUY   = 1;
+  DIRECTION_SELL  = 2;
+}
+
+// 开平标志（§4.2.8.7，依据 §4.2.4 `CMD_PLACE_ORDER.offset_flag`）
+enum OffsetFlag {
+  OFFSET_FLAG_UNSET       = 0;
+  OFFSET_FLAG_OPEN        = 1;
+  OFFSET_FLAG_CLOSE       = 2;
+  OFFSET_FLAG_CLOSE_TODAY = 3;
+}
+
+// 价格类型（§4.2.8.7，依据 §4.2.4 `CMD_PLACE_ORDER.price_type`）
+enum PriceType {
+  PRICE_TYPE_UNSET  = 0;
+  PRICE_TYPE_LIMIT  = 1;
+  PRICE_TYPE_MARKET = 2;
+}
+
+// 交易理由关联类型（§4.2.8.7，依据 §4.2.4 `CMD_PLACE_ORDER.trade_reason_code`）
+enum TradeReasonCode {
+  TRADE_REASON_CODE_UNSET            = 0;
+  TRADE_REASON_CODE_NEW_EXPOSURE     = 1;
+  TRADE_REASON_CODE_EXPOSURE_DECREASE = 2;
+  TRADE_REASON_CODE_PLAN_EXECUTION   = 3;
+  TRADE_REASON_CODE_ROLLOVER         = 4;
+  TRADE_REASON_CODE_RISK_DISPOSAL    = 5;
+  TRADE_REASON_CODE_ERROR_CORRECTION = 6;
+}
+
+// 交易理由时点说明（§4.2.8.7，依据 §4.2.4 `CMD_PLACE_ORDER.trade_reason_time_desc`）
+enum TradeReasonTimeDesc {
+  TRADE_REASON_TIME_DESC_UNSET            = 0;
+  TRADE_REASON_TIME_DESC_CONTRACT_SIGNED  = 1;
+  TRADE_REASON_TIME_DESC_PRICE_TRIGGERED  = 2;
+  TRADE_REASON_TIME_DESC_MONTHLY_REBALANCE = 3;
+  TRADE_REASON_TIME_DESC_EXPIRY_ROLLOVER  = 4;
+  TRADE_REASON_TIME_DESC_RISK_REQUIRED    = 5;
+}
+
+// 命中的限额层级（§4.2.8.7，依据 §4.2.4 `EVT_PRE_TRADE_REJECT.limit_layer`）
+enum LimitLayer {
+  LIMIT_LAYER_UNSET          = 0;
+  LIMIT_LAYER_SUB_PRODUCT    = 1;
+  LIMIT_LAYER_SUB_INSTRUMENT = 2;
+  LIMIT_LAYER_ACCOUNT_PRODUCT = 3;
+  LIMIT_LAYER_AUTH_QUOTA     = 4;
+  LIMIT_LAYER_NONE           = 5;
+}
+
+// 持仓类型（§4.2.8.7，依据 §4.2.3 `EVT_POSITION_CHANGE.position_type`）
+enum PositionType {
+  POSITION_TYPE_UNSET     = 0;
+  POSITION_TYPE_TODAY     = 1;
+  POSITION_TYPE_YESTERDAY = 2;
+}
+
+// 指令流水事件类型（§4.2.8.7，依据 §4.2.3 `EVT_COMMAND_FLOW.flow_type`）
+enum FlowType {
+  FLOW_TYPE_UNSET     = 0;
+  FLOW_TYPE_SENT      = 1;
+  FLOW_TYPE_REPORTED  = 2;
+  FLOW_TYPE_REJECTED  = 3;
+  FLOW_TYPE_EXPIRED   = 4;
+  FLOW_TYPE_CANCELLED = 5;
+}
+
+// 限制新开仓扫描范围（§4.2.8.7，依据 §4.2.3 `CMD_SET_TRADING_SUSPEND.scan_scope`）
+enum ScanScope {
+  SCAN_SCOPE_UNSET     = 0;
+  SCAN_SCOPE_OPEN_ONLY = 1;
+}
+
+// 资金划转方向（§4.2.8.7，依据 §4.2.3 `CMD_FUND_TRANSFER.direction`）
+enum FundDirection {
+  FUND_DIRECTION_UNSET = 0;
+  FUND_DIRECTION_IN    = 1;
+  FUND_DIRECTION_OUT   = 2;
+}
+
+// 资金划转结果（§4.2.8.7，依据 §4.2.3 `EVT_FUND_RECEIPT.result`）
+enum FundResult {
+  FUND_RESULT_UNSET      = 0;
+  FUND_RESULT_SUCCESS    = 1;
+  FUND_RESULT_FAIL       = 2;
+  FUND_RESULT_PROCESSING = 3;
+  FUND_RESULT_UNKNOWN    = 4;
+}
+
+// 重放结果（§4.2.8.7，依据 §4.2.3 `EVT_REPLAY_PROGRESS.result`）
+enum ReplayResult {
+  REPLAY_RESULT_UNSET    = 0;
+  REPLAY_RESULT_OK       = 1;
+  REPLAY_RESULT_MISMATCH = 2;
+}
+
+// 规模基数（§4.2.8.7 值域补全，依据 §11.1 `CFG-01` 取值范围）
+enum ScaleBase {
+  SCALE_BASE_UNSET        = 0;
+  SCALE_BASE_EXPOSURE_QTY = 1;
+  SCALE_BASE_REVENUE      = 2;
+  SCALE_BASE_PURCHASE_QTY = 3;
+}
+
+// 规模范围（§4.2.8.7 值域补全，依据 §11.1 `CFG-02` 取值范围；`Q-1` 双算取严）
+enum ScaleScope {
+  SCALE_SCOPE_UNSET         = 0;
+  SCALE_SCOPE_SUB_ACCOUNT   = 1;
+  SCALE_SCOPE_TOTAL_ACCOUNT = 2;
+  SCALE_SCOPE_BOTH          = 3;
+}
+
+// 期限动作（§4.2.8.7 值域补全，依据 §11.1 `CFG-03b` 取值范围）
+enum TermAction {
+  TERM_ACTION_UNSET            = 0;
+  TERM_ACTION_WARN_THEN_BLOCK  = 1;
+  TERM_ACTION_BLOCK            = 2;
+  TERM_ACTION_WARN_AND_APPROVE = 3;
+}
+
+// 持仓校验模式（§4.2.8.7 值域补全，依据 §11.1 `CFG-04` 取值范围）
+enum PositionCheckMode {
+  POSITION_CHECK_MODE_UNSET            = 0;
+  POSITION_CHECK_MODE_PRE_TRADE_AND_EOD = 1;
+  POSITION_CHECK_MODE_ON_ORDER         = 2;
+  POSITION_CHECK_MODE_EOD_ONLY         = 3;
+}
+
+// 基准价类型（§4.2.8.7 值域补全；**既有制品仅载 `PREV_SETTLEMENT` 一值**，
+// 其余候选值属「新增枚举值」⇒ 须走 `CH-xxx` 追加，本 CH 不臆造）
+enum PriceBase {
+  PRICE_BASE_UNSET           = 0;
+  PRICE_BASE_PREV_SETTLEMENT = 1;
+}
+
+// 告警级别（§4.2.8.7 值域补全，依据 `DATA_MODEL.md TB-RISK-4.alert_level` / `CFG-12`）
+enum AlertLevel {
+  ALERT_LEVEL_UNSET    = 0;
+  ALERT_LEVEL_INFO     = 1;
+  ALERT_LEVEL_WARNING  = 2;
+  ALERT_LEVEL_CRITICAL = 3;
+}
+
+// 指令状态（§4.2.8.7 值域补全，依据 `DATA_MODEL.md TB-TRADE-1.status`，**逐值对齐**）
+enum OrderStatus {
+  ORDER_STATUS_UNSET            = 0;
+  ORDER_STATUS_PENDING_CONFIRM  = 1;
+  ORDER_STATUS_REJECTED_PRECHECK = 2;
+  ORDER_STATUS_SUBMITTED        = 3;
+  ORDER_STATUS_SENT_CTP         = 4;
+  ORDER_STATUS_PARTIAL_FILLED   = 5;
+  ORDER_STATUS_ALL_FILLED       = 6;
+  ORDER_STATUS_CANCELLED        = 7;
+  ORDER_STATUS_REJECTED_CTP     = 8;
+  ORDER_STATUS_EXPIRED          = 9;
+}
+
+// -----------------------------------------------------------------------------
+// A. 会话与元协议（9 条，双向）—— §4.2.8.2
+// -----------------------------------------------------------------------------
+
+// 0x0001
+message MsgHello {
+  uint32        proto_version     = 1;  // 必
+  string        component_id      = 2;  // 必
+  ComponentRole component_role    = 3;  // 必
+  string        auth_token        = 4;  // 必
+  string        client_boot_id    = 5;  // 必
+  uint64        last_received_seq = 6;  // 必（首连填 0）
+  uint32        token_version     = 7;  // 必（`I-1` 补登）
+}
+
+// 0x0002
+message MsgHelloAck {
+  bool        accepted             = 1;  // 必
+  uint32      server_proto_version = 2;  // 必
+  string      session_id           = 3;  // 条件（accepted = true）
+  ServerState server_state         = 4;  // 必
+  uint64      param_version        = 5;  // 可
+  uint32      reason_code          = 6;  // 条件（accepted = false）
+}
+
+// 0x0003
+message MsgAuthFail {
+  uint32 reason_code = 1;  // 必
+  string detail      = 2;  // 可
+}
+
+// 0x0004
+message MsgHeartbeat {
+  int64          sent_ts_ms        = 1;  // 必
+  uint64         last_received_seq = 2;  // 必
+  ComponentState component_state   = 3;  // 可（值域 `I-4` 新增）
+}
+
+// 0x0005
+message MsgHeartbeatAck {
+  int64 echo_ts_ms   = 1;  // 必
+  int64 server_ts_ms = 2;  // 必
+}
+
+// 0x0006
+message MsgAck {
+  uint64 ack_msg_id      = 1;  // 必
+  int32  result          = 2;  // 必（0 = 成功）
+  uint32 reason_code     = 3;  // 条件（result ≠ 0）
+  string detail          = 4;  // 可
+  uint64 applied_version = 5;  // 可
+}
+
+// 0x0007
+message MsgError {
+  uint32 err_code        = 1;  // 必
+  string err_msg         = 2;  // 可
+  uint64 related_msg_id  = 3;  // 可
+  string rule_id         = 4;  // 条件（错误源自事前风控规则时必填）
+  string current_value   = 5;  // 可
+  string threshold_value = 6;  // 可
+}
+
+// 0x0008
+message MsgResumeReq {
+  uint64 last_received_seq = 1;  // 必
+  string session_id        = 2;  // 必
+  int32  max_resume_count  = 3;  // 可
+}
+
+// 0x0009
+message MsgResumeData {
+  uint64        from_seq = 1;  // 必
+  uint64        to_seq   = 2;  // 必
+  bool          is_last  = 3;  // 必
+  repeated bytes frames  = 4;  // 条件（is_last = false 时非空）
+}
+
+// -----------------------------------------------------------------------------
+// B. Java → C++ 控制指令（17 条）—— §4.2.8.3
+// -----------------------------------------------------------------------------
+
+// 0x0101（必填性照 §4.2.4）
+message CmdPlaceOrder {
+  string                 client_order_ref        = 1;   // 必
+  uint64                 trade_plan_id           = 2;   // 必
+  uint64                 exposure_id             = 3;   // 必
+  uint32                 sub_account_id          = 4;   // 必
+  uint32                 product_id              = 5;   // 必
+  string                 instrument_id           = 6;   // 必
+  InstrumentType         instrument_type         = 7;   // 必
+  Direction              direction               = 8;   // 必
+  OffsetFlag             offset_flag             = 9;   // 必
+  PriceType              price_type              = 10;  // 必
+  string                 limit_price             = 11;  // 条件（price_type = LIMIT）
+  int32                  volume                  = 12;  // 必
+  uint64                 operator_id             = 13;  // 必
+  uint64                 strategy_id             = 14;  // 可
+  int32                  leg_no                  = 15;  // 条件（strategy_id ≠ 0）
+  TradeReasonCode        trade_reason_code       = 16;  // 必
+  TradeReasonTimeDesc    trade_reason_time_desc  = 17;  // 必
+  string                 trade_reason_text       = 18;  // 可
+  uint64                 related_plan_id         = 19;  // 必
+  uint64                 related_exposure_id     = 20;  // 必
+  int64                  client_ts_ms            = 21;  // 必
+}
+
+// 0x0102（必填性照 §4.2.4）
+message CmdConfirmOrder {
+  uint64 order_id       = 1;  // 必
+  uint64 operator_id    = 2;  // 必
+  int64  confirm_ts_ms  = 3;  // 必
+  string confirm_token  = 4;  // 必
+}
+
+// 0x0103
+message CmdCancelOrder {
+  uint64 order_id    = 1;  // 必
+  uint64 operator_id = 2;  // 必
+  string reason      = 3;  // 可
+}
+
+// 0x0111
+message CmdLoadRiskParams {
+  uint64                    param_version        = 1;   // 必
+  uint32                    batch_index          = 2;   // 必
+  uint32                    batch_total          = 3;   // 必
+  repeated VarietySpec      varieties            = 4;   // 可
+  repeated WhitelistEntry   whitelist            = 5;   // 可
+  repeated QuotaEntry       quotas               = 6;   // 可
+  repeated PositionLimitEntry position_limits    = 7;   // 可
+  repeated ExposureEntry    exposures            = 8;   // 可
+  repeated PermissionEntry  permissions          = 9;   // 可
+  RiskThresholds            thresholds           = 10;  // 可
+  TotalLimits               total_limits         = 11;  // 可
+  repeated AnnualScaleFactor annual_scale_factors = 12; // 可
+}
+
+// 0x0112
+message CmdUpdateWhitelist {
+  uint64          param_version     = 1;  // 必
+  uint32          sub_account_id    = 2;  // 必
+  repeated uint32 add_product_ids   = 3;  // 可
+  repeated uint32 remove_product_ids = 4; // 可
+}
+
+// 0x0113
+message CmdUpdateQuota {
+  uint64                param_version = 1;  // 必
+  repeated QuotaEntry   entries       = 2;  // 必
+}
+
+// 0x0114
+message CmdUpdatePositionLimit {
+  uint64                        param_version = 1;  // 必
+  repeated PositionLimitEntry   entries       = 2;  // 必
+}
+
+// 0x0115（`G-5`：嵌套复用 `RiskThresholds`）
+message CmdUpdateRiskThreshold {
+  uint64          param_version = 1;  // 必
+  RiskThresholds  thresholds    = 2;  // 必
+}
+
+// 0x0116
+message CmdUpdatePermission {
+  uint64                      param_version = 1;  // 必
+  repeated PermissionEntry    entries       = 2;  // 必
+}
+
+// 0x0117
+message CmdUpdateExposure {
+  uint64                    param_version = 1;  // 必
+  repeated ExposureEntry    entries       = 2;  // 必
+}
+
+// 0x0118
+message CmdSetTradingSuspend {
+  uint64    param_version  = 1;  // 必
+  uint32    sub_account_id = 2;  // 必（0 = 全账户）
+  ScanScope scan_scope     = 3;  // 必
+  bool      suspended      = 4;  // 必
+  string    reason         = 5;  // 可
+  uint64    operator_id    = 6;  // 必
+}
+
+// 0x0119
+message CmdSetReadyState {
+  TargetState target_state = 1;  // 必
+  string      reason       = 2;  // 可
+}
+
+// 0x011A
+message CmdReload {
+  string reason      = 1;  // 可
+  uint64 operator_id = 2;  // 必
+}
+
+// 0x011B
+message CmdTriggerReplay {
+  string reason      = 1;  // 可
+  uint64 operator_id = 2;  // 必
+}
+
+// 0x011C
+message CmdQueryStatus {
+  uint32 what = 1;  // 必（bitmask）
+}
+
+// 0x011D
+message CmdFundTransfer {
+  string        idempotency_key = 1;  // 必
+  string        apply_id        = 2;  // 必
+  FundDirection direction       = 3;  // 必
+  string        amount          = 4;  // 必
+  uint32        sub_account_id  = 5;  // 必
+  uint64        operator_id     = 6;  // 必
+  string        bank_id         = 7;  // 必
+  string        bank_account    = 8;  // 必
+}
+
+// 0x011E
+message CmdQueryFundResult {
+  string idempotency_key = 1;  // 必
+  string apply_id        = 2;  // 必
+}
+
+// -----------------------------------------------------------------------------
+// C. C++ → Java 事件流（14 条）—— §4.2.8.4
+// -----------------------------------------------------------------------------
+
+// 0x0201
+message EvtOrderAccepted {
+  uint64 order_id             = 1;  // 必
+  string client_order_ref     = 2;  // 必
+  bool   risk_passed          = 3;  // 必
+  int64  effective_timeout_ms = 4;  // 必
+  int64  accepted_ts_ms       = 5;  // 必
+}
+
+// 0x0202（必填性照 §4.2.4）
+message EvtPreTradeReject {
+  string     client_order_ref = 1;   // 必
+  uint32     sub_account_id   = 2;   // 必
+  uint32     product_id       = 3;   // 必
+  string     instrument_id    = 4;   // 必
+  string     rule_id          = 5;   // 必
+  uint32     reason_code      = 6;   // 必
+  LimitLayer limit_layer      = 7;   // 条件（限额类拒绝必填；非限额类填 NONE）
+  string     current_value    = 8;   // 必
+  string     threshold_value  = 9;   // 必
+  string     order_digest     = 10;  // 必
+  uint64     operator_id      = 11;  // 必
+  int64      reject_ts_ms     = 12;  // 必
+}
+
+// 0x0203
+message EvtOrderReport {
+  uint64      order_id      = 1;   // 必
+  string      order_sys_id  = 2;   // 条件（CTP 已受理并回报后必填）
+  string      order_local_id = 3;  // 可
+  OrderStatus status        = 4;   // 必
+  int32       volume_total  = 5;   // 必
+  int32       volume_traded = 6;   // 必
+  int32       volume_left   = 7;   // 必
+  int32       ctp_error_id  = 8;   // 条件（status = REJECTED_CTP）
+  string      ctp_error_msg = 9;   // 可
+  int64       report_ts_ms  = 10;  // 必
+}
+
+// 0x0204
+message EvtTradeFill {
+  string     trade_id        = 1;   // 必
+  uint64     order_id        = 2;   // 必
+  string     order_sys_id    = 3;   // 必
+  string     instrument_id   = 4;   // 必
+  Direction  direction       = 5;   // 必
+  OffsetFlag offset_flag     = 6;   // 必
+  string     price           = 7;   // 必
+  int32      volume          = 8;   // 必
+  int64      trade_ts_ms     = 9;   // 必
+  uint32     sub_account_id  = 10;  // 必
+  uint64     trade_plan_id   = 11;  // 必
+  uint64     exposure_id     = 12;  // 必
+}
+
+// 0x0205
+message EvtPositionChange {
+  uint32       sub_account_id = 1;  // 必
+  string       instrument_id  = 2;  // 必
+  Direction    direction      = 3;  // 必
+  PositionType position_type  = 4;  // 必
+  int32        position_qty   = 5;  // 必
+  int32        available_qty  = 6;  // 必
+  int32        frozen_qty     = 7;  // 必
+  string       change_reason  = 8;  // 可
+  int64        as_of_ts_ms    = 9;  // 必
+}
+
+// 0x0206
+message EvtOrderCancelResult {
+  uint64 order_id           = 1;  // 必
+  int32  cancelled_volume   = 2;  // 必
+  string released_quota     = 3;  // 可
+  int64  restored_plan_qty  = 4;  // 可
+  int32  result             = 5;  // 必
+  uint32 reason_code        = 6;  // 条件（result ≠ 0）
+}
+
+// 0x0207
+message EvtOrderExpired {
+  uint64 order_id         = 1;  // 必
+  string client_order_ref = 2;  // 必
+  int64  expired_ts_ms    = 3;  // 必
+  int64  timeout_ms       = 4;  // 必
+}
+
+// 0x0208
+message EvtCommandFlow {
+  uint64   order_id   = 1;  // 必
+  FlowType flow_type  = 2;  // 必
+  int64    flow_ts_ms = 3;  // 必
+  string   detail     = 4;  // 可
+}
+
+// 0x0209
+message EvtReplayProgress {
+  ServerState  state            = 1;  // 必
+  int64        replayed_records = 2;  // 必
+  int64        total_records    = 3;  // 必
+  int64        started_ts_ms    = 4;  // 必
+  int64        finished_ts_ms   = 5;  // 条件（重放完成时必填）
+  ReplayResult result           = 6;  // 必
+  string       mismatch_detail  = 7;  // 条件（result = MISMATCH）
+}
+
+// 0x020A
+message EvtSystemState {
+  ServerState state                = 1;  // 必
+  uint64      param_version_applied = 2; // 必
+  string      loaded_counts        = 3;  // 可（JSON 摘要）
+  string      reason               = 4;  // 可
+  int64       ts_ms                = 5;  // 必
+}
+
+// 0x020B
+message EvtFundReceipt {
+  string     idempotency_key = 1;  // 必
+  string     apply_id        = 2;  // 必
+  FundResult result          = 3;  // 必
+  string     amount          = 4;  // 必
+  int32      ctp_error_id    = 5;  // 条件（result = FAIL）
+  string     ctp_error_msg   = 6;  // 可
+  int64      receipt_ts_ms   = 7;  // 必
+}
+
+// 0x020C
+message EvtMarketQuote {
+  string instrument_id  = 1;  // 必
+  string last_price     = 2;  // 必
+  string bid_price1     = 3;  // 可
+  string ask_price1     = 4;  // 可
+  int32  bid_volume1    = 5;  // 可
+  int32  ask_volume1    = 6;  // 可
+  string pre_settlement = 7;  // 可
+  int64  quote_ts_ms    = 8;  // 必
+  int64  source_ts_ms   = 9;  // 可
+}
+
+// 0x020D
+message EvtCtpState {
+  bool   trade_connected     = 1;  // 必
+  bool   md_connected        = 2;  // 必
+  string front_addr          = 3;  // 可
+  int64  state_change_ts_ms  = 4;  // 必
+  string reason              = 5;  // 可
+}
+
+// 0x020E
+message EvtTradingAlert {
+  uint32     alert_code   = 1;  // 必
+  AlertLevel level        = 2;  // 必
+  string     detail       = 3;  // 可
+  int64      alert_ts_ms  = 4;  // 必
+}
+
+// -----------------------------------------------------------------------------
+// 复合类型（嵌套 message）—— §4.2.8.6（含 `G-6` 补全）
+//   编号口径：各为独立 message，字段号各自自 1 连续，**不计入 214 顶层字段号**。
+// -----------------------------------------------------------------------------
+
+// 额度条目（§4.2.8.6；`sub_account_id` 层③取哨兵 0）
+message QuotaEntry {
+  LimitLayer limit_layer    = 1;  // 必
+  uint32     sub_account_id = 2;  // 必（层③取哨兵 0）
+  uint32     product_id     = 3;  // 必
+  string     instrument_id  = 4;  // 条件（仅 limit_layer = SUB_INSTRUMENT 层②必填）
+  string     quota_limit    = 5;  // 必
+  string     used           = 6;  // 必
+  string     frozen         = 7;  // 必
+}
+
+// 持仓上限条目（§4.2.8.6）
+message PositionLimitEntry {
+  uint32 sub_account_id = 1;  // 必
+  uint32 product_id     = 2;  // 必
+  string instrument_id  = 3;  // 必
+  string limit          = 4;  // 必
+}
+
+// 交易权限条目（§4.2.8.6）
+message PermissionEntry {
+  uint64          operator_id          = 1;  // 必
+  uint32          sub_account_id       = 2;  // 必
+  repeated uint32 product_ids          = 3;  // 必
+  string          quota_limit          = 4;  // 可
+  bool            is_enterprise_leader = 5;  // 必
+  bool            is_management_role   = 6;  // 必
+  bool            has_risk_role        = 7;  // 必
+  bool            has_settle_role      = 8;  // 必
+}
+
+// 实货敞口条目（§4.2.8.6；含三类分量 + 快照时点）
+message ExposureEntry {
+  uint32    sub_account_id         = 1;   // 必
+  uint32    product_id             = 2;   // 必
+  Direction direction              = 3;   // 必
+  int64     contract_unexecuted_qty = 4;  // 必
+  int64     inventory_qty          = 5;   // 必
+  int64     production_plan_qty    = 6;   // 必
+  int64     total_qty              = 7;   // 必
+  string    unit_factor            = 8;   // 必
+  int64     snapshot_time          = 9;   // 必
+  uint64    snapshot_id            = 10;  // 必
+}
+
+// 风控阈值（§4.2.8.6；`G-5` 嵌套复用）
+message RiskThresholds {
+  string             scale_ratio_commodity  = 1;   // 必
+  string             scale_ratio_trade      = 2;   // 必
+  ScaleBase          scale_base             = 3;   // 必
+  ScaleScope         scale_scope            = 4;   // 必
+  int32              term_max_months        = 5;   // 必
+  int32              term_grace_days        = 6;   // 必
+  TermAction         term_action            = 7;   // 必
+  PriceBase          price_base             = 8;   // 必
+  string             price_warn_pct         = 9;   // 必
+  string             price_block_pct        = 10;  // 必
+  PositionCheckMode  position_check_mode    = 11;  // 必
+  int32              freq_intraday_warn     = 12;  // 必
+  int32              freq_intraday_block    = 13;  // 必
+  int32              freq_7d_rounds_warn    = 14;  // 必
+  int32              freq_min_hold_days     = 15;  // 必
+  string             margin_ratio_threshold = 16;  // 必
+}
+
+// 品种规格（§4.2.8.6 `G-6` 补全；依据 §4.4.1 `VarietyMeta` + `DATA_MODEL.md`）
+message VarietySpec {
+  uint32        product_id   = 1;  // 必
+  string        product_code = 2;  // 必
+  ProductCategory category   = 3;  // 必
+  ProductStatus status       = 4;  // 必
+  string        unit_factor  = 5;  // 必
+}
+
+// 子账户品种白名单条目（§4.2.8.6 `G-6` 补全；依据 §4.4.1 `SubVarietyWhitelist`）
+message WhitelistEntry {
+  uint32          sub_account_id = 1;  // 必
+  repeated uint32 product_ids    = 2;  // 必
+}
+
+// 总账户总限额（§4.2.8.6 `G-6` 补全；含按品种汇总）
+message TotalLimits {
+  string                       total_limit  = 1;  // 必
+  string                       total_used   = 2;  // 必
+  string                       total_frozen = 3;  // 必
+  repeated TotalLimitByProduct by_product   = 4;  // 可
+}
+
+// `TotalLimits.by_product` 元素类型（§4.2.8.6 `G-6` 补全）
+message TotalLimitByProduct {
+  uint32 product_id = 1;  // 必
+  string limit      = 2;  // 必
+  string used       = 3;  // 必
+  string frozen     = 4;  // 必
+}
+
+// 年度规模折算因子（§4.2.8.6 `G-6` 补全；依据 §4.4.1 `AnnualScaleFactor` + `TB-RISK-11`）
+message AnnualScaleFactor {
+  uint32    product_id                = 1;  // 必
+  ScopeType scope_type                = 2;  // 必
+  uint32    sub_account_id            = 3;  // 必（TOTAL_ACCOUNT ⇒ 哨兵 0）
+  int32     scale_year                = 4;  // 必
+  string    expected_spot_business_qty = 5; // 必（分母）
+  string    accumulated_hedge_qty     = 6;  // 必（分子）
+}

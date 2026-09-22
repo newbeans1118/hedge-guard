@@ -30,6 +30,7 @@
 
 #include "hg/hgcp/endpoint.h"
 #include "hg/hgcp/frame.h"
+#include "hg/hgcp/pb_transport_policy.h"
 #include "hg/hgcp/resume_buffer.h"
 #include "hg/hgcp/session.h"
 #include "hg/hgcp/tcp.h"
@@ -49,7 +50,7 @@ class HgcpServerLoop {
   bool listening() const { return listener_.listening(); }
   std::uint16_t bound_port() const { return listener_.bound_port(); }
 
-  // 控制帧 body 注入接缝（缺省 = `EmptyTransportPolicy`）。
+  // 控制帧 body 注入接缝（缺省 = `PbTransportPolicy`，基于 `PbPayloadCodec` / `CH-013`）。
   void set_policy(const TransportPolicy* p);
   // 会话参数（心跳间隔/丢失阈值/补数缓冲容量）。
   void configure(std::int64_t heartbeat_interval_ms, int heartbeat_miss,
@@ -94,7 +95,7 @@ class HgcpServerLoop {
   TcpConfig cfg_;
   TcpListener listener_;
   int conn_fd_;
-  EmptyTransportPolicy default_policy_;
+  PbTransportPolicy default_policy_;  // 缺省 = protobuf 实现（CH-013 / §4.2.8）
   const TransportPolicy* policy_;
   HgcpSession session_;
   int accepted_;
