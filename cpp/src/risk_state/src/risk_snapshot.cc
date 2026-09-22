@@ -155,8 +155,12 @@ bool RiskSnapshot::canTrade(std::uint32_t operator_id, std::uint32_t sub_account
                             std::uint32_t product_id) const {
   const PermissionEntry* p = findPermission(operator_id);
   if (p == nullptr) return false;  // 安全默认：无授权 = 不可交易
-  // 负责人标记 → 禁授交易岗（NFR-SEC-5 的 C++ 侧兜底）
-  if (p->is_responsible) return false;
+  // 岗位 / 角色维度：**与风控引擎 `evalPermission` 共用同一纯函数判据**（`T-127`）——
+  //   避免两处消费点各自内联而再分叉。任一标记独立成立即禁交易：
+  //     · 负责人 / 管理层 ⇒ permissionLeaderForbidden（对 `0x100F`）
+  //     · 风控岗 / 结算岗  ⇒ permissionPostConflict（对 `0x100E`）
+  if (permissionLeaderForbidden(*p)) return false;
+  if (permissionPostConflict(*p)) return false;
   if (!p->has_trading_post) return false;
   const bool sub_ok = p->allow_all_sub_accounts ||
                       p->sub_accounts.find(sub_account_id) != p->sub_accounts.end();

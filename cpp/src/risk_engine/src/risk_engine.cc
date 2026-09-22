@@ -38,6 +38,10 @@ using hg::risk_state::ScaleScope;
 using hg::risk_state::VarietyMeta;
 using hg::risk_state::kQtyScale;
 using hg::risk_state::kRatioScale;
+// T-127：岗位 / 角色维度判定的**共用纯函数**（定义于 `risk_state/model.h`）——
+//   `evalPermission` 与 `RiskSnapshot::canTrade` 共用，从根上消除两处再分叉。
+using hg::risk_state::permissionLeaderForbidden;
+using hg::risk_state::permissionPostConflict;
 
 namespace {
 
@@ -403,13 +407,14 @@ void evalPermission(const RiskSnapshot& s, const OrderRequest& req, RiskResult& 
   if (p == nullptr) {
     code = kErrNoTradingAuth;
     detail = "operator has no permission record";
-  } else if (p->is_responsible || p->is_management_role) {
+  } else if (permissionLeaderForbidden(*p)) {
     // `0x100F`（`CH-010` 析取）：被标记为企业负责人 **或** 持有管理层（审批人）角色，
-    //   任一独立成立即禁操盘（签署权与交易权互斥）。
+    //   任一独立成立即禁操盘（签署权与交易权互斥）。判据 = 共用纯函数（`T-127`）。
     code = kErrLeaderForbidden;
     detail = "enterprise leader / management role is forbidden to trade";
-  } else if (p->has_risk_post || p->has_settle_role) {
-    // `0x100E` 析取（`FR-RISK-7`）：具备风控岗 **或** 结算岗权限的账号不得下单（前中后台分离）。
+  } else if (permissionPostConflict(*p)) {
+    // `0x100E` 析取（`FR-RISK-7`）：具备风控岗 **或** 结算岗权限的账号不得下单
+    //   （前中后台分离）。判据 = 共用纯函数（`T-127`）。
     code = kErrPositionConflict;
     detail = "risk/settlement post cannot place orders (front/mid/back separation)";
   } else if (!p->has_trading_post) {

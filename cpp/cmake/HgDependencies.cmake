@@ -11,6 +11,10 @@
 #                             + `thosttraderapi_se.so` / `thostmduserapi_se.so`）是否可得
 #   · `hg_deps::protobuf`  —— protobuf 供给目标（系统包 或 FetchContent 源码构建）
 #
+# ⚠️ **头名/风格单一入口**：具体头文件名由 `HG_CTP_HEADER_STYLE`（CLASSIC|MERGED）在
+#    `cmake/HgCtpStyle.cmake` 里**唯一派生**，本文件与探路件 `cpp/ctp_smoke/CMakeLists.txt`
+#    **共用同一实现** —— 二者须给出**一致**的 `CTP_FOUND`（T-128）。
+#
 # 双轨口径（两轨均须**真的能编**，不是只有开关）：
 #   CTP_FOUND=ON           → ctp_adapter 以真实 CTP SDK 头编译（SYSTEM 头，抑制第三方告警）
 #   CTP_FOUND=OFF          → ctp_adapter 走空实现，组件仍可完整构建（无 SDK 环境 / CI）
@@ -39,12 +43,17 @@ set(CTP_TRADER_ROOT "" CACHE PATH
   "交易 SDK 目录（显式覆盖 CTP_SDK_ROOT 的探测结果；须含交易头）")
 set(CTP_MD_ROOT "" CACHE PATH
   "行情 SDK 目录（显式覆盖 CTP_SDK_ROOT 的探测结果；须含行情头）")
-set(HG_CTP_TRADER_HEADER "ThostFtdcTraderApi.h" CACHE STRING
-  "交易头文件名（官方分离式 = ThostFtdcTraderApi.h）")
-set(HG_CTP_MD_HEADER "ThostFtdcMdApi.h" CACHE STRING
-  "行情头文件名（官方分离式 = ThostFtdcMdApi.h）")
 set(HG_CTP_REQUIRE_SDK OFF CACHE BOOL
   "ON 时找不到 CTP SDK 即 FATAL_ERROR（CI 严格模式）；OFF 时 CTP_FOUND=OFF 走空实现")
+
+# -----------------------------------------------------------------------------
+# 0b. CTP 头文件风格 → 头名/类名（**唯一入口** = HG_CTP_HEADER_STYLE）
+#     ⚠️ 不要再在本文件里另设「按头名覆盖」的入口 —— 主工程与探路件**必须**同源
+#     （T-128：双源会使同一组配置下两端得出矛盾的 `CTP_FOUND` = 诊断误导）。
+#     派生实现唯一 = cmake/HgCtpStyle.cmake；本文件与 cpp/ctp_smoke/CMakeLists.txt 共用。
+# -----------------------------------------------------------------------------
+include("${CMAKE_CURRENT_LIST_DIR}/HgCtpStyle.cmake")
+hg_ctp_resolve_style()
 
 set(HG_PROTOBUF_MAJOR_REQUIRED "3" CACHE STRING
   "C++/Java 两侧一致的 protobuf 大版本（§4.2.5）")
@@ -89,6 +98,22 @@ else()
   message(STATUS "[CTP] CTP SDK 不可得（CTP_SDK_ROOT='${CTP_SDK_ROOT}' "
                  "CTP_TRADER_ROOT='${CTP_TRADER_ROOT}' CTP_MD_ROOT='${CTP_MD_ROOT}'；"
                  "缺：${HG_CTP_MISSING}）")
+endif()
+
+# -----------------------------------------------------------------------------
+# 1b. 判定结果**标准化披露**（T-128 可核判据）
+#     与 `cpp/ctp_smoke/CMakeLists.txt` 打印同形行 ⇒ 同一组 SDK 根/风格配置下，
+#     两处的 `found=` 必须一致（判据脚本 cpp/ctp_smoke/ci/check_ctp_found_parity.sh）。
+#     ⚠️ 披露**先于**下面的处置（FATAL）—— 否则分歧时只能看到一方的判定，
+#        判据无法比较（本件与探路件同此口径）。
+# -----------------------------------------------------------------------------
+message(STATUS "[HG-CTP-FOUND] role=main found=${CTP_FOUND} style=${HG_CTP_HEADER_STYLE} "
+               "trader_header=${HG_CL_TRADER_HEADER} md_header=${HG_CL_MD_HEADER}")
+
+# -----------------------------------------------------------------------------
+# 1c. 处置（判定与处置分离）：不可得时的守卫与降级说明
+# -----------------------------------------------------------------------------
+if(NOT HG_CTP_FOUND)
   # ★ 静默降级守卫：用户**显式**给了根却解析不出必需头/库 ⇒ 配置期失败。
   #   不得回落 stub —— 否则「控制看起来有、实际没有」（本项目「假绿」纪律）。
   if(_hg_ctp_explicit)

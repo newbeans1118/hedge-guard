@@ -134,18 +134,26 @@ LoadBatch makeFullBatch() {
   b.putSubProductCategory(7, 2, Category::kTrade);
 
   // ⑩ 权限（TB-AUTH-7/8）
+  //   9001：普通交易岗 —— **四个岗位 / 角色冲突位全为 false** ⇒ `canTrade == true` 的正例。
   PermissionEntry perm;
   perm.sub_accounts.insert(7);
   perm.products.insert(1);
   perm.products.insert(2);
   perm.individual_quota = qtyFromWhole(500);
   perm.has_trading_post = true;
-  perm.has_settle_role = true;  // T-126：结算岗标记承载（经 LoadBatch → 快照）
   b.putPermission(9001, perm);
   PermissionEntry resp;
   resp.is_responsible = true;  // 负责人标记 ⇒ 禁授交易岗（NFR-SEC-5 兜底）
   resp.has_trading_post = true;
   b.putPermission(9002, resp);
+  //   9101：岗位 / 角色维度字段**承载**断言用例（T-126 两字段 + T-127 对称）——
+  //        `has_settle_role` 与 `is_management_role` **均显式置位** ⇒ 证「显式置位者保持 true」，
+  //        且两字段**对称**覆盖（避免单侧遗漏）；经 `LoadBatch → RiskSnapshot` 整结构体复制承载。
+  PermissionEntry carried;
+  carried.has_trading_post = true;
+  carried.has_settle_role = true;      // 结算岗标记承载（T-126）
+  carried.is_management_role = true;   // 管理层标记承载（T-127 对称补断言）
+  b.putPermission(9101, carried);
 
   // ⑪ 阈值（TB-RISK-1）
   b.putThreshold("risk.scale.ratio.commodity", "0.900000");
@@ -267,10 +275,13 @@ void test_all_datasets_present() {
   const PermissionEntry* perm = s.findPermission(9001);
   HG_CHECK(perm != nullptr);
   if (perm != nullptr) HG_CHECK_EQ(perm->individual_quota, qtyFromWhole(500));
-  // T-126：新增岗位 / 角色维度字段经 `LoadBatch → RiskSnapshot` 承载（整结构体复制）
-  if (perm != nullptr) {
-    HG_CHECK(perm->has_settle_role);       // 显式置位者保持 true
-    HG_CHECK(!perm->is_management_role);   // 未置位者保持缺省 false
+  // T-126 / T-127：岗位 / 角色维度字段经 `LoadBatch → RiskSnapshot` 承载（整结构体复制）
+  //   两字段**对称**断言（均显式置位 ⇒ 均保持 true），避免单侧遗漏。
+  const PermissionEntry* carried = s.findPermission(9101);
+  HG_CHECK(carried != nullptr);
+  if (carried != nullptr) {
+    HG_CHECK(carried->has_settle_role);      // T-126：显式置位者保持 true
+    HG_CHECK(carried->is_management_role);   // T-127：对称补（两字段同构）
   }
   HG_CHECK(s.canTrade(9001, 7, 1));
   HG_CHECK(!s.canTrade(9001, 8, 1));   // 未授权子账户
@@ -300,10 +311,84 @@ void test_qty_scale_sanity() {
   HG_CHECK_EQ(ratioFromPpm(900000), static_cast<hg::risk_state::Fixed>(900000));
 }
 
+// -----------------------------------------------------------------------------
+// T-127：`RiskSnapshot::canTrade` 岗位 / 角色维度补齐（与 `evalPermission` 对齐）
+//
+// 基础「可交易」权限：四个岗位 / 角色冲突位**全为 false**，且子账户 / 品种授权齐备
+//   （全账户 + 全品种）⇒ 无冲突位时 `canTrade` 必为 true（每个用例内用作对照，
+//    证明 false 由所置的**那一条**引起，而非基础损坏）。
+// -----------------------------------------------------------------------------
+PermissionEntry tradableBase() {
+  PermissionEntry p;
+  p.allow_all_sub_accounts = true;
+  p.allow_all_products = true;
+  p.has_trading_post = true;
+  return p;
+}
+
+// 批次：op=1 =「待测（仅单条冲突位置位）」；op=2 =「对照（tradableBase）」。二者同批次载入，
+//   故同一快照内即可对照（无需第二个 RiskState）。
+LoadBatch singleConflictBatch(const PermissionEntry& conflict) {
+  LoadBatch b;
+  b.set_replace_all(true);
+  b.set_param_version(1);
+  b.putPermission(1, conflict);
+  b.putPermission(2, tradableBase());
+  return b;
+}
+
+// 用例①（仅 `has_risk_post`，其余三个冲突位**显式 false**）⇒ `canTrade == false`。
+//   命中岗位维度（对应 `evalPermission` 的 `0x100E`，前中后台分离）。
+void test_can_trade_risk_post_only() {
+  RiskState st;
+  PermissionEntry p = tradableBase();
+  p.has_risk_post = true;           // 仅此一条置位
+  p.has_settle_role = false;
+  p.is_management_role = false;
+  p.is_responsible = false;
+  HG_CHECK(st.rebuild(singleConflictBatch(p)).ok);
+  const RiskSnapshot& s = st.snapshot();
+  HG_CHECK(!s.canTrade(1, 100, 200));  // 仅风控岗 ⇒ 禁交易
+  HG_CHECK(s.canTrade(2, 100, 200));   // 对照：四冲突位全 false ⇒ 可交易
+}
+
+// 用例②（仅 `has_settle_role`，其余三个冲突位**显式 false**）⇒ `canTrade == false`。
+//   同命中 `0x100E`（析取的另一支）⇒ 与用例①互不依赖，证「析取」而非「合取」。
+void test_can_trade_settle_role_only() {
+  RiskState st;
+  PermissionEntry p = tradableBase();
+  p.has_settle_role = true;         // 仅此一条置位
+  p.has_risk_post = false;
+  p.is_management_role = false;
+  p.is_responsible = false;
+  HG_CHECK(st.rebuild(singleConflictBatch(p)).ok);
+  const RiskSnapshot& s = st.snapshot();
+  HG_CHECK(!s.canTrade(1, 100, 200));  // 仅结算岗 ⇒ 禁交易
+  HG_CHECK(s.canTrade(2, 100, 200));   // 对照
+}
+
+// 用例③（仅 `is_management_role`，其余三个冲突位**显式 false**）⇒ `canTrade == false`。
+//   命中角色维度（对应 `evalPermission` 的 `0x100F`，`CH-010` 析取：负责人 **或** 管理层）。
+void test_can_trade_management_role_only() {
+  RiskState st;
+  PermissionEntry p = tradableBase();
+  p.is_management_role = true;      // 仅此一条置位
+  p.is_responsible = false;
+  p.has_risk_post = false;
+  p.has_settle_role = false;
+  HG_CHECK(st.rebuild(singleConflictBatch(p)).ok);
+  const RiskSnapshot& s = st.snapshot();
+  HG_CHECK(!s.canTrade(1, 100, 200));  // 仅管理层 ⇒ 禁交易
+  HG_CHECK(s.canTrade(2, 100, 200));   // 对照
+}
+
 }  // namespace
 
 int main() {
   test_qty_scale_sanity();
   test_all_datasets_present();
+  test_can_trade_risk_post_only();
+  test_can_trade_settle_role_only();
+  test_can_trade_management_role_only();
   return hg::risk_state::testutil::report("data_model_test");
 }

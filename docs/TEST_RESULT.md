@@ -4325,3 +4325,606 @@ Total Test time (real) =  22.70 sec
 
 - 追加前基线：`md5 36297e76ecd5ece5a7c167a684e0b68d` / **4131 行**（紧邻写入前 **3 次 ×10s** 取样不变）。
 - 追加后：`head -4131 docs/TEST_RESULT.md | md5sum` = `36297e76ecd5ece5a7c167a684e0b68d`（⇒ 前 4131 行**逐字节未变**）；追加后 `wc -l` 与 `md5sum docs/TEST_RESULT.md` **以实时为准**（写死会因追加本身而失效）。
+
+---
+
+# `T-126` 独立复核证据（2026-09-22）
+
+> 复核方：**测试工程师（独立复核，非产出方）** ｜ 实例 `te-verify-t126` ｜ 时刻 `2026-09-22T22:04+08:00`
+> 立场：本项目 `DONE` 判据 = **授权 + 独立验证**；产出方一切自报视为**待证命题**。本席**未复用产出方用例/探针**（自撰探针 `/root/t126-probe-post.cc`、`/root/t126-probe-plain.cc`）；全文分栏「**独立实测**」与「**产出方自述（本席未复现者单列）**」。
+> 未修改任何交付制品（本证章对本文件为**纯追加**，见 T126.11）；**共享源树只读**（未写一字节）；变异/回退**一律在隔离副本**（`/root/t126v`、`/root/t126v-pre`、`/root/t126v-preconsume`、`/root/t126v-mut1..3`）；**不自评 `DONE`**。工具链：`g++ 15.2.0` / `cmake` / `ctest`；构建目录与 `TMPDIR` 一律置 `/`（`/tmp` 为 804M tmpfs ⇒ 满）、`-j1`。
+
+## T126.0 结论
+
+**结论：`通过`（0 阻断缺陷；3 项信息/低观察，见 T126.9）。**
+
+`T-126`（`PermissionEntry` 岗位维度承载补齐 + 引擎 `evalPermission` 消费）经**独立取证**证实：
+(1) **改前确实是坏的** —— 改前锚下两字段无载体（编译即失败），消费侧仅回退即复现 **`仅具结算岗 → kPass/0x0000`（放行）**、**`仅具管理层 → kPass/0x0000`（放行）**；
+(2) **改后确实是好的** —— 冻结结点下 **`仅具结算岗 → kReject/0x100E`**、**`仅具管理层 → kReject/0x100F`**、**`普通交易岗 → kPass/0x0000`（放行不被误伤）**；
+(3) **守卫确实会咬** —— 两分支**各自独立承重**（移除任一支 ⇒ 对应用例必红，无空转）；
+(4) `E4` 两口径 `rc 0`、**无新增锁/互斥/同步 I/O/分配**；聚合 `rc 0`（`E1`–`E7` 全 0）；
+(5) `ctest` **本树 38/38 全绿**、构建 **0 warning / 0 error**；新增 3 用例**确在跑**；
+(6) **既有断言未被削弱**（无断言依赖被改写的 `detail` 串）；
+(7) **口径边界表述属实**：该两字段**除测试外无任何生产加载点**（恒缺省 `false`）—— 产出方主动披露**正确**。
+
+**验收标准逐条**（`docs/TASKS.md` `T-126`）：① 承载补齐 ✅ ｜ ② 加载侧（已按架构席裁定 ⑤ 分流 `T-038`/`T-042`，本单不落）✅ ｜ ③ 引擎消费（仅结算岗/仅风控岗**两个独立用例**齐备）✅ ｜ ④ 反退化（移除消费 ⇒ 对应用例必红）✅ ｜ ⑤ 门禁（0 告警 / `ctest` 全绿 / 聚合 `rc 0` / `E4` 命中 0）✅。
+
+**产出方自报逐项比对**（本席独立实测）：
+
+| 项 | 产出方自述 | 本席独立实测 | 一致 |
+|---|---|---|---|
+| 改动面 | 4 文件 / +77 −3 | **4 文件 / `git diff --shortstat 0e0d192 65f010f` = 77 insertions(+), 3 deletions(-)** | ✅ |
+| 冻结点 `risk_state` | `b47c2fd3…`/18 | **`b47c2fd38cac4e369644f9c8dcdaecc6` / 18**（3/3 次取样一致） | ✅ |
+| 冻结点 `risk_engine` | `24df98dc…`/29 | **`24df98dcb72799c634fc53bb46d4823c` / 29**（3/3 次取样一致） | ✅ |
+| 改前同口径 | `d89387cb…`/18、`35cf0818…`/29 | **`d89387cb27c9c81f9218dbdf85587e5f`/18、`35cf08187b4354df81aeed6cf1213342`/29**（= `git 0e0d192`，即 T-126 前态） | ✅ |
+| 改前缺陷复现（`仅结算岗 → kPass/0x0000`） | 是 | **是**（本席自撰探针；另 `仅管理层 → kPass/0x0000`） | ✅ |
+| 反退化三态 | `M-SETTLE` 2 红 / `M-MGMT` 2 红 / `M-FULL` 4 红 | **是**（`:88/:89`、`:123/:124`、四红；见 T126.4） | ✅ |
+| `ctest` | **33/33** | **本树 38/38 全绿**（数量差 = 冻结时点后**并发 T-033 `ctp_adapter` 移植新增用例**，非本单引入；见 T126.6 + `OBS-T126-1`） | ⚠️（数量，非实质） |
+| 构建 0 warning / 0 error | 是 | **是**（全量构建 `grep -icE 'warning:' = 0`、`'error:' = 0`，`FULL_RC=0`） | ✅ |
+| `E4` 实扫 47 / 命中 0（WARN 3 既有） | 是 | **是**（默认并集根 47 文件 / 命中 0 / WARN 3；改前同根 WARN 逐条相同 ⇒ 非本次引入） | ✅ |
+| 聚合 `rc 0`（`E1`–`E7` 全 0） | 是 | **是** | ✅ |
+| 「两字段无生产加载点」 | 是 | **是**（见 T126.8） | ✅ |
+| 「details 字符串无测试断言」 | 是 | **是**（见 T126.7） | ✅ |
+| 副本 4 文件与共享树逐字节一致 | 是 | **是**（4/4 `MATCH` vs `git 65f010f`） | ✅ |
+
+## T126.1 锚点独立确认（3 次取样）＋「隔离等价于共享交付态」
+
+**命令**（`cwd = 仓库根`，与产出方同口径）：`find <dir> -type f | LC_ALL=C sort | xargs md5sum | md5sum`。
+
+| 取样 | `risk_state`（POST） | 文件数 | `risk_engine`（POST） | 文件数 |
+|---|---|---|---|---|
+| 1 | `b47c2fd38cac4e369644f9c8dcdaecc6` | 18 | `24df98dcb72799c634fc53bb46d4823c` | 29 |
+| 2 | `b47c2fd38cac4e369644f9c8dcdaecc6` | 18 | `24df98dcb72799c634fc53bb46d4823c` | 29 |
+| 3 | `b47c2fd38cac4e369644f9c8dcdaecc6` | 18 | `24df98dcb72799c634fc53bb46d4823c` | 29 |
+
+- **改前同口径**（本席独立重建，取自 `git 0e0d192` 的 4 文件覆盖）：`risk_state` = **`d89387cb27c9c81f9218dbdf85587e5f`/18**；`risk_engine` = **`35cf08187b4354df81aeed6cf1213342`/29** ⇒ **与产出方自述逐字符一致**（且 `risk_engine` 改前 = `T-035` 修复态 `35cf0818…`，旁证「本单只叠 T-126 一层」）。
+- **隔离等价**：本席隔离副本 `/root/t126v` 的 4 个交付文件 vs `git 65f010f`（= 落库的 T-126 提交，见下）逐字节比对 = **4/4 `MATCH`**。
+- **⚠️ 时点披露（并发写者）**：本席开工时 `HEAD = 10b65f4`（彼时 T-126 **未提交**，故「`HEAD grep=0`」成立）；复核期间编排者提交 **`65f010f`（「工作区快照 #2」含 T-126）**、`HEAD` 前移至 `4457589`。故本证章一律以**提交 `0e0d192`（T-126 前）↔ `65f010f`（T-126 后）**为改前/改后锚，**不依赖「当前 HEAD 的 grep」**。
+
+## T126.2 改前「确实是坏的」—— 自撰探针（不复用产出方探针）
+
+**被测源**：`/root/t126v-pre/cpp/**`（严格 = 改前锚 `d89387cb…`/18 + `35cf0818…`/29，4 文件取自 `git 0e0d192`，其余同冻结点）。
+
+**证据 (A) —— 承载缺口（编译级，无歧义）**：把**自撰探针 `t126-probe-post.cc`**（置 `has_settle_role` / `is_management_role`）对改前头文件编译：
+
+```
+/root/t126-probe-post.cc:42:5: error: 'struct hg::risk_state::PermissionEntry' has no member named 'has_settle_role'
+/root/t126-probe-post.cc:44:5: error: 'struct hg::risk_state::PermissionEntry' has no member named 'is_management_role'
+```
+
+⇒ 改前「结算岗 / 管理层」维度**在 `PermissionEntry` 中不可表示**（⇒ 必然不可消费）。另 `git grep -e has_settle_role -e is_management_role 0e0d192 -- cpp/` = **0 命中**（与产出方自述一致）。
+
+**证据 (B) —— 消费缺口（本席自撰探针，仅回退消费 `risk_engine.cc`）= 「改前同一口径」**：
+
+```
+=== te-verify-t126 probe (POST-state binary) ===
+scenario                           | bind | decision | code
+plain_trading (no flags)           |  1   |    0     | 0x0000
+risk_post_only                     |  1   |    2     | 0x100E
+settle_role_only                   |  1   |    0     | 0x0000   ← 结算岗被放行（缺陷态）
+leader_only (is_responsible)       |  1   |    2     | 0x100F
+management_only                    |  1   |    0     | 0x0000   ← 管理层被放行（缺陷态）
+settle+management (both)           |  1   |    0     | 0x0000   ← 二者皆被放行
+leader+risk (both 禁操盘支)        |  1   |    2     | 0x100F
+```
+
+**证据 (C) —— 端到端语义（改前锚，旧 `PermissionEntry` 唯一可表示形态）**：`/root/t126v-pre` 下 `t126-probe-plain.cc`（`has_trading_post=true`、其余缺省）⇒ **`trading_capable_only | decision=0 | code=0x0000`**（结算岗账号在旧模型里只能这样表示，被放行）。
+
+**证据 (D) —— 产出方用例在改前消费态**：其自身 `risk_engine_permission_test` 在**仅回退消费**的副本上 ⇒ **`29 checks, 4 failures`**，红点 = `:88`(`decision==kReject`)/`:89`(`code==0x100E`)/`:123`/`:124`(`0x100F`) —— **与产出方自述「`:88/:89`、`:123/:124`」逐行一致**。
+
+## T126.3 改后「确实是好的」＋ 误拒方向
+
+**被测源**：`/root/t126v`（= 冻结点 `b47c2fd3…`/`24df98dc…`）。同自撰探针：
+
+```
+=== te-verify-t126 probe (POST-state binary) ===
+plain_trading (no flags)           |  1   |  0  | 0x0000   ← 普通交易岗放行（无误伤；与「拒」同等重要）
+risk_post_only                     |  1   |  2  | 0x100E
+settle_role_only                   |  1   |  2  | 0x100E   ← 本单修复点
+leader_only (is_responsible)       |  1   |  2  | 0x100F
+management_only                    |  1   |  2  | 0x100F   ← 本单修复点
+settle+management (both)           |  1   |  2  | 0x100F   ← 先判 0x100F 支（顺序稳定）
+leader+risk (both 禁操盘支)        |  1   |  2  | 0x100F
+```
+
+- **期望基线**（依据）：`REQUIREMENTS/RISK.md:194`（`FR-RISK-7`「具备风控**或**结算岗位权限的账号**不得**下单」）；`ARCHITECTURE.md` §4.3.2 `0x100E`（岗位冲突 = 风控岗/结算岗）；§4.3.2 `0x100F`（「企业负责人 **或** 具备管理层标记 `is_management_role`；`CH-010` 析取」）；`REQUIREMENTS/AUTH.md:395`（`CH-010` 明写「析取、不得读作合取」）。
+- **产出方用例**：`risk_engine_permission_test: 29 checks, 0 failures -> PASS`；`data_model_test: 72 checks, 0 failures -> PASS`（**两个 checks 数与自述逐字一致**）。
+
+## T126.4 ★反退化三态（各自独立承重）—— 隔离副本
+
+**方法**：三份**独立源树** `/root/t126v-mut{1,2,3}`（各自**从冻结点全量重编译**，无陈旧对象），逐分支注入（`sed` 后**断言 `count==1`**，避免「未注入」假绿）：
+
+| 态 | 注入（`risk_engine.cc`） | 其自身用例实测 | 红点（文件:行） | 本席探针（关键行） |
+|---|---|---|---|---|
+| `M-SETTLE` | `p->has_risk_post \|\| p->has_settle_role` → `p->has_risk_post` | **`29 checks, 2 failures`** | `:88`、`:89`（`test_settle_role_conflict`） | `settle_role_only → kPass/0x0000`；`management_only → 0x100F`（绿） |
+| `M-MGMT` | `p->is_responsible \|\| p->is_management_role` → `p->is_responsible` | **`29 checks, 2 failures`** | `:123`、`:124`（`test_management_role_forbidden`） | `management_only → kPass/0x0000`；`settle_role_only → 0x100E`（绿） |
+| `M-FULL` | 两者皆移除 | **`29 checks, 4 failures`** | `:88`、`:89`、`:123`、`:124` | `settle_role_only → kPass`；`management_only → kPass` |
+
+⇒ **两分支各自独立承重，无「仍绿 ⇒ 守卫空转」**；红点数与方位与产出方自述**完全一致**。复位后本席**以冻结点全量构建**复跑 `ctest` 38/38 全绿（T126.6）——即「复位 + clean 重编译回绿」成立。
+
+## T126.5 `E4` 两口径 + 无锁/无分配/无同步 I/O + 聚合
+
+**本席实测**（`cwd = 仓库根`）：
+
+| 口径 | 命令 | 待扫描文件 | 命中 | WARN | rc |
+|---|---|---|---|---|---|
+| 单根（引擎） | `scan_lock_free.sh --root cpp/src/risk_engine` | **28** | 0 | **0** | **0** |
+| 单根（状态） | `scan_lock_free.sh --root cpp/src/risk_state` | **17** | 0 | **3** | **0** |
+| 默认并集根 | `scan_lock_free.sh` | **47** | 0 | **3** | **0** |
+| 改前同根（状态） | `scan_lock_free.sh --root /root/t126v-pre/cpp/src/risk_state` | 17 | 0 | **3（逐条相同）** | **0** |
+| 聚合 | `arch-check.sh` | — | — | — | **0**（`E1`–`E7` 全 0） |
+
+- **WARN 3 逐条**：`risk_snapshot.cc:231`、`risk_state.cc:22`、`risk_state.cc:41` —— 全为**既有 `new`**，**改前改后逐条相同 ⇒ 无新增**（且这三处不在本单 4 文件内）。
+- **`E4` 关切面（代码级）**：本单改动仅 = 2 个 `bool` 成员 + 2 处 `||` 逻辑 + 注释 + 一处静态字符串常量 + 测试断言；**未引入 `mutex`/`lock_guard`/`condition_variable`、未新增动态分配、未新增同步 I/O（`fsync`/`read`/`write`/`send`/`sleep` 等）**。
+
+## T126.6 用例数以 `ctest -N` 为准 + 全绿
+
+- **`ctest -N`（本席隔离全量构建 `/t126v-build-post`）= 38**，其中 **`Test #20: risk_engine.risk_engine_permission_test`**（本单新增 3 用例所在），**`Test #26: risk_state.data_model_test`**。
+- **全量 `ctest` 端到端复跑**（`-j1`，`rc 0`）：`100% tests passed, 0 tests failed out of 38`（含 `arch_check` fixture）。构建日志 `warning:` **0** / `error:` **0**。
+- **新增 3 用例确在跑**：`main()`（`:188`–`:190`）注册 `test_settle_role_conflict` / `test_risk_post_only_conflict` / `test_management_role_forbidden`；用例数 **8 → 11**；单测输出 `29 checks`。
+- **⚠️ 数量与自述（33）不符之归因（见 `OBS-T126-1`）**：非本单引入。冻结时点（约 `2026-09-22T20:3x`）全树为 **33**（旁证：`T-124` 证章 `T124.6` 实测 **33**，同一时段）；其后**并发**的 `T-033` 官方 CTP 移植向 `ctp_adapter` **增补用例**（`tests/ct_lifecycle_test.cc` `mtime 20:53`、`ct_lifecycle_ctp_test.cc` `mtime 20:54`、`ct_adapter_test.cc` `21:28`…），使本树变为 **38**。**T-126 本身未增/删任何测试可执行体** ⇒ 不影响门禁判据（「全绿」满足）。
+
+## T126.7 用例独立性 + 既有断言未被削弱
+
+- **三用例确为三条独立断言**（读 `risk_engine_permission_test.cc` 原文）：
+  - `test_settle_role_conflict`（`:77`–`:90`）：`has_risk_post=false`、`has_settle_role=true` ⇒ **仅结算岗**；
+  - `test_risk_post_only_conflict`（`:94`–`:107`）：**`has_settle_role=false`**、`has_risk_post=true` ⇒ **仅风控岗**（**它确把 `has_settle_role` 显式置 `false`** ⇒ 两支各自独立成立，**证得析取而非合取**，**不构成缺陷**）；
+  - `test_management_role_forbidden`（`:112`–`:125`）：`is_responsible=false`、`is_management_role=true` ⇒ **仅管理层**。
+  - 三者**互不互为前提**（各置单条、其余显式排除）。
+- **既有断言未被削弱**：`git diff 0e0d192 65f010f -- <2 模块>` 逐 hunk = **纯增**（`risk_engine_permission_test.cc` `56 +0`、`data_model_test.cc` `6 +0`、`model.h` `9 +0`；`risk_engine.cc` `6 +3` 仅 2 处 `||` + 注释 + 1 处 `detail` 串 + 1 处 `else if` 改写）；**无任何既有断言被删除或放宽**。既有 `test_enterprise_leader_forbidden`（`is_responsible=true → 0x100F`）与 `test_risk_post_conflict`（`has_risk_post=true → 0x100E`）在改后仍 **PASS**。
+- **★「确无断言依赖被改写的 `detail` 串」已独立证实**：`grep -rn '\.detail' cpp/src/risk_engine/tests/` = **0 命中**；全仓（`cpp/`+`java/`+`web/`）仅 `cpp/src/hgcp/tests/envelope_test.cc:218` 断言 `ErrorBody.detail`（**hgcp 错误体**，与 `risk_engine` 的 `RiskResult::detail` **无关**）。改前串 `"enterprise leader is forbidden to trade"` 在**共享树内 0 命中**（唯一命中外仅 `.codebuddy/worktrees/**` 的背景 worktree）⇒ **字符串改写无测试依赖，非削弱**。
+
+## T126.8 口径边界核实（「两字段当前无生产加载点」是否属实）
+
+- `grep -rn 'has_settle_role\|is_management_role' cpp/`（排测试）= **仅 3 处**：`model.h`（声明/注释）+ `risk_engine.cc:406/411`（**读**）—— **无任何「写」点**。
+- `PermissionEntry` 的生产级使用面：`risk_state`（`load_batch.*` / `risk_snapshot.*` 之**整结构体拷贝**与访问器）＋ `risk_engine.cc`（`evalPermission`，**读**）。**无 4 布尔逐字段映射**（`CMD_UPDATE_PERMISSION` 的协议→模型映射属 `T-038`）；**无 Java `DB→wire` 组装**（属 `T-042`）。
+  - 交叉核对 `docs/TASKS.md`：`:911`（`T-038` 验收 +1 = 4 布尔逐字段映射）、`:995`（`T-042` 验收 +1 = Java 侧 `t_user_role→t_role` 派生组装）—— **确已分流登记**。
+- ⇒ **产出方表述属实**：生产路径下两字段恒为缺省 `false`，**本单交付的是「承载 + 引擎消费」的可验证逻辑，不等于「生产已生效」**；产出方已在 `model.h:236-237` 与台账备注**主动写明**（**正确，未过度断言**）。
+
+## T126.9 观察清单（均无阻断）
+
+| 编号 | 严重度 | 类别 | 结论 |
+|---|---|---|---|
+| —— | —— | **缺陷** | **无**（修复有效；未发现新缺陷） |
+| `OBS-T126-1` | 信息 | 取证口径 | 自述「`ctest` 33/33」**不可在本树复现**（本树 = **38**）。归因 = 冻结时点后**并发** `T-033` 向 `ctp_adapter` 增补用例（mtime 20:53–21:28），**非本单引入**（`T-124` 同证章 `T124.6` 实测 33 为旁证）。**建议**产出方/台账将「33」标注为**冻结时点口径**（现树 38 全绿，实质不变量满足） |
+| `OBS-T126-2` | 低 | 注释锚点 | `model.h:231` 注释引「`ARCHITECTURE.md §4.2.3 :818`」；**实测该行现为 `:823`**（`0x0116 CMD_UPDATE_PERMISSION` 行；`TASKS.md` 裁定文本亦沿引 `:818`）。活跃制品**固定行号**易漂移 ⇒ 建议改**章节锚点**（`§4.2.3` 表行 `0x0116`） |
+| `OBS-T126-3` | 低 | 测试覆盖 | `data_model_test.cc` 承载断言仅正向验 `has_settle_role=true` 与 `is_management_role`**缺省 false**（`:272-273`）⇒ `is_management_role=true` 的**正向承载未被断言**。因两字段同构（plain `bool` + 整结构体拷贝）**风险低**，建议补 1 条以对称 |
+
+## T126.10 未决 / 存疑
+
+- **无阻断存疑**。`ctest` 38/38 已端到端复跑；`E4` 两口径 + 聚合 `rc 0` 已复现。
+- **领域外（本席未裁、不阻断本单）**：`RiskSnapshot::canTrade`（`risk_snapshot.cc:154-168`）亦消费 `PermissionEntry` 但**只判 `is_responsible`/`has_trading_post`**、不含新两字段 —— 已由技术席裁定另立 **`T-127`**（`docs/TASKS.md:1978`；其「生产判定消费点共 2 处、无第三处」穷举本席**未独立复算**，属技术席范围）。**不并入 `T-126`**（避免作废其冻结点），**不构成 `T-126` 缺陷**。
+- **本席不置 `DONE`**（门禁结论由编排者落）；`docs/TASKS.md`/`BOARD.md`/`ARCHITECTURE.md` **零改动**；未修改任何交付制品。
+
+## T126.11 纯追加证明（自指值不写死）
+
+- 追加前基线：`md5sum docs/TEST_RESULT.md` = `22c54ba70e314202d32830fae43b6af9` / **4327 行**（**紧邻写入前 3 次 ×10s 取样不变**：`22c54ba7…`/4327 ×3）。
+- 追加后：`head -4327 docs/TEST_RESULT.md | md5sum` = `22c54ba70e314202d32830fae43b6af9`（⇒ 前 4327 行**逐字节未变**）。追加后 `wc -l` 与 `md5sum docs/TEST_RESULT.md` **以实时为准**（写死会因追加本身而失效）。
+
+# `T-033` / `T-027` 独立复核证据（2026-09-22）
+
+**复核席**：`te-verify-t033b`（独立复核；**只读**，交付制品零改动）。
+**对象**：`T-033`（CTP 适配层官方分离式移植 + U1 缺省对齐）、`T-027`（探路件官方基线重做）。
+**基线**：本机 SDK = 官方 CTP `v6.7.13_20260225_api`（`/root/myspace/hedge-guard/sdk/v6.7.13_20260225_api`，只读）；对照 = `CTP Mini`（`/home/ctpmini/ctpmini_admin/ctp_sdk`，仅比对、勿采用）。
+**隔离副本**：`/root/t033v-b`（共享树只读副本，布局 `<root>/{docs,java,cpp,tools,proto}`）+ 变体 `/root/t033v-b-{noguard,nosmoke,muutf,nosys,single,empty}`；构建目录 `/t033v-build/*` 与 `TMPDIR=/` 全在 `/`；`-j1`；**所有变异仅在副本**，共享树残留 0。
+
+## T033b.0 结论（分别三档）
+
+- **`T-033` = 有条件通过**（阻断级缺陷 **0**；条件见 T033b.11 观察项 + 基线限定 `OBS-T033b-1`）。
+- **`T-027` = 通过**（官方基线 `run_probe.sh` `PASS=12/FAIL=0` 本席独立复现）。
+
+（本席**不自评 `DONE`**，门禁由编排者落。）
+
+## T033b.1 锚点独立确认（3 次取样）
+
+- `find cpp/src/ctp_adapter -type f | LC_ALL=C sort | xargs md5sum | md5sum` = **`41e9ac046e0289ea68f45c234961ca88`**（×3 取样逐字节相同），**23 文件 / 3225 行** ⇒ 与实施方自述一致。
+- 写域合并锚 `find cpp/src/ctp_adapter cpp/cmake cpp/ctp_smoke cpp/CMakeLists.txt -type f | LC_ALL=C sort | xargs md5sum | md5sum` = **`6333a743361f074324d3033b06070721`** ⇒ 一致。
+- `find cpp/src -type f | … | md5sum` = `b5b675be98aae53942bb87a6c5b59ed0` / 115 文件（含他模块）⇒ 一致。
+- 隔离副本与共享树写域 `diff -rq` **逐字节一致**（`ctp_adapter`/`cmake` 输出为空）。
+- 共享树变异残留扫描（`*.orig`/`*.bak`/`*MUTATION*`/`*.rej`/`hgctp_flow_*`，排除 `build*`）= **0**。
+
+## T033b.2 ★静默降级双向（本单最重要）
+
+现态（官方根）：`cmake -S cpp -B … -DCTP_SDK_ROOT=<官方父目录>` ⇒ rc=0，CMake 原文
+`-- [CTP] 发现 CTP SDK（cache-variable CTP_SDK_ROOT）：trader-include=…/v6.7.13_20260225_api_traderapi_se_linux64 ; md-include=…/…_mduserapi_se_linux64 ; trader-lib=…/thosttraderapi_se.so ; md-lib=…/thostmduserapi_se.so`。
+
+**① 复现前态（假绿）** —— 隔离副本 `/root/t033v-b-noguard`（**移除守卫**，且令交易头名 = 旧口径 `ThostFtdcUserApi.h`；根 = 官方 SDK）：
+- 配置 `rc=0`，原文 `-- [CTP] CTP SDK 不可得（…缺：交易头目录（ThostFtdcUserApi.h）;交易库（…））` → `-- [CTP] → CTP_FOUND=OFF（ctp_adapter 走空实现）`；
+- 构建 `rc=0`（假绿成立）；`ctest` **35/35 全绿**；`ctp_adapter_ct_adapter_test` 输出 `89 checks, 0 failures -> PASS`（backend=stub）。
+⇒ **「官方 SDK 在场却静默走空实现、构建与测试照样全绿」实证复现**。
+
+**② 现态 = `CTP_FOUND=ON`**（见上 CMake 原文）。
+
+**③ 守卫必须会咬（显式给解析不出的根）**：
+- 全工程轨：`-DCTP_SDK_ROOT=/root/t033v-b-empty` ⇒ **rc=1**，`CMake Error at ctp_smoke/CMakeLists.txt:132 (message): [RSK-02] 已显式指定 CTP SDK 根，但解析必需头/库失败：… → 拒绝静默跳过探路`。
+- **主工程轨**（隔离 `/root/t033v-b-nosmoke` 关闭 `add_subdirectory(ctp_smoke)`）⇒ **rc=1**，`CMake Error at cmake/HgDependencies.cmake:95 (message)` ⇒ **主工程守卫自身确实会咬**（非仅探路件）。
+
+**④ MUT-D（删守卫）承重**：`/root/t033v-b-noguard` + 解析不出的根 ⇒ **rc=0** 且 `→ CTP_FOUND=OFF（ctp_adapter 走空实现）` ⇒ **守卫是承重的**（删之即静默回落）。
+
+## T033b.3 三布局各自可用（配置到 `CTP_FOUND` + 编译一个 TU）
+
+| 布局 | 命令 | 结果 |
+|---|---|---|
+| ① 官方父目录自动探测 | `-DCTP_SDK_ROOT=<官方父目录>` | rc=0；`CTP_FOUND=ON`；trader/md include 分处两子目录（见 T033b.2） |
+| ② 显式覆盖 | `-DCTP_TRADER_ROOT=<…traderapi…> -DCTP_MD_ROOT=<…mduserapi…>` | rc=0；`CTP_FOUND=ON`；`trader-include=…traderapi…`、`md-include=…mduserapi…` |
+| ③ 老式单目录 | `-DCTP_SDK_ROOT=/root/t033v-b-single`（单目录含两套头+两库） | rc=0；`CTP_FOUND=ON`；`trader-include == md-include == /root/t033v-b-single` |
+
+- 布局 ②/③ 各 `cmake --build … --target hg_ctp_adapter` ⇒ **rc=0**，产物 `libhg_ctp_adapter.a` 生成，`error:` **0**。
+⇒ **三布局均可用；老式单目录未被破坏**。
+
+## T033b.4 三轨独立复跑（名单以 `ctest -N` 为准）
+
+- `ctp`（`CTP_SDK_ROOT=官方`，系统 protobuf 3.21.12）：`ctest -N` **38**，`ctest` **38/38 通过、0 跳过**（含 `rsk02.ctp_header_cxx11_compat`、`ctp_adapter.{ct_queues,ct_adapter,ct_lifecycle,ct_mapping,ct_spi,ct_lifecycle_ctp}_test`）。构建 `warning:`/`error:` **0/0**。
+- `stub`（无 SDK 根；非显式 ⇒ 无守卫触发）：`ctest -N` **34**，**34/34 通过**。构建 `warning:` 0。
+- `fetch`（`-DCTP_USE_FETCH_DEPS=ON`，`FETCHCONTENT_SOURCE_DIR_PROTOBUF=<缓存源码>` 离线）：**本席只构建了 CTP 相关目标**（`ctp_adapter_*` 6 个测试目标 + `hgcp_ctp_probe`）⇒ rc=0；`ctest -R "ctp_adapter\."` **7/7 通过**（6 用例 + `arch_check` fixture）。**本席未构建 protobuf 全量**（实测该 build 树内 `libprotobuf*.a` / `_deps/**/*.o` **均为 0**）。
+- **实施方「`fetch` 只验 CTP 面、未跑 protobuf 全量」声明核验**：核查其实施副本 `/root/t033p-b-fetch` ⇒ 含 `ctp_adapter` 全量 `.o`/`libhg_ctp_adapter.a` 与 `ctp_smoke` 探针对象，**`libprotobuf*.a`=无、protobuf 对象=无** ⇒ **该声明属实**（与本席实跑口径一致）。**protobuf 全量构建在本单中确未被任何人验证**（属 `T-026` 范围，本单不追）。
+
+## T033b.5 `-isystem` 必要性（MUT-A，隔离 `/root/t033v-b-nosys`）
+
+- 去掉两目录的 `SYSTEM`（`ctp_adapter/CMakeLists.txt:45` `SYSTEM PUBLIC` → `PUBLIC`）⇒ `cmake --build … --target hg_ctp_adapter` **rc=2**，命中 `-Werror=unused-parameter` **567 条**（如 `…/ThostFtdcTraderApi.h:42:46: error: unused parameter 'nReason' [-Werror=unused-parameter]`）。
+- **逐行核**：`grep 'error:' … | grep -v 'sdk/v6.7.13'` = **空** ⇒ **全部 error 来自 SDK 头，自有代码 0 告警**。⇒ **两目录 `-isystem` 既生效又必需**。
+
+## T033b.6 `.so` 链接真实可用
+
+对 CTP 轨 `ctp_adapter_ct_adapter_test`（真实链接）：
+- `readelf -d`：`NEEDED` = **绝对路径** `…/thosttraderapi_se.so`、`…/thostmduserapi_se.so`（官方 `.so` **无 `lib` 前缀、无 SONAME** ⇒ 必须绝对路径，`-l<name>` 不可用）；`RUNPATH` = 两 SDK 目录。
+- `ldd`：两个官方 `.so` **均解析成功**（绝对路径 + 运行期地址）⇒ 运行期可载入。
+- 佐证：`ct_lifecycle_ctp_test` 经 `GetApiVersion()` 取到 `v6.7.13_20260225 14:16:30.12079`（非空）⇒ `.so` 真载入。
+
+## T033b.7 U1 缺省与断言（含 MUT-F）
+
+- 代码：`ct_types.h:89` `CtConfig() : env_type(CtEnvType::kSimulation) {}`；`redacted()`（`:111-112`）含 `env_type=`（生效模式可观测）。
+- 断言：`ct_adapter_test` = **89 checks / 0 failures / PASS**（缺省 `kSimulation`、`productionMode()==false`、`redacted()` 含 `env_type=SIMULATION`）。
+- **MUT-F（隔离 `/root/t033v-b-mutf`，缺省改回 `kProduction`）**：构建 rc=0，运行 ⇒
+  ```
+  [FAIL] ct_adapter_test.cc:321: default_cfg.env_type == …::kSimulation
+  [FAIL] ct_adapter_test.cc:322: !default_cfg.productionMode()
+  [FAIL] ct_adapter_test.cc:323: default_cfg.redacted().find("env_type=SIMULATION") != npos
+  ct_adapter_test: 89 checks, 3 failures -> FAIL
+  ```
+  ⇒ **新缺省值断言确在承重**（若仍绿即空转，本席实测为红）。
+
+## T033b.8 `T-027` 探针独立重跑
+
+- 官方基线：`CTP_SDK_ROOT=<官方父目录> bash cpp/ctp_smoke/ci/run_probe.sh` ⇒ `PROBE_RC=0`，**`PASS=12  FAIL=0` / `RESULT: PASS`**（B1、B2、B3、B4、B2b、B5、B6、B6b、B7、B7b、B7c、B8）⇒ **与自述 `12` 一致**。
+- **`B6`/`B6b` 判据反转且会咬**（本席按脚本内 `_hdr_dir` + 编译逻辑构造反例）：
+
+  | SDK 根 | `ThostFtdcTraderApi.h` | `ThostFtdcUserApi.h` | B6 | B6b |
+  |---|---|---|---|---|
+  | 官方 v6.7.13 | 可得 | **不可得** | PASS | PASS |
+  | `CTP Mini`（`/home/ctpmini/…`） | 不可得 | 存在 | **FAIL** | **FAIL** |
+
+  ⇒ `B6`（TraderApi 可得=通过）/`B6b`（合并版不可得=通过）**双向会咬**。
+- **「上轮 `PASS=11` 系 Mini 专属」确认**：`find sdk/… -name ThostFtdcUserApi.h` = **空**（官方无合并版头）；该头仅存在于 `CTP Mini` ⇒ 上轮基于合并版头的结论**对交付基线不成立**。
+
+## T033b.9 `TE-T033-001` 实现侧（本席**不重裁**，仅证实现无相关改动）
+
+- `sendOrder` 返回 `CtOrderAck`（`ct_adapter.h:59`）；`CtOrderAck` 仍带 `code` / `order_local_id` / `retained`（`ct_types.h:175-181`）。
+- `ct_adapter.cc:146`/`:154` 在「未连接/退回」路径置 `ack.retained = true` ⇒ 退回语义在实现侧可观测。
+⇒ 与上一轮复核一致：**实现正确、零改动**（依技术席裁定，本席**不重新裁定**接口形态）。
+
+## T033b.10 残余 / 隔离 / 探索性
+
+- 共享树**未由本席写入任何交付制品**；本席全部副本在 `/root/t033v-b*`、构建在 `/t033v-build/*`（均**在共享树之外**）。
+- 探索性：① 显式坏根 ⇒ 守卫咬（含主工程轨单测）；② 缺 `-isystem` ⇒ `-Werror` 炸（自有代码干净）；③ 缺省翻转 ⇒ 断言红；④ 官方无合并版头 ⇒ Mini 专属结论失效；⑤ 父目录/显式覆盖/单目录三布局互通。
+- 观察（非缺陷）：`ctp_smoke` 与主工程用**不同的头名变量**（`HG_CTP_HEADER_STYLE` vs `HG_CTP_TRADER_HEADER`）⇒ 在「只覆盖主工程头名」的构造下二者可达**不同 `CTP_FOUND`**（本席前态复现时 `ctp_smoke` 因默认 `CLASSIC` 仍注册 `rsk02`；故前态 `ctest` 为 35 = 规范 stub 34 + `rsk02`）。属口径差异、无 `FR` 冲突，登记备查。
+
+## T033b.11 缺陷 / 观察清单
+
+| 编号 | 严重度 | 类别 | 说明 |
+|---|---|---|---|
+| —— | —— | 缺陷 | **无**（静默降级已消除、守卫双向承重、三布局/三轨/`-isystem`/`.so`/U1/探针 均独立证实） |
+| `OBS-T033b-1` | 信息 | 基线限定 | 所有「与官方 CTP 一致」结论仅对官方 `v6.7.13` 成立；`CTP Mini` 结论已失效（见 T033b.8） |
+| `OBS-T033b-2` | 信息 | 口径 | `fetch` 轨的 protobuf 全量构建**未验证**（实施方如实声明、本席亦然）；属 `T-026` 范围 |
+| `OBS-T033b-3` | 低 | 口径 | `ctp_smoke` 与主工程头名变量不同源（见 T033b.10 观察） |
+
+## T033b.12 未决 / 存疑
+
+- 无阻断存疑；阻断级缺陷 0。
+- `T-033` **不置 `DONE`**：门禁由编排者落（`DONE` = 授权 + 独立验证）。
+- 未验证（本席范围外）：`fetch` 轨 protobuf 全量构建；`T-026` protobuf 供给链路（非本单）。
+
+## T033b.13 纯追加证明（自指值不写死）
+
+- 追加前基线：`md5sum docs/TEST_RESULT.md` = `8d92ec1615c05ae3f050ef051f91693c` / **4502 行**（写入前 **3 次 ×10s 取样不变**：`8d92ec16…`/4502 ×3）。
+- 追加后：`head -4502 docs/TEST_RESULT.md | md5sum` 应 = `8d92ec1615c05ae3f050ef051f91693c`（⇒ 前 4502 行**逐字节未变**）。追加后 `wc -l` 与 `md5sum docs/TEST_RESULT.md` **以实时为准**（写死会因追加本身而失效）。
+
+---
+
+# `T-126` 增量复检（`T-127` 触及 `risk_engine/**` 后的 delta 复检）（2026-09-22）
+
+> 复核方：**测试工程师（独立复核，非产出方）** ｜ 实例 `te-verify-t126b` ｜ 时刻 `2026-09-22T22:47+08:00`
+> 用途：`T-126` 经独立复核后，`T-127`（`PermissionEntry` 岗位维度**抽共用纯函数**）触及 `cpp/src/risk_engine/**` ⇒ `T-126` 冻结点前移 ⇒ 依「冻结后要改须显式重锚 + delta 复检」纪律，须**证明该改动对 `evalPermission` 语义等价**（**不是**「测试还绿」这一条）。
+> 立场：产出方一切自报视为**待证命题**；本席**未复用产出方探针**（自撰穷举对拍 `/root/t126b/probe/diff_probe.cc`）。
+> **只读**：未改任何交付制品（本证章对本文件为**纯追加**，见 T126b.11）；**共享源树零写入**；变异/还原/旧实现重建**一律在隔离副本** `/root/t126b`（另 `/root/t126b_headchk` 仅 `git archive` 展开）。`TMPDIR` 与构建目录置 `/`（`/tmp` 为 804M tmpfs ⇒ 满）；`-j1`。
+> 工具链：`g++ 15.2.0` / `cmake 4.2.3` / `ctest` / `protobuf 3.21.12`。
+
+## T126b.0 结论
+
+**结论：`通过`（0 阻断缺陷；2 项信息/低观察，见 T126b.9）。**
+
+**★核心（语义等价，机械化判据）**：对 `PermissionEntry` 冲突四位**全 16 组合** × 交易岗位位 × 授权位 × 额度位**穷举 257 个工况**，**改后 `evalPermission` 与「还原为原内联表达式」的改前实现，`decision` + `code` + `rule` 逐行完全相同 ⇒ 差异 = 0 行**（T126b.2）。故 `T-126` 的权威消费点（引擎 `evalPermission`）**保持语义等价** ⇒ **冻结点前移不改变 `T-126` 的三条判据**（T126b.5 独立复现）。
+
+**逐项**：
+1. **★语义等价** ✅（穷举对拍差异 0 + 源码级逐字核验）；
+2. **反退化** ✅（从共用纯函数移除任一字段 ⇒ **两个消费点同时红**，非「仅一处红」）；
+3. **`T-126` 三判据未破坏** ✅（仅结算岗 `0x100E`／仅风控岗 `0x100E`／仅管理层 `0x100F`）；
+4. **`E4` 两口径 + 聚合** ✅（`risk_state` / `risk_engine` 均 `rc 0`、默认并集 47 文件、聚合 `E1`–`E7` 全 0；**无新增锁/互斥/同步 I/O/分配**）；
+5. **锚点 3 次取样** ✅（两模块前/后锚**逐字符吻合派单值**）；**共享树残留 = 0** ✅；
+6. **端到端**：隔离全量构建 `-j1` **0 warning / 0 error**、`ctest` **38/38 全绿**（`ctest -N` 名单口径已核，见 T126b.6）；
+7. **`canTrade` 改动 = 有意扩面（非等价）**，本席**不按 `T-126` 判据计**，另单列（T126b.2b / T126b.9）。
+
+---
+
+## T126b.1 锚点独立确认（3 次取样）+ 隔离副本等价
+
+命令（`cwd = 仓库根`）：`find <dir> -type f | LC_ALL=C sort | xargs md5sum | md5sum`（**必须 `LC_ALL=C`**，否则 `sort` 区域设置致假差异）。
+
+| 项 | 派单「前 → 后」 | 本席独立实测（前 = `git archive c9e056e` 展开） | 文件数 | 一致 |
+|---|---|---|---|---|
+| `cpp/src/risk_engine` | `24df98dc…`/29 → `09b88329…`/29 | **`24df98dcb72799c634fc53bb46d4823c`/29 → `09b883292dc5732fa930e7ff297c2a62`/29** | 29 | ✅ |
+| `cpp/src/risk_state` | `b47c2fd3…`/18 → `3f4e4750…`/18 | **`b47c2fd38cac4e369644f9c8dcdaecc6`/18 → `3f4e475007591f61255812d23b6355e8`/18** | 18 | ✅ |
+
+- 3 次取样（`14:40:04` / `14:40:14` / `14:40:24`）**两模块锚点全一致**（`09b88329…`/`3f4e4750…` 各 3/3）。
+- **隔离等价**：隔离副本 `/root/t126b` 与共享树**逐字节比对 5/5 `MATCH`**（`risk_engine.cc ca9488e8…`、`model.h d450c18f…`、`risk_snapshot.cc 308ab673…`、`data_model_test.cc 3b9c5dfb…`、`risk_engine_permission_test.cc 540f3d99…`）。
+- ⚠️ **旁证**：`git status` 显示 `T-127` 改动**仍在工作区未提交**（`HEAD = c9e056e`）⇒ 「前」锚**恰等于 `HEAD`**（`T-126` 定版态），由 `git archive HEAD` 直接可取，无「历史态不可复现」问题。
+
+## T126b.2 ★语义等价（穷举对拍，本单最重要的机械判据）
+
+**方法**（自撰，不复用产出方探针）：探针 `diff_probe.cc` 遍历 **`is_responsible` / `is_management_role` / `has_risk_post` / `has_settle_role` 四位全 16 组合 × `has_trading_post`{0,1} × `allow_all_sub_accounts`{0,1} × `allow_all_products`{0,1} × `individual_quota`{0,1} = 256 工况**（+ 无权限记录 1 例 = **257 行**），每工况经 `RiskEngine::check(baseOrder())` 打印 `decision/code/rule`。**同一探针源码**分别与两份实现链接：
+- **新**：现树（`risk_engine.cc` 调用 `permissionLeaderForbidden` / `permissionPostConflict`）；
+- **旧**：`risk_engine.cc` **还原为原内联表达式**（`p->is_responsible || p->is_management_role`、`p->has_risk_post || p->has_settle_role`，取自 `git show HEAD:`，md5 `0870aa47…`）、`risk_snapshot.cc` 还原为 `if (p->is_responsible) return false;`（md5 `3510c50f…`）。
+
+**结果**：
+
+```
+$ diff <(grep '^E ' out_new.txt) <(grep '^E ' out_old.txt) | wc -l
+0
+```
+
+⇒ **257 行 `evalPermission` 输出逐行相同，差异 = 0**；`code` 分布亦相同（`0x100F`×192 / `0x100E`×48 / `0x100B`×9 / `0x100D`×4 / `0x0000`×4 = 257）。**`evalPermission` 的 `T-127` 改写 = 严格语义等价（no-op）**。
+
+**链式优先级未变（补充）**：leader 支先于 post 支 —— `combo=3/7/15 → 0x100F`、`combo=12 → 0x100E`（新旧一致）。
+
+### T126b.2b 同探针第二段：`canTrade` **非等价（有意扩面）**
+
+同一探针另打印 `RiskSnapshot::canTrade(7,1,10)`（256 行）：
+
+```
+$ diff <(grep '^C ' out_new.txt) <(grep '^C ' out_old.txt) | grep -c '^< C .*canTrade=0$'   → 56   # 新=false, 旧=true
+$ diff <(grep '^C ' out_new.txt) <(grep '^C ' out_old.txt) | grep -c '^< C .*canTrade=1$'   → 0    # 新=true, 旧=false
+```
+
+⇒ `canTrade` **56/256 工况由 `true` 变 `false`、反向 0 例**（**单向收严**，无「放行回归」）。这是 `T-127` 的**交付意图本身**（`canTrade` 补判 `is_management_role` / `has_risk_post` / `has_settle_role`），**不是 `T-126` 的等价性主张** —— **「语义等价」仅对 `evalPermission` 成立**；本席明确分栏，**不将 `canTrade` 的扩面读作等价、亦不据此判 `T-126`**（该扩面正确性属 `T-127` 自身验收面）。
+
+## T126b.3 源码级核验（「同一布尔表达式 → 函数调用」，短路顺序逐字未变）
+
+| 位置 | 改前（`HEAD`，行号） | 改后（现树，行号） | 函数体（`model.h`） |
+|---|---|---|---|
+| `evalPermission` 支① | `:406` `} else if (p->is_responsible \|\| p->is_management_role) {` | `:410` `} else if (permissionLeaderForbidden(*p)) {` | `:287` `return p.is_responsible \|\| p.is_management_role;` |
+| `evalPermission` 支② | `:411` `} else if (p->has_risk_post \|\| p->has_settle_role) {` | `:415` `} else if (permissionPostConflict(*p)) {` | `:290` `return p.has_risk_post \|\| p.has_settle_role;` |
+| `canTrade` | `:159` `if (p->is_responsible) return false;` | `:162/:163` 两函数各一行 | 同上 |
+
+- **逐字确认**：两处替换均为「**同一布尔表达式 → 函数调用**」，**操作数顺序逐字保持**（`is_responsible` 先于 `is_management_role`；`has_risk_post` 先于 `has_settle_role`）⇒ **短路顺序未变**（`||` 左操作数先求值；同一表达式逐字搬运）。支①②的 `code` / `detail` 文案**未改**（`0x100F` / `0x100E` 两串逐字相同）。
+- **改动面**：`git diff --numstat`（两模块 4 文件）= `risk_engine.cc +9/−4`、`model.h +23/−2`、`risk_snapshot.cc +6/−2`、`data_model_test.cc +90/−5`；`git diff --name-only` = **仅 `risk_engine/**` 与 `risk_state/**`（+ 本 `TEST_RESULT.md`），无第三模块**。
+
+## T126b.4 ★反退化（「共用」是否名副其实）
+
+**方法**：**不改交付制品** —— 变异体置于独立搜索路径（`-I /root/t126b/mut/include` 前置），**`-H` 实测确认 `hg/risk_state/model.h` 解析到变异件**（防「未注入」假绿）；两消费点各自全量重编译。
+
+| 态 | 注入（共用纯函数） | 消费点① `risk_state/data_model_test` | 消费点② `risk_engine/risk_engine_permission_test` |
+|---|---|---|---|
+| 基线 | 无 | `82 checks, 0 failures -> PASS` | `29 checks, 0 failures -> PASS` |
+| `M-LEADER` | `permissionLeaderForbidden` 去 `is_management_role` | **`1 failure`** @ `data_model_test.cc:381` | **`2 failures`** @ `:123`、`:124` |
+| `M-POST` | `permissionPostConflict` 去 `has_settle_role` | **`1 failure`** @ `:366` | **`2 failures`** @ `:88`、`:89` |
+
+⇒ **任一字段从共用纯函数移除 ⇒ 两个消费点同时变红**（无「仅一处红 ⇒ 共用名不副实」）。**「共用」名副其实**，且红点方位与派单自述（`:381` 且 `:123/:124`）**逐行一致**。复位：本席**从未改交付制品**（变异在独立搜索路径），端到端复跑见 T126b.6（全绿）。
+
+## T126b.5 `T-126` 三判据独立复现（未被破坏）
+
+由 T126b.2 的 257 行对拍输出直接取（全授权、`quota=0`）：
+
+| 判据 | 工况 | 实测 |
+|---|---|---|
+| 仅结算岗 → `0x100E` | `combo=8`（`has_settle_role=1`，其余三位 0） | `dec=2 code=0x100E rule=7`（`kReject`） ✅ |
+| 仅风控岗 → `0x100E`（**析取**：`has_settle_role=false`） | `combo=4` | `dec=2 code=0x100E` ✅ |
+| 仅管理层 → `0x100F` | `combo=2`（`is_responsible=0`） | `dec=2 code=0x100F` ✅ |
+| （附）仅负责人 → `0x100F` | `combo=1` | `dec=2 code=0x100F` ✅ |
+
+- 产出方用例侧同源复现：`risk_engine_permission_test`（含 `test_settle_role_conflict` / `test_risk_post_only_conflict` / `test_management_role_forbidden`）基线 `29 checks, 0 failures -> PASS`。
+
+## T126b.6 `E4` 两口径 + 无锁/无分配/无同步 I/O + 聚合 + `ctest` 名单/全绿
+
+**`E4`（`cwd = 仓库根`）**：
+
+| 口径 | 命令 | 待扫描文件 | 命中 | WARN | rc |
+|---|---|---|---|---|---|
+| 单根（状态） | `scan_lock_free.sh --root cpp/src/risk_state` | 17 | 0 | 3 | **0** |
+| 单根（引擎） | `scan_lock_free.sh --root cpp/src/risk_engine` | 28 | 0 | 0 | **0** |
+| 默认并集根 | `scan_lock_free.sh` | 47 | 0 | 3 | **0** |
+
+- WARN 3 逐条 = `risk_snapshot.cc:235`、`risk_state.cc:22`、`risk_state.cc:41`（**既有 `new`**，**不在 `T-127` 改动面内** ⇒ 非本次引入）。
+- **无新增锁/互斥/同步 I/O/分配**：对 `T-127` 新增行做 `new`/`malloc`/`calloc`/`realloc`/`std::vector`/`std::string`/`std::function`/`reserve`/`push_back` 与 `mutex`/`lock_guard`/`unique_lock`/`condition_variable`/`atomic`/`fsync`/`read`/`write`/`send`/`recv`/`sleep` 双向**增行扫描 = 0 命中**；改动仅 = 2 个 `bool` 表达式抽成 inline 函数 + 注释 + 测试。
+- **聚合 `arch-check.sh` = `rc 0`**（`通过(0)=7 命中(1)=0 用法/前置错误(2)=0`；`E1`–`E7` 全 0）。
+
+**`ctest -N` 名单口径（隔离双轨 fresh configure，非复用共享 build 目录）**：
+
+| 轨 | 配置 | `ctest -N` 总数 |
+|---|---|---|
+| CTP 可得 | `-DCTP_SDK_ROOT=<iso>/sdk/v6.7.13_20260225_api`（`CTP_FOUND=ON`） | **38** |
+| CTP 不可得 | `-DCTP_SDK_ROOT=`（`CTP_FOUND=OFF`） | **34** |
+
+- 差集 **4 条**（实测）：`ctp_adapter.ct_lifecycle_ctp_test`、`ctp_adapter.ct_mapping_test`、`ctp_adapter.ct_spi_test`、`rsk02.ctp_header_cxx11_compat`。
+- **口径裁定（对派单解释的精确化）**：派单称「差 4 = `ctp_smoke` 类 target 未注册」—— **实质成立、表述不精确**：4 条中**仅 1 条**来自 `ctp_smoke` 探路（`rsk02.ctp_header_cxx11_compat`），另 **3 条**来自 `ctp_adapter` 的 **CTP 轨单测**（`src/ctp_adapter/CMakeLists.txt:75-81` 的 `if(CTP_FOUND)` 追加）。准确表述 = 「**4 条 = 全部 CTP 相关 target**（1 探路 + 3 适配层）由 `CTP_FOUND` 门控注册」（见 T126b.9 `OBS-T126b-1`）。
+- **端到端全绿**：隔离全量构建（`-j1`）`BUILD rc=0`、`grep -icE 'warning:' = 0`、`'error:' = 0`；`ctest --output-on-failure -j1` ⇒ **`100% tests passed, 0 tests failed out of 38`**（含 `arch_check` fixture `Passed`；`#20 risk_engine.risk_engine_permission_test`、`#26 risk_state.data_model_test` 均 Passed）。
+
+## T126b.7 纯追加 / 只读声明
+
+- 本席**未修改任何交付制品**：`docs/TASKS.md` / `BOARD.md` / `ARCHITECTURE.md` / 源码 / 测试**零写入**；**共享源树零字节写入**（变异经独立 `-I` 搜索路径，未就地改任何 `.h`/`.cc`）。
+- 隔离区：`/root/t126b`（源副本 + `build-ctp` / `build-stub` + `probe/` + `old_src/`）；`/root/t126b_headchk`（`git archive HEAD` 展开，仅读）。**残留扫描**：共享树 `find . \( -name '*.orig' -o -name '*.bak' -o -name '*MUT*' -o -name '*.rej' \)`（排除 `.git`）= **0**。
+
+## T126b.8 未决 / 存疑
+
+- **无阻断存疑**。语义等价（`evalPermission`）已机械化证实（差异 0）；`ctest` 38/38 已端到端复跑；`E4` 两口径 + 聚合 `rc 0` 已复现。
+- **不可判定/未做**：`T-127` 对 `canTrade` 的扩面**是否符合其自身验收标准**（`docs/TASKS.md` `T-127` 条）**不在本单判据内**，本席**未裁**；本席仅证实其**方向为单向收严、无放行回归**（T126b.2b）。
+
+## T126b.9 观察清单（均无阻断）
+
+| 编号 | 严重度 | 类别 | 结论 |
+|---|---|---|---|
+| —— | —— | **缺陷** | **无**（`evalPermission` 语义等价已证实；`T-126` 三判据未被破坏；「共用」名副其实） |
+| `OBS-T126b-1` | 信息 | 派单表述 | 派单「差 4 = `ctp_smoke` 类 target」**表述不精确**：实测 4 条 = 1 条 `ctp_smoke` 探路 + 3 条 `ctp_adapter` CTP 轨单测。**实质（`CTP_FOUND` 门控注册）成立**。建议改写为「全部 CTP 相关 target」。 |
+| `OBS-T126b-2` | 低 | 测试断言面（`data_model_test.cc` 重构） | `T-127` 重构把 `T-126` 原断言 `HG_CHECK(!perm->is_management_role)`（「未置位者保持缺省 false」）**移除**，改在新记录 `9101` 断言**显式置位者保持 true**（`carried->is_management_role`，正是 `T-126` `OBS-3` 的建议项）。⇒ **正向承载获补**（好事），但「**缺省 false 保持**」这一属性**不再有直接断言**（仅由 `!s.canTrade(9001,…)` 为 `true` 间接蕴含）。**风险低**（plain `bool` + 整结构体拷贝），**不阻断**；如需可补 1 条对称断言。 |
+
+## T126b.10 未决（本席范围外，不裁）
+
+- `T-127` 的 `canTrade` 扩面是否符合其自身验收标准 ⇒ 归 `T-127` 复核面，本席不裁（见 T126b.8）。
+- 本席**不置 `DONE`**（门禁结论由编排者落）。
+
+## T126b.11 纯追加证明（自指值不写死）
+
+- 追加前基线：`md5sum docs/TEST_RESULT.md` = `69fa98abaf0c86e8ed95dab392c83a5f` / **4630 行**（**紧邻写入前 3 次 ×10s 取样不变**：`69fa98ab…`/4630 ×3 @ `14:46:26`/`:36`/`:46`）。
+- 追加后：`head -4630 docs/TEST_RESULT.md | md5sum` = `69fa98abaf0c86e8ed95dab392c83a5f`（⇒ 前 4630 行**逐字节未变**）。追加后 `wc -l` 与 `md5sum docs/TEST_RESULT.md` **以实时为准**（写死会因追加本身而失效）。
+
+---
+
+# `T-127` 独立复核证据（2026-09-22）
+
+> 复核方：**测试工程师（独立复核，非产出方）** ｜ 实例 `te-verify-t127` ｜ 时刻 `2026-09-22T22:52+08:00`
+> 立场：本项目 `DONE` 判据 = **授权 + 独立验证**；产出方一切自报视为**待证命题**。本席**未复用产出方用例**——自撰探针 `/root/t127v/probe/t127_probe.cc`（**同时打印 `canTrade` 与 `evalPermission` 原始可观测值，不做断言**，同一探针分别跑于改前/改后两态）。
+> **只读**：共享源树（`/root/myspace/hedge-guard`）**未写一字节**；变异/回退**一律在隔离副本**（`/root/t127v`＝冻结点、`/root/t127v-pre`＝`risk_snapshot.cc` 回退至 `HEAD`、`/root/t127v-mc`/`/root/t127v-md`＝共用函数变异、`/root/t127v-mab`＝调用点变异）。工具链 `g++ 15.2.0` / `cmake` / `ctest`；构建目录与 `TMPDIR` 一律置 `/`（`/tmp` 为 804M tmpfs）、`-j1`。
+> 全文分栏「**独立实测**」与「**产出方自述（本席未复现者单列）**」。本席**不自评 `DONE`**。
+
+## T127.0 结论
+
+**结论：`通过`（0 阻断缺陷；3 项观察，见 T127.9）。**
+
+产出方 `T-127` 交付经**独立取证**证实：
+(1) **改前确实是坏的** —— 用改前锚（`risk_snapshot.cc` 回退至 `HEAD`）实测：**仅 `has_risk_post` / 仅 `has_settle_role` / 仅 `is_management_role`** 三情形 `canTrade` **均返回 `true`（放行）** —— 即缺陷态；三条**全部承重**（无一「改前也已是 `false`」）；
+(2) **改后确实是好的** —— 冻结点下三情形 `canTrade` **各自 `false`**；**四冲突位全 false 且授权齐备 ⇒ `true`（无误拒）**；
+(3) **「共用」名副其实** —— 从**共用纯函数**分别移除 `is_management_role`（`M-C`）、`has_settle_role`（`M-D`）⇒ **两个消费点（`canTrade` 与 `evalPermission`）同时变红**（非「只红一个」）；复位 + 重编译回绿；
+(4) **反退化 4 变异全部独立复现**（`M-A` 红 1 / `M-B` 红 2 / `M-C` 与 `M-D` 各红两个消费点）；
+(5) **门禁**：构建 0 warning / 0 error；`ctest` **34/34**（CTP 不可得）/ **38/38**（CTP 可用）；聚合 `rc 0`（`E1`–`E7` 全 0）；`E4` 两口径 `rc 0`、`WARN 3` 与基线同源（仅行号位移）；
+(6) **既有断言**无「静默放宽」；**1 条断言被更替**（见 T127.5 / 观察 `OBS-T127-2`，与 `te-verify-t126b` 的 `OBS-T126b-2` **独立同源**）；
+(7) **改动面 / 锚点 / 残留**与自述一致（见 T127.8）。
+
+**验收标准逐条**（`docs/TASKS.md` `T-127`）：补齐 `canTrade` 岗位/角色维度判定 ✅ ｜ 与 `evalPermission` 对齐 ✅ ｜ 共用纯函数抽出且**单点变更多点响应** ✅ ｜ 反退化（移除消费 ⇒ 对应用例必红）✅ ｜ 门禁（0 告警 / `ctest` 全绿 / 聚合 `rc 0` / `E4` 命中 0）✅。
+
+## T127.1 独立复现「改前是坏的」
+
+- **改前态构造**（隔离）：`/root/t127v-pre` = 冻结点副本，**仅** `cpp/src/risk_state/src/risk_snapshot.cc` 回退为 `git show HEAD:…`（`diff` 实测 `IDENTICAL`，第 159 行 `if (p->is_responsible) return false;`）。**唯一自变量 = `canTrade` 判定体**。
+- 命令：`g++ -std=c++11 … t127_probe.cc <改前 libhg_risk_state.a> <冻结 libhg_risk_engine.a> -lpthread && ./probe-pre`
+- **实测输出（改前）**：
+
+```
+[canTrade] op=1 only has_risk_post         => TRUE
+[canTrade] op=2 only has_settle_role       => TRUE
+[canTrade] op=3 only is_management_role    => TRUE
+[canTrade] op=4 only is_responsible        => false
+[canTrade] op=5 control(all four false)    => TRUE
+[canTrade] op=6 control(no trading post)   => false
+```
+
+⇒ 三条单冲突位**改前均放行**（缺陷态），且**无一改前已 `false`** ⇒ 三条**均承重**（不触发「不承重计缺陷」）。`op=4`（仅负责人）改前已 `false`（旧代码唯一判到位）。
+
+## T127.2 独立复现「改后是好的」
+
+- 冻结点（`/root/t127v`，树锚 `3f4e4750…`/18 · `09b88329…`/29）实测输出：
+
+```
+[canTrade] op=1 only has_risk_post         => false
+[canTrade] op=2 only has_settle_role       => false
+[canTrade] op=3 only is_management_role    => false
+[canTrade] op=4 only is_responsible        => false
+[canTrade] op=5 control(all four false)    => TRUE
+[canTrade] op=6 control(no trading post)   => false
+```
+
+⇒ 三条单冲突位**各自 `false`**；**`op=5` 对照「四冲突位全 false + 全授权」仍 `TRUE`**（**误伤方向已查：无**）；`op=6`（无交易岗）`false`。`evalPermission`（经 `RiskEngine::check`）同态：`0x100E` / `0x100E` / `0x100F` / `0x100F` / `0x0000`（对照放行） / `0x100B`。**改前 `evalPermission` 输出与改后逐字相同**（T127.7 佐证「重构语义中性」）。
+
+## T127.3 「共用」是否名副其实（本单最关键）
+
+在**共用纯函数**（`model.h` `permissionLeaderForbidden` / `permissionPostConflict`）上做单点变异，**双侧检测器**（`canTrade` 用 `risk_state_data_model_test`、`evalPermission` 用 `risk_engine_permission_test`）同看：
+
+| 变异 | 变更 | `canTrade` 消费点 | `evalPermission` 消费点 | 判定 |
+|---|---|---|---|---|
+| `M-C` | 共用函数删 `is_management_role` | 红（`data_model_test.cc:381`） | 红（`permission_test.cc:123/124` 0x100F） | **两点同时红** ✅ |
+| `M-D` | 共用函数删 `has_settle_role` | 红（`data_model_test.cc:366`） | 红（`permission_test.cc:88/89` 0x100E） | **两点同时红** ✅ |
+
+- 原始输出（`M-C`）：`data_model_test: 82 checks, 1 failures` ＋ `risk_engine_permission_test: 29 checks, 2 failures`；
+- 原始输出（`M-D`）：`data_model_test: 82 checks, 1 failures` ＋ `risk_engine_permission_test: 29 checks, 2 failures`；
+- **自撰探针交叉印证**：`M-C` 下 `canTrade(仅管理层)=TRUE` **且** `evalPermission(仅管理层)=0x0000`；`M-D` 下 `canTrade(仅结算岗)=TRUE` **且** `evalPermission(仅结算岗)=0x0000`。⇒ **单点编辑同时改变两个消费点** = **同一实现被两处共用**（若为「各自实现」则只有一处会变）。**「共用」名副其实**。
+- **复位 + 重编译回绿**：`M-C` 恢复为冻结点 `model.h`（`cmp` 逐字节 `identical`）后重编译 ⇒ `data_model_test: 82 checks, 0 failures -> PASS`、`risk_engine_permission_test: 29 checks, 0 failures -> PASS`；探针三单条件复归 `false`。
+
+## T127.4 用例独立性与计数
+
+- **析取可证**：三条新用例（`data_model_test.cc` `test_can_trade_{risk_post,settle_role,management_role}_only`）**各自仅置位一条、并将其余三条冲突位显式写 `false`**，且**同批次载入对照条目 `op=2`（四冲突位全 false）断言 `canTrade==true`** ⇒ 一条即足以阻断 = **析取**（非合取）。**本席自撰探针以「仅一条置位」组合独立复现同一结论**（T127.1/2）。
+- **计数以实跑为准**：`data_model_test` 实跑 **`82 checks, 0 failures`**、`risk_engine_permission_test` 实跑 **`29 checks, 0 failures`**；`ctest -N` 实测总 **34**（CTP 不可得）/ **38**（CTP 可用）。改前（`HEAD` 测试源码 × `HEAD` 代码）实跑 **`72 checks, 0 failures`** ⇒ 产出方自述「**72 → 82 checks**」**实测一致**。
+
+## T127.5 既有断言对照（无静默放宽）
+
+`data_model_test.cc` 权限批次（`⑩`）**断言行级对照**（左 `HEAD` / 右 冻结点）：
+
+- **保留**：`HG_CHECK(perm != nullptr)`、`HG_CHECK_EQ(perm->individual_quota, 500)`、`HG_CHECK(s.canTrade(9001,7,1))`、`HG_CHECK(!s.canTrade(9001,8,1))`、`HG_CHECK(!s.canTrade(9001,7,3))`、`HG_CHECK(!s.canTrade(9002,7,1))`、`HG_CHECK(!s.canTrade(9999,7,1))` —— **逐字未改**。
+- **更替（1 条）**：`HG_CHECK(perm->has_settle_role)` → 迁至新记录 `9101`（`carried->has_settle_role`，**同命题**）；`HG_CHECK(!perm->is_management_role)`（「未置位者保持缺省 `false`」）→ 改为 `HG_CHECK(carried->is_management_role)`（「显式置位者保持 `true`」，**反向命题**）。⇒ 「**缺省 `false` 保持**」这一性质**不再有直接断言**（与独立复核席 `te-verify-t126b` 的 `OBS-T126b-2` **同源**）。
+- **夹具变更必要性（本席独立证明）**：`HEAD` 原夹具令 `9001` 携带 `has_settle_role=true` 却断言 `canTrade(9001,7,1)==true` —— **该断言本身锁定了缺陷形状**。实测：`HEAD` 测试源码（`72 checks`）链接**改后** `hg_risk_state` ⇒ **恰好 1 红**：`data_model_test.cc:275: s.canTrade(9001, 7, 1)`。⇒ 产出方把 `9001` 改为「四冲突位全 false 的纯净交易岗」、把结算岗承载迁至 `9101`，**系修复必需**，非 gratuitous 放宽。
+
+## T127.6 `E4` 两口径 + 聚合门禁
+
+- `bash tools/arch-check/scan_lock_free.sh`（默认三目录并集，**含 `risk_state` 与 `risk_engine`**）⇒ **`rc 0`**，`WARN 3` 全部落在 `risk_state`（`risk_snapshot.cc:235` `clone` / `risk_state.cc:22` 构造 / `risk_state.cc:41` `rebuild`）——**均为未覆盖判据 C（动态分配）的信息性提示**，**源码行未改**（`risk_snapshot.cc` 的 `new` 在 `clone` 内、diff 未触及；`risk_state.cc` 不在 diff 内），行号 `231→235` 系 `canTrade` 注释块上移 4 行所致。分模块 `--root` 亦 `rc 0`（`risk_state` 17 文件 / `WARN 3`；`risk_engine` 28 文件 / `WARN 0`）。
+- `bash tools/arch-check/arch-check.sh` ⇒ **`rc 0`**（汇总 `通过(0)=7 命中(1)=0 用法错误(2)=0`；`E1`–`E7` 全 0）。
+- **未引入锁/互斥/同步 I/O/新增分配**：对 diff 的新增行做 `mutex|lock|guard|condition_variable|fsync|::write|::read|::send|::recv|sleep|new |malloc|…` 扫描 ⇒ **0 命中**；两 helper 为 `const PermissionEntry&` → `bool` 的纯 inline，无分配。
+
+## T127.7 反退化 4 变异（独立复现，全部命中）
+
+| 变异 | 本席自撰/既有检测器结果 | 与自述 |
+|---|---|---|
+| `M-A` 删 `canTrade` 的 `permissionLeaderForbidden` 调用 | `data_model_test: 82 checks, 1 failures`（`:381`） | 红 1 ✅ |
+| `M-B` 删 `canTrade` 的 `permissionPostConflict` 调用 | `data_model_test: 82 checks, 2 failures`（`:351`/`:366`） | 红 2 ✅ |
+| `M-C` 共用函数删 `is_management_role` | `data_model_test` 红 1 **＋** `risk_engine_permission_test` 红 2 | 两点同红 ✅ |
+| `M-D` 共用函数删 `has_settle_role` | `data_model_test` 红 1 **＋** `risk_engine_permission_test` 红 2 | 两点同红 ✅ |
+
+`evalPermission` **语义中性**佐证：`risk_engine.cc` 两处以「等价布尔式 → 共用函数调用」替换（`is_responsible||is_management_role`、`has_risk_post||has_settle_role`），改前 vs 改后 `RiskEngine::check` 对同六组合的输出**逐字相同**。
+
+## T127.8 改动面 / 锚点 / 残留
+
+| 项 | 产出方自述 | 本席独立实测 | 一致 |
+|---|---|---|---|
+| 改动面 | 4 文件 / +128 −13 | `git diff --shortstat -- cpp/src/risk_state cpp/src/risk_engine` = **128 insertions(+), 13 deletions(-)**（`TEST_RESULT.md` 另计，非交付代码） | ✅ |
+| 冻结点 `risk_state` | `3f4e4750…`/18 | **`3f4e475007591f61255812d23b6355e8` / 18**（3×10s 取样一致） | ✅ |
+| 冻结点 `risk_engine` | `09b88329…`/29 | **`09b883292dc5732fa930e7ff297c2a62` / 29**（3×10s 取样一致） | ✅ |
+| 改前锚 | `b47c2fd3…`/18、`24df98dc…`/29 | **`b47c2fd38cac4e369644f9c8dcdaecc6`/18**、**`24df98dcb72799c634fc53bb46d4823c`/29**（= `git HEAD` 该二路径；`HEAD` = `27e98ba`，改动**未提交**，工作区态） | ✅ |
+| 构建告警 | 0 warning / 0 error | `grep -ciE "warning:\|error:"` 两轨均 **0** | ✅ |
+| `ctest` | 38/38 · 34/34 | 实测 **38/38**（`-DCTP_SDK_ROOT=<sdk>` ⇒ `CTP_FOUND=ON`）/ **34/34**（`CTP_FOUND=OFF`） | ✅ |
+| 共享树残留 | —— | `cpp/src` 下 `*.orig`/`*.bak`/`*MUT*`/`*.rej` = **0**；`git status --porcelain` 仅 4 交付文件 + `docs/TEST_RESULT.md` | ✅ |
+
+## T127.9 观察清单（均无阻断）
+
+| 编号 | 严重度 | 类别 | 结论 |
+|---|---|---|---|
+| —— | —— | **缺陷** | **无**（改前坏/改后好/共用名副其实、反退化 4 变异、门禁全绿、既有断言未静默放宽 —— 均独立证实） |
+| `OBS-T127-1` | 信息 | 影响面（生产调用点） | 全仓穷举：`canTrade` 的调用点**全部在 `tests/`**（`data_model_test.cc`），`src/main` **0 调用** ⇒ `T-127` 属**预防性收口**（消除「第二个消费点」与 `evalPermission` 的潜在分叉），**无在线的生产行为变更**。抽出的**共用纯函数**即本单主要价值。 |
+| `OBS-T127-2` | 低 | 测试断言面 | 与 `te-verify-t126b` `OBS-T126b-2` **同源**：`data_model_test.cc` 原断言 `HG_CHECK(!perm->is_management_role)`（缺省 `false` 保持）被**更替**为「显式置位保持 `true`」⇒ **正向承载获补**，但「缺省 `false` 保持」**不再有直接断言**（仅由 `canTrade(9001,…)` 为 `true` 间接蕴含）。风险低（plain `bool` + 整结构体拷贝），**不阻断**。 |
+| `OBS-T127-3` | 信息 | 范围边界 | `canTrade(operator, sub, product)` **无手数入参** ⇒ `individual_quota`（超个人额度）**不可表达**，与 `evalPermission` 的 `0x100D` 分支存在**固有范围差**；产出方声明「非本项缺口、未改签名」**属实**（`risk_snapshot.h:124` 签名未变）。 |
+
+## T127.10 未决（本席范围外，不裁）
+
+- `T-126` 的 **delta 复检**（`risk_engine` 冻结点前移 `24df98dc…`→`09b88329…`）归 `te-verify-t126b`，本席不裁。
+- `T-127` 是否满足 `DONE`，由编排者落门禁结论；本席**不置 `DONE`**。
+
+## T127.11 纯追加证明（自指值不写死）
+
+- 追加前基线：`md5sum docs/TEST_RESULT.md` = `cf912232de57f58118c738107beed741` / **4787 行**（**紧邻写入前 4 次 ×10s 取样不变**：`cf912232…`/4787 ×4 @ `22:52`）。〔该基线与内存中的 `69fa98ab…`/4630 **不同**，系复核期 `te-verify-t126b` 追加其 `T-126` 增量复核章所致 ⇒ **以实时值为准**。〕
+- 追加后：`head -4787 docs/TEST_RESULT.md | md5sum` = 基线 `cf912232de57f58118c738107beed741`（⇒ 前 4787 行**逐字节未变**）。追加后 `wc -l` 与 `md5sum docs/TEST_RESULT.md` **以实时为准**（写死会因追加本身而失效）。
+
+---
+
+# `T-126` 增量复检 —— 补遗 `T126b.12`（`OBS-T126b-2` 精确化，2026-09-23 追加）
+
+> 由 `te-verify-t126b` 追加（**纯追加**；补遗原因：另一独立信道 `te-verify-t127` 提供了与 `OBS-T126b-2` 同源的证据，本席**已自行独立复现**后据实精确化原观察，**不改前文**）。
+
+- **本席独立复现（自撰命令；非采信他席自述）**：取 `HEAD` 原测试源 `git show HEAD:cpp/src/risk_state/tests/data_model_test.cc`（md5 `ea8ba67076997446b111c48dc476ae49`，**72 checks**）链**改后库**（现树 `risk_state/src/*.cc` + 现树 `-I` 头）编译运行 ⇒ **恰 1 红**：`data_model_test_head.cc:275: s.canTrade(9001, 7, 1)`（`72 checks, 1 failures`）。
+- **精确化**：`HEAD` 夹具中 `9001` **带 `has_settle_role=true`**；`T-127` 收严 `canTrade` 后该记录**不再可交易** ⇒ 原夹具断言 `s.canTrade(9001,7,1)` **必然变红**。故 `T-127` 把 `has_settle_role` 从 `9001` 移出、改由新记录 `9101` 承接正向承载断言，**是必需（被 `T-127` 的 `canTrade` 收严所迫）而非无谓削弱**。
+- ⇒ **`OBS-T126b-2` 的定级（低、不阻断）不变**，但措辞应读作「**断言面在 `canTrade` 语义变更下被迫重构**」；且「缺省 false 保持」属性仍**无直接断言**（仅由 `!s.canTrade(9001,…)` 间接蕴含）这一事实不变。
+- 追加前基线：`md5sum docs/TEST_RESULT.md` = `35599d3f4a25cc5a13237950e012f41f` / **4918 行**（写入前 **3 次 ×10s 取样不变**：`35599d3f…`/4918 ×3 @ `14:53:56`/`:54:06`/`:54:16`）。
+- 追加后：`head -4918 docs/TEST_RESULT.md | md5sum` = `35599d3f4a25cc5a13237950e012f41f`（⇒ 前 4918 行**逐字节未变**）。追加后 `wc -l` 与 `md5sum docs/TEST_RESULT.md` **以实时为准**（写死会因追加本身而失效）。

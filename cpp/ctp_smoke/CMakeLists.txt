@@ -26,6 +26,8 @@
 #
 # SDK 定位：与主工程**共用同一判定实现**（`cpp/cmake/HgCtpLocate.cmake`），支持
 #   `CTP_SDK_ROOT` 父目录自动探测 / `CTP_TRADER_ROOT`+`CTP_MD_ROOT` 覆盖 / 老式单目录。
+# 头名/风格：与主工程**共用同一派生实现**（`cpp/cmake/HgCtpStyle.cmake`），
+#   唯一入口 = `HG_CTP_HEADER_STYLE`（CLASSIC|MERGED）—— 见 T-128。
 # =============================================================================
 
 cmake_minimum_required(VERSION 3.16)
@@ -51,7 +53,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CTP_SDK_ROOT "" CACHE PATH "CTP SDK 根目录（官方解包父目录 或 老式单目录）；留空则按环境变量 CTP_SDK_ROOT 查找")
 set(CTP_TRADER_ROOT "" CACHE PATH "交易 SDK 目录（显式覆盖 CTP_SDK_ROOT 的探测结果；须含交易头）")
 set(CTP_MD_ROOT "" CACHE PATH "行情 SDK 目录（显式覆盖 CTP_SDK_ROOT 的探测结果；须含行情头）")
-set(HG_CTP_HEADER_STYLE "CLASSIC" CACHE STRING "CLASSIC（官方分离式 TraderApi，交付基线）| MERGED（CTP Mini 合并版 UserApi，历史）")
 set(HG_CTP_REQUIRE_SDK OFF CACHE BOOL "ON 时找不到 SDK 即 FATAL_ERROR（CI 严格模式）")
 option(HG_BUILD_SMOKE_TESTS "构建并注册 ctest 用例" ON)
 
@@ -62,26 +63,25 @@ if(NOT CTP_SDK_ROOT AND DEFINED ENV{CTP_SDK_ROOT})
 endif()
 
 #------------------------------------------------------------------------------
-# 1. 头文件风格 → 生成 include 头
+# 1. 头文件风格 → 生成 include 头（**单一入口**：HG_CTP_HEADER_STYLE）
+#    派生逻辑与**主工程共用** `cpp/cmake/HgCtpStyle.cmake` ⇒ 同一组 SDK 根/风格配置下，
+#    本探路件与主工程必然得到**同一个**交易/行情头名 ⇒ 同一个 `CTP_FOUND`（T-128）。
+#    ⚠️ 不要在本文件里复制一份风格判定 —— 复制即双源，双源即会给
+#       「与产品不一致」的探路结论（T-128 前态实测：官方 SDK + 旧头名 knob 下
+#       本件打印『发现 CTP SDK』，主工程却判『不可得』）。
 #------------------------------------------------------------------------------
-if(HG_CTP_HEADER_STYLE STREQUAL "CLASSIC")
-  set(HGCP_CTP_TRADER_HEADER "ThostFtdcTraderApi.h")
-  set(HGCP_CTP_TRADER_API_CLASS "CThostFtdcTraderApi")
-  set(HGCP_CTP_TRADER_SPI_CLASS "CThostFtdcTraderSpi")
-  set(HGCP_CTP_STYLE_MERGED_DEFINE "#define HGCP_CTP_STYLE_MERGED 0")
-  # 官方分离式 `SubscribePrivateTopic(THOST_TE_RESUME_TYPE, int nSeqNo=1)` ⇒ 2 参。
-  set(HGCP_CTP_PRIVATE_TOPIC_ARITY 2)
-elseif(HG_CTP_HEADER_STYLE STREQUAL "MERGED")
-  set(HGCP_CTP_TRADER_HEADER "ThostFtdcUserApi.h")
-  set(HGCP_CTP_TRADER_API_CLASS "CThostFtdcUserApi")
-  set(HGCP_CTP_TRADER_SPI_CLASS "CThostFtdcUserSpi")
-  set(HGCP_CTP_STYLE_MERGED_DEFINE "#define HGCP_CTP_STYLE_MERGED 1")
-  set(HGCP_CTP_PRIVATE_TOPIC_ARITY 1)
-else()
-  message(FATAL_ERROR "[RSK-02] HG_CTP_HEADER_STYLE 只能是 CLASSIC 或 MERGED，实为 '${HG_CTP_HEADER_STYLE}'")
-endif()
+include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/HgCtpStyle.cmake")
+hg_ctp_resolve_style()   # 在**本作用域**设置 HG_CTP_* 派生值（唯一来源）
 
-set(HGCP_CTP_MD_HEADER "ThostFtdcMdApi.h")
+# 生成头沿用本探路件私有的 `HGCP_CTP_*` 宏名（对 src/ctp_include_probe.cpp 的接口）；
+# 其**取值全部来自**上面的唯一来源，本文件不再自行判定风格。
+set(HGCP_CTP_TRADER_HEADER    "${HG_CTP_TRADER_HEADER}")
+set(HGCP_CTP_MD_HEADER        "${HG_CTP_MD_HEADER}")
+set(HGCP_CTP_TRADER_API_CLASS "${HG_CTP_TRADER_API_CLASS}")
+set(HGCP_CTP_TRADER_SPI_CLASS "${HG_CTP_TRADER_SPI_CLASS}")
+set(HGCP_CTP_STYLE_MERGED_DEFINE "#define HGCP_CTP_STYLE_MERGED ${HG_CTP_STYLE_MERGED}")
+set(HGCP_CTP_PRIVATE_TOPIC_ARITY ${HG_CTP_PRIVATE_TOPIC_ARITY})
+
 set(HGCP_CTP_TRADER_INCLUDE "#include <${HGCP_CTP_TRADER_HEADER}>")
 set(HGCP_CTP_MD_INCLUDE "#include <${HGCP_CTP_MD_HEADER}>")
 
@@ -127,6 +127,22 @@ else()
   message(STATUS "[RSK-02] CTP SDK 不可得（CTP_SDK_ROOT='${CTP_SDK_ROOT}' "
                  "CTP_TRADER_ROOT='${CTP_TRADER_ROOT}' CTP_MD_ROOT='${CTP_MD_ROOT}'；"
                  "缺：${HGCP_CTP_MISSING}）→ CTP_FOUND=OFF，跳过探路目标")
+endif()
+
+# -----------------------------------------------------------------------------
+# 2b. 判定结果**标准化披露**（T-128 可核判据）
+#     与 `cpp/cmake/HgDependencies.cmake` 打印同形行 ⇒ 同一组 SDK 根/风格配置下，
+#     两处的 `found=` 必须一致（判据脚本 ci/check_ctp_found_parity.sh）。
+#     ⚠️ 披露**先于**下面的处置（FATAL）—— 否则分歧时只能看到一方的判定，
+#        判据无法比较（本件与主工程同此口径）。
+# -----------------------------------------------------------------------------
+message(STATUS "[HG-CTP-FOUND] role=smoke found=${CTP_FOUND} style=${HG_CTP_HEADER_STYLE} "
+               "trader_header=${HG_CL_TRADER_HEADER} md_header=${HG_CL_MD_HEADER}")
+
+# -----------------------------------------------------------------------------
+# 2c. 处置（判定与处置分离）：不可得时的守卫
+# -----------------------------------------------------------------------------
+if(NOT CTP_FOUND)
   # ★ 与主工程同一纪律：显式给了根却解析失败 ⇒ 配置期失败（不得静默跳过）。
   if(_hgcp_ctp_explicit)
     message(FATAL_ERROR

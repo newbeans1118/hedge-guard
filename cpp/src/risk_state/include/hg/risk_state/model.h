@@ -228,9 +228,13 @@ struct PermissionEntry {
   Fixed individual_quota = 0;   // 个人额度
   bool has_trading_post = false;     // 岗位标记：交易岗
   bool has_risk_post = false;        // 岗位标记：风控岗
-  // 岗位 / 角色维度补齐（T-126；字段名直采协议名，依据 `ARCHITECTURE.md` §4.2.3 `:818`
+  // 岗位 / 角色维度补齐（T-126；字段名直采协议名，依据 `ARCHITECTURE.md` §4.2.3
   //   `CMD_UPDATE_PERMISSION` 字段列 + §4.2.8（`CH-013` 定版字段级 schema：均为 `bool`·必填）。
-  //   消费见 `risk_engine.cc` 的 `evalPermission`：
+  //   岗位 / 角色维度判定**唯一实现** = 本文件下方的纯函数
+  //   `permissionLeaderForbidden` / `permissionPostConflict`（`T-127` 抽出共用，
+  //   从根上消除「消费点分散、各自内联」导致的再分叉）；两处消费点**共用同一函数**：
+  //   `risk_engine.cc` 的 `evalPermission`（权威，据以出 `0x100E`/`0x100F`）与
+  //   `RiskSnapshot::canTrade`（辅助布尔判定）：
   //     · `has_settle_role` 与 `has_risk_post` **析取** ⇒ `0x100E`（岗位冲突，前中后台分离）；
   //     · `is_management_role` 与 `is_responsible` **析取** ⇒ `0x100F`（`CH-010` 析取）。
   //   ⚠️ 生产加载点由 `T-038`（`CMD_UPDATE_PERMISSION` 逐字段映射）承接 ⇒ 生产路径下
@@ -267,6 +271,23 @@ struct PlanEntry {
 // 是否超限：已用 + 本次请求 > 上限 ⇒ 超限（拒绝）
 inline bool exceedsLimit(Fixed limit, Fixed used, Fixed request) {
   return used + request > limit;
+}
+
+// -----------------------------------------------------------------------------
+// 岗位 / 角色维度判定（纯函数；`T-127` 抽出**共用**实现）
+//   **唯一实现点**：风控引擎 `evalPermission` 与 `RiskSnapshot::canTrade` 均调用下方
+//   两函数（`canTrade` 原先只判 `is_responsible` + `has_trading_post` ⇒ 漏判其余岗位位，
+//   属「消费点分散、各自内联」造成的再分叉；抽出后从根上消除）。
+//   均**析取**语义（任一标记独立成立即命中，不要求同时具备）；与 `ARCHITECTURE.md`
+//   §4.3.2 错误码一一对应：
+//     · `permissionLeaderForbidden` → `0x100F`（企业负责人 **或** 管理层；`CH-010` 析取）
+//     · `permissionPostConflict`    → `0x100E`（风控岗 **或** 结算岗；前中后台分离）
+// -----------------------------------------------------------------------------
+inline bool permissionLeaderForbidden(const PermissionEntry& p) {
+  return p.is_responsible || p.is_management_role;
+}
+inline bool permissionPostConflict(const PermissionEntry& p) {
+  return p.has_risk_post || p.has_settle_role;
 }
 
 // 分类 → 名称（日志 / 测试断言可读）
