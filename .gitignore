@@ -24,3 +24,6 @@ cpp/ctp_smoke/build/
 
 # ---- 会话基建（harness 生成的 git worktree；非交付物）----
 .codebuddy/
+
+# ---- 第三方 SDK（用户提供的官方 CTP 包；二进制不入库，以 md5 锚点登记）----
+sdk/*.tar
