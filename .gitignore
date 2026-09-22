@@ -21,3 +21,6 @@ cpp/ctp_smoke/build/
 *.bak
 *.tmp
 *.swp
+
+# ---- 会话基建（harness 生成的 git worktree；非交付物）----
+.codebuddy/
