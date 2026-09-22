@@ -2680,3 +2680,118 @@ bash tools/arch-check/arch-check.sh       → 聚合 exit 0
 - **阻塞（非本单）**：`proto/hgcp.proto` 与元协议 payload 编解码受 `CH-013` 阻塞（`T032_GAP_ANALYSIS.md §5` 已单列）。
 - **无阻断未决**；待裁定项：`docs/*` 四文件改动归属（**非 T-032**，见 §T032.6）。
 - **已知限制（承接 `CH-013`）**：`0x0107` 线上码缺失（§T032.7 O-1）。
+
+# `T-032` 转录批（`proto/hgcp.proto` vs `§4.2.8`）独立复核证据（事后补录，2026-09-22）
+
+> 复核人：`test-engineer` / 实例 `te-verify-proto2`。原复核席 `te-verify-proto` 已完成首轮（其结论经编排者转述），**但其实例不可续用** ⇒ 本席**独立复跑 + 增量复检 + 落盘**。
+> **只读取证** —— 除本章外未改共享树任何制品（`cpp/**`、`proto/**`、`docs/**`、`tools/**`、`java/**` 全程只读）；构建与变异**一律在 `/` 下隔离副本**（`/vproto2/iso/**`）；`/tmp` 为 804MB tmpfs、**未用**（`TMPDIR=/vproto2/tmp`）。
+> **体例**：凡标「**据 `te-verify-proto` 回执（引述）**」者 = 前序席结论（本席未复跑其原始脚本）；**未标注者 = 本席实测**（给命令与原始输出）。
+
+## T032PROTO.0 冻结与基线（含并发写实测）
+
+**本席实测锚点**（`cwd = 仓库根`）：
+
+- `cpp/src` 树锚：`find cpp/src -type f | LC_ALL=C sort | xargs md5sum | md5sum` = **`97524bde8c4dbebcfa2c67c8b941b855` / 54 文件**（`12:08`~`12:25` 多次取样**恒此值**，零变动）。
+- `proto/hgcp.proto` = **`860e401d01225f7532bbf7ec7acf291f` / 801 行**。
+- `docs/ARCHITECTURE.md`（取样终态）= **`8d1d6830c61e4953a885482b7f4996da` / 3243 行**（抬标仍书 `v1.5.16`，见下「并发写」）。
+
+**两版 ARCH 对照 + `§4.2.8.2–.7` 逐字节（本席实测）**：
+
+| ARCH 版本 | 全文 md5 / 行数 | `§4.2.8.2–.7` 区段（`awk '/^##### 4\.2\.8\.2 /{p=1} /^##### 4\.2\.8\.8 /{p=0} p'`+`md5sum`） |
+|---|---|---|
+| `v1.5.15` | `c38fca066eb351c08aa990e854cd763d` / 3216 | `9d640c30f491236ec723d8040c1a42b2` / **139 行** |
+| `v1.5.16` | `0c12832cf07c8e0f7dabd29da7353fbe` / 3237 | `9d640c30f491236ec723d8040c1a42b2` / **139 行** |
+
+⇒ **关键事实（本席实测复证）**：`§4.2.8.2–.7`（= 承载「消息集 / 字段三元组 / 必填性 / 枚举」的**全部转录依据表**）在两版**逐字节相同** ⇒ **转录结论的适用面不受该轮并发写影响**。`v1.5.15` 取自 `git show e64e945:docs/ARCHITECTURE.md`（`md5sum` = `c38fca06…`，与 `/vproto/iso/docs/ARCHITECTURE.md` 一致）。
+
+**⚠️ 并发写实测（本席新发现，与派单快照不符，以实测为准）**：本席作业期间 `docs/ARCHITECTURE.md` **正被架构席持续写入** —— 12:11:00~12:12:47 连续取样每 10s 皆变（`0c12832c…`→`3b16c45d…`→`44f8df5c…`→`e9218d75…`/3239→…→`2b0d4f12…`/3239），直至 **12:15:46 起稳定于 `8d1d6830…`/3243**（12:15:46 ~ 12:25:04 恒值）。此时 `§4.2.8.2–.7` **区段已变为 `08a51256bc9d92144ca2605d9850be96` / 141 行** —— 经 `diff` 定位，增量 = **`§4.2.8.7` 内新增 2 行散文注记**（`ComponentRole` 值名约定「**维持现状、不统一加前缀**」的例外裁定），**非 schema 变更**（无字段号 / 类型 / 枚举取值改动）。
+
+- **对结论的影响（本席实测）**：以**现行** ARCH（`8d1d6830…`/3243）重跑 T032PROTO.1 机械差集 ⇒ **仍 0 差异**（见 `.1`）。故 `§4.2.8.2–.7` 的「逐字节相同」结论**限定于上文两版**；**对现行版，逐字相同的是「schema 载体（表体）」，散文注记有 +2 行**。锚点一律**以实时 `md5sum` 为准**。
+
+## T032PROTO.1 机械化差集（**本席独立复跑**，非引述）
+
+**本席自建脚本**（不依赖前序席 `/vproto/*.py`）：`/vproto2/parse_proto_indep.py`（proto → 枚举 / 消息 / 字段三元组 / 尾注释）、`/vproto2/diff_all_indep.py`（抽 `§4.2.8.2/.3/.4/.6/.7` + `§4.2.3` 类型码，做四类集合差）。**对「`v1.5.16` 快照」与「现行 `8d1d6830…`」各跑一次，结果同**：
+
+```
+[ARCH msg counts] meta=9 ctrl=17 evt=14 comp=10
+[ARCH field sums] meta=38 ctrl=77 evt=99  top-level=214  composite=66
+1) MESSAGE SET : MISSING=[] EXTRA=[] top-level order identical=True composite order identical=True
+2) FIELD(name<->num<->type<->repeated) TRIAD : NO DIFFS
+3) REQUIRED annotation (§4.2.8 必/可/条件 vs proto 尾注释) : req diffs: 0
+4) CONTIGUITY : non-contiguous=NONE; 214=38+77+99 True; composite=66 True; grand total=280 True
+5) ENUMS : set MISSING=[] EXTRA=[]; MsgType(4.2.3)+UNSET=41 == proto 41; TOTAL ENUM VALUE DIFFS: 0
+6) §4.2.8.5 conditional rows : 15
+==================== SUMMARY: TOTAL BLOCKING DIFFS: 0 ====================
+```
+
+**四类差集全空**（消息集 / 字段三元组〔名↔号↔类型↔repeated〕/ 必填性 / 枚举逐值）；`214 = 38+77+99`、复合 **66**、**28 枚举**（`MsgType` 41 = `UNSET` + 40 冻结码）、字段号 `1..n` **连续无跳号**。**据 `te-verify-proto` 回执（引述）**：其独立脚本得同一结论（消息集 40+10 / 三元组 214+66=280 / 枚举 28 逐值 / 必填性 15 条件），本席**独立复跑一致**。
+
+## T032PROTO.2 `PbPayloadCodec` 元协议 9 条往返
+
+- **本席实测**（`/vproto2/probe_meta.cc`，真实链接 `libhg_hgcp.a`）：元协议 **9 条**消息逐字段往返 = **18 检查 / 0 失败**（`MsgHello` 7 字段〔含 `token_version`〕、`MsgHelloAck` 6、`MsgAuthFail` 2、`MsgHeartbeat` 3、`MsgHeartbeatAck` 2、`MsgAck` 5、`MsgError` 6、`MsgResumeReq` 3、`MsgResumeData` 4〔含 `repeated bytes frames` 2 元素〕）。
+- **据 `te-verify-proto` 回执（引述）**：前序自建探针 **84 检查 / 0 失败** 证元协议 9 条往返（本席未复跑该 84 检查脚本；以本席 18 检查独立复证其**方向**）。
+
+## T032PROTO.3 `O-1` 延伸：线上 `MSG_ERROR.err_code`（**解码线上 body 实测**）
+
+两条**均解码线上 wire body**（`PbPayloadCodec::decode(err.body)`，非看注释）：
+
+- **`0x0107` ERR_NOT_HANDSHAKEN**（握手前发 `CMD_PLACE_ORDER`）：`probe_meta.cc` ⇒ 线上收到 `MSG_ERROR`，`MsgError.err_code = 0x0107`、连接随后关闭。**6 检查 / 0 失败**。
+- **`0x0308` ERR_FRAME_TOO_LARGE**（`LEN > 1 MiB`）：`probe_i2.cc` ⇒ 线上 `MsgError.err_code = 0x0308`、`err_msg = "frame too large (LEN > 1 MiB); use fragmentation (ARCHITECTURE.md 4.2.2)"`（**非空**）、连接随后关闭。
+
+⇒ `O-1`「拒 `0x0107` 仅帧级、线上 body 为空」的**旧限制已闭合**（与 `TASKS.md` `T-032` 登记一致）。**据 `te-verify-proto` 回执（引述）**：其判 `0x0107` 线上码已补齐（`test_not_handshaken_rejected` 增断言）。
+
+## T032PROTO.4 门禁（**本席在隔离副本实跑**）
+
+- 构建 `-Wall -Wextra -Werror`：**零告警 / 零错误**（两轨皆然；`grep -ci warning`=`0`）。
+- `ctest`：**13/13（无 CTP）** · **14/14（有 CTP）**〔`-DCTP_SDK_ROOT=/home/ctpmini/ctpmini_admin/ctp_sdk` → `CTP_FOUND=ON`；多出者 = `rsk02.ctp_header_cxx11_compat`〕。**两态按 O-1 口径并列**。
+- `bash tools/arch-check/arch-check.sh`：**聚合退出码 0**；`E1`/`E2`/`E3`/`E4`/`E5`/`E6` **各 0**。
+- **`E4` 实扫 `N=6` 非 SKIP**：扫描根 = `cpp/src/{order_engine,risk_engine,risk_state}` 并集，`待扫描文件: 6 个`。
+- 注：`E6` 需 `web/` 在场方为实扫（本席已 `rsync` `web/` 入副本 ⇒ `E6` 实扫通过；缺 `web/` 时按设计 `SKIP`=0）。
+
+## T032PROTO.5 验收 6：`cpp/proto_smoke` **真的从 `proto/hgcp.proto` 生成**
+
+- `cpp/proto_smoke/CMakeLists.txt §3b`：`add_custom_command` 以 `protoc --proto_path=<repo>/proto --cpp_out=generated_real <repo>/proto/hgcp.proto`；`hgcp_proto_smoke` 目标**直接编入** `generated_real/hgcp.pb.{h,cc}`（`add_dependencies ... hgcp_real_proto_gen`）⇒ 真实 schema 生成码**受同一 `-Wall -Wextra -Werror` 约束**。
+- **本席实测**：`generated_real/hgcp.pb.h` 含真实消息类（`class MsgHelloAck`/`CmdPlaceOrder`/`EvtTradingAlert`…）；`nm -C hgcp_proto_smoke | grep -c "hgcp::v1::MsgHello"` = **56**；产物 md5 `hgcp.pb.h`=`559b63c3dca6d14c9667a7b8bca54e3c`、`hgcp.pb.cc`=`33876934dc516477795224a1252e1fb9`。
+- 三模式输出：`--print-config` → `RESULT: PASS`（`__cplusplus=201103`/`is_cxx11=YES`/`-std=c++11 -Wall -Wextra -Werror`）；`--empty-roundtrip` → `RESULT: PASS`；`--fields-roundtrip` → `RESULT: PASS`（payload 51 字节）。
+
+## T032PROTO.6 自设变异 + 复位
+
+**（甲）本席新增 3 例（隔离副本内，**打 `I-2` 收口**，每例后复位并重跑）**：
+
+| 变异 | 位点 | 内容 | 结果 | 承重输出 |
+|---|---|---|---|---|
+| `P2-M1` | `server_loop.cc` | 帧超限分支 `if (st == kFrameTooLarge)` → `if (false && …)`（**删回码**） | **红** | `[FAIL] A: got a reply frame on the wire`（probe fail=1） |
+| `P2-M2` | `pb_transport_policy.cc` | `set_err_code(0x0308u)` → `0x0104u`（**回错码**） | **红** | 线上 `err_code = 0x0104` ⇒ `[FAIL] A: err_code == 0x0308` |
+| `P2-M3` | `server_loop.cc` | 帧超限分支 `if (st == kFrameTooLarge)` → `if (true)`（**顺手都回码**） | **红** | `[FAIL] B/C/D/E: no error frame`（坏 MAGIC/坏 VER/`RESERVED`≠0/坏 CRC 均被误回码，fail=4） |
+
+**（乙）本席独立复现 `M5` 特征化观察（**关键覆盖缺口**）**：在隔离副本把 `proto/hgcp.proto` 的 `MsgError.rule_id` 字段号 **`4 → 7`**（**合法 proto、但不符 `§4.2.8`**）⇒ 重编译后 **`ctest` 仍 13/13 全绿**；而**本席机械差集立捕**：`DIFF: MsgError.rule_id: NUM arch=4 proto=7` + `non-contiguous: ['MsgError']`（**2 项差异**）。⇒ **测试套件完全不锚定字段号**；字段号不可回收 ⇒ 当前**唯一**保证字段号正确的机制是「这一次的人工机械化差集」，**非持续性**。**据 `te-verify-proto` 回执（引述）**：其亦以 `rule_id 4→7 ⇒ 14 用例全绿` 报同一缺口（`O-2`）。
+
+**（丙）复位证明**：`cp *.orig` 回原文件 ⇒ `md5sum` 逐字节复原（`server_loop.cc`=`28ffa4d7748bcfc8189a7a364b795629`、`pb_transport_policy.cc`=`f3e82a1a73ec64a82d93116de5c1e73c`、`proto/hgcp.proto`=`860e401d…`）；残余扫描 `grep -rn "false && st == FrameStatus|if (true) {|set_err_code(0x0104u)|rule_id *= *7;" cpp/src proto` = **(none)**；**全量 clean 重编译**（`rm -rf build-iso` 重配）⇒ **13/13、0 告警**，`probe_i2` **ALL PASS**。**共享源树零瞬时变异态**（变异一律在 `/vproto2/iso` 内）。**据 `te-verify-proto` 回执（引述）**：其 5 例变异（**含 M1/M2 打在 `.proto` → 生成码链路**）全杀 + 复位证明。
+
+## T032PROTO.7 `I-2` 行为面 + `MSG_RESUME_DATA` 残余（**只核事实、不判缺陷**）
+
+**`I-2` 行为面（本席线上实测，见 `.3`）**：帧超限（声明 `LEN > 1 MiB`）⇒ **回 `MSG_ERROR{err_code=0x0308, err_msg 非空}` 且随后关闭连接**（**成立**）；**其余帧内错误**（坏 MAGIC / 坏 VER / `RESERVED`≠0 / 坏 CRC）⇒ **直接关闭、不回任何帧**（**成立**，与 `§4.3.2` 各码处置一致，**未顺手都回码** —— 由 `P2-M3` 反向承重）。**`CH-014` 相关（「不中断连接」例外化）归架构席，本席不判**；`docs/ARCHITECTURE.md` 现行已含 `§4.2.8.8` `I-2` 行为面订正注记 + 已获用户批准登记。
+
+**「废弃表述」实测（与派单不符，以实测为准）**：派单称全仓 `grep「无法知道该跳过多少字节」类废弃表述 = 0`。**本席实测**：**literal 命中 3 处文档行**（`docs/TASKS.md:742`、`docs/ARCHITECTURE.md:1245`、`docs/REQUIREMENTS/INDEX.md:668`；`cpp/**`、`proto/**`、`tools/**`、`java/**` = **0**）。**但 3 处性质一致 = 均为「引述该旧表述并随即废弃/更正」的留痕**（如 `INDEX.md:668` 原文「⚠️ 前序曾以『无法知道该跳过多少字节』为论据 —— 该表述不成立、已废弃」；`ARCHITECTURE.md:1245` 为「前提更正（供评审…）：结论成立、表述不精确」）。⇒ **作为「活论据」= 0（成立）；作为「literal 串」= 3（文档自述「全仓 `grep` = 0」字面不确、宜作「无活论据」解）**。**本席不判缺陷**（`CH-014` 项归架构席），仅记事实。
+
+**`MSG_RESUME_DATA` 残余（不变）**：`server_loop.cc` `send_resume(...)`（`:185–189`）仍为「批内原始帧字节**顺序拼接**」，**未**按 `MsgResumeData{from_seq,to_seq,is_last,frames}` 编码（该编码 `PbPayloadCodec` 已支持）⇒ **跨侧（`T-042`）格式须对齐**，属残余、待续做。**本席不判缺陷**（跨侧归属）。
+
+## T032PROTO.8 并发写者时序事实 + 结论适用面声明
+
+- **ARCH 时序**（本席实测）：`v1.5.15` `c38fca06…`/3216 → `v1.5.16` `0c12832c…`/3237（12:10 快照）→ **作业期连写**（12:11~12:12 每 10s 变，3237→3239）→ **稳定** `8d1d6830…`/3243（12:15:46 起）。
+- **`cpp/src` 时序**（引述 + 本席复测）：派单述前值 `5b0d6b21…`（旧快照，已废）；**本席全程实测恒 `97524bde…`/54**，未再变动。
+- **结论适用面声明**：`§4.2.8` 的**转录依据表（`.2–.7` 表体）**在 `v1.5.15`/`v1.5.16` 逐字节相同（`9d640c30…`/139）；现行 `8d1d6830…` 仅增 `§4.2.8.7` **散文注记 +2 行**（`ComponentRole` 例外），**schema 四类差集仍全空** ⇒ **本批转录结论对「现行 ARCH」依旧成立**。**锚点以实时 `md5sum` 为准**。
+
+## T032PROTO.9 度量与「纯追加」证明
+
+- **追加前基线**：`docs/TEST_RESULT.md` = **`a13f3aa36aed20cc189722771e91d9c2` / 2682 行**（`12:24:54`~`12:25:04` 三次取样不变 ⇒ 已静默）。
+- **纯追加口径**：追加后 `head -2682 docs/TEST_RESULT.md | md5sum` = **`a13f3aa36aed20cc189722771e91d9c2`**（与追加前**逐字节相同** ⇒ 前 2682 行未被改写）；本单**仅追加、未改写任何既有章**。
+- 追加后**行数 / 新章落点 / 全文 `md5` 一律以实时 `md5sum` 为准**（本行数字回填会再次改变全文 `md5`）。
+- **写权核对**：本单**仅**写 `docs/TEST_RESULT.md`；其余 `docs/**`、`tools/**`、`java/**`、`cpp/**`、`proto/**` 全程只读。
+
+## T032PROTO.10 未决 / 不适用项
+
+- **未决（不阻断本批转录结论）**：① `MSG_RESUME_DATA` 未按 `MsgResumeData` 编码（跨侧 `T-042`）；② `O-2` 字段号漂移**测试测不出**（唯一机制 = 人工机械差集，**非持续**）—— 编排者拟立 `T-121`（`§4.2.8` ↔ `proto/hgcp.proto` 一致性判据脚本，CI 可跑）；③ 「全仓 `grep`=0」字面与实测（3 处留痕）之差（见 `.7`）。
+- **不适用（非本单）**：`TEST_PLAN/NONFUNCTIONAL.md` / `BOUNDARY.md` 用例执行；Java / 前端单测实扫（本单为 `#cpp` 转录批独立复核，仅跑 `arch-check` 聚合 + C++ ctest）。
+- **不判**：`CH-014`（「不中断连接」例外化）归架构席；`MSG_RESUME_DATA` 格式归属跨侧。
+- **无阻断缺陷**（本批**0 阻断**；`§4.2.8` 转录「逐字一致」结论：**通过**）。
