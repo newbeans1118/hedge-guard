@@ -990,6 +990,7 @@
   4. **事件驱动、不轮询**：不主动查库、不主动查 C++；
   5. 命令回执超时 3000 ms（`CFG-28`）标记未生效；断连后两侧状态最终一致（`PROJECT.md` §10-32）。
   6. **（2026-09-22 架构席裁定 `tl-risk-ruling` A.4 新增 · Java 侧 `DB → wire` 组装）** 下发 `CMD_UPDATE_PERMISSION`(0x0116) 时须从库**派生**并组装 4 个布尔：`t_user_role → t_role`（`SETTLER` → `has_settle_role`、`FIN_RISK` → `has_risk_role`、`APPROVER` → `is_management_role`）＋ `t_user.is_enterprise_leader` → `is_enterprise_leader`。⚠️ **`DATA_MODEL.md` 无这四个列** ⇒ **必须派生、不得直读**（属 `FR-AUTH-10` 授权下发域）。依据 = 与 `T-038` 验收 5 配对，构成「**组装（本任务）→ 下发 → 消费（`T-038`/`T-126`）**」闭环。
+  7. **（2026-09-22 `CH-017` 生效后新增 · 跨侧契约登记）** 在 **`java/CONTRACTS.md`** 补登 **`MsgResumeData.from_seq`/`to_seq` 的权威语义 = per-batch（本批 `frames` 首/末帧通道 `SEQ`）+ 空批口径**（依 `CH-017`，**用户 2026-09-22 已批准 ⇒ 即日生效**；权威文本见 `ARCHITECTURE.md` §4.2.8.5 注记）。**理由**：`ARCHITECTURE.md` 侧已落（`tl-arch-cd`，2026-09-22），但 **`E7` 显式不覆盖字段语义/散文注记** ⇒ **跨侧对齐须双落点**，只落 `ARCHITECTURE.md` 会把契约登记**只落一半**；本任务为 Java 侧 HGCP 客户端与跨侧对齐的承载者。**登记口径**：属**向既有冻结口径补登记**（`CH-017` 已定版），**不另开 `CH`**；若触及 `HGC-1.x` 增量号，按 `java/CONTRACTS.md` 既有体例处理并**在交付报告说明是否升 `HGC`**。
 - **产出**：`java/bridge/{TradingBridge.java,HgcpClient.java,MirrorState.java,IdempotencyCache.java}`
 - **备注**：**跨栈依赖**：与 T-032/T-038/T-039 配对，是 C++↔Java 的唯一通道；协议变更须走 `CH-xxx` 并重跑 T-057。 **📌（2026-09-21 第 28 轮台账对齐）** 阻塞原因 = **M2 首周探路门禁未过**（`T-030` 未汇签；依 `T-030` 备注原文「**未下达许可前 `T-031`~`T-060` 不得开工**」；本任务依赖 `T-030`）。**解除人** = `T-030`（技术负责人汇签）。
   **📌（2026-09-21 `T-030` 汇签解锁 · 只加不改）** 门禁已由 `T-030` 汇签解除（许可令见 `docs/gates/M2-recon-signoff/SIGN-OFF.md`）；本条无其他阻塞源 ⇒ `BLOCKED` → `TODO`。
