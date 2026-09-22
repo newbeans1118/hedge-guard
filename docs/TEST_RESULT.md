@@ -2795,3 +2795,165 @@ bash tools/arch-check/arch-check.sh       → 聚合 exit 0
 - **不适用（非本单）**：`TEST_PLAN/NONFUNCTIONAL.md` / `BOUNDARY.md` 用例执行；Java / 前端单测实扫（本单为 `#cpp` 转录批独立复核，仅跑 `arch-check` 聚合 + C++ ctest）。
 - **不判**：`CH-014`（「不中断连接」例外化）归架构席；`MSG_RESUME_DATA` 格式归属跨侧。
 - **无阻断缺陷**（本批**0 阻断**；`§4.2.8` 转录「逐字一致」结论：**通过**）。
+
+---
+
+# `T-121` 独立复核证据（2026-09-22）
+
+> **复核人**：`te-verify-t121`（测试工程师，独立复核者）
+> **结论**：**通过**（**0 阻断缺陷**；4 项建议级观察，见 `T121.10`）
+> **写权**：**仅** `docs/TEST_RESULT.md`（本章纯追加）；`tools/**`、`docs/**`（除本章）、`cpp/**`、`java/**`、`proto/**` 全程**只读**。**所有变异一律在隔离副本 `/hgt121iso` 内做**，**共享源树零变异、零残留**。
+
+## T121.0 快照 / 两态锚点比对
+
+**被复核制品（`tools/arch-check/**` @ `2026-09-22 13:49` 实测；活跃期多次变动，一律「以实时 `md5sum` 为准」）**：
+
+| 制品 | 行 | md5 |
+|---|---|---|
+| `tools/arch-check/scan_hgcp_schema.py`（`E7` 本体） | 807 | `8c15eb4144489bd57a7ad4b3c5e891fa` |
+| `tools/arch-check/arch-check.sh`（接入） | 138 | `5b691dc2202a7b6164ff2ecae46ddd13` |
+| `tools/arch-check/README.md` | 321 | `dd55255c87a5b44120c2b1aeb1ab474d` |
+| 目录内容级（`cd tools && find arch-check -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum`） | — | `863054bdfa54568bebf102c15b6f379b` |
+| 被判制品 `docs/ARCHITECTURE.md` | 3245 | `de1c08ca8963e674cb9e63bdacbd8d90` |
+| 被判制品 `proto/hgcp.proto` | 801 | `860e401d01225f7532bbf7ec7acf291f` |
+
+**两态（提交态 vs live）——产出方自报值 = HEAD `772bd27` 提交态**（`git show HEAD:<path>` 逐字节复算，连自报目录锚 `e733dc2e…` 亦精确复现）；工作树另有**未提交润色**：
+
+| 制品 | 自报（=HEAD `772bd27`） | 本席实测 live（复核期） | 一致? |
+|---|---|---|---|
+| `scan_hgcp_schema.py` | 792 / `fba92acd0f8abd920fd553a15fd202f9` | 807 / `8c15eb41…`（复核中经 `7191f64c…`/803 过渡） | ❌（提交态≠live） |
+| `arch-check.sh` | 138 / `5b691dc2202a7b6164ff2ecae46ddd13` | 同左 | ✅ |
+| `README.md` | 289 / `33e5d3e2914e0e61c6943520bfdf7d76` | 321 / `dd55255c…`（复核中经 `f294daef…`/299、`ae887597…`/318 过渡） | ❌ |
+| 目录内容级锚 | `e733dc2ee401a73ad31c41b58fa8da1b`（=HEAD 态） | `863054bd…` | ❌（因上两文件被改） |
+
+> **本条判为「有效发现、由编排者处置」（`O-1`）**：自报值未写错，只是**报的是提交态**；根因在编排侧给出提交态锚点。**两态行为已各测、逐字节等价**（`fba92acd…`/792 正例 `rc 0`、`O-2` 漂移 `rc 1`）。
+
+## T121.1 正例（实扫）
+
+`python3 tools/arch-check/scan_hgcp_schema.py` ⇒ **`rc 0`**，**确为实扫（非 SKIP）**：
+
+```
+E7 通过：§4.2.8 与 proto 逐条一致（消息 40+10、字段 214+66、枚举 28）（退出码 0）
+  · ARCH 顶层消息 40 条 / 复合 10 条 / 枚举 28 个；proto message 50 个 / enum 28 个
+  · 字段合计：顶层 214 + 复合 66 = 280
+  · §4.2.8.5 `条件` 字段 15 项（清单行 15 行）
+```
+
+**关键数字独立复算（不采信脚本自报）**：40 顶层 = `§4.2.8.2`/`.3`/`.4` 表体 9+17+14 行；10 复合 = `§4.2.8.6` 十行；28 枚举 = `§4.2.8.7` 二十八行；字段 `38+77+99=214`、复合 `7+4+8+10+16+5+2+4+4+6=66`；`§4.2.8.5` 条件 15 行；proto `grep -c '^message '`=50 / `'^enum '`=28。**全部吻合**。
+
+## T121.2 六类判据 × 自设反例（**未复用产出方任一例**）
+
+| 类 | 反例（自设） | rc | 原始输出（节选） |
+|---|---|---|---|
+| ②号 | `MsgHeartbeatAck` 号 `1↔2` 互换（**合法且仍 `1..n`** ⇒ 孤立 ②） | 1 | ``[②] `MsgHeartbeatAck.echo_ts_ms` 字段号：ARCH 1 ≠ proto 2`` |
+| ②号 | **`O-2` 原型**：proto `MsgError.rule_id` `4→7` | 1 | ``[②] `MsgError.rule_id` 字段号：ARCH 4 ≠ proto 7`` |
+| ②型 | `MsgHeartbeatAck.echo_ts_ms` `int64→uint32` | 1 | ``[②] … 类型：ARCH `int64` ≠ proto `uint32``` |
+| ②repeated | `CmdLoadRiskParams.varieties` 去 `repeated` | 1 | ``[②] … 类型：ARCH `repeated VarietySpec` ≠ proto `VarietySpec``` |
+| ②名 | `MsgHelloAck.reason_code→reason_code_x` | 1 | ``[②] `MsgHelloAck` 第 6 字段名：ARCH `reason_code` ≠ proto `reason_code_x``` |
+| ③ | `MsgHeartbeatAck.server_ts_ms` `必→可` | 1 | ``[③] … 必填性：ARCH `必` ≠ proto `可``` |
+| ③ | `MsgHelloAck.accepted` 删必填性尾注释 | 1 | ``[③] … proto 字段缺必填性尾注释（无法与 §4.2.8 `必` 比对）`` |
+| ④集合 | `enum Direction`→`enum DirectionX` | 1 | ``[④] 枚举集合不一致：仅 ARCH 有 ['Direction']；仅 proto 有 ['DirectionX']`` |
+| ④逐值 | `ServerState.REPLAYING` 值 `2→5` | 1 | ``[④] 枚举 `ServerState` **取值**不一致：ARCH [0,1,2,3,4] ≠ proto [0,1,5,3,4]`` |
+| ④前缀剥离 | `SERVER_STATE_NOT_READY→SERVER_STATE_NOTREADY` | 1 | ``[④] … 逐值不一致：… ('SERVER_STATE_NOT_READY',1) ≠ ('SERVER_STATE_NOTREADY',1)`` |
+| ⑤小计 | `§4.2.8.2` 小计 `38→39` | 1 | ``[⑤] 4.2.8.2：小计行 39 ≠ 实算 38`` |
+| ⑤声明 | `§4.2.8.1`「顶层字段号总量」`214→215` | 1 | ``[⑤] §4.2.8.1 声明顶层总量 215 ≠ 214`` |
+| ⑤标题条数 | `§4.2.8.2` 标题「9 条」→「10 条」 | 1 | ``[⑤] 4.2.8.2：标题声明 10 条 ≠ 实际消息行 9 条`` |
+| ⑤连续性 | ARCH 侧 `MsgError.rule_id` `4→7` | 1 | ``[⑤] 顶层 MsgError：字段号非 `1..n` 连续 ⇒ [1,2,3,5,6,7]``（+②同报） |
+| ①集合 | proto `message MsgAck→MsgAckRenamed` | 1 | ``[①] 消息集不一致：仅 ARCH 有 ['MsgAck']；仅 proto 有 ['MsgAckRenamed']`` |
+| ①顺序 | proto 交换 `MsgHeartbeatAck`/`MsgAck` 两块（集合不变） | 1 | ``[①] 消息**声明顺序**不一致：ARCH [… 'MsgHeartbeatAck'] / proto [… 'MsgAck']`` |
+| ⑥派生 | proto `message MsgHello→MsgHelloZ` | 1 | ``[⑥] §4.2.3 `MSG_HELLO` 派生 `MsgHello`，proto 无此 message`` |
+
+**六类逐类均「真的会判红」——无一为空转。**
+
+## T121.3 未解析行（须 fail、非静默通过）—— 6 形态全 `rc 2`
+
+| # | 注入形态 | rc | 输出 |
+|---|---|---|---|
+| U1 | proto 体内 `optional string unknown_x = 30;` | 2 | `proto 行 348（message MsgHeartbeatAck）：字段形态未解析` |
+| U2 | proto 体内 `map<string,int32> m = 9;` | 2 | 同上 |
+| U3 | proto 体内 `oneof sel { string a = 9; }` | 2 | 同上 |
+| U4 | proto 顶层 `option java_package = "x";` | 2 | `proto 行 33：顶层结构未解析` |
+| U5 | ARCH `§4.2.8.2` 首列非序号（`3x`） | 2 | `4.2.8.2 行 1094：表体行形态未解析（首列非序号）⇒ '3x'` |
+| U6 | ARCH 字段条目缺字段号（`` `echo_ts_ms`(int64·必) ``） | 2 | `4.2.8.2 行 1096：字段条目形态未解析` |
+
+**退出码语义**：显式 `--proto /no/such` ⇒ `2`；显式 `--arch /no/such` ⇒ `2`；未知参数 ⇒ `2`；**默认路径不存在（空目录执行）⇒ `0` + `SKIP`**。（「未解析行 ⇒ `2`」= 编排者裁定维持：语义为「判据未能对该行执行」的工具/前置错误，与「已解析但不符」的 `1` 分层正确。）
+
+## T121.4 判据设计两处易错点 —— 专门证伪
+
+1. **锚定口径（真按 `^##### 4.2.8.x` 章节锚点）**：在副本内把 `§4.2.8.1` 标题**前插 5 行**、把 `§4.2.3` 标题**前插 5 行**（含行号位移）⇒ **仍 `rc 0`**（`A1`/`A2`）。⇒ 不因行号位移误报，口径成立。
+2. **`ComponentRole` 白名单非过宽**：白名单 = `ENUM_PREFIX_EXCEPTIONS = {"ComponentRole": ("ROLE_JAVA","ROLE_CPP")}`（按枚举名索引，结构上只放一例）。**双向实证**：`ROLE_JAVA→COMPONENT_ROLE_ROLE_JAVA` ⇒ `rc 1`（承重）；**另一个**枚举 `Direction` 去前缀值 `BUY` ⇒ `rc 1`（**未放过别枚举**）。
+
+## T121.5 参与面 / 不参与面 —— 逐面注入探针（**13 项，含 `count` 唯一性纪律**）
+
+> 纪律：每条探针先测目标串 `count`；`count != 1` 即禁用文本定位（改用 line-indexed）。`§4.2.8.2` 标题等串在**附录 C 同形副本**里会二次命中 ⇒ 已用带 `##### ` 前缀/长上下文确保 `count=1`（下表 `count` 列全部 = 1）。
+
+**参与面（声称覆盖 ⇒ 须红 `rc 1`）7 项全 OK**：
+
+| 面 | 锚点/行 | 注入 | rc |
+|---|---|---|---|
+| `P1` `§4.2.8.1` 顶层字段号总量行 | `:1078` | `= 214`→`= 215` | 1 |
+| `P2` `§4.2.8.2` 表体字段号 | `:1096` | `echo_ts_ms` `1→2` | 1 |
+| `P3` `§4.2.8.3` 标题「`N` 条」 | `:1103` | `17 条→16 条` | 1 |
+| `P5` `§4.2.8.5` 表体消息名 | `:1154` | `MsgHelloAck`→`MsgHelloAckX` | 1 |
+| `P6` `§4.2.8.6` 表体字段数列 | `:1176` | `7→6` | 1 |
+| `P7` `§4.2.8.7` 表体枚举值 | `:1205` | `ScopeType.TOTAL_ACCOUNT` `2→3` | 1 |
+| `P8` `§4.2.3` 表体类型码 | `:796` | `MSG_HELLO` `0x0001→0x000A` | 1 |
+
+**不参与面（声称不覆盖 ⇒ 须不红 `rc 0`）6 项全 OK**：
+
+| 面 | 锚点/行 | 注入 | rc |
+|---|---|---|---|
+| `Q1` `§4.2.8.1` 其余行 | `:1081` | 「必填性语义」行改文本 | 0 |
+| `Q2` `>` 引用块 | `:1088` | `> 记法：` 改文本 | 0 |
+| `Q4` `§4.2.8.9` 定稿表 | `:1262` | `G-3` 行改文本 | 0 |
+| `Q5` 附录 C | `:3061` | `C.3.1` `9 条→8 条` | 0 |
+| `Q6` `§4.2.4` | `:850` | 标题改文本 | 0 |
+| `Q7/N1` `§4.2.8.5` 条件列语义 | `:1154` | `true→FALSE` | 0 |
+
+⇒ **未发现「声称覆盖却不红」（空转）或「声称不覆盖却红」（强度虚高）的情形**。（唯一相关的 `N5`/`option` 措辞问题见 `T121.10` `O-4`，**已由 `tl-t121` 于复核期内补修**。）
+
+## T121.6 不覆盖项抽查（4 项）+ `N8` 影响面
+
+改之**均仍 `rc 0`**（证其确实不判）：`N1` `§4.2.8.5` 条件语义文本；`N2` `§4.2.8.8` 裁定表文本；`N7` `§4.2.4`；`N8` **附录 C `C.3.1` 标题条数**。
+
+> **`N8` 是已披露缺口（如实披露 = 属实），非缺陷；此处记其影响面**：附录 C（`C.3.1`–`C.3.5`）确含与 `§4.2.8` **近乎同形的表格副本**（实证：`§4.2.8.2` 的 `**小计** | **38**` 与 `C.3.1` 同串、`MsgAuthFail` 行同形——本席按裸串定位探针时即被「count=2」撞到）。`E7` **只锚 `^##### 4.2.8.x`、不扫附录 C**，故「`§4.2.8` 已改、附录 C 未同步」**不被拦下**。**影响面**：附录 C 系 `CH-013` **提案留痕、两侧均标「非权威」**⇒ 无门禁价值；**唯一风险** = 未来若有人误将 `C.3.x` 当权威 schema 读取，会读到**落后于 `§4.2.8` 的值**（附录 C 行仍停在无 `·必` 的提案态）。架构席已在 `C.3` 头注补「可能滞后」指针。
+
+## T121.7 外围件（聚合 / 接线 / README）
+
+1. **聚合入口**：`bash tools/arch-check/arch-check.sh` ⇒ **`rc 0`；`通过(0)=7 命中(1)=0 用法/前置错误(2)=0`；E1..E7 逐条 `0`**（`E7` 实扫；`E4` 实扫 `待扫描文件: 20 个`）。**`E1`–`E6` 六脚本相对 HEAD 逐字节未动**（`git diff --stat <7 脚本>` ⇒ 空）；`arch-check.sh` 相对 HEAD 亦空（=`5b691dc2…`）。
+2. **接线**：`cpp/CMakeLists.txt:75-78`（`add_test(NAME arch_check COMMAND bash "${HG_REPO_ROOT}/tools/arch-check/arch-check.sh")` + `FIXTURES_SETUP hg_arch_check`）与 `java/pom.xml:138-151`（`exec-maven-plugin` `exec:exec` 绑 `validate`，唯一 `<argument>tools/arch-check/arch-check.sh</argument>`）**均只调聚合入口、不枚举脚本** ⇒ **新增 `E7` 两侧零改动**。
+3. **README**：`E7` 节 + **`N1`–`N8` 显式** + 「参与面（精确）」+ `ComponentRole` 白名单 **均显式**，无含糊带过。
+
+## T121.8 聚合失败传播（M0–M3）
+
+| 场景 | 注入（隔离副本） | 整体退出码 |
+|---|---|---|
+| M0 基线 | 无 | **0**（`通过(0)=7`） |
+| M1 `E7` 内容漂移 | proto `MsgError.rule_id` `4→7` | **1**（`命中(1)=1`；`E7 退出码 1`） |
+| M2 `E7` 形态未解析 | proto 体内 `map<string,int32> m = 9;` | **2**（`用法/前置错误(2)=1`；`E7 退出码 2`） |
+| M3 复位复跑 | — | **0** |
+
+## T121.9 零污染
+
+- **`T-121` 提交改动面 = `tools/arch-check/{scan_hgcp_schema.py, arch-check.sh, README.md}` 3 文件**（`git show --stat 772bd27`）⇒ `cpp/** java/** proto/** docs/**` 无一由 `T-121` 改动。
+- `proto/` 工作树零改动；共享树**无变异残留**（`find tools proto java cpp docs -name '*.orig' -o -name '*MUTATION*'` 空）。
+- **非本任务并发改动**（复核期观测，供归因）：`cpp/src/risk_state/**`（`be-t034`）、`java/**/dao/PageQuery*.java`（`be-t096`）、`docs/ARCHITECTURE.md`（`tl-arch-e7`，`§3.0.2` `六大→七大` + `E7` 行）、`docs/BOARD.md`/`docs/TASKS.md`（编排/PM）。
+
+## T121.10 未执行项 / 不适用项（据实）
+
+- **未执行 `mvn validate` / `ctest` 端到端实跑**：本单只读 + 本机并发 C++/Java 构建（`uptime` load 2–3 > 1.5）。替代证据 = 接线**文本核到**（见 `T121.7`）+ **直接实跑聚合入口**（`T121.1`/`T121.8`）覆盖其全部行为。⇒ 属「未执行」，非「通过」。
+- **未对 `E1`–`E6` 判据自身做变异**：非 `T-121` 范围；已核其脚本逐字节未动。
+- `N4`（冻结不变量）系「另立任务」（现载 `T-122`）；`N6`（线格式编码）与本脚本无交集。
+
+## T121.11 缺陷 / 观察
+
+**无阻断缺陷**（0 项达缺陷门槛：无 FR/架构违背、无功能影响、无契约不符）。**4 项建议级观察**：
+
+| 编号 | 观察 | 处置（编排者裁定） |
+|---|---|---|
+| `O-1` | 自报锚点 = HEAD 提交态 ≠ live（见 `T121.0`） | 有效发现，由编排者统一提交承接 |
+| `O-2` | `cpp/CMakeLists.txt:70` / `java/pom.xml:129` 注释仍写「聚合 E1–E6」 | 不判缺陷；立 `T-123` 承接 |
+| `O-3` | `README.md` 「2026-09-22 实测」块写 `E4 待扫描文件: 6 个`，实测 `20 个` | 须修，转 `tl-t121` |
+| `O-4` | 脚本头 `N5` 曾把 `option` 归入「不判（仅登记）」，实测 `option java_package=…;` ⇒ 退 `2`（与「已知取舍」自相矛盾） | 须修；**复核期内 `tl-t121` 已补修**（现行 `N5` 已明载 `option`/`import` ⇒ 退 `2`，见 `8c15eb41…`/807） |
+
+**总评**：`E7` 六类判据**全量机械比对、六类均非空转**；退出码 `0/1/2` 分层与自报一致；未解析行**必 fail、不静默**（正是立项要消灭的失效模式）；聚合 `7/7`、`E1`–`E6` 零改动、接线两侧零改动；零污染。⇒ **`通过`**（0 阻断缺陷）。
