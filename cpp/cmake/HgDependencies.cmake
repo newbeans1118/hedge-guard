@@ -218,6 +218,36 @@ if(CTP_USE_FETCH_DEPS)
 
   add_library(hg_deps_protobuf INTERFACE)
   target_link_libraries(hg_deps_protobuf INTERFACE libprotobuf)
+
+  # ---------------------------------------------------------------------------
+  # 第三方**头目录** SYSTEM 化（T-129）：
+  #   上述「清空目录级 COMPILE_OPTIONS」只豁免 protobuf **自身源码**的编译；它**不**
+  #   影响**消费方**包含 protobuf 头时的告警归属 —— `libprotobuf` 把源码树
+  #   `_deps/protobuf-src/src` 作为**普通**（非 SYSTEM）include 目录传播（`-I`），
+  #   于是本工程的 `-Werror` 会被施加到第三方 protobuf 头，`port.h:46/53`
+  #   （`SizedDelete`/`SizedArrayDelete` 的具名未用参）在 `-Wall -Wextra` 下报警
+  #   ⇒ 直接**构建失败**（实测 2026-09-22：`hgcp/src/payload_codec.cc` 经
+  #   `hgcp.pb.h` → `google/protobuf/io/coded_stream.h` → `port.h`）。
+  #
+  #   处置：把 protobuf 头目录标记为 **SYSTEM**（编译器以 `-isystem` 引入 ⇒ 第三方头
+  #   不参与 `-Wall -Wextra -Werror`）。口径与 `ctp_adapter` 把官方 CTP SDK 头作
+  #   **SYSTEM 头**引入**同族**（ARCHITECTURE.md §1.2 / E3：严格告警只约束自家代码）。
+  #   系统包轨（`find_package`）的 `protobuf::libprotobuf` 是 **IMPORTED** 目标，
+  #   CMake 对 imported 目标的 `SYSTEM` 属性**默认为真** ⇒ 无需另配（本段仅关 FetchContent 轨）。
+  # ---------------------------------------------------------------------------
+  if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.25")
+    # CMake ≥ 3.25 原生 `SYSTEM` 目标属性：其 `INTERFACE_INCLUDE_DIRECTORIES`
+    # 对消费方一律按系统目录对待（不影响 libprotobuf 自身的编译）。
+    set_target_properties(libprotobuf PROPERTIES SYSTEM TRUE)
+  else()
+    # 更早版本无 `SYSTEM` 目标属性 ⇒ 在本工程供给目标上显式补充
+    # `INTERFACE_SYSTEM_INCLUDE_DIRECTORIES` 标记（同目录亦在非 SYSTEM 列表中时，
+    # 该标记使其被当作系统目录 —— 见 CMake 属性文档）。
+    get_target_property(_hg_pb_inc_dirs libprotobuf INTERFACE_INCLUDE_DIRECTORIES)
+    if(_hg_pb_inc_dirs)
+      target_include_directories(hg_deps_protobuf SYSTEM INTERFACE ${_hg_pb_inc_dirs})
+    endif()
+  endif()
 else()
   find_package(Protobuf REQUIRED)
   message(STATUS "[protobuf] CTP_USE_FETCH_DEPS=OFF → 系统包 protobuf ${Protobuf_VERSION}")
