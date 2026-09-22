@@ -228,6 +228,15 @@ struct PermissionEntry {
   Fixed individual_quota = 0;   // 个人额度
   bool has_trading_post = false;     // 岗位标记：交易岗
   bool has_risk_post = false;        // 岗位标记：风控岗
+  // 岗位 / 角色维度补齐（T-126；字段名直采协议名，依据 `ARCHITECTURE.md` §4.2.3 `:818`
+  //   `CMD_UPDATE_PERMISSION` 字段列 + §4.2.8（`CH-013` 定版字段级 schema：均为 `bool`·必填）。
+  //   消费见 `risk_engine.cc` 的 `evalPermission`：
+  //     · `has_settle_role` 与 `has_risk_post` **析取** ⇒ `0x100E`（岗位冲突，前中后台分离）；
+  //     · `is_management_role` 与 `is_responsible` **析取** ⇒ `0x100F`（`CH-010` 析取）。
+  //   ⚠️ 生产加载点由 `T-038`（`CMD_UPDATE_PERMISSION` 逐字段映射）承接 ⇒ 生产路径下
+  //      两字段恒为缺省 `false`；本承载仅为引擎侧消费提供依据，勿表述为「生产已生效」。
+  bool has_settle_role = false;      // 岗位标记：结算岗（协议同名直映）
+  bool is_management_role = false;   // 角色标记：管理层 / 审批人（协议同名直映）
   bool is_responsible = false;       // 负责人标记（具此标记 → 禁授交易岗，C++ 侧兜底）
   PermitType permit_type = PermitType::kLimited;  // LIMITED / CROSS_READONLY
 };

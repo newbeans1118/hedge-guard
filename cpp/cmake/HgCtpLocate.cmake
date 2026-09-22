@@ -37,6 +37,13 @@
 #   _LIB_DIRS                                 库所在目录（供 rpath）
 #   _MISSING                                  缺件描述（人类可读，用于报错）
 #   _TRADER_DIR / _MD_DIR                     解析出的头目录（诊断用）
+#   `<prefix>_traderapi` / `<prefix>_mdapi`    **IMPORTED 共享库目标**（FOUND 时创建；
+#                                             链接请用目标名，勿直接传 `.so` 路径 —— 见下）
+#
+# ⚠️ 为何用 IMPORTED 目标而非直接传 `.so` 绝对路径：现代 CMake 会把
+#   `target_link_libraries(<t> <abs>/x.so)` 归一化为 `-L<dir> -lx`；官方 `.so` 名为
+#   `thosttraderapi_se.so`（无 `lib` 前缀）⇒ 会变成 `-lthosttraderapi_se` 而**找不到**。
+#   IMPORTED 目标逐字使用 `IMPORTED_LOCATION`，且 CMake 自动为消费方追加 rpath。
 #
 # 退出语义：**本宏不自行 FATAL**（判定与处置分离）—— 由调用方按
 #   `EXPLICIT && !FOUND ⇒ FATAL_ERROR`（防静默回落 stub）/ 非显式 ⇒ 走 stub。
@@ -141,6 +148,22 @@ macro(hg_locate_ctp OUT_PREFIX)
     set(${OUT_PREFIX}_LIB_DIRS "${_hgcl_trader_dir};${_hgcl_md_dir}")
     if(${OUT_PREFIX}_LIB_DIRS)
       list(REMOVE_DUPLICATES ${OUT_PREFIX}_LIB_DIRS)
+    endif()
+
+    # ⚠️ 必须用 **IMPORTED 目标** 承载绝对路径：现代 CMake 会把
+    #    `target_link_libraries(<t> <abs>/x.so)` 归一化为 `-L<dir> -lx`
+    #    （实测：官方 `thosttraderapi_se.so` 被转成 `-lthosttraderapi_se`，
+    #    链接器报 "cannot find -lthosttraderapi_se" —— 见 `T-033` 回执）。
+    #    IMPORTED 目标则**逐字使用** `IMPORTED_LOCATION`（并自动为消费方加 rpath）。
+    if(NOT TARGET ${OUT_PREFIX}_traderapi)
+      add_library(${OUT_PREFIX}_traderapi SHARED IMPORTED GLOBAL)
+      set_target_properties(${OUT_PREFIX}_traderapi PROPERTIES
+        IMPORTED_LOCATION "${_hgcl_trader_lib}")
+    endif()
+    if(NOT TARGET ${OUT_PREFIX}_mdapi)
+      add_library(${OUT_PREFIX}_mdapi SHARED IMPORTED GLOBAL)
+      set_target_properties(${OUT_PREFIX}_mdapi PROPERTIES
+        IMPORTED_LOCATION "${_hgcl_md_lib}")
     endif()
   else()
     set(${OUT_PREFIX}_FOUND OFF)

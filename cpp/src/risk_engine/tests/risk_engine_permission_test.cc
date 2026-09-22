@@ -71,6 +71,59 @@ void test_risk_post_conflict() {
   HG_CHECK_EQ(r.code, static_cast<std::uint32_t>(0x100E));
 }
 
+// T-126：「仅具结算岗」独立用例 —— 仅 `has_settle_role`（显式 `has_risk_post=false`）即命中
+//   `0x100E`（`FR-RISK-7` 析取：具备风控岗 **或** 结算岗权限的账号不得下单）。
+//   改前 `PermissionEntry` 无此字段 ⇒ 该账号被放行（缺陷态）。
+void test_settle_role_conflict() {
+  RiskState st;
+  FakeClock clk(20260101);
+  RiskEngine eng(&clk);
+  LoadBatch b = happyBatch(1);
+  PermissionEntry p = trading();
+  p.has_risk_post = false;   // 显式排除风控岗 ⇒ 仅结算岗
+  p.has_settle_role = true;  // 结算岗不得下单（前中后台分离）
+  b.putPermission(7, p);
+  HG_CHECK(bind(&st, &eng, b));
+  const RiskResult r = eng.check(baseOrder());
+  HG_CHECK_EQ(r.decision, RiskDecision::kReject);
+  HG_CHECK_EQ(r.code, static_cast<std::uint32_t>(0x100E));
+}
+
+// T-126：「仅具风控岗」独立用例（与上互斥：`has_settle_role` 显式为 false）——
+//   证明 `0x100E` 两支各自独立成立（析取），非依赖新字段。
+void test_risk_post_only_conflict() {
+  RiskState st;
+  FakeClock clk(20260101);
+  RiskEngine eng(&clk);
+  LoadBatch b = happyBatch(1);
+  PermissionEntry p = trading();
+  p.has_settle_role = false;  // 显式排除结算岗 ⇒ 仅风控岗
+  p.has_risk_post = true;
+  b.putPermission(7, p);
+  HG_CHECK(bind(&st, &eng, b));
+  const RiskResult r = eng.check(baseOrder());
+  HG_CHECK_EQ(r.decision, RiskDecision::kReject);
+  HG_CHECK_EQ(r.code, static_cast<std::uint32_t>(0x100E));
+}
+
+// T-126：「仅具管理层（审批人）角色」独立用例 —— 仅 `is_management_role`
+//   （显式 `is_responsible=false`）即命中 `0x100F`（`CH-010` 析取：企业负责人标记
+//   **或** 管理层标记，任一独立成立即禁操盘）。改前该字段不存在 ⇒ 该账号被放行（缺陷态）。
+void test_management_role_forbidden() {
+  RiskState st;
+  FakeClock clk(20260101);
+  RiskEngine eng(&clk);
+  LoadBatch b = happyBatch(1);
+  PermissionEntry p = trading();
+  p.is_responsible = false;     // 显式排除企业负责人标记 ⇒ 仅管理层
+  p.is_management_role = true;  // 签署权与交易权互斥
+  b.putPermission(7, p);
+  HG_CHECK(bind(&st, &eng, b));
+  const RiskResult r = eng.check(baseOrder());
+  HG_CHECK_EQ(r.decision, RiskDecision::kReject);
+  HG_CHECK_EQ(r.code, static_cast<std::uint32_t>(0x100F));
+}
+
 void test_no_trading_post() {
   RiskState st;
   FakeClock clk(20260101);
@@ -132,6 +185,9 @@ int main() {
   test_no_permission_record();
   test_enterprise_leader_forbidden();
   test_risk_post_conflict();
+  test_settle_role_conflict();
+  test_risk_post_only_conflict();
+  test_management_role_forbidden();
   test_no_trading_post();
   test_sub_account_not_authorized();
   test_product_not_authorized();

@@ -403,10 +403,13 @@ void evalPermission(const RiskSnapshot& s, const OrderRequest& req, RiskResult& 
   if (p == nullptr) {
     code = kErrNoTradingAuth;
     detail = "operator has no permission record";
-  } else if (p->is_responsible) {
+  } else if (p->is_responsible || p->is_management_role) {
+    // `0x100F`（`CH-010` 析取）：被标记为企业负责人 **或** 持有管理层（审批人）角色，
+    //   任一独立成立即禁操盘（签署权与交易权互斥）。
     code = kErrLeaderForbidden;
-    detail = "enterprise leader is forbidden to trade";
-  } else if (p->has_risk_post) {
+    detail = "enterprise leader / management role is forbidden to trade";
+  } else if (p->has_risk_post || p->has_settle_role) {
+    // `0x100E` 析取（`FR-RISK-7`）：具备风控岗 **或** 结算岗权限的账号不得下单（前中后台分离）。
     code = kErrPositionConflict;
     detail = "risk/settlement post cannot place orders (front/mid/back separation)";
   } else if (!p->has_trading_post) {

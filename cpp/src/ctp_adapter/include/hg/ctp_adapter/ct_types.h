@@ -76,8 +76,19 @@ struct CtConfig {
   std::string flow_path;    // CTP 流文件目录
   std::string auth_code;    // 客户端认证码（可选；ReqAuthenticate）
   std::string app_id;       // 客户端认证 AppID（可选）
+  // CTP 运行环境（映射 `CFG-22` `hg.ctp.env_type`）——决定官方 `bIsProductionMode`。
+  // ⚠️ **缺省 = `kSimulation`（评测前置）**，与架构已登记配置项 `CFG-22` 的缺省**逐字一致**
+  //    （唯一权威缺省；适配层不得自带与之不同的缺省，否则「未加载配置」时行为与文档不符）。
+  //    **行为变更（2026-09-22，技术席裁定）**：改前「不配置 ⇒ 生产前置」→ 改后「不配置 ⇒ 评测前置」。
+  //    两害相权取前者：缺省指向评测时配错**只连不上/不交易**（立刻可见）；指向生产时配错可能
+  //    **误连实盘**（不可逆）。官方文档 §1.2「评测版 API 只连评测前置 / 生产版只连生产前置」
+  //    ⇒ 模式与前置必须匹配，缺省更须保守。
+  //    ⇒ **部署上生产必须在 `CFG-22` 显式设 `PRODUCTION`**（该值经 `redacted()` 可观测）。
+  CtEnvType env_type;
 
-  CtConfig() {}
+  CtConfig() : env_type(CtEnvType::kSimulation) {}
+  // 供 `Create*Api()` 使用的 `bIsProductionMode` 取值。
+  bool productionMode() const { return env_type == CtEnvType::kProduction; }
   // 供日志使用的安全呈现：口令一律替换为占位，**不得**返回明文（NFR-SEC-1 / R-FUND-9）。
   std::string redacted() const {
     std::string s;
@@ -97,6 +108,8 @@ struct CtConfig {
     s += (auth_code.empty() ? "<empty>" : "<redacted>");
     s += " app_id=";
     s += (app_id.empty() ? "<empty>" : "<redacted>");
+    s += " env_type=";
+    s += (env_type == CtEnvType::kProduction ? "PRODUCTION" : "SIMULATION");
     return s;
   }
 };

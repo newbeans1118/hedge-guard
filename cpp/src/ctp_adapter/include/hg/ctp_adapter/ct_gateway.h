@@ -10,8 +10,9 @@
 //   · `CtCallbackSink`  —— SDK 回调的**唯一出口**；适配层用它把「CTP SDK 回调」与
 //      「适配逻辑」解耦，使 SDK 轨与 stub 轨共用同一适配逻辑，并可在单测中注入假件。
 //   · `CtTradeGateway` / `CtMdGateway` —— 对 CTP 的**唯一调用面**；真实实现封装
-//      合并版 `CThostFtdcUserApi` / `CThostFtdcMdApi`（仅 `HG_CTP_FOUND` 时编译），
-//      降级轨提供 stub（连接恒失败）。核心适配逻辑不直接依赖任何 SDK 类型。
+//      官方分离式 `CThostFtdcTraderApi`（交易）/ `CThostFtdcMdApi`（行情）
+//      （仅 `HG_CTP_FOUND` 时编译），降级轨提供 stub（连接恒失败）。
+//      核心适配逻辑不直接依赖任何 SDK 类型。
 // =============================================================================
 
 #include <string>
@@ -35,7 +36,7 @@ class CtCallbackSink {
   virtual void onQuoteEvent(const CtQuoteEvent& event) = 0;
 };
 
-// 交易网关：封装合并版 `CThostFtdcUserApi`。
+// 交易网关：封装官方分离式交易接口 `CThostFtdcTraderApi`。
 // 请求返回值语义与 CTP `Req*` 一致：0 = 已受理；>0 = 未处理请求队列满；<0 = 网络连接失败。
 class CtTradeGateway {
  public:
@@ -51,7 +52,7 @@ class CtTradeGateway {
   virtual const char* backendName() const = 0;
 };
 
-// 行情网关：封装合并版行情接口 `CThostFtdcMdApi`。
+// 行情网关：封装官方行情接口 `CThostFtdcMdApi`。
 class CtMdGateway {
  public:
   virtual ~CtMdGateway() {}

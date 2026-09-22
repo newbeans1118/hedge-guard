@@ -20,7 +20,7 @@
 //      **不得静默丢弃**（FR-TRADE-2 验收 4；§4.2.6 CTP 不可用行）。
 //   3. **SPI 回调只做序列化并投递队列**：`onOrderEvent` / `onQuoteEvent` 仅入队
 //      （orderEventQueue 满时有界自旋 + 告警计数；quoteQueue 满时丢弃最旧）。
-//   4. **期货与期权**共用同一 UserApi 与同一报单结构（`PROJECT.md` §10-10 /
+//   4. **期货与期权**共用同一交易接口与同一报单结构（`PROJECT.md` §10-10 /
 //      NFR-COMPAT-6）；`CtOrderReq::market` 显式标注类别并被原样传递。
 //
 // 线程归属（ARCHITECTURE.md §2.4.2）：

@@ -11,7 +11,7 @@
 #include <string>
 
 #include <ThostFtdcMdApi.h>
-#include <ThostFtdcUserApi.h>
+#include <ThostFtdcTraderApi.h>
 
 using hg::ctp_adapter::CtAdapter;
 using hg::ctp_adapter::CtMdSpiImpl;
@@ -191,9 +191,9 @@ void md_spi_enqueues_quote() {
 
 // 真实 SDK 链接证明：静态版本接口来自实际 .so（非头文件内联）。
 void real_sdk_version_is_linked() {
-  const std::string user_version = CThostFtdcUserApi::GetApiVersion();
+  const std::string trader_version = CThostFtdcTraderApi::GetApiVersion();
   const std::string md_version = CThostFtdcMdApi::GetApiVersion();
-  HG_CHECK(!user_version.empty());
+  HG_CHECK(!trader_version.empty());
   HG_CHECK(!md_version.empty());
 }
 

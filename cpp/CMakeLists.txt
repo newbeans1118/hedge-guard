@@ -10,12 +10,14 @@
 #   本文件聚合：① 两个探路工程（冻结产物，仅存证）② C++ 交易组件六模块骨架
 #   （`cpp/src/<模块>/**`）③ 架构合规聚合门禁（`tools/arch-check/arch-check.sh`）。
 #
-# 探路工程（**冻结，不得改动** —— T-026 / T-027 已验证证据）：
-#   proto_smoke —— T-026 / RSK-01：protobuf 在 C++11 下的空壳构通验证
+# 探路工程（**冻结产物** —— 仅存证；改动须走对应任务重做重冻结）：
+#   proto_smoke —— T-026 / RSK-01：protobuf 在 C++11 下的空壳构通验证（冻结）
 #   ctp_smoke   —— T-027 / RSK-02：CTP 头文件 C++11 兼容验证
+#                  （2026-09-22 因 CTP 基线变更 → 官方 v6.7.13 **重做并重冻结**，`CH-015`）
 #
-# 双轨构建（PROJECT.md §5.1 / §9 NFR-DEPLOY-3）：
-#   -DCTP_SDK_ROOT=<dir>         → CTP_FOUND=ON（ctp_adapter 以真实 CTP SDK 编译）
+# CTP SDK 定位（三种布局皆可；显式给了根却解析失败 ⇒ 配置期 FATAL_ERROR）：
+#   -DCTP_SDK_ROOT=<dir>         → 官方解包父目录 或 老式单目录 → CTP_FOUND=ON
+#   -DCTP_TRADER_ROOT=<dir> / -DCTP_MD_ROOT=<dir>  → 分别显式覆盖交易/行情目录
 #   -DCTP_USE_FETCH_DEPS=ON      → protobuf 经 FetchContent 源码构建
 # =============================================================================
 
@@ -48,7 +50,7 @@ endif()
 enable_testing()
 
 # -----------------------------------------------------------------------------
-# 探路工程（M2 首周）—— **冻结产物，不得改动**（T-026 / T-027 已验证证据）
+# 探路工程（M2 首周）—— **冻结产物**（T-026 冻结；T-027 于 2026-09-22 因 CTP 基线变更重做重冻结）
 # -----------------------------------------------------------------------------
 add_subdirectory(proto_smoke)
 add_subdirectory(ctp_smoke)

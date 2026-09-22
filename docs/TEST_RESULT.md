@@ -4129,3 +4129,199 @@ E7 通过：§4.2.8 与 proto 逐条一致（消息 40+10、字段 214+66、枚�
 > `OBS-T035vb-6`（低，建议产品确认）：「单笔授权额度」（`0x100D` / `kAuthQuota`）字面含「额度」，**若**产品视其为 `R-RISK-5` 的「额度阻断」，则须豁免平仓；但 `FR-RISK-7` 明文「一律拒绝」无例外、且 `R-RISK-5` 枚举的三类处置指向三层限额（`FR-RISK-2`）⇒ 现实现**忠实于 `FR-RISK-7`**，判**非缺陷**；是否需产品口径澄清由产品/架构席裁定。
 
 > **纯追加（第二次）**：追加前 `md5 4d1716284eae5a2310771d339ba0e063` / 4120 行；`head -4120 | md5sum` = `4d171628…`（前 4120 行未变）；追加后 `wc -l` 与 `md5sum` 以实时为准。
+
+# `T-124` 独立复核证据（2026-09-22）
+
+> 复核方：**测试工程师（独立复核，非产出方）** ｜ 实例 `te-verify-t124` ｜ 时刻 `2026-09-22T21:17+08:00`
+> 立场：本项目 `DONE` 判据 = **授权 + 独立验证**；产出方一切自报视为**待证命题**。本席**未复用产出方用例/探针**做竞争判据（自撰探针 `/root/t124v/probe/t124_probe.cc`）；全文分栏「**独立实测**」与「**产出方自述（本席未复现者单列）**」。
+> 未修改任何交付制品；**共享源树只读**（`cpp/src/risk_state` `git status` 空）；变异/回退**一律在隔离副本** `/root/t124v`；**不自评 `DONE`**。工具链：`g++ 15.2.0` / `cmake 4.2.3` / TSAN `libtsan.so.2`。
+
+## T124.0 结论
+
+**结论：`通过`（0 阻断缺陷；4 项信息/低观察，见 T124.9）。**
+
+`T-124` 交付物经**独立取证**证实：(1) 改前两处竞争**确实存在**（TSAN 复现，方位与 `te-verify-t034` 的 `O-1`/`O-3` 逐位吻合）；(2) 改后**TSAN 干净**；(3) **反退化三态各自承重**（1/2/3 条告警，与「两处各自被守卫」一致）；**附加变异**证实 seqlock 逻辑守卫亦承重（去复检 ⇒ TSAN 空转但 `torn>0`）；(4) `E4` 两口径 `rc 0`、**无新增锁/互斥量/分配/同步 I/O**；(5) `ctest` 名单与新增用例**确在跑**；(6) **既有断言未被削弱**。验收标准 1(a)（无锁发布）+ 2（TSAN 干净判据）+ 3（`E4` 复跑 / `ctest` 不回归）+ 4（交付面 `cpp/src/risk_state/**`）**全部满足**。
+
+**产出方自报逐项比对**（本席独立实测）：
+
+| 项 | 产出方自述 | 本席独立实测 | 一致 |
+|---|---|---|---|
+| 冻结点锚（`cwd=仓库根`；`find cpp/src/risk_state -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum`） | `d89387cb27c9c81f9218dbdf85587e5f` / 18 文件 | **`d89387cb27c9c81f9218dbdf85587e5f` / 18 文件**（12/12 次取样一致） | ✅ |
+| 改前同口径 | `2a6eea7a…` / 17 文件 | **`2a6eea7afcf0f63bc440fa9c5f5844a2` / 17 文件**（`git 0b83114` = `T-034` 交付态） | ✅ |
+| TSAN 干净（`2003 checks, 0 failures`，WARNING 0） | 是 | **是**（自撰探针 6 跑全 0 告警；另跑产出方用例 `2003/0/PASS`、WARNING 0） | ✅ |
+| 反退化三态（全回退 3 / 仅 `last_result` 1 / 仅 `stats` 2） | 是 | **是**（各跑 3 次稳定：3 / 1 / 2，见 T124.4） | ✅ |
+| `ctest` 33/33 | 是 | **33/33 全过**（隔离全量构建，`-j1`；含 `arch_check` fixture + #25 `risk_state.diagnostic_accessor_test`；见 T124.6） | ✅ |
+| 构建 0 warning / 0 error（全项目） | 是 | **是**（`grep -icE 'warning:' build.log = 0`、`'error:' = 0`，`rc 0`） | ✅ |
+| risk_state 五单测合计 checks | 2554 / 0 fail | **`70+418+39+24+2003 = 2554` / 0 fail** | ✅ |
+| `E4` 两口径 | `N=17` 单根 / `N=47` 默认并集；命中 0；WARN 3 | **17 / 47；命中 0；WARN 3（与改前逐条相同）**；聚合 `arch-check rc 0` | ✅ |
+| 锚点离群 `82b2e677…` | 一次性取样、判为测量假象 | **不可复现**（见 T124.1）；现锚点稳定；**无并发写入证据** | ✅（成因不可判定） |
+
+## T124.1 锚点独立确认（≥10 次采样）＋离群值查清
+
+**★冻结点独立确认**（`cwd=仓库根`，同口径命令）：
+
+```
+sample,timestamp,anchor,files
+1,2026-09-22T13:02:26Z,d89387cb27c9c81f9218dbdf85587e5f,18
+...
+12,2026-09-22T13:03:23Z,d89387cb27c9c81f9218dbdf85587e5f,18
+```
+
+**12/12 次采样（间隔 5s、跨 58s）** 全部 `d89387cb27c9c81f9218dbdf85587e5f` / **18 文件**。改前同口径 = `2a6eea7afcf0f63bc440fa9c5f5844a2` / 17（+1 = 新增 `tests/diagnostic_accessor_test.cc`）。`git HEAD = b4cc2f5`。
+
+**离群值 `82b2e677…` 查清（结论：不可复现的一次性测量假象，非并发写入）**：
+
+- **构造法证伪**：对 4 个实现文件（`risk_state.h`/`snapshot_manager.h`/`risk_state.cc`/`snapshot_manager.cc`）做 **16 种回退子集** 扫描，**无一**得 `82b2e677`；再叠加 `CMakeLists` / 新增测试在否 → **64 种组合**，仍 **0 命中**（`da741de5`/`8883093c`/`82b2e677` 均无）；另测 3 种「瞬时备份文件」态（`*.orig`）= `c04bf648…`/`c500dd92…`/`58c27470…`，亦无。
+- **测量口径法证伪**：`cwd=cpp`（路径 `src/risk_state/…`）= `9212793b…`（18 文件）、`cwd=cpp/src/risk_state`（路径 `./…`）= `82014ff1…`；`82b2e677` 不对应任何口径。
+- **静息证据**：18 个文件 `mtime == ctime`，最后一次改动 `2026-09-22 20:35:34 +0800`（`CMakeLists.txt`）；采样期（21:0x）**无任何进程在写 `risk_state`**；共享树残留扫描（`*.orig`/`*.bak`/`*MUTATION*`）= **0**。
+- **结论**：`82b2e677…` **不对应任何本席可构造的树状态**，且冻结点自 `20:35:34` 起静息 ⇒ 判**一次性测量假象**（最可能为产出方清理期自身的瞬时文件态/非标准取样口径），**非外部并发写入**。**具体成因本席不可判定**（不臆测）。
+
+## T124.2 改前「确实是坏的」——TSAN 原文（探针自撰）
+
+- **被测源**：`/root/t124pre/cpp/src/risk_state/**`（**严格等于改前锚 `2a6eea7a…`/17**，取自 `git 0b83114`）。
+- **编译**：`g++ -std=c++11 -fsanitize=thread -g -O0 -Wall -Wextra -I<inc> probe/t124_probe.cc src/*.cc -o probe_pre -pthread` → `rc 0`、0 告警。
+- **运行**：`TSAN_OPTIONS='halt_on_error=0' ./out/probe_pre 3000 3` ⇒ **`rc=66`、WARNING = 3**（**4 次运行均 3**）。
+
+原始输出（节选，两条方位）：
+
+```
+WARNING: ThreadSanitizer: data race (pid=118854)
+  Write of size 8 at 0x7fffffffd7a0 by main thread:
+    #1 std::vector<...Retired...>::push_back(...)
+    #2 hg::risk_state::SnapshotManager::publish(...) snapshot_manager.cc:44      ← 写（O-3）
+  Previous read of size 8 at 0x7fffffffd7a0 by thread T1:
+    #0 std::vector<...Retired...>::size() const
+    #1 hg::risk_state::SnapshotManager::stats() const snapshot_manager.cc:74     ← 读（O-3）
+SUMMARY: ThreadSanitizer: data race snapshot_manager.cc:44 in ...publish(...)
+---
+WARNING: ThreadSanitizer: data race (pid=118854)
+  Write of size 8 at 0x7fffffffd7d0 by main thread:
+    #0 hg::risk_state::RiskState::rebuild(...) risk_state.cc:69                  ← 写 `last_ = r`（O-1）
+  Previous read of size 8 at 0x7fffffffd7d0 by thread T1:
+    #0 hg::risk_state::RiskState::last_result() const risk_state.h:63            ← 读 `last_`（O-1）
+SUMMARY: ThreadSanitizer: data race risk_state.cc:69 in ...rebuild(...)
+```
+
+⇒ **方位与 `te-verify-t034` 的 `O-1`（`risk_state.h:63` vs `risk_state.cc:36`/`:69`）与 `O-3`（`snapshot_manager.cc:44` vs `:74`）逐位吻合**；竞争确为真（**非用例/探针不承重**）。
+
+## T124.3 改后「确实是好的」——TSAN 干净
+
+- **被测源**：共享树 `/root/myspace/hedge-guard/cpp/src/risk_state/**`（= 冻结点 `d89387cb…`/18）。
+- **命令**：`TSAN_OPTIONS='halt_on_error=0' ./out/probe_fixed 3000 3`（同探针）。
+- **完整输出**（6 次运行，逐次）：
+
+| run | rc | WARNING | 探针摘要 |
+|---|---|---|---|
+| 1 | 0 | **0** | `iters=3000 readers=3 reads=95466 torn=0 publish_regress=0` |
+| 2 | 0 | **0** | `reads≈…` |
+| 3 | 0 | **0** | `…` |
+| 4 | 0 | **0** | `reads=142680 torn=0 publish_regress=0` |
+| 5 | 0 | **0** | `reads=4190 torn=0 publish_regress=0` |
+| 6 | 0 | **0** | `reads=5283 torn=0 publish_regress=0` |
+
+⇒ **WARNING = 0、rc = 0**（无一行 `ThreadSanitizer`）。另**独立执行产出方用例**（TSAN 构建）`diagnostic_accessor_test: 2003 checks, 0 failures -> PASS`、WARNING 0（**佐证**，非本席主证据）。
+
+## T124.4 ★反退化双向（三态各自承重）——隔离副本
+
+**方法**：在 `/root/t124v/variants/{lastonly,statsonly,all4}` 复制冻结点，**逐项回退** 4 个实现文件至改前内容（其余保持冻结点，含新增测试与 `CMakeLists`）；**每次从源码全量重编译**（无陈旧对象文件），同一自撰探针。**各跑 3 次**：
+
+| 态 | 回退的文件 | 期望 | 本席实测（3 次） | 方位 |
+|---|---|---|---|---|
+| `lastonly` | `risk_state.h` + `risk_state.cc` | 1 | **1 / 1 / 1** | `risk_state.cc:69` ↔ `risk_state.h:63`（`O-1`） |
+| `statsonly` | `snapshot_manager.h` + `.cc` | 2 | **2 / 2 / 2** | `snapshot_manager.cc:44` ×2 ↔ `:74`（`O-3`） |
+| `all4` | 4 个实现文件 | 3 | **3 / 3 / 3** | 上两者合并 |
+
+⇒ **两处守卫各自承重**（无「仍绿 ⇒ 空转」）；计数与 `te-verify-t034` 的 `O-1`/`O-3` 一致。**回退后残留复位校验 = 0**（隔离副本外无物）。
+
+**★附加变异（本席自设，超派单要求）—— 隔离 seqlock「逻辑」守卫**：把 `last_result()` 的**前后 `seq_` 一致性复检**去掉（各字段仍为原子存取，**故 TSAN 必空**），同探针 3 跑：
+
+| 态 | TSAN WARNING | `torn`（自洽性违例） |
+|---|---|---|
+| 冻结点 | 0 | **0** |
+| `nolastcheck`（去复检） | **0（TSAN 空转）** | **24 / 44 / 6** |
+
+⇒ 两点：① **`torn` 检查确为承重**（能捕获被去掉的守卫）；② **「TSAN 干净」单独不足以验证 seqlock**（全原子时 TSAN 必绿）——须配合自洽性断言，本交付**两者兼备**。
+
+## T124.5 `E4` 两口径 + 无锁/无分配/无同步 I/O
+
+**本席实测**（共享树，`cwd=仓库根`）：
+
+| 口径 | 命令 | 待扫描文件 | 命中 | WARN | rc |
+|---|---|---|---|---|---|
+| 单根 | `scan_lock_free.sh --root cpp/src/risk_state` | **17** | 0 | **3** | **0** |
+| 默认并集根 | `scan_lock_free.sh` | **47** | 0 | **3** | **0** |
+| 改前同根 | `scan_lock_free.sh --root /root/t124pre/...` | 16 | 0 | **3** | **0** |
+| 聚合 | `arch-check.sh` | — | — | — | **0**（`E1`–`E7` 全 0） |
+
+- **WARN 3 逐条核对**：`risk_snapshot.cc:231`、`risk_state.cc:22`、`risk_state.cc:41` —— **全为既有 `new`**，**改前改后逐条相同 ⇒ 无新增**。
+- **`E4` 关切面核对（代码级）**：改动仅新增 `std::atomic`（`DiagnosticSlot` 5 字段 + `retired_count_`）与 2 处 relaxed `store` / 4 处 RMW；**未引入 `mutex`/`condition_variable`、未新增动态分配、未新增同步 I/O**（`E4` 未覆盖的判据 C「无动态分配」由代码审查兜底：`publishLastResult()`/`last_result()`/`stats()` 均**零分配**）。
+- **热路径零影响**：`snapshot()`/`peek()`/`enter()` 读路径与 `published_` 原子替换**未改一行**（见 T124.7 diff）；改动只在非热路径诊断访问器与其写侧。
+
+## T124.6 用例数以 `ctest -N` 为准 + 新增用例真在跑
+
+- **`ctest -N`（隔离全量构建 `/root/t124v/full-build`）= 33**，其中 **`Test #25: risk_state.diagnostic_accessor_test`**。risk_state 段：#21–#25。
+- **risk_state 5 单测独立复跑**（自撰命令，非 ctest，`-O2 -Wall -Wextra -Werror`，`rc 0`）：
+
+| 用例 | checks / failures | rc |
+|---|---|---|
+| `risk_state.data_model_test` | 70 / 0 | 0 |
+| `risk_state.snapshot_manager_test` | 418 / 0 | 0 |
+| `risk_state.risk_state_test` | 39 / 0 | 0 |
+| `risk_state.rsk04_conservative_test` | 24 / 0 | 0 |
+| `risk_state.diagnostic_accessor_test` | **2003 / 0** | 0 |
+| 合计 | **2554 / 0** | — |
+
+⇒ 新增用例**确在跑**且通过；`2003` 与产出方自报一致。
+
+**全量 `ctest` 端到端复跑（隔离构建 `/root/t124v/full-build`，`-j1`，`rc 0`）**：
+
+```
+1/33 Test  #1: arch_check .....................................   Passed   18.55 sec
+...
+21/33 Test #21: risk_state.data_model_test ....................   Passed    0.01 sec
+22/33 Test #22: risk_state.snapshot_manager_test ..............   Passed    0.04 sec
+23/33 Test #23: risk_state.risk_state_test ....................   Passed    0.01 sec
+24/33 Test #24: risk_state.rsk04_conservative_test ............   Passed    0.03 sec
+25/33 Test #25: risk_state.diagnostic_accessor_test ...........   Passed    1.15 sec
+...
+100% tests passed, 0 tests failed out of 33
+Total Test time (real) =  22.70 sec
+```
+
+⇒ **33/33 全过**（含 `arch_check` fixture 与新增用例）；构建日志 `warning:` **0** / `error:` **0**。**产出方「`ctest` 33/33、构建 0 warning / 0 error」自报属实**。
+
+## T124.7 断言未被削弱（`git diff 0b83114 HEAD` 逐处）
+
+**改动面（6 文件）**：`CMakeLists.txt`（+1 测试名）、`risk_state.h`（文件头注释改写 + `last_result()` 声明化 + `DiagnosticSlot` + `publishLastResult` + `last_` 类型）、`snapshot_manager.h`（`retired_pending()` 改读原子 + 新 `retired_count_`）、`risk_state.cc`（3× `last_ = r` → `publishLastResult` + 新增两函数）、`snapshot_manager.cc`（计数初始化/更新/归零）、`tests/diagnostic_accessor_test.cc`（**新增**）。
+
+- **既有测试零改动**：`git diff --name-status 0b83114 HEAD -- cpp/src/risk_state/tests/` = **仅 `A diagnostic_accessor_test.cc`**（+116）；**无任何既有测试文件被修改/断言放宽**。
+- **新增测试确为并发**（读其代码，`tests/diagnostic_accessor_test.cc`）：`const int kReaders = 3;`（`:71`）→ 3 个 `std::thread` 在**写者循环之前**启动（`:74`–`:90`，循环体 `:77`–`:89` 反复调 `st.last_result()`/`st.stats()`）；写者交错发布成功/失败两种批次（`:94`–`:102`）；`join`（`:104`）。**非「主线程顺序读」恒真形态**。
+- **热路径读侧未改**：`snapshot()`/`acquire()`/`ready()`/`param_version()` 一字未动。
+
+## T124.8 探索性发现
+
+- **`last_result()` 的 seqlock 内存序（信息级）**：读者以 `acquire` 载入前后 `seq_`、`relaxed` 读数据字段，**未在第二次 `seq_` 载入后加显式 `acquire` 栅栏**（教科书 seqlock 写法）。在目标平台 **x86-64（TSO）** 下：load 不与 load 重排、写者第二次 `fetch_add` 为全栅栏 RMW ⇒ **实际正确且 TSAN 干净**；仅对弱序 ISA（ARM 等）理论上需补栅栏。**非本平台缺陷**，登记备参。
+- **`last_result()` 自旋无 `pause`/`yield`（信息级）**：若写者在写入窗口（`seq_` 为奇）被抢占/死亡，读者将忙等。窗口极短 + 非热路径 ⇒ **实际可忽略**，属 seqlock 固有性质（实现注释已载）。
+- **新测试的竞争检出面（信息级，经变异厘清）**：普通（非 TSAN）构建下该用例**不检出改前的数据竞争**（本席改前探针 `torn=0` —— 竞争窗口小于撕裂窗口，用户例的 `torn==0` 改前亦绿）。**但**它对 **seqlock 逻辑**是承重的（见 T124.4 附加变异：去 `seq_` 复检 ⇒ `torn` 24/44/6 ⇒ 该用例会红）。⇒ 该用例 = **seqlock 逻辑回归网 + 并发冒烟**；**数据竞争判据只在 TSAN 下成立**（产出方已于用例头 `:8`–`:10` 如实披露）。**非缺陷**，登记以免下游误以为 `ctest 33/33` 本身即竞争回归网。
+- **产出方的两个辅助锚值不可复现（信息级）**：其备注所载「原始 17 文件 = `8883093c…`」「4 实现回退 + 我的测试 = `da741de5…`」，本席按**仓库根口径**实测得 `2a6eea7a…`（= 改前 17）与 `8f8cf018e2c68ac4ed118c0eb1c3a551`（= 4 回退 + 新增测试 18），**均不符**；亦不匹配任何 cwd 变体。⇒ 其辅助取样疑用非标准口径。**不影响冻结点**（`d89387cb…` 复现一致），但削弱「`82b2e677` 不对应任何已知部分态」这句的取证力。
+
+## T124.9 缺陷 / 观察清单
+
+| 编号 | 严重度 | 类别 | 结论 |
+|---|---|---|---|
+| —— | —— | 缺陷 | **无**（修复有效；未发现新缺陷） |
+| `OBS-T124-1` | 低 | 取证口径 | 产出方两辅助锚值（`8883093c`/`da741de5`）按标准口径**不可复现** ⇒ 辅助取样口径存疑（冻结点不受影响） |
+| `OBS-T124-2` | 信息 | 锚点离群 | `82b2e677…` 不可复现、无并发写入证据 ⇒ 判一次性测量假象；**具体成因不可判定** |
+| `OBS-T124-3` | 信息 | 内存序 | `last_result()` seqlock 未在二次 `seq_` 载入后加 `acquire` 栅栏；**x86-64 下无害**，弱序 ISA 备参 |
+| `OBS-T124-4` | 信息 | 回归强度 | 新测试的**竞争**检出**只在 TSAN 下成立**（普通 `ctest` 改前亦绿）；但对 **seqlock 逻辑**承重（附加变异 `torn>0`）。产出方已披露 |
+
+## T124.10 未决 / 存疑
+
+- **`ctest` 全量 33/33 已端到端复跑成功**（T124.6），无存疑。
+- 产出方**未**在 `ARCHITECTURE.md §4.4.3` 登记本次无锁发布（其裁定：属实现内部改动、`docs/**` 非其写权）—— 本席核 §4.4.3 原文**未描述**该两诊断访问器，**改动不构成对已载条文的矛盾**，裁定**认可**。
+- **本席不置 `DONE`**（门禁结论由编排者落）；`TASKS.md`/`BOARD.md`/`ARCHITECTURE.md` **零改动**；未修改任何交付制品。
+
+## T124.11 纯追加证明（自指值不写死）
+
+- 追加前基线：`md5 36297e76ecd5ece5a7c167a684e0b68d` / **4131 行**（紧邻写入前 **3 次 ×10s** 取样不变）。
+- 追加后：`head -4131 docs/TEST_RESULT.md | md5sum` = `36297e76ecd5ece5a7c167a684e0b68d`（⇒ 前 4131 行**逐字节未变**）；追加后 `wc -l` 与 `md5sum docs/TEST_RESULT.md` **以实时为准**（写死会因追加本身而失效）。

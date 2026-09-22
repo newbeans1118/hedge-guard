@@ -307,6 +307,10 @@ bash tools/arch-check/arch-check.sh
 > ⚠️ **`6/6` 是条件性结果，不是恒真**：其**前置条件** = 该构建目录的 `CTP_SDK_ROOT` 指向含 `ThostFtdcUserApi.h` 的目录（`⇒ CTP_FOUND=ON`）。
 > **无 CTP SDK 的环境下三轨一律退化为 `5/5`**（`rsk02` 不注册）。
 
+> **〔历史时点口径（2026-09-22 追加；只加不改）〕**：上方「`ctest` 前置接线」整块（含行号引用 `ctp_smoke/CMakeLists.txt:87` / `:128`、`HGCP_CTP_TRADER_HEADER` 取值、`CTP_SDK_ROOT=/home/ctpmini/ctpmini_admin/ctp_sdk`、`libthostuserapi.so` / `ThostFtdcUserApi.h`，以及三轨 `6/6` · `6/6` · `5/5` 计数）系 **`CTP Mini`（合并版 `UserApi`）基线**下的实测记录，**原句保留以留痕**。
+> **交付基线已变更为官方 CTP v6.7.13（分离式）**：头文件 = `ThostFtdcTraderApi.h` + `ThostFtdcMdApi.h`；库 = `thosttraderapi_se.so` / `thostmduserapi_se.so`（无 `lib` 前缀）；`HG_CTP_HEADER_STYLE` 默认 `CLASSIC` ⇒ `HGCP_CTP_TRADER_HEADER = "ThostFtdcTraderApi.h"`（见 `cpp/ctp_smoke/CMakeLists.txt:5–24`、`cpp/cmake/HgDependencies.cmake:10–11`）；**合并版 `ThostFtdcUserApi.h` / `CThostFtdcUserApi` / `CThostFtdcUserSpi` 在官方 SDK 上不可得**。
+> ⇒ 上方**行号引用与三轨计数均须在官方基线上重测**（本次**未**重测；本注仅作标记，不作为官方基线下的结论）。
+
 ```
 # cpp/build-ctp 实测（节选）：
 1/6 Test #1: arch_check ............... Passed 5.60 sec     ← fixture SETUP，先跑

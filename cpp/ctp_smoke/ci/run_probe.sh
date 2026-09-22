@@ -3,7 +3,8 @@
 # T-027 / RSK-02 探路复现脚本 —— CTP 头文件在 C++11 边界下的兼容验证
 #
 # 用法：
-#   CTP_SDK_ROOT=/path/to/ctp_sdk bash cpp/ctp_smoke/ci/run_probe.sh
+#   CTP_SDK_ROOT=/path/to/ctp_sdk_parent bash cpp/ctp_smoke/ci/run_probe.sh
+#     （CTP_SDK_ROOT 可指**官方解包父目录**，亦可指老式单目录；后者含两套头与两个库）
 #   HG_SKIP_SDK=1 bash cpp/ctp_smoke/ci/run_probe.sh     # 仅做"SDK 不可得"取证
 #
 # 断言清单（与 T-027 验收标准一一对应）：
@@ -12,9 +13,14 @@
 #   B3  __cplusplus == 201103（C++11 是编译期事实）
 #   B4  链接真实 SDK 动态库并取得 SDK 自报版本（非桩、非等价头文件）
 #   B5  反证①：CTP 头文件本身**不是** -Wextra -Werror 干净的（客观记录冲突）
-#   B6  反证②：T-027 原文的 <ThostFtdcTraderApi.h> 在本 SDK 上不可得（命名口径差异）
+#   B6  官方基线头名：<ThostFtdcTraderApi.h>（分离式）**可得** —— 交付基线口径
+#   B6b 合并版 <ThostFtdcUserApi.h> 在官方 SDK 上**不可得**（基线口径差异，非 C++11 冲突）
 #   B7  产物无任何 DB 客户端库（ARCHITECTURE.md 附录 B 红线 1）
 #   B8  C++11 边界未被放宽（编译参数中不含 c++14/c++17/gnu++14/gnu++17）
+#
+# ⚠️ 2026-09-22 判据反转（`CH-015`）：上一版在 `CTP Mini`（合并式 `ThostFtdcUserApi.h`）
+#    基线上把「<ThostFtdcTraderApi.h> 不可得」记为 B6 PASS；交付基线改为**官方 CTP
+#    v6.7.13**（分离式）后该结论**失效**，B6/B6b 随之反转。
 # =============================================================================
 set -uo pipefail
 
@@ -52,15 +58,22 @@ fi
 
 _info "CTP_SDK_ROOT = ${CTP_SDK_ROOT}"
 ls -la "${CTP_SDK_ROOT}" | sed 's/^/    /'
-_info "头文件校验和："
-md5sum "${CTP_SDK_ROOT}"/ThostFtdc*.h 2>/dev/null | sed 's/^/    /'
+_info "头文件校验和（递归，官方解包为「父目录 + 两子目录」）："
+find "${CTP_SDK_ROOT}" -maxdepth 2 -type f -name 'ThostFtdc*.h' -exec md5sum {} \; 2>/dev/null | sed 's/^/    /'
 _ok "B1 CTP SDK 可得（路径 ${CTP_SDK_ROOT}）"
+
+# 头文件所在目录解析（供 B6 探针用 —— 官方分离式下交易头**不在**根目录）。
+_hdr_dir() {  # $1 = 头文件名；打印其所在目录（找不到则空）
+  local f
+  f="$(find "${CTP_SDK_ROOT}" -maxdepth 2 -type f -name "$1" 2>/dev/null | head -1)"
+  if [[ -n "${f}" ]]; then dirname "${f}"; fi
+}
 
 _rule "1. 主路径：-std=c++11 -Wall -Wextra -Werror 下编译 + 链接真实 SDK"
 rm -rf "${BUILD_DIR}"
 if cmake -S "${PROJ_DIR}" -B "${BUILD_DIR}" \
      -DCTP_SDK_ROOT="${CTP_SDK_ROOT}" \
-     -DHG_CTP_HEADER_STYLE=MERGED \
+     -DHG_CTP_HEADER_STYLE=CLASSIC \
      -DHG_CTP_INCLUDE_AS_SYSTEM=ON \
      -DCMAKE_BUILD_TYPE=RelWithDebInfo > "${LOGDIR}/configure.log" 2>&1 \
    && cmake --build "${BUILD_DIR}" -j"$(nproc)" > "${LOGDIR}/build.log" 2>&1; then
@@ -76,7 +89,8 @@ grep -q 'cxx.standard.__cplusplus *: 201103$' <<<"${PROBE_OUT}" \
   && _ok "B3 __cplusplus == 201103（C++11 是编译期事实）" \
   || _bad "B3 __cplusplus 不是 201103"
 
-if grep -q 'sdk.linked *: YES' <<<"${PROBE_OUT}" && grep -q 'sdk.api.version.trader *: V' <<<"${PROBE_OUT}"; then
+if grep -q 'sdk.linked *: YES' <<<"${PROBE_OUT}" \
+   && grep -Eq 'sdk\.api\.version\.trader *: [vV]' <<<"${PROBE_OUT}"; then
   _ok "B4 已链接真实 SDK 动态库并取到自报版本：$(grep 'sdk.api.version.trader' <<<"${PROBE_OUT}" | sed 's/.*: //')"
 else
   _bad "B4 未链接真实 SDK 或未取到版本（须在结论中注明『未取得真实 SDK 版本』）"
@@ -142,18 +156,22 @@ else
   fi
 fi
 
-_rule "3. 反证②：<ThostFtdcTraderApi.h>（T-027 验收标准原文头名）在本 SDK 上是否可得"
-TMP_TU="$(mktemp /tmp/hg_ctp_trader_hdr_XXXX.cxx)"
+_rule "3. 官方基线头名：<ThostFtdcTraderApi.h> 可得 / 合并版 <ThostFtdcUserApi.h> 不可得（判据反转，CH-015）"
+TRADER_HDR_DIR="$(_hdr_dir ThostFtdcTraderApi.h)"
+MERGED_HDR_DIR="$(_hdr_dir ThostFtdcUserApi.h)"
+TMP_TU="${LOGDIR}/hg_ctp_trader_hdr.cxx"
 printf '#include <ThostFtdcTraderApi.h>\nint main(){return 0;}\n' > "${TMP_TU}"
-if g++ -std=c++11 -Wall -Wextra -Werror -I"${CTP_SDK_ROOT}" -c "${TMP_TU}" -o /dev/null 2>"${TMP_TU}.err"; then
-  _ok "B6 <ThostFtdcTraderApi.h> 可得（本 SDK 为独立 TraderApi 风格）"
+# 用 **-isystem**（= 本工程实际口径；官方头在普通 -I 下会因 -Wunused-parameter 撞 -Werror，
+# 见 B5）。此处判的是「官方头名可得」，不是「官方头 -Werror 干净」。
+if [[ -n "${TRADER_HDR_DIR}" ]] && g++ -std=c++11 -Wall -Wextra -Werror -isystem "${TRADER_HDR_DIR}" -c "${TMP_TU}" -o /dev/null 2>"${TMP_TU}.err"; then
+  _ok "B6 <ThostFtdcTraderApi.h> 可得且在本工程口径下编译通过（-isystem；官方分离式 —— 交付基线；目录 ${TRADER_HDR_DIR}）"
 else
-  if grep -qi 'No such file' "${TMP_TU}.err"; then
-    _ok "B6 <ThostFtdcTraderApi.h> 在本 SDK 上不可得（本 SDK 为合并版，交易头名为 ThostFtdcUserApi.h）—— 属命名口径差异，非 C++11 冲突"
-    _info "$(grep -m1 -i 'fatal error' "${TMP_TU}.err")"
-  else
-    _bad "B6 <ThostFtdcTraderApi.h> 失败原因不是文件缺失：$(head -2 "${TMP_TU}.err")"
-  fi
+  _bad "B6 <ThostFtdcTraderApi.h> 不可得或编译失败（官方基线应可得）：$(head -2 "${TMP_TU}.err" 2>/dev/null)"
+fi
+if [[ -z "${MERGED_HDR_DIR}" ]]; then
+  _ok "B6b 合并版 <ThostFtdcUserApi.h> 在官方 SDK 上不可得 —— 属基线口径差异（CH-015），非 C++11 冲突"
+else
+  _bad "B6b 官方 SDK 中竟存在 <ThostFtdcUserApi.h>（${MERGED_HDR_DIR}）；请核对交付基线（预期不可得）"
 fi
 rm -f "${TMP_TU}" "${TMP_TU}.err"
 

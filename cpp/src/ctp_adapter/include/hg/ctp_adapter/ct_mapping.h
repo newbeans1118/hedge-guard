@@ -3,14 +3,15 @@
 // =============================================================================
 // CTP 适配层 —— `Ct*` ↔ `CThostFtdc*` 字段映射（**仅 HG_CTP_FOUND=ON 编译**）
 //
-// 承载：docs/ARCHITECTURE.md §3.1（封装合并版 UserApi）、§7.2.1（依赖清单）；
+// 承载：docs/ARCHITECTURE.md §3.1（封装 CTP SDK）、§7.2.1（依赖清单）；
 //       docs/REQUIREMENTS/TRADE.md FR-TRADE-2/4/5/6/12；FUND.md FR-FUND-5/6/8；
 //       NONFUNCTIONAL.md NFR-COMPAT-6（期货与期权）。
 //
-// 说明（**实测口径，非文档旧文**）：CTP 合并版 SDK 实测存在
-//   · `<ThostFtdcUserApi.h>`：交易 SPI `CThostFtdcUserSpi` / 交易 API `CThostFtdcUserApi`；
-//   · `<ThostFtdcMdApi.h>`  ：行情 SPI `CThostFtdcMdSpi` / 行情 API `CThostFtdcMdApi`。
-//   **不存在** `<ThostFtdcTraderApi.h>` / `CThostFtdcTraderSpi`。
+// 说明（**实测口径，非文档旧文**）：官方 CTP **v6.7.13**（交付基线）实测存在
+//   · `<ThostFtdcTraderApi.h>`：交易 SPI `CThostFtdcTraderSpi` / 交易 API `CThostFtdcTraderApi`；
+//   · `<ThostFtdcMdApi.h>`    ：行情 SPI `CThostFtdcMdSpi` / 行情 API `CThostFtdcMdApi`；
+//   · `<ThostFtdcUserApiStruct.h>`：报文结构（两包**逐字节相同**）。
+//   合并版 `CThostFtdcUserSpi` / `<ThostFtdcUserApi.h>` 在官方 SDK **不存在**。
 //   期货与期权**共用** `CThostFtdcInputOrderField` 报单结构，类别由 `InstrumentID` 区分
 //   （`PROJECT.md` §10-10：仅境内场内期货与期权；`NFR-COMPAT-6`）。
 // =============================================================================

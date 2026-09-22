@@ -44,10 +44,12 @@ static_assert(!std::is_abstract<HGCP_CTP_MD_SPI_CLASS>::value,
               "CTP 行情 SPI 不应含纯虚函数");
 
 // ---------------------------------------------------------------------------
-// 2) SPI 派生实现：这是 §3.1 `CtSpiImpl : CThostFtdcUserSpi` 的最小等价物。
-//    ⚠️ 架构 §3.1 旧版误写为 `CThostFtdcTraderSpi`（历史错误名，已废止）；合并版 SDK 的真实
-//       SPI 基类为 `CThostFtdcUserSpi`（交易）/ `CThostFtdcMdSpi`（行情）。技术负责人已在
-//       `ARCHITECTURE.md` v1.5.1 勘误（见 `T-027` 工单「发现 ②」）。
+// 2) SPI 派生实现：这是 §3.1 `CtSpiImpl : CThostFtdcTraderSpi` 的最小等价物。
+//    官方 CTP v6.7.13（**交付基线**）的交易 SPI 基类为 `CThostFtdcTraderSpi`
+//    （头文件 `<ThostFtdcTraderApi.h>`）/ 行情基类为 `CThostFtdcMdSpi`。
+//    ⚠️ 历史沿革：`ARCHITECTURE.md` v1.5.1 曾按 `CTP Mini` **合并版**把交易 SPI 基类
+//       勘误为 `CThostFtdcUserSpi`（头文件 `<ThostFtdcUserApi.h>`）；官方 SDK
+//       **不存在**该头/类 ⇒ 该勘误**对交付基线不成立**（`CH-015`，本件已重做）。
 //    使用 `override`（C++11）——签名一旦漂移即编译失败，正是我们要的"契约级"探针。
 // ---------------------------------------------------------------------------
 class CtProbeSpi : public HGCP_CTP_TRADER_SPI_CLASS {
@@ -95,7 +97,13 @@ class CtMdProbeSpi : public HGCP_CTP_MD_SPI_CLASS {
 typedef int (HGCP_CTP_TRADER_API_CLASS::*ReqUserLoginFn)(CThostFtdcReqUserLoginField*, int);
 typedef int (HGCP_CTP_TRADER_API_CLASS::*ReqOrderInsertFn)(CThostFtdcInputOrderField*, int);
 typedef int (HGCP_CTP_TRADER_API_CLASS::*ReqOrderActionFn)(CThostFtdcInputOrderActionField*, int);
+// `SubscribePrivateTopic` 的参数元数随 SDK 形态不同（见 hgcp_ctp_headers.h 生成定义）：
+//   官方分离式 = `(THOST_TE_RESUME_TYPE, int nSeqNo=1)`；`CTP Mini` 合并版 = `(THOST_TE_RESUME_TYPE)`。
+#if HGCP_CTP_PRIVATE_TOPIC_ARITY == 2
+typedef void (HGCP_CTP_TRADER_API_CLASS::*SubscribePrivateTopicFn)(THOST_TE_RESUME_TYPE, int);
+#else
 typedef void (HGCP_CTP_TRADER_API_CLASS::*SubscribePrivateTopicFn)(THOST_TE_RESUME_TYPE);
+#endif
 typedef void (HGCP_CTP_TRADER_API_CLASS::*RegisterSpiFn)(HGCP_CTP_TRADER_SPI_CLASS*);
 
 const ReqUserLoginFn        kReqUserLogin        = &HGCP_CTP_TRADER_API_CLASS::ReqUserLogin;
@@ -136,7 +144,7 @@ int main() {
   std::cout << "sdk.linked                 : " << HGCP_CTP_PROBE_LINKED << "\n";
   std::cout << "sdk.libs                   : " << HGCP_CTP_PROBE_LIBS << "\n";
 
-  // 关键类型尺寸：证明数据类型头（9830 行 struct / 6631 行 enum）被完整解析
+  // 关键类型尺寸：证明数据类型头（`ThostFtdcUserApiStruct.h` 的 struct / enum）被完整解析
   std::cout << "sizeof.InputOrderField     : " << sizeof(CThostFtdcInputOrderField) << "\n";
   std::cout << "sizeof.OrderField          : " << sizeof(CThostFtdcOrderField) << "\n";
   std::cout << "sizeof.TradeField          : " << sizeof(CThostFtdcTradeField) << "\n";

@@ -2,9 +2,9 @@
 #include "hg/ctp_adapter/module.h"
 
 #if HG_CTP_FOUND
-// 合并版 CTP 交易 SPI 头（PROJECT.md §5.1：ThostFtdc 合并版 UserApi）。
+// 官方分离式 CTP 交易头（交付基线 = 官方 CTP v6.7.13）。
 // 以 SYSTEM 头引入（见本模块 CMakeLists.txt），抑制第三方头 -Wunused-parameter。
-#include <ThostFtdcUserApi.h>
+#include <ThostFtdcTraderApi.h>
 #endif
 
 namespace hg {

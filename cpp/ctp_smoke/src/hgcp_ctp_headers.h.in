@@ -1,8 +1,8 @@
 // 由 cpp/ctp_smoke/CMakeLists.txt configure_file 生成。**禁止手改**。
 //
 // 作用：把"实际选中的 CTP 头文件与类名"注入编译单元，使同一份探路源码
-//       既能打「合并版 UserApi」（本项目技术栈口径，PROJECT.md §5.1 /
-//       ARCHITECTURE.md §7.2.1）也能打「独立 TraderApi」（T-027 验收标准原文写法）。
+//       既能打「官方**分离式** TraderApi」（**交付基线口径**，官方 CTP v6.7.13，
+//       ARCHITECTURE.md §3.1）也能打「`CTP Mini` 合并版 UserApi」（历史对照）。
 #ifndef HGCP_CTP_HEADERS_H
 #define HGCP_CTP_HEADERS_H
 
@@ -16,6 +16,9 @@
 #define HGCP_CTP_TRADER_SPI_CLASS  @HGCP_CTP_TRADER_SPI_CLASS@
 #define HGCP_CTP_MD_API_CLASS      CThostFtdcMdApi
 #define HGCP_CTP_MD_SPI_CLASS      CThostFtdcMdSpi
+// `SubscribePrivateTopic` 的参数元数：官方分离式 = 2（`(THOST_TE_RESUME_TYPE, int nSeqNo=1)`）；
+// `CTP Mini` 合并版 = 1。探路源码据此选择正确的成员函数指针 typedef。
+#define HGCP_CTP_PRIVATE_TOPIC_ARITY @HGCP_CTP_PRIVATE_TOPIC_ARITY@
 @HGCP_CTP_STYLE_MERGED_DEFINE@
 
 #endif  // HGCP_CTP_HEADERS_H

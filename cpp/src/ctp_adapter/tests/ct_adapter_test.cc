@@ -3,7 +3,7 @@
 //     ① CTP 未连接 ⇒ `sendOrder` 回 `0x2004` 且指令**退回保留、不静默丢弃**
 //        （FR-TRADE-2 验收 4）。
 //     ② SPI 回调侧**只做**序列化 + 入队（onOrderEvent / onQuoteEvent 不改后端、只动队列）。
-//     ③ 期货与期权**均覆盖**（同一 UserApi 报单面，类别由 `CtOrderReq::market` 标注）。
+//     ③ 期货与期权**均覆盖**（同一交易接口报单面，类别由 `CtOrderReq::market` 标注）。
 #include <string>
 #include <vector>
 
@@ -312,6 +312,29 @@ void credentials_are_never_echoed() {
   HG_CHECK(redacted.find("investor01") != std::string::npos);  // 非敏感字段保留
 }
 
+// U1：CtConfig::env_type ↔ 官方 `bIsProductionMode`（CFG-22 `hg.ctp.env_type`）。
+void config_env_type_maps_to_production_mode() {
+  CtConfig default_cfg;
+  // 缺省 = kSimulation（**与架构已登记 CFG-22 的缺省逐字一致**；fail-safe：
+  // 缺省指向评测前置 ⇒ 配错只「连不上/不交易」，不会误连实盘）。
+  // ★ 行为变更（技术席裁定 2026-09-22）：改前「不配置 ⇒ 生产」，改后「不配置 ⇒ 评测」。
+  HG_CHECK(default_cfg.env_type == hg::ctp_adapter::CtEnvType::kSimulation);
+  HG_CHECK(!default_cfg.productionMode());  // 缺省 ⇒ bIsProductionMode=false
+  HG_CHECK(default_cfg.redacted().find("env_type=SIMULATION") != std::string::npos);
+  // 生效模式可观测（防缺省悄悄生效而不被看见）
+  HG_CHECK(default_cfg.redacted().find("env_type=") != std::string::npos);
+
+  CtConfig prod = makeConfig();
+  prod.env_type = hg::ctp_adapter::CtEnvType::kProduction;
+  HG_CHECK(prod.productionMode());
+  HG_CHECK(prod.redacted().find("env_type=PRODUCTION") != std::string::npos);
+
+  CtConfig sim = makeConfig();
+  sim.env_type = hg::ctp_adapter::CtEnvType::kSimulation;
+  HG_CHECK(!sim.productionMode());  // 评测版 API：bIsProductionMode=false
+  HG_CHECK(sim.redacted().find("env_type=SIMULATION") != std::string::npos);
+}
+
 }  // namespace
 
 int main() {
@@ -328,5 +351,6 @@ int main() {
   order_event_queue_overflow_is_counted_not_silent();
   quote_queue_drop_is_observable();
   credentials_are_never_echoed();
+  config_env_type_maps_to_production_mode();
   return hg::ctp_adapter::testutil::report("ct_adapter_test");
 }

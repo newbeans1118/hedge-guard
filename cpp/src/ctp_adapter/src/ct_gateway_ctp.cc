@@ -1,13 +1,17 @@
-// CTP 适配层 —— 真实 CTP SDK 网关（合并版 UserApi / MdApi，仅 HG_CTP_FOUND=ON 编译）。
+// CTP 适配层 —— 真实 CTP SDK 网关（官方**分离式** TraderApi / MdApi，仅 HG_CTP_FOUND=ON 编译）。
 //
-// 承载：docs/ARCHITECTURE.md §3.1（封装 CTP 合并版 `ThostFtdc UserApi`：交易 + 行情 +
-//       资金划转）；§7.2.1（依赖清单 = CTP SDK + protobuf）。
+// 承载：docs/ARCHITECTURE.md §3.1（封装 CTP SDK：交易 + 行情 + 资金划转）；
+//       §7.2.1（依赖清单 = CTP SDK + protobuf）。
 //
-// 实测（2026-09-22，`/home/ctpmini/ctpmini_admin/ctp_sdk`）：
-//   · `ThostFtdcUserApi.h`  → `CThostFtdcUserApi::CreateFtdcUserApi` / `CThostFtdcUserSpi`
-//   · `ThostFtdcMdApi.h`    → `CThostFtdcMdApi::CreateFtdcMdApi`   / `CThostFtdcMdSpi`
-//   · 资金划转走交易 UserApi：`ReqFromBankToFutureByFuture`（入金）/
+// 实测（2026-09-22，官方 CTP **v6.7.13**，`sdk/v6.7.13_20260225_api/`）：
+//   · `ThostFtdcTraderApi.h` → `CThostFtdcTraderApi::CreateFtdcTraderApi(pszFlowPath, bIsProductionMode)`
+//                              / `CThostFtdcTraderSpi`
+//   · `ThostFtdcMdApi.h`     → `CThostFtdcMdApi::CreateFtdcMdApi(pszFlowPath, bIsUsingUdp,
+//                              bIsMulticast, bIsProductionMode)` / `CThostFtdcMdSpi`
+//   · 资金划转走交易 API：`ReqFromBankToFutureByFuture`（入金）/
 //     `ReqFromFutureToBankByFuture`（出金）（FR-FUND-5/6；R-FUND-11「复用 CTP 通道」）。
+//   · 生命周期纪律：`Create → RegisterSpi/RegisterFront → Subscribe*Topic → Init → Release`；
+//     **`Release()` 必须在 `Init()` 之后**（之前调用会段错误）⇒ 由 `CtApiLifecycle` 守卫。
 #include "hg/ctp_adapter/ct_gateway.h"
 
 #if HG_CTP_FOUND
@@ -16,8 +20,9 @@
 #include <vector>
 
 #include <ThostFtdcMdApi.h>
-#include <ThostFtdcUserApi.h>
+#include <ThostFtdcTraderApi.h>
 
+#include "hg/ctp_adapter/ct_lifecycle.h"
 #include "hg/ctp_adapter/ct_mapping.h"
 #include "hg/ctp_adapter/ct_spi_impl.h"
 
@@ -41,23 +46,34 @@ class CtpTradeGateway : public CtTradeGateway {
   virtual bool connect(const CtConfig& cfg, std::string* error) {
     cfg_ = cfg;
     if (api_ != 0) return true;
-    api_ = CThostFtdcUserApi::CreateFtdcUserApi(cfg_.flow_path.c_str());
+    // 官方分离式工厂：`bIsProductionMode` 由 CtConfig 显式给出（映射 CFG-22；
+    // **CtConfig 缺省 = 评测**，故**上生产须显式设 `CFG-22=PRODUCTION`**）。
+    api_ = CThostFtdcTraderApi::CreateFtdcTraderApi(cfg_.flow_path.c_str(),
+                                                   cfg_.productionMode());
     if (api_ == 0) {
-      if (error) *error = "CThostFtdcUserApi::CreateFtdcUserApi 返回空";
+      if (error) *error = "CThostFtdcTraderApi::CreateFtdcTraderApi 返回空";
       return false;
     }
+    lifecycle_.markCreated();
     api_->RegisterSpi(&spi_);
     std::vector<char> front = toMutable(cfg_.trade_front);
     api_->RegisterFront(&front[0]);
+    // 订阅须在 Init 之前（官方接口备注）。
     api_->SubscribePrivateTopic(THOST_TERT_QUICK);
     api_->SubscribePublicTopic(THOST_TERT_QUICK);
     api_->Init();
+    lifecycle_.markInitialized();
     return true;
   }
 
   virtual void disconnect() {
     if (api_ != 0) {
-      api_->Release();
+      // ★ 官方纪律：Release() 必须在 Init() 之后；之前调用会段错误 ⇒ 经守卫判定。
+      //   若「已创建但未 Init」，宁可放弃释放（泄漏）也**不得**崩溃。
+      if (lifecycle_.canRelease()) {
+        api_->Release();
+        lifecycle_.markReleased();
+      }
       api_ = 0;
     }
   }
@@ -116,12 +132,13 @@ class CtpTradeGateway : public CtTradeGateway {
     return api_->ReqFromFutureToBankByFuture(&transfer, request_id);
   }
 
-  virtual const char* apiVersion() const { return CThostFtdcUserApi::GetApiVersion(); }
+  virtual const char* apiVersion() const { return CThostFtdcTraderApi::GetApiVersion(); }
   virtual const char* backendName() const { return "ctp-sdk"; }
 
  private:
-  CtSpiImpl spi_;  // 派生自 CThostFtdcUserSpi；基类无虚析构 ⇒ 不得经基类指针释放。
-  CThostFtdcUserApi* api_;
+  CtSpiImpl spi_;  // 派生自 CThostFtdcTraderSpi；基类无虚析构 ⇒ 不得经基类指针释放。
+  CThostFtdcTraderApi* api_;
+  CtApiLifecycle lifecycle_;
   CtConfig cfg_;
 };
 
@@ -133,21 +150,30 @@ class CtpMdGateway : public CtMdGateway {
   virtual bool connect(const CtConfig& cfg, std::string* error) {
     cfg_ = cfg;
     if (api_ != 0) return true;
-    api_ = CThostFtdcMdApi::CreateFtdcMdApi(cfg_.flow_path.c_str(), false, false);
+    // 官方分离式行情工厂：`bIsProductionMode` 由 CtConfig 显式给出（映射 CFG-22；
+    // **CtConfig 缺省 = 评测**，故**上生产须显式设 `CFG-22=PRODUCTION`**）。
+    api_ = CThostFtdcMdApi::CreateFtdcMdApi(cfg_.flow_path.c_str(), false, false,
+                                            cfg_.productionMode());
     if (api_ == 0) {
       if (error) *error = "CThostFtdcMdApi::CreateFtdcMdApi 返回空";
       return false;
     }
+    lifecycle_.markCreated();
     api_->RegisterSpi(&spi_);
     std::vector<char> front = toMutable(cfg_.md_front);
     api_->RegisterFront(&front[0]);
     api_->Init();
+    lifecycle_.markInitialized();
     return true;
   }
 
   virtual void disconnect() {
     if (api_ != 0) {
-      api_->Release();
+      // ★ 同交易侧：Release() 必须在 Init() 之后（见 CtApiLifecycle）。
+      if (lifecycle_.canRelease()) {
+        api_->Release();
+        lifecycle_.markReleased();
+      }
       api_ = 0;
     }
   }
@@ -183,6 +209,7 @@ class CtpMdGateway : public CtMdGateway {
  private:
   CtMdSpiImpl spi_;
   CThostFtdcMdApi* api_;
+  CtApiLifecycle lifecycle_;
   CtConfig cfg_;
 };
 

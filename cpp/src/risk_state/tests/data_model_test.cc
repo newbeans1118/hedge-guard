@@ -140,6 +140,7 @@ LoadBatch makeFullBatch() {
   perm.products.insert(2);
   perm.individual_quota = qtyFromWhole(500);
   perm.has_trading_post = true;
+  perm.has_settle_role = true;  // T-126：结算岗标记承载（经 LoadBatch → 快照）
   b.putPermission(9001, perm);
   PermissionEntry resp;
   resp.is_responsible = true;  // 负责人标记 ⇒ 禁授交易岗（NFR-SEC-5 兜底）
@@ -266,6 +267,11 @@ void test_all_datasets_present() {
   const PermissionEntry* perm = s.findPermission(9001);
   HG_CHECK(perm != nullptr);
   if (perm != nullptr) HG_CHECK_EQ(perm->individual_quota, qtyFromWhole(500));
+  // T-126：新增岗位 / 角色维度字段经 `LoadBatch → RiskSnapshot` 承载（整结构体复制）
+  if (perm != nullptr) {
+    HG_CHECK(perm->has_settle_role);       // 显式置位者保持 true
+    HG_CHECK(!perm->is_management_role);   // 未置位者保持缺省 false
+  }
   HG_CHECK(s.canTrade(9001, 7, 1));
   HG_CHECK(!s.canTrade(9001, 8, 1));   // 未授权子账户
   HG_CHECK(!s.canTrade(9001, 7, 3));   // 未授权品种
