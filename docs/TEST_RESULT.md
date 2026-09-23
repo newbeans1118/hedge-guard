@@ -11227,3 +11227,173 @@ grep -rnP --include=*.java 'AUTH[ ]?\d+.*CONFIG[ ]?\d+.*PRODUCT[ ]?\d+.*SPOT[ ]?
   4. `模式②`「测试数据夹具计数」未逐条列入穷举表（判**非本类**）；如需清单可另跑 `grep -rnP '\d+\s*条' java/src/test`。
 
 - **状态**：**已完成，待独立复核**（不自评 `DONE`）。
+
+---
+
+# `T-158` 补正 + `T-161` 搭车 —— 独立复核报告（席 `te-verify-txt2`；2026-09-24；纯追加）
+
+> **对象**：`T-158` 补正交付（提交 `2b4fea9`，实例 `te-txt-b`）；`T-161` 编排者实施（提交 `a96f547` + `e54847f`）。
+> **定位**：产出方自述**不构成证据**；本席独立取证、只读提问、结论自下、**以攻击为目标**。
+> **纪律**：注入一律在 `/root/iso_t158` **隔离副本**（`iso_t158/java/src` = 359 文件副本）内做，**共享树零注入残留**（收尾 `git status --porcelain` 仅本证据节）；`mvn` 全程串行（本席为当前唯一构建者）、`TMPDIR=/root`、**未**用 `/tmp`；**未** `commit`/`amend`/`reset`/`push`。
+> **纯追加证明**：追加前 `wc -l docs/TEST_RESULT.md` = **11229**、`head -11229 | md5sum` = **`b797051027a4521e322a7830c24d05e8`**；追加后复测同值（见 §五）。
+
+## 一、结论（两件事分别给）
+
+| 事项 | 结论 | 阻断 | 缺陷 | 观察 |
+|------|------|------|------|------|
+| **`T-158` 补正** | **通过** | 0 | **0** | 2 |
+| **`T-161` 搭车** | **有条件通过** | 0 | **1（中 `TE-TXT2-001`）** | 2 |
+
+- `T-158`：`TE-TXT-001` 订正确实（`PLAN 4`→`PLAN 5`）、**仅注释字面量**、门禁 **650/0/0/0 + BUILD SUCCESS**、`arch-check` **rc 0**（`E1`–`E7` 全 0）、树锚吻合；`★A` 分解式**自洽（假设不成立）**；`★B` 新判据**有牙**（注入必红）；`★C`/`★D`/`★H` 均**不成立**（无漏点/无误判）。
+- `T-161`：两处 `+1 反引号` 修复**正确**（格数=9、反引号偶数，全表 ∅）；**但**产出方「据实撤回」的核心论断**「不存在被吞的管道末段、零内容丢失」经本席实测**证伪** —— 三行（`T-010`/`T-035`/`T-096`）在各自**引入提交之前**均含 `\| md5sum\` = \`<md5>\` / **N 文件**` 结构锚，**均被随即的状态叙事顶替** ⇒ 原「管道末段被状态叙事顶替」描述**成立**。缺陷 **`TE-TXT2-001`（中）**。
+
+## 二、`T-158` 补正 —— 逐假设取证实测
+
+### 冻结/交付锚点（独立复算）
+```
+find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum   # = 30657c94c54ea488dcbd70700c4d78b5 / 359  ✔（自报同值）
+md5sum java/src/test/.../ModuleRoutesConsistencyTest.java       # = af299e844ad6593957c5fdc24d44a44e / 175 行  ✔
+git show 2b4fea9 --numstat                                       # docs/TEST_RESULT.md 196/0 ; 该 .java 1/1  ⇒ 合计 +197/−1  ✔
+```
+### `★F` 未削断言 —— **不成立（即：无削断言，产出方属实）**
+- `git diff 2b4fea9^ 2b4fea9 -- <file>` **仅 1 个 hunk**（`@@ -37,7 +37,7 @@`），`1 insertions(+), 1 deletion(-)`。
+- 逐 hunk 判读：唯一改动 = `:40` javadoc `… + SPOT 10 + PLAN 4）` → `… + SPOT 10 + PLAN 5）`，**纯字面量**。
+- 断言区（`:96/:100/:105/:112/:115/:118/:127/:145/:153`）**逐条未动**；`@Test` 仍 2、`src/main`/`web`/`ApiRoutes` 零改动。
+
+### `★G` 证据章纯追加 —— **成立**
+```
+git show 2b4fea9^:docs/TEST_RESULT.md | wc -l            # 11033
+git show 2b4fea9^:docs/TEST_RESULT.md | md5sum           # cd9be8a16d6122d464e44ff863aad253
+head -11033 docs/TEST_RESULT.md | md5sum                 # cd9be8a16d6122d464e44ff863aad253  （逐字节同 ⇒ 纯追加）
+wc -l docs/TEST_RESULT.md                                # 11229 = 11033 + 196
+git show 2b4fea9 --numstat -- docs/TEST_RESULT.md        # 196  0   （删除数 = 0）
+```
+
+### 门禁（独立实测，交付态冻结点 `2b4fea9`）
+```
+cd java && TMPDIR=/root mvn -B -o -Punit clean test
+  → [INFO] Tests run: 650, Failures: 0, Errors: 0, Skipped: 0 ; BUILD SUCCESS
+surefire 汇总（*.txt 聚合）= 650/0/0/0 ; TEST-*.xml 文件数 = 79
+grep -rn --include=*.java -E '^[[:space:]]*@Test' java/src/test | wc -l = 650
+grep -rn --include=*.java -E '@(ParameterizedTest|RepeatedTest)' java/src/test | wc -l = 0
+cd java && TMPDIR=/root mvn -B -o validate
+  → E1..E7 退出码均 0 ; `arch-check 通过：七个判据脚本全部通过（退出码 0）` ; BUILD SUCCESS
+```
+`@Test`（行首口径）== surefire == **650** ✔（非 `grep -c @Test` 单口径）。
+
+### `★A` 分解式自洽性 —— **不成立（算术自洽，非缺陷）**
+被测文本（`BootstrapAssemblyTest.java:134-135`，live）：`81 条业务路由（含 T-109 补齐的 19 条 + T-010 补齐的 AUTH 15 条 + T-135 补齐的 CONFIG 停用 1 条）+ ping 的 GET/HEAD 2 条 = 83`。
+- **核对 addends（实测，非引述）**：`T109EndpointRegistrationTest.NEW_ROUTES` 实测 **19**（CONFIG 13 + SPOT 5 + PLAN 1）；AUTH 实注册 **17**（`AuthRoutes` 17 个 `router.register`），原 login/logout 2 ⇒ T-010 **+15**；`ConfigRoutes` 18、`PUT /config/sub-account` 1 ⇒ T-135 **+1**。三者**互斥**（不同模块/端点），和 = 35。
+- **求 base**：`81 − 19 − 15 − 1 = 46`；即 `base(46) + 19 + 15 + 1 = 81` ✔；`81 + ping 2 = 83 = assertEquals(83, …)` ✔。
+- **base 的历史一致性（git 考古，独立）**：`59b6f70`（初版）`:134` = `65 条（含 T-109 的 19）`、`:137` 明细 `65（AUTH2/CONFIG17/PRODUCT13/SPOT15/PLAN18）` ⇒ base = 65−19 = **46**；`c07dfa6` = `80（含 T-109 19 + T-010 15）` ⇒ base = 80−19−15 = **46**；现行 = 81−19−15−1 = **46**。**三时点一致 ⇒ 分解式自洽**。
+- **per-module 逐项实测**：AUTH 17 / CONFIG 18 / PRODUCT 13 / SPOT 15 / PLAN 18（PLAN 经两循环展开：`PlanActionHandler.Action` 8 + `PlanRatioHandler.Method` 3 + 直注册 7 = 18），和 = 81 ✔。
+- 附注：`docs/TEST_PLAN/INDEX.md:138` 的「47 对/37 路径 / AUTH2/CONFIG4/PRODUCT13/SPOT10/**PLAN16**=45」为 **D-19 期（2026-09-20）**口径，与「base 46（PLAN17）」差异 1，属**同族不同时点**、已由 `T-163` 承载（**明确陈旧、已知**，非本单漏点）——见 §四`O-1`。
+
+### `★B` 新判据「同文件一致性」有无牙 —— **有牙（成立）**
+把产出方 §四(a) 的 `C_c1` 脚本**原样**用于隔离副本，并做**双向注入**（正/负控）：
+```
+[基线]   python3 c_c1.py（clean 副本）      → ### C_c1 HIT files = 0
+[INJ-1]  将 :40 改回 `PLAN 4`（live 行）    → [HIT] ModuleRoutesConsistencyTest.java
+                                               :40 {...'PLAN':'4'} / :50 {...'PLAN':'5'}  → HIT files = 1  ✔必红
+[INJ-2]  在 `:139`（【T-010 订正（加注）】块内）将 AUTH17→AUTH19 → HIT files = 0  ✔（剔除逻辑生效，非空转）
+```
+⇒ `C_c1` 能击落「同文件内同模块数字不一致」（**有守卫力**），且**HIST（订正/加注）剔除逻辑真实生效**（否则 INJ-2 会误报）。**宽口径 `C_broad` 逐处判定**：本席复跑得 **2 文件**（`M1ProductSpotPlanSchemaTest`、`BootstrapAssemblyTest`），**无第 3 个文件**；对账见 `★C`。
+
+### `★C` 2 文件命中是否真非缺陷 —— **真非缺陷（成立）**
+- `M1ProductSpotPlanSchemaTest`：`:34/:58` = **建表数**（`PRODUCT 8 / SPOT 10 / PLAN 8`，来自 `docs/DATA_MODEL.md §2.3/2.4/2.5` —— 实测 §2.3=`PRODUCT 8 张`、§2.4=`SPOT 10 张`、§2.5=`PLAN 8 张`）；`:287` = **子账户贯穿 NOT NULL 列数**（`SPOT 9 / PLAN 8 / PRODUCT 3`）⇒ **同模块名、异度量**，非不一致。
+- `BootstrapAssemblyTest`：`AUTH 10/15/17`、`CONFIG 17/18` 中，`:137/:139`（`AUTH 10/17`、`CONFIG 17`）**均落在 `:137-144` 两段【T-010/T-135 订正（加注）】注释块内**（`:137` 以 `// 【T-010 订正（加注）】` 起头，含 `:138/:139`）；`:146`（`AUTH17/CONFIG18`）为唯一 live、无冲突 ⇒ **时序取代**，非「同指一物的两说」。两处均**非 live 陈旧** ⇒ 非缺陷。
+
+### `★D` `src/main` 4 处「正确不改」—— **真正确（成立）**
+```
+ApiRoutes AUTH = /auth/login,logout,user,role,position-group,authorization,sub-account-perm,change-log,unauthorized-attempt,password = 10 路径  ⇒ AuthRoutes:20「AUTH 10 条路径」✔
+AuthRoutes:52「其余 8 条路径」= 10 − login/logout(2) = 8  ✔
+ProductRoutes:58-60「这 4 条端点…不可达」= /product/quota,mapping,change-log,export（4 条，被 GET /product/{id} 遮蔽）✔ 与 BUG-004（PRODUCT 4 + SPOT 1 = 5）自洽
+```
+
+### `★H` 穷举面真伪 —— **不成立（未发现漏点，产出方属实）**
+用**产出方自述的 3 类模式**在 `java/**` 全域重扫，本席清单与产出方对账：
+- 模式①（「11 键模块名+数字」×11）：`grep -rnP '\b(AUTH|CONFIG|...|AUDIT)[ ]?\d+' java/src` = **13 行**（`M1ProductSpotPlanSchemaTest:34/35/58/287`、`ConfigAuthSchemaTest:33`、`RouteReachabilityBug004Test:33/38`、`ModuleRoutesConsistencyTest:40/50`、`BootstrapAssemblyTest:134/137/139/146`）—— 逐处**均已被产出方表覆盖或为异度量/历史快照**，**无陈旧漏点**。
+- 模式③（五模块 breakdown）：**4 行**（`ModuleRoutesConsistencyTest:40/50`、`BootstrapAssemblyTest:139/146`），与产出方一致。
+- 模式②（计数词）：命中大量**测试数据夹具计数**（产出方已在「说明」中声明为非本类）；本席另以 `(\d+[ ]*(条|个)?[ ]*路由|路由数|routeCount)` 与「已知陈旧数 45/46/47/48/67/81/82/83 + 路由词」二次筛，**未发现产出方漏列的陈旧计数注释**（`FakeJdbcDriver:23`=81、`FullWebAssembly:40/51`=83/81、`BootstrapAssemblyTest:119/146`=83/81 等均正确）。
+- `java/CONTRACTS.md:24`「CONFIG/AUTH 20 张表」= 7+13 = 20 ✔（`DATA_MODEL §2.1=7 / §2.2=13` 实测）。
+⇒ **「陈旧计数注释仅 1 处（=`:40`）」成立**。
+
+## 三、`T-161` 搭车 —— 逐假设取证实测
+
+### `★E-1` 两处修复正确性 —— **成立**
+本席**自撰** GFM 口径体检脚本（`/root/iso_t158/tablecheck.py`，**先过正/负控自测**）：
+```
+[selftest] 9 格行=9 / 转义 `\|` 不切分=9 / `\|\|`=9 / 裸多一竖线=10 / 反引号偶=4、奇=3 / `\` 逃逸反引号=0  → ALL PASS
+```
+全表 `^| T-xxx ` 行 **163** 行（= 产出方「163」）：
+```
+[HEAD 2b4fea9]  格数 != 9 行: ∅      未转义反引号数为奇: ∅          →  count 0 / 0  ✔
+[a96f547^ 修前]  格数 != 9 行: ∅      未转义反引号数为奇: [(80,9),(141,9)]   →  T-035 / T-096 两处  ✔（与产出方一致）
+```
+`T-035`/`T-096` 两行 `a96f547^→a96f547` **逐字符差分**（`difflib.SequenceMatcher`）：
+```
+T-035:  insert PRE[649:649]=''  POST[649:650]='`'      ← 仅插入 1 字符，无删除
+T-096:  insert PRE[1079:1079]='' POST[1079:1080]='`'   ← 仅插入 1 字符，无删除
+```
+且插入点均为 `… xargs md5sum \|` **之后**（`'…xargs md5sum \|'` → `'…xargs md5sum \|`\''`）⇒ 「1 字符 ×2、未删改任何字」**属实**。（`T-161` 自身行另有 append + `TODO→已完成，待独立复核`，已在提交信息声明。）
+
+### `★E-3` `T-010` 反引号已平衡、格数 9 —— **成立**
+```
+T-010 行 :55 ; 有效格数 = 9 ; 状态列未转义反引号 = 196（偶）   ⇒ 无渲染缺陷  ✔
+```
+
+### `★E-2` 「零内容丢失」—— **证伪 ⇒ 缺陷 `TE-TXT2-001`**
+产出方（`docs/TASKS.md` `T-161` 行 §(1)、`docs/BOARD.md` §5、`a96f547`/`e54847f` 提交信息）**据实撤回**其原推断：
+> 「我此前判『管道末段 `md5sum` 及闭合反引号被状态叙事顶替（疑内容丢失）』**不成立** —— 实测 **`e53b00a^`（第 54 轮之前）该处已是 `xargs md5sum \| <状态>（…` 同形** ⇒ **不存在「被吞掉的管道末段」**，真相 = 作者**漏了闭合反引号**，**零内容丢失**。」
+
+**本席独立取证（`git merge-base --is-ancestor 6162d31 e53b00a` = YES ⇒ `e53b00a^` 在 `6162d31` **之后**）**：产出方所查的 `e53b00a^` 是**已在损坏之后**的快照，故其推断**无效**。逐行定位**引入提交**（本席自撰 transition 扫描，newest→oldest 找「前态含 `xargs md5sum \| md5sum`、后态不含」）：
+
+| 行 | 引入提交（本席实测） | **引入前**该处原文（逐字符） | **引入后**该处 |
+|----|----|----|----|
+| `T-035` | `6162d31`（第 52 轮，2026-09-22 19:47） | ``xargs md5sum \| md5sum` = `fc086003…` / **28 文件**（编排者独立复测一致）`` | ``xargs md5sum \| **IN_PROGRESS**（**2026-09-22 独立复核 `te-verify-t035`…`` |
+| `T-096` | `5e1bb87`（第 46/47 轮，15:45） | ``xargs md5sum \| md5sum` = `d71105d257ca82a297f0450ca470ea46` / **320 文件**（编排者独立复测一致）`` | ``xargs md5sum \| **DONE（授权 + 独立验证）**〔第 47 轮〕…`` |
+| `T-010` | `3a991c3`（第 53 轮） | （同形：`xargs md5sum \| md5sum` = `<md5>` / **N 文件**）（前态完好至 `6162d31`） | ``xargs md5sum \| **IN_PROGRESS**（…`` |
+
+⇒ **三行在引入提交之前均含 `\| md5sum\` = \`<md5>\` / **N 文件**` 结构锚，均被随后改写的状态叙事顶替。** 故：
+1. 产出方「**不存在被吞的管道末段**」**不实**；原描述「**管道末段 `md5sum` 及其闭合反引号被状态叙事顶替**」**成立**（**真内容丢失**）。
+2. 产出方**误把 `e53b00a^` 当作「引入前」**（实为引入后），**『零内容丢失』结论错误**；其自撰的 `T-161` 任务行内**本已二分得 `6162d31`**，却以 `e53b00a^` 作撤回依据 ⇒ **自相矛盾**。
+3. 影响：`T-161` 任务行判据 ⑤ 要求「回读上下文判断管道末段是否真丢失；**若丢失 ⇒ 报告不自行补**」⇒ 产出方**未据实报告该丢失**，代之以错误的「据实撤回」，且已写入 **`docs/TASKS.md` §1 `T-161` 行 + `docs/BOARD.md` §5 + 两条提交信息** 共 3 处权威制品。
+4. **修法本身无过**：`+1 反引号`（最小、不臆造）**合规**（`T-161` 明令「不得自行编造 md5/文件数」，且 `md5` 值在现行行内**另处存活**：`T-035` 含 `fc086003667fe0a890a69358c3a51c56`、`T-096` 含 `d71105d257ca82a297f0450ca470ea46`）——缺陷**仅在**「撤回」这一不实陈述与其导致的**漏报告**。
+
+**复现命令**（只读）：
+```
+git merge-base --is-ancestor 6162d31 e53b00a ; echo $?          # 0（=e53b00a^ 在损坏后）
+git show 1249ba9:docs/TASKS.md | grep -a '^| T-035 '            # 含 `xargs md5sum \| md5sum` = `fc086003…` / **28 文件**
+git show 6162d31:docs/TASKS.md | grep -a '^| T-035 '            # 已成 `xargs md5sum \| **IN_PROGRESS**（…`
+git show 9221262:docs/TASKS.md | grep -a '^| T-096 '            # 含 `= \`d71105d257ca82a297f0450ca470ea46\``
+git show 5e1bb87:docs/TASKS.md | grep -a '^| T-096 '            # 已成 `xargs md5sum \| **DONE（授权 + 独立验证）**…`
+git show 6162d31:docs/TASKS.md | grep -a '^| T-010 '            # T-010 前态完好
+git show 3a991c3:docs/TASKS.md | grep -a '^| T-010 '            # 已成 `xargs md5sum \| **IN_PROGRESS**（…`
+```
+
+## 四、缺陷单 / 观察单 / 无法判定项
+
+### 缺陷 `TE-TXT2-001`（中 · 台账陈述不实 + 漏报告；归 `T-161`）
+- **现象**：`T-161` 的「据实撤回」在 `docs/TASKS.md` §1 `T-161` 行、`docs/BOARD.md` §5、`a96f547`/`e54847f` 提交信息中，断言「不存在被吞的管道末段、零内容丢失」。
+- **期望**（依据 `T-161` 判据 ⑤）：若管道末段真丢失 ⇒ **据实报告**（不自行补）。
+- **实测**（本报告 §三 `★E-2`）：`T-035`/`T-096`/`T-010` 三行在引入提交之前**均含**结构锚 `\| md5sum\` = \`<md5>\` / **N 文件**`，被状态叙事顶替 ⇒ **确有内容丢失**；撤回依据 `e53b00a^` 系**引入后**快照。
+- **归属**：编排者（`team-lead`，`T-161` 承接人）。
+- **建议处置**（不代定方案）：订正 `T-161` 行/`BOARD §5`/后续台账的「零内容丢失」表述为「**管道末段 + md5 锚 + 文件数被状态叙事顶替（真丢失）；`+1 反引号` 仅闭合 span、未复原内容**」；是否复原旧锚由编排者裁定（`md5`/文件数在两行别处存活，可机械复原）。
+
+### 观察单（含不立号理由）
+- `O-1`（**不立号**）：`docs/TEST_PLAN/INDEX.md:138`「47 对/37 路径 / …PLAN16=45」为 D-19 期陈旧口径（现行 81/83）——**已知、已由 `T-163` 承载**（`test-manager` 域），非本两单漏点。
+- `O-2`（**不立号**）：`docs/TASKS.md` §1 分区本席实测（GFM 口径）= `TODO 62 / IN_PROGRESS 0 / 待复核 17 / DONE 67 / BLOCKED 15 / REJECTED 2 = 163`；而 `e54847f` 提交信息记 `IN_PROGRESS 1 / 待复核 16`（`a96f547` 亦然）。**不立号理由**：编排者在同提交内已自述「**下轮随台账一并对齐**」，且 `BOARD.md:129` 已记为「本区 1 → 0、待复核 15 → 17」⇒ 属**进行中的台账重算**、非账实背离（`T-161` 判据③「各区行数不变」指**本次 2 字符修复不改变行数**，实测确未变）。**提请编排者**：以 GFM 口径（非 naive `split('|')`）复核该分区三处数字。
+
+### 无法判定项
+- 无（两单全部假设均已给「成立/不成立」二值结论）。
+
+## 五、纯追加证明（本证据节）
+
+```
+追加前： wc -l docs/TEST_RESULT.md = 11229 ; head -11229 docs/TEST_RESULT.md | md5sum = b797051027a4521e322a7830c24d05e8
+追加后： head -11229 docs/TEST_RESULT.md | md5sum = b797051027a4521e322a7830c24d05e8   （原档逐字节未变）
+         wc -l docs/TEST_RESULT.md = 11229 + <本证据节行数>
+```
+- 本席**未** `commit`/`amend`/`reset`/`push`；**未**改 `java/src/**`、`web/**`、`docs/TASKS.md`、`docs/BOARD.md`、`docs/TEST_PLAN/**`（**对本报告 §四 `TE-TXT2-001` 只报不改**，符合 §五「报告不自行改」纪律）。
+- 注入/探针均在 `/root/iso_t158/**`（隔离副本 + 自撰脚本）；**共享树零注入残留**。
+- **状态**：`T-158` 补正 = **通过**（0 缺陷）；`T-161` 搭车 = **有条件通过**（0 阻断 / 1 缺陷（中）/ 2 观察）。
