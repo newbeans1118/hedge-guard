@@ -10,7 +10,8 @@
  *                  lastLoginTime, roleCodes[], subAccountScope[]}（**无任何口令字段**）
  *   POST /auth/user  {username, realName, naturalPersonKey, department, isEnterpriseLeader, initialPassword} → id
  *   PUT  /auth/user  {action:UPDATE|DISABLE|ENABLE, userId, realName?, department?,
- *                     isEnterpriseLeader?, reason?, reviewerId?} → null（ENABLE 亦回 null；口令重置不回传明文，T-136/FR-AUTH-16）
+ *                     isEnterpriseLeader?, reason?, newPassword?, reviewerId?} → null（ENABLE 须传管理员设定的
+ *                     newPassword 且响应回 null；口令重置不回传明文，T-136/FR-AUTH-16 形态 B）
  *   GET  /auth/role?page&size&sort                     → PageData<Role>
  *        Role {id, roleCode, roleName, positionGroupId, isPreset, isBusinessRole, hasTradingOperation, status}
  *   POST /auth/role  {action:DEFINE|GRANT, roleCode?, roleName?, positionGroupId?, hasTradingOperation?,
@@ -31,7 +32,8 @@
  *   GET  /auth/change-log?page&size&sort&userId        → PageData<PermissionChangeLog>
  *   GET  /auth/unauthorized-attempt?page&size&sort&operatorId → PageData<UnauthorizedAttempt>
  *   POST /auth/password {oldPassword, newPassword}     → null（本人改口令）
- *   PUT  /auth/password {userId}                       → null（管理员重置；不回传明文口令，T-136/FR-AUTH-16）
+ *   PUT  /auth/password {userId, newPassword}          → null（管理员重置：新口令由管理员设定为输入；
+ *                                                        不回传明文口令，T-136/FR-AUTH-16 形态 B）
  *   POST /auth/login、POST /auth/logout 见 login.js / app.js。
  *
  * ## 端点的 (方法,路径) 对来源（`ROUTES` 对象只含路径不含方法，方法取自 Java `router.register`）
@@ -314,6 +316,9 @@ function usersTab(container) {
     leader.appendChild(ui.el('option', { value: 'Y', text: '企业负责人' }));
     leader.value = u.isEnterpriseLeader === 'Y' ? 'Y' : 'N';
     const reason = ui.el('input', { id: 'au-a-reason', type: 'text', maxlength: '200' });
+    // FR-AUTH-4「启用（须重置口令）」＋ FR-AUTH-16 形态 B：启用须由管理员设定新口令（作为输入）。
+    const newPwd = ui.el('input', { id: 'au-a-newpwd', type: 'password', maxlength: '128', autocomplete: 'new-password' });
+    const confirmPwd = ui.el('input', { id: 'au-a-confirmpwd', type: 'password', maxlength: '128', autocomplete: 'new-password' });
 
     const grid = ui.el('div', { class: 'hg-grid-2' });
     grid.appendChild(ui.field({ id: 'au-a-action', label: '动作', required: true, control: actionSel }));
@@ -324,6 +329,11 @@ function usersTab(container) {
       help: '标记变更须双人复核（R-AUTH-2）；被标记者不得被授予交易岗、不得直接下单（FR-AUTH-9）', control: leader
     }));
     grid.appendChild(ui.field({ id: 'au-a-reason', label: '停用原因（DISABLE 必填）', required: false, control: reason }));
+    grid.appendChild(ui.field({
+      id: 'au-a-newpwd', label: '新口令（ENABLE 必填）', required: false,
+      help: '由管理员设定；仅以加盐哈希落库，界面不回显、响应不回传（FR-AUTH-16）', control: newPwd
+    }));
+    grid.appendChild(ui.field({ id: 'au-a-confirmpwd', label: '确认新口令（ENABLE）', required: false, control: confirmPwd }));
     grid.appendChild(reviewerInput('au-a-reviewer', false));
     form.appendChild(grid);
 
@@ -336,6 +346,8 @@ function usersTab(container) {
       dept.disabled = a !== 'UPDATE';
       leader.disabled = a !== 'UPDATE';
       reason.disabled = a !== 'DISABLE';
+      newPwd.disabled = a !== 'ENABLE';
+      confirmPwd.disabled = a !== 'ENABLE';
     }
     actionSel.addEventListener('change', sync);
     sync();
@@ -356,7 +368,10 @@ function usersTab(container) {
         if (!reason.value.trim()) { ui.setFieldError(reason, '停用须填写原因（FR-AUTH-3）'); return; }
         payload.reason = reason.value.trim();
       } else if (a === 'ENABLE') {
+        if (!newPwd.value) { ui.setFieldError(newPwd, '启用须由管理员设定新口令（FR-AUTH-4/16）'); return; }
+        if (newPwd.value !== confirmPwd.value) { ui.setFieldError(confirmPwd, '两次输入的新口令不一致'); return; }
         if (!rev.value) { ui.setFieldError(rev, '启用须重置口令，须双人复核（复核人 ID 必填）'); return; }
+        payload.newPassword = newPwd.value;
         payload.reviewerId = Number(rev.value);
       }
       // 危险操作二次确认（前端纪律 §5.4）：停用 / 启用（启用将重置口令）
@@ -371,7 +386,8 @@ function usersTab(container) {
       submit.disabled = true; const orig = submit.textContent; submit.textContent = '提交中…';
       try {
         await HG.api.put(R.USER, payload, { idempotencyKey: HG.api.newIdempotencyKey() });
-        // T-136 / FR-AUTH-16：后端不再回传一次性口令；ENABLE 触发的口令重置只提交，界面不展示明文。
+        // T-136 / FR-AUTH-16：后端不回传口令；ENABLE 触发的口令重置只提交，界面不展示明文。
+        newPwd.value = ''; confirmPwd.value = ''; // 口令不驻留
         ui.toast('用户变更已提交（action=' + a + '）', 'ok');
         ui.clear(actCard);
         alertBox.appendChild(ui.banner('变更已提交：' + a + '。变更留痕见「变更留痕」Tab。', 'ok'));
@@ -394,18 +410,53 @@ function usersTab(container) {
     sync();
   }
 
-  async function doResetPassword(u) {
-    const yes = await ui.confirm('确认重置用户 <strong>' + F.esc(u.username) + '</strong> 的口令？新口令不会以明文展示或回传（FR-AUTH-16）；该用户首次登录须强制修改。', { title: '重置口令', okText: '确认重置', danger: true });
-    if (!yes) return;
-    try {
-      await HG.api.put(R.PASSWORD, { userId: Number(u.id) }, { idempotencyKey: HG.api.newIdempotencyKey() });
-      ui.clear(actCard);
-      // T-136 / FR-AUTH-16：后端不以明文回传新口令，界面不展示；仅提示已达成的合规状态。
-      ui.toast('口令已重置（新口令不以明文展示或回传）', 'ok');
-      alertBox.appendChild(ui.banner('口令已重置：系统未以明文展示或回传新口令（FR-AUTH-16 / R-AUTH-6）。该用户首次登录须强制修改口令。', 'ok'));
-    } catch (err) {
-      alertBox.innerHTML = ui.blockedHTML(err);
-    }
+  /** 管理员重置口令表单（FR-AUTH-16 形态 B：由管理员设定新口令作为输入；不回显、不回传）。 */
+  function doResetPassword(u) {
+    ui.clear(actCard);
+    ui.clear(alertBox);
+    const card = ui.el('div', { class: 'hg-card' });
+    card.appendChild(ui.el('h3', { class: 'hg-card__title', text: '管理员重置口令（FR-AUTH-16）——' + (u.username || ('#' + u.id)) }));
+    card.appendChild(ui.el('p', {
+      class: 'hg-muted',
+      text: '由管理员设定新口令（同新增用户的初始口令口径）。口令仅以加盐哈希落库，界面不回显、响应不回传；'
+        + '强度由后端判定（默认 ≥12 且含大小写字母、数字、符号，且不得与最近 5 次相同）；该用户首次登录须强制修改。'
+    }));
+    const form = ui.el('form', { novalidate: 'novalidate' });
+    const fAlert = ui.el('div', { role: 'alert' });
+    form.appendChild(fAlert);
+    const newPwd = ui.el('input', { id: 'au-rp-new', type: 'password', maxlength: '128', autocomplete: 'new-password' });
+    const confirmPwd = ui.el('input', { id: 'au-rp-confirm', type: 'password', maxlength: '128', autocomplete: 'new-password' });
+    const grid = ui.el('div', { class: 'hg-grid-2' });
+    grid.appendChild(ui.field({ id: 'au-rp-new', label: '新口令', required: true, help: '强度由后端判定；界面不做业务判定', control: newPwd }));
+    grid.appendChild(ui.field({ id: 'au-rp-confirm', label: '确认新口令', required: true, control: confirmPwd }));
+    form.appendChild(grid);
+    const submit = ui.el('button', { class: 'hg-btn', type: 'submit', text: '确认重置' });
+    form.appendChild(ui.el('div', { class: 'hg-form-actions' }, submit));
+    card.appendChild(form);
+    actCard.appendChild(card);
+
+    form.addEventListener('submit', async (evt) => {
+      evt.preventDefault();
+      ui.clear(fAlert);
+      let ok = true;
+      if (!newPwd.value) { ui.setFieldError(newPwd, '请由管理员设定新口令'); ok = false; } else ui.setFieldError(newPwd, '');
+      if (newPwd.value !== confirmPwd.value) { ui.setFieldError(confirmPwd, '两次输入的新口令不一致'); ok = false; } else ui.setFieldError(confirmPwd, '');
+      if (!ok) return;
+      const yes = await ui.confirm('确认将用户 <strong>' + F.esc(u.username) + '</strong> 的口令重置为所设定的新口令？新口令不会以明文展示或回传（FR-AUTH-16）；该用户首次登录须强制修改。', { title: '重置口令', okText: '确认重置', danger: true });
+      if (!yes) return;
+      submit.disabled = true; const orig = submit.textContent; submit.textContent = '提交中…';
+      try {
+        await HG.api.put(R.PASSWORD, { userId: Number(u.id), newPassword: newPwd.value }, { idempotencyKey: HG.api.newIdempotencyKey() });
+        newPwd.value = ''; confirmPwd.value = ''; // 口令不驻留
+        ui.clear(actCard);
+        ui.toast('口令已重置', 'ok');
+        alertBox.appendChild(ui.banner('口令已重置（由管理员设定的新口令；不回显、不回传，FR-AUTH-16 / R-AUTH-6）。该用户首次登录须强制修改口令。', 'ok'));
+      } catch (err) {
+        fAlert.innerHTML = ui.blockedHTML(err);
+      } finally {
+        submit.disabled = false; submit.textContent = orig;
+      }
+    });
   }
 
   load(1);

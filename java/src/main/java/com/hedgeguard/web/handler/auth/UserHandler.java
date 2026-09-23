@@ -26,7 +26,9 @@ import java.util.List;
  *   <li>{@code POST} 新增用户（{@code FR-AUTH-1}；可选 {@code roleCode} 授初始角色）；</li>
  *   <li>{@code PUT} 变更：{@code action=UPDATE|DISABLE|ENABLE|FORCE_LOGOUT}
  *       （{@code FR-AUTH-2/3/4/15④}；{@code FORCE_LOGOUT} 由 {@code T-135} 接线；
- *       {@code ENABLE} 会重置口令但<b>不回传新口令</b>，{@code FR-AUTH-16}）。</li>
+ *       {@code ENABLE} 语义为「启用（须重置口令）」{@code FR-AUTH-4} ⇒ 请求体须含管理员设定的
+ *       {@code newPassword}（同 {@code PUT /auth/password} 口径），响应<b>不回传</b>该口令
+ *       （{@code FR-AUTH-16}））。</li>
  * </ul>
  */
 public final class UserHandler implements RouteHandler {
@@ -116,8 +118,15 @@ public final class UserHandler implements RouteHandler {
                 authService.disableUser(request.userId, request.reason, operatorId);
                 return HttpResult.json(200, ApiResponse.ok(null, ctx.traceId()));
             case "ENABLE":
-                // FR-AUTH-16：启用会重置口令，但不得以明文方式展示或传递新口令（服务层内部生成 + 加盐哈希落库，明文即弃）。
-                authService.enableUser(request.userId, operatorId, request.reviewerId);
+                // FR-AUTH-4「启用（须重置口令）」＋ FR-AUTH-16 形态 B：管理员设定的新口令作为输入；
+                // 响应不回传（服务层加盐哈希落库，明文即弃）。
+                if (request.newPassword == null || request.newPassword.isEmpty()) {
+                    throw BizException.of(ErrorCode.PARAM_INVALID,
+                            "启用用户须提交由管理员设定的新口令 {action:ENABLE, userId, newPassword, reviewerId}"
+                                    + "（FR-AUTH-4 / FR-AUTH-16：启用须强制重置口令；新口令不得以明文回传）；"
+                                    + "复现=按 §4.1.1 提交 application/json");
+                }
+                authService.enableUser(request.userId, request.newPassword, operatorId, request.reviewerId);
                 return HttpResult.json(200, ApiResponse.ok(null, ctx.traceId()));
             case "FORCE_LOGOUT":
                 // FR-AUTH-15 验收 4：管理员强制下线指定用户（须留痕）——T-135 接线（服务层已实现）
@@ -175,6 +184,9 @@ public final class UserHandler implements RouteHandler {
 
         /** 停用原因（DISABLE）。 */
         public String reason;
+
+        /** 管理员设定的新口令（ENABLE 必填；仅内存，服务层加盐哈希后即弃，响应不回传）。 */
+        public String newPassword;
 
         /** 复核人（UPDATE 标记变更 / ENABLE 必填）。 */
         public Long reviewerId;

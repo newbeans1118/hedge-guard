@@ -15,8 +15,9 @@ import com.hedgeguard.web.RouteHandler;
  *
  * <ul>
  *   <li>{@code POST} 用户改口令（{@code oldPassword} + {@code newPassword}；强度策略 + 近 5 次禁重用）；</li>
- *   <li>{@code PUT} 管理员重置（<b>不回传新口令</b>；新口令仅以加盐哈希落库，明文不展示、不传递、
- *       不入日志；{@code FR-AUTH-16} / {@code NFR-SEC-2}）。</li>
+ *   <li>{@code PUT} 管理员重置（<b>请求体含管理员设定的新口令 {@code newPassword}（必填）</b>；
+ *       响应<b>不回传</b>该口令；新口令仅以加盐哈希落库，明文不展示、不传递、不入日志；
+ *       {@code FR-AUTH-16} 形态 B「管理员设定新口令」/ {@code NFR-SEC-2}）。</li>
  * </ul>
  */
 public final class PasswordHandler implements RouteHandler {
@@ -41,10 +42,16 @@ public final class PasswordHandler implements RouteHandler {
             ResetRequest reset = JsonCodec.fromJson(ctx.body(), ResetRequest.class);
             if (reset == null) {
                 throw BizException.of(ErrorCode.PARAM_INVALID,
-                        "重置须提交 {userId}；复现=按 §4.1.1 提交 application/json");
+                        "重置须提交 {userId, newPassword}；复现=按 §4.1.1 提交 application/json");
             }
-            // FR-AUTH-16：重置后不得以明文方式展示或传递新口令（服务层内部生成 + 加盐哈希落库，明文即弃）。
-            authService.resetPassword(reset.userId, ctx.currentUserId());
+            if (reset.newPassword == null || reset.newPassword.isEmpty()) {
+                throw BizException.of(ErrorCode.PARAM_INVALID,
+                        "管理员重置须提交由管理员设定的新口令 {userId, newPassword}"
+                                + "（FR-AUTH-16：新口令不得以明文展示或回传，但须由管理员作为输入设定）；"
+                                + "复现=按 §4.1.1 提交 application/json");
+            }
+            // FR-AUTH-16 形态 B：管理员设定新口令（作为输入）；服务层加盐哈希落库，明文不回传。
+            authService.resetPassword(reset.userId, reset.newPassword, ctx.currentUserId());
             return HttpResult.json(200, ApiResponse.ok(null, ctx.traceId()));
         }
         ChangeRequest request = JsonCodec.fromJson(ctx.body(), ChangeRequest.class);
@@ -66,10 +73,13 @@ public final class PasswordHandler implements RouteHandler {
         public String newPassword;
     }
 
-    /** 重置请求体。 */
+    /** 重置请求体（{@code FR-AUTH-16} 形态 B：管理员设定新口令，作为输入）。 */
     public static final class ResetRequest {
 
         /** 目标用户 ID。 */
         public long userId;
+
+        /** 管理员设定的新口令（必填；仅内存，服务层加盐哈希后即弃，响应不回传）。 */
+        public String newPassword;
     }
 }

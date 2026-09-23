@@ -366,26 +366,11 @@ public final class AuthService implements SubAccountVisibility {
         if (!PasswordHasher.verify(oldPassword, user.passwordHash)) {
             throw authFailed();
         }
-        PasswordHasher.assertStrength(newPassword, passwordMinLength());
-        if (PasswordHasher.verify(newPassword, user.passwordHash)) {
-            throw reuseRejected();
-        }
-        for (PasswordHistory history : passwordHistoryDao.findRecent(userId, passwordHistorySize())) {
-            if (PasswordHasher.verify(newPassword, history.passwordHash)) {
-                throw reuseRejected();
-            }
-        }
+        assertNewPasswordAcceptable(userId, user.passwordHash, newPassword);
         String encoded = PasswordHasher.hash(newPassword);
         LocalDateTime now = Clocks.now();
         tx.inTransaction(connection -> {
-            PasswordHistory history = new PasswordHistory();
-            history.userId = userId;
-            history.passwordHash = user.passwordHash;
-            history.changedTime = now;
-            history.seqNo = 1;
-            passwordHistoryDao.shiftSeqNo(userId);
-            passwordHistoryDao.insert(history, userId);
-            passwordHistoryDao.deleteBeyond(userId, passwordHistorySize());
+            recordPasswordHistory(userId, user.passwordHash, now);
             if (userAccountDao.updatePasswordHash(userId, encoded, now) != 1) {
                 throw BizException.of(ErrorCode.INTERNAL_ERROR,
                         "口令更新影响行数异常：userId=" + userId + "；复现=核对 t_user 主键");
@@ -395,31 +380,82 @@ public final class AuthService implements SubAccountVisibility {
     }
 
     /**
-     * 管理员重置口令：生成随机临时口令、加盐哈希落库，并标记"首次登录须修改"。
+     * 管理员重置口令（{@code FR-AUTH-16} <b>形态 B：管理员设定新口令（作为输入）</b>，同 {@code FR-AUTH-1}
+     * 初始口令口径）：口令加盐哈希落库并标记"首次登录须修改"。
      *
-     * <p><b>不返回新口令</b>（{@code FR-AUTH-16} / {@code R-AUTH-6}：管理员重置**不得以明文方式
-     * 展示或传递新口令**）：随机明文仅在方法内用于派生加盐哈希，派生后即弃——不入日志、不入库、
-     * 不回传调用方。
+     * <p><b>仍不以明文方式展示或传递口令</b>（{@code FR-AUTH-16} / {@code R-AUTH-6}）：入参明文仅用于
+     * 派生加盐哈希，派生后即弃——<b>不落盘、不入日志、不回传调用方</b>（本方法无返回值）。强度策略与
+     * "不得与最近 N 次历史口令相同"复用 {@link #assertNewPasswordAcceptable} 与
+     * {@link #recordPasswordHistory}（与 {@link #changePassword} 同源，见 {@code FR-AUTH-16} 处理规则）。
      *
-     * @param userId    目标用户
-     * @param operatorId 操作人
+     * @param userId      目标用户
+     * @param newPassword 管理员设定的新口令（必填；仅内存）
+     * @param operatorId  操作人
      */
-    public void resetPassword(long userId, long operatorId) {
+    public void resetPassword(long userId, String newPassword, long operatorId) {
         UserAccount user = userAccountDao.findById(userId);
         if (user == null) {
             throw BizException.of(ErrorCode.PARAM_INVALID,
                     "用户不存在：id=" + userId + "；复现=核对目标用户 ID");
         }
-        String oneTime = PasswordHasher.randomPassword(passwordMinLength() + 4);
-        String encoded = PasswordHasher.hash(oneTime);
+        assertNewPasswordAcceptable(userId, user.passwordHash, newPassword);
+        String encoded = PasswordHasher.hash(newPassword);
+        LocalDateTime now = Clocks.now();
         tx.inTransaction(connection -> {
-            userAccountDao.updatePasswordHash(userId, encoded, Clocks.now());
+            recordPasswordHistory(userId, user.passwordHash, now);
+            // 同一 UPDATE 写新哈希 + 强制改口令标记（避免先 updatePasswordHash 归零 must_change_password
+            // 再整实体覆盖新哈希的两处陈旧态，见 §5.3「状态变更须在全部校验通过之后」）。
+            user.passwordHash = encoded;
             user.mustChangePassword = "Y";
-            userAccountDao.updateById(user, operatorId);
+            user.passwordUpdatedTime = now;
+            if (userAccountDao.updateById(user, operatorId) != 1) {
+                throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                        "重置口令影响行数异常：userId=" + userId + "；复现=核对 t_user 主键与 row_version");
+            }
             return null;
         });
-        // oneTime 到此不再被任何路径引用：不落盘、不入日志、不回传（FR-AUTH-16）。
+        // newPassword 到此不再被任何路径引用：不落盘、不入日志、不回传（FR-AUTH-16）。
         LOG.info("已重置口令并要求首次登录修改：targetUserId=" + userId + " operatorId=" + operatorId);
+    }
+
+    /**
+     * 校验新口令可接受（{@code FR-AUTH-16} 处理规则）：强度策略 + 不得与最近 N 次历史口令相同
+     * （含当前口令）。<b>复用点</b>：{@link #changePassword} / {@link #resetPassword} / {@link #enableUser}
+     * 三条"设定口令"路径共用，避免策略漂移。
+     *
+     * @param userId     用户 ID
+     * @param currentHash 当前口令哈希（命中即视为"与当前口令相同"）
+     * @param newPassword 新口令（仅内存）
+     */
+    private void assertNewPasswordAcceptable(long userId, String currentHash, String newPassword) {
+        PasswordHasher.assertStrength(newPassword, passwordMinLength());
+        if (PasswordHasher.verify(newPassword, currentHash)) {
+            throw reuseRejected();
+        }
+        for (PasswordHistory history : passwordHistoryDao.findRecent(userId, passwordHistorySize())) {
+            if (PasswordHasher.verify(newPassword, history.passwordHash)) {
+                throw reuseRejected();
+            }
+        }
+    }
+
+    /**
+     * 把"被替换的旧口令哈希"记入口令历史并裁剪至策略条数（{@code FR-AUTH-16} 近 N 次禁重用）。
+     * 供三条"设定口令"路径复用（与 {@link #changePassword} 同源）。
+     *
+     * @param userId  用户 ID
+     * @param oldHash 被替换前的口令哈希
+     * @param now     变更时刻
+     */
+    private void recordPasswordHistory(long userId, String oldHash, LocalDateTime now) {
+        PasswordHistory history = new PasswordHistory();
+        history.userId = userId;
+        history.passwordHash = oldHash;
+        history.changedTime = now;
+        history.seqNo = 1;
+        passwordHistoryDao.shiftSeqNo(userId);
+        passwordHistoryDao.insert(history, userId);
+        passwordHistoryDao.deleteBeyond(userId, passwordHistorySize());
     }
 
     // ------------------------------------------------------------ 岗位分离与权限
@@ -872,14 +908,17 @@ public final class AuthService implements SubAccountVisibility {
     /**
      * 启用用户（{@code FR-AUTH-4}）：须<b>重新确认角色</b>（未配置角色时提示），启用后<b>强制重置口令</b>。
      *
-     * <p><b>不返回新口令</b>（{@code FR-AUTH-16}：重置后不得以明文方式展示或传递新口令）：随机明文仅在
-     * 方法内用于派生加盐哈希，派生后即弃——不入日志、不入库、不回传调用方；账号标记"首次登录须修改"。
+     * <p><b>不返回口令</b>（{@code FR-AUTH-16}：不得以明文方式展示或传递口令）：{@code newPassword} 仅
+     * 用于派生加盐哈希，派生后即弃——不入日志、不入库、不回传调用方；账号标记"首次登录须修改"。
+     * 强度策略与"不得与最近 N 次历史口令相同"复用 {@link #assertNewPasswordAcceptable} /
+     * {@link #recordPasswordHistory}（同 {@link #changePassword} 口径）。
      *
-     * @param userId     目标用户
-     * @param operatorId 操作人
-     * @param reviewerId 复核人（必填且 != 操作人）
+     * @param userId      目标用户
+     * @param newPassword 管理员设定的新口令（必填；仅内存）
+     * @param operatorId  操作人
+     * @param reviewerId  复核人（必填且 != 操作人）
      */
-    public void enableUser(long userId, long operatorId, Long reviewerId) {
+    public void enableUser(long userId, String newPassword, long operatorId, Long reviewerId) {
         if (reviewerId == null || reviewerId == operatorId) {
             throw BizException.of(ErrorCode.POSITION_SEPARATION_CONFLICT,
                     "启用用户须双人复核：reviewer_id 必填且 != operator_id；复现=换复核人（R-AUTH-2）");
@@ -894,18 +933,26 @@ public final class AuthService implements SubAccountVisibility {
                     "未配置角色即启用：userId=" + userId + "；复现=先重新分配角色"
                             + "（FR-AUTH-4 验收 4：不得恢复原授权）");
         }
-        String oneTime = PasswordHasher.randomPassword(passwordMinLength() + 4);
+        assertNewPasswordAcceptable(userId, user.passwordHash, newPassword);
+        String encoded = PasswordHasher.hash(newPassword);
+        String oldHash = user.passwordHash;
+        LocalDateTime now = Clocks.now();
         user.status = "ENABLED";
         user.mustChangePassword = "Y";
-        user.passwordHash = PasswordHasher.hash(oneTime);
+        user.passwordHash = encoded;
+        user.passwordUpdatedTime = now;
         user.disabledReason = null;
-        if (userAccountDao.updateById(user, operatorId) != 1) {
-            throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
-                    "用户启用失败（并发版本冲突）：userId=" + userId + "；复现=重新读取后重试");
-        }
+        tx.inTransaction(connection -> {
+            recordPasswordHistory(userId, oldHash, now);
+            if (userAccountDao.updateById(user, operatorId) != 1) {
+                throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                        "用户启用失败（并发版本冲突）：userId=" + userId + "；复现=重新读取后重试");
+            }
+            return null;
+        });
         recordChange(CHANGE_USER_ATTR, userId, userId, null, "启用用户（须强制改口令）",
                 operatorId, reviewerId);
-        // oneTime 仅用于派生 user.passwordHash，之后即弃：不落盘、不入日志、不回传（FR-AUTH-16）。
+        // newPassword 仅用于派生 user.passwordHash，之后即弃：不落盘、不入日志、不回传（FR-AUTH-16）。
     }
 
     /**

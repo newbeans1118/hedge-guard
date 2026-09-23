@@ -423,17 +423,24 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("T-136 管理员重置：不返回明文新口令（FR-AUTH-16）；哈希改写 + 旧口令失效 + 强制首次登录修改")
-    void resetPasswordDoesNotReturnPlaintext() {
+    @DisplayName("T-136 管理员重置（形态 B）：新口令为管理员输入；不返回明文（void）；哈希改写 + 可凭新口令校验 + 旧口令失效 + 强制首次登录修改")
+    void resetPasswordSetsAdminProvidedPassword() {
         addUser(1L, "trader01", "ENABLED");
         String beforeHash = userDao.users.get(1L).passwordHash;
-        // 改前（锁定违规形状）：resetPassword 返回一次性明文（String），用例据其 verify + login 断言「可校验/可登录」。
-        // 改后（合规）：返回 void —— 明文不落盘、不入日志、不回传；改以「哈希已改写 + 旧口令失效 + 强制改口令」证明重置生效。
-        service.resetPassword(1L, 9L);
+        String newPwd = "Hg#2027Trading01";
+        // 形状演进：形态 A（无入参、生成即弃）下用例无法"凭新口令校验"；形态 B（FR-AUTH-16 输入列含「新口令」）
+        // 下管理员设定新口令为输入，仍返回 void（不回传明文）。判据 = 哈希改写 + 可凭该新口令通过哈希校验
+        // + 旧口令失效 + 强制改口令。
+        service.resetPassword(1L, newPwd, 9L);
         String afterHash = userDao.users.get(1L).passwordHash;
         assertNotEquals(beforeHash, afterHash, "重置须改写加盐哈希（改前=" + beforeHash + "）");
+        assertTrue(PasswordHasher.verify(newPwd, afterHash),
+                "须可凭管理员设定的新口令通过哈希校验（FR-AUTH-16 输入列「新口令」）");
         assertFalse(PasswordHasher.verify("Hg#2026Trading01", afterHash), "重置后旧口令须失效");
         assertEquals("Y", userDao.users.get(1L).mustChangePassword, "须要求首次登录修改");
+        assertTrue(PasswordHasher.verify("Hg#2026Trading01",
+                        historyDao.rows.get(historyDao.rows.size() - 1).passwordHash),
+                "被替换的旧口令须入历史（供禁重用比对）");
     }
 
     // ------------------------------------------------------------ 桩与数据
