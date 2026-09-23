@@ -492,6 +492,7 @@
   2. `js/core/{api.js,router.js,session.js,ui.js,format.js,errmsg.js}` 就位，统一命名空间 `HG.<module>.*`，禁全局 `var`；
   3. 登录页对接 `POST /api/v1/auth/login`，会话 `HGSESSION`（HttpOnly Cookie）；
   4. 阻断类错误统一渲染 `ruleId/current/threshold/nextStep`（`NFR-USE-3/4`）；金额/数量按字符串展示（避免 `Number` 精度丢失）。
+  5. **（2026-09-23 第 92 轮补 · 依据见 §2 备注）`web/js/core/routes.js` 作为「已注册路径镜像」须与权威源一致**：① **头部计数**须与实时实测一致（现行 **82 个 `(方法,路径)` 对**；判据 = `java/src/test/java/com/hedgeguard/web/BootstrapAssemblyTest.java:140` `assertEquals(82, assembly.routeCount(), …)`，**且须写明该判据来源**，不得只写数字）；② **`NOT_REGISTERED` 逐条属实**（现 `/plan`、`/auth/user`、`/auth/sub-account-perm` 三项**已注册却列为未注册 ⇒ 必须移出**；`/risk/dashboard`、`/trade/order` 实测无 handler ⇒ **保留**）；③ **各模块段须覆盖该模块全部已注册路径**（现行缺 **23** 条：AUTH 8 / CONFIG 9 / SPOT 5 / PLAN 1，清单见 §2 备注）；④ **判据**：以「对 `handler/**/*Routes.java` 全部 `router.register` + 各 `*Handler.PATH` 常量**逐条解析**（含 `PlanActionHandler.Action.values()` / `PlanRatioHandler.Method.values()` 两处循环注册）后与 `routes.js` 对账」为口径，**须给「已注册 − 已登记 = ∅」的实测输出**；⑤ **不得**为凑数而登记**未注册**路径（`handler/` 下无该模块目录者一律不得写入可调用段）。
 - **产出**：`web/index.html`, `web/login.html`, `web/css/hg.css`, `web/js/core/**`
 - **备注**：前端只与 Java 的 `/api/v1/**` 与 `/ws/**` 通信，**不得**直连数据库或 C++（`E6`）。
   **📌（2026-09-23 编排者只读复核 · 只加不改 —— 订正第 88 轮普查「T-017 仅差登记」的结论）** 本席在派发 `T-022` 后顺带实测 T-017 交付面，结论 = **「仅差登记」不成立**，其交付物 **`web/js/core/routes.js` 另有 4 处陈旧/不实**（该文件自述为「前端只读镜像」，且**头部明确要求**「新增/改名须先改 §4.1.1 → `ApiRoutes.java` → 本文件」⇒ **镜像失真即违约**）：
@@ -501,6 +502,16 @@
   **(4) PLAN 段未覆盖 `/plan/{id}/bind-exposure`**（小项）：`:74-81` 用通用式 `action(id, action)` 覆盖 8 个 action、`ratio(method)` 覆盖 3 个 ratio，但 `bind-exposure` 既非 `Action` 枚举亦非 ratio ⇒ **未覆盖**（`ApiRoutes.java` PLAN 组含该路径）。
   **另附（非缺陷，据实存档）**：验收 2 列举 **6** 个 `js/core/*.js`，实有 **9** 个（多 `ns.js` 命名空间、`routes.js` 路径镜像、`ws.js`）⇒ **超集、验收 2 满足**；`web` 树锚 = `f827e00e6687afb092ab933fe0816ce4` / **27 文件**，与 `T-018` 冻结点**逐字节一致**（⇒ 自 `T-018` 交付以来 `web/**` 未再变）。
   **处置**：**并入 `T-017`**（其产出面 = `web/js/core/**`；不另立号）；**待 `te-verify-t018` 回执后再改 `web/**`**（避免污染该复核的取证锚点）。
+
+  **★★（2026-09-23 第 92 轮 —— 本席**据实更正上一条的**过窄**计数 · 只加不改）** 上条写「**4 处**陈旧/不实」，系**只抽验了 4 个点**即下结论（**又一次「定性先于事实」，此次方向是「说少」**）。第 92 轮**系统化审计**（对 `handler/**/*Routes.java` 全部 `router.register` + 各 `*Handler.PATH` 常量**逐条解析**后与 `routes.js` 对账）实测**缺口远大于 4**：
+  - **(a) 头部计数**：`:14` 写「**47 对 / 37 路径**」⇒ 实测 **82 对**（判据 `BootstrapAssemblyTest.java:140`）。**（同前）**
+  - **(b) `NOT_REGISTERED` 三项不实（新增 2 项）**：除 `/plan` 外，**`/auth/user`** 与 **`/auth/sub-account-perm`** 亦**已注册**（`AuthRoutes.java` 内 `UserHandler.PATH`〔=`/auth/user`，`UserHandler.java:32`〕GET/POST/PUT 三注册、`SubAccountPermHandler.PATH`〔=`/auth/sub-account-perm`，`SubAccountPermHandler.java:29`〕GET/POST 两注册）⇒ `:85`/`:86` 与头部 `:33` 的「未注册」声明**不实**。**保留正确者**：`RISK_DASHBOARD`(`/risk/dashboard`)、`TRADE_ORDER`(`/trade/order`) —— 实测 `handler/` 下**无 `risk`/`trade` 目录** ⇒ 确未注册。
+  - **(c) AUTH 段缺 8 条**已注册路径：`/auth/user`、`/auth/role`、`/auth/position-group`、`/auth/authorization`、`/auth/sub-account-perm`、`/auth/change-log`、`/auth/unauthorized-attempt`、`/auth/password`（该段现仅 `LOGIN`/`LOGOUT` 两条）。
+  - **(d) CONFIG 段缺 9 条**：`/config/ctp`、`/config/ctp/test`、`/config/dict`、`/config/dispatch/{id}`、`/config/export`、`/config/import`、`/config/report-period`、`/config/subject`、`/config/change-log`（该段现仅 `ITEM`/`SUB_ACCOUNT`）。
+  - **(e) SPOT 段缺 5 条**（同前）：`/spot/production`、`/spot/price/import`、`/spot/price/export`、`/spot/exposure/export`、`/spot/doc/sub-account`。
+  - **(f) PLAN 段缺 1 条**：`/plan/{id}/bind-exposure`（`action()`/`ratio()` 通用式未覆盖）。
+  - **合计：头部计数 1 项 + `NOT_REGISTERED` 不实 3 项 + 缺失已注册路径 23 条**（AUTH 8 + CONFIG 9 + SPOT 5 + PLAN 1；其中 `/auth/user`、`/auth/sub-account-perm` 同时属 (b)/(c)，故**去重后缺失路径 = 23**）。**判据口径**：路径「已存在」以**是否能由 `routes.js` 的常量或其拼接式还原**为准（`/product/{id}` 等由 `detail:`/`exposureDetail:`/`doc:`/`tradePlans:` 拼接者**算已存在**）⇒ 故**不含** `/product/{id}`、`/product/{id}/contracts`、`/spot/exposure/{id}`、`/plan/{id}`、`/plan/{id}/doc`、`/plan/{id}/trade-plans`。
+  **⇒ 纪律（本次第四类失败）**：「**N 处**」这类计数**必须来自穷举**（对权威源**逐条**对账），**不得**由「抽验若干点」得出；抽验只能支撑「**至少 N 处**」，**不得**写成「**共 N 处**」。**已同步写入 `T-017` 验收 5**（见下）。
 
 ### T-018 实现品种管理前端页面
 
