@@ -382,6 +382,18 @@ class PlanWritePathPermissionTest {
         public TradePlan findByTradePlanNo(String tradePlanNo) {
             throw com.hedgeguard.testsupport.FakeDao.unsupported("findByTradePlanNo");
         }
+
+        @Override
+        public String findMaxTradePlanNoByPrefix(String tradePlanNoPrefix) {
+            String max = null;
+            for (TradePlan row : rows) {
+                if (row.tradePlanNo != null && row.tradePlanNo.startsWith(tradePlanNoPrefix)
+                        && (max == null || row.tradePlanNo.compareTo(max) > 0)) {
+                    max = row.tradePlanNo;
+                }
+            }
+            return max;
+        }
     }
 
     private static final class FakePlanApprovalDao extends UnsupportedBaseDao<PlanApproval, Long>

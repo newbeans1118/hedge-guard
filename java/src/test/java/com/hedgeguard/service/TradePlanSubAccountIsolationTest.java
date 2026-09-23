@@ -311,5 +311,10 @@ class TradePlanSubAccountIsolationTest {
         public TradePlan findByTradePlanNo(String tradePlanNo) {
             throw FakeDao.unsupported("findByTradePlanNo");
         }
+
+        @Override
+        public String findMaxTradePlanNoByPrefix(String tradePlanNoPrefix) {
+            throw FakeDao.unsupported("findMaxTradePlanNoByPrefix");
+        }
     }
 }

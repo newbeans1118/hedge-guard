@@ -53,6 +53,23 @@ class BizNoGeneratorTest {
     }
 
     @Test
+    @DisplayName("§3.5 交易计划当日序号：前缀形如 TP<yyyyMMdd>；按业务日重置（T-141）")
+    void tradePlanDailySeqResetsPerBusinessDay() {
+        LocalDate day1 = LocalDate.of(2026, 9, 20);
+        LocalDate day2 = day1.plusDays(1);
+        assertEquals("TP20260920", BizNoGenerator.tradePlanDayPrefix(day1));
+
+        assertEquals(1L, BizNoGenerator.tradePlanNextSeq(day1, null), "当日无既有编号 ⇒ 从 1 起");
+        assertEquals(8L, BizNoGenerator.tradePlanNextSeq(day1, "TP2026092000007"),
+                "当日最大序号 + 1（5 位零填充定长 ⇒ 字典序最大即序号最大）");
+        assertEquals(1L, BizNoGenerator.tradePlanNextSeq(day2, "TP2026092000007"),
+                "既有编号属上一业务日 ⇒ 前缀不匹配 ⇒ 当日重置为 1（非 8）");
+        assertEquals("TP2026092000002", BizNoGenerator.tradePlan(day1,
+                BizNoGenerator.tradePlanNextSeq(day1, "TP2026092000001")));
+        assertThrows(IllegalArgumentException.class, () -> BizNoGenerator.tradePlanDayPrefix(null));
+    }
+
+    @Test
     @DisplayName("次日计数不受前一日影响：连续两日各取号 ⇒ 均从 0001 起")
     void seqResetsAcrossConsecutiveDays() {
         LocalDate day1 = LocalDate.of(2026, 9, 20);

@@ -4,6 +4,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.hedgeguard.common.Clocks;
 import com.hedgeguard.common.Config;
+import com.hedgeguard.dao.BizNoGenerator;
+import com.hedgeguard.dao.entity.TradePlan;
 import com.hedgeguard.dao.impl.DmAccountSubjectDao;
 import com.hedgeguard.dao.impl.DmAuthorizationDao;
 import com.hedgeguard.dao.impl.DmConfigChangeLogDao;
@@ -76,6 +78,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -346,6 +349,56 @@ class M1EndToEndAcceptanceTest {
         assertEquals(200, a2.status, body(a2));
         assertEquals("HP" + dayA + "0002", strCol("t_hedge_plan", dataLong(a2), "plan_no"),
                 "同日第二个计划 = 当日最大序号 + 1（不跨日）");
+    }
+
+    // ------------------------------------------------------------ 交易计划取号（§3.5 / T-141）
+
+    /**
+     * <b>{@code T-141} 交易计划取号批内实证</b>（真实 {@code DmTradePlanDao} + 真实引擎，非假 JDBC）。
+     *
+     * <p>证明：在<b>同一事务</b>内逐行「重查当日前缀 MAX → 取号 → 插入」时，引擎对该连接/事务<b>可见
+     * 本事务已插入的行</b> ⇒ 序号自然递增（{@code TP<日>00001/00002/00003}），<b>无需</b>再手工加批内
+     * 偏移（原实现 {@code count(...) + n + 1} 的补偿在此机制下多余）。这正是 {@code decomposeTradePlans}
+     * 批内取号所依赖的行为（{@code DATA_MODEL.md} §3.5「同一事务内用当日最大序号 + 1」）。
+     *
+     * <p><b>承重</b>：若引擎/事务读不到本事务已插入行（或实现改回「一次性取号 + 手工偏移」），本方法
+     * 编号断言必红。
+     */
+    @Test
+    @DisplayName("交易计划取号（T-141）：同事务 N=3 批取号递增 TP<日>00001/00002/00003（真实 DAO + 引擎）")
+    void tradePlanBatchNumbersAdvanceWithinOneTransaction() throws Exception {
+        TxTemplate tx = new TxTemplate(new DataSourcePool(engine, new PoolConfig(0, 4, 500, 2)));
+        DmTradePlanDao dao = new DmTradePlanDao(tx);
+        String day = BizNoGenerator.tradePlanDayPrefix(Clocks.today());
+        List<String> nums = tx.inTransaction(connection -> {
+            List<String> out = new ArrayList<>();
+            for (int i = 0; i < 3; i++) {
+                TradePlan row = new TradePlan();
+                row.subAccountId = subA;
+                row.hedgePlanId = planA;
+                row.exposureId = exposureA;
+                row.productId = productId;
+                row.instrumentId = INSTRUMENT;
+                row.instrumentType = "FUTURES";
+                row.direction = "BUY";
+                row.planQty = new java.math.BigDecimal("10");
+                row.executedQty = java.math.BigDecimal.ZERO;
+                row.orderedQty = java.math.BigDecimal.ZERO;
+                row.execDeadline = LocalDate.of(2026, 10, 31);
+                row.status = "PENDING";
+                // 逐行重查当日前缀 MAX：同事务应见已插入行 ⇒ 自然递增
+                String max = dao.findMaxTradePlanNoByPrefix(
+                        BizNoGenerator.tradePlanDayPrefix(Clocks.today()));
+                row.tradePlanNo = BizNoGenerator.tradePlan(Clocks.today(),
+                        BizNoGenerator.tradePlanNextSeq(Clocks.today(), max));
+                assertEquals(1, dao.insert(row, U_A));
+                out.add(row.tradePlanNo);
+            }
+            return out;
+        });
+        assertEquals(Arrays.asList(day + "00001", day + "00002", day + "00003"), nums,
+                "批内逐行重查前缀 MAX ⇒ 同事务见已插入行 ⇒ 递增（原 count+n+1 的手工偏移为本机制所覆盖）");
+        assertEquals(3, engine.table("t_trade_plan").rows.size(), "三条均应落库");
     }
 
     // ------------------------------------------------------------ 验收 1：全链路无断点

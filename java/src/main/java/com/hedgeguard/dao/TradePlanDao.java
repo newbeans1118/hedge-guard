@@ -61,4 +61,22 @@ public interface TradePlanDao extends BaseDao<TradePlan, Long> {
      * @return 命中的实体；不存在返回 {@code null}
      */
     TradePlan findByTradePlanNo(String tradePlanNo);
+
+    /**
+     * 取指定编号前缀下<b>字典序最大</b>的交易计划编号
+     * （{@code DATA_MODEL.md} §3.5「当日最大序号 + 1」取数；{@code T-141}）。
+     *
+     * <p><b>为何需要专用方法</b>：{@code t_trade_plan} 无独立业务日列，业务日仅隐含于
+     * {@code trade_plan_no} 前缀（{@code TP<yyyyMMdd>}）；通用 WHERE 原子（{@code =}/{@code IN}/
+     * {@code IS NULL}）表达不了前缀匹配，故在本方法内以 {@code trade_plan_no LIKE ?}（前缀区间）直查
+     * —— 走 {@code uk_trade_plan_no} 唯一索引区间扫描。序号<b>零填充定长</b> ⇒ 前缀内字典序最大即序号最大。
+     *
+     * <p><b>不使用</b> {@code SELECT MAX(...) FOR UPDATE}（{@code §3.5} 明令禁止：热点表锁竞争）。
+     *
+     * @param tradePlanNoPrefix 编号前缀（须为 {@code TP<yyyyMMdd>}，由
+     *                          {@code BizNoGenerator.tradePlanDayPrefix} 拼装；本层按占位符绑定，
+     *                          禁止拼接取值）
+     * @return 命中的最大编号；当日无交易计划返回 {@code null}
+     */
+    String findMaxTradePlanNoByPrefix(String tradePlanNoPrefix);
 }

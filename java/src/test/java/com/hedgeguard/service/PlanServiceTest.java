@@ -2,6 +2,7 @@ package com.hedgeguard.service;
 
 import com.hedgeguard.common.Clocks;
 import com.hedgeguard.dao.AuthorizationDao;
+import com.hedgeguard.dao.BizNoGenerator;
 import com.hedgeguard.dao.CustomHedgeRuleDao;
 import com.hedgeguard.dao.ExposureDao;
 import com.hedgeguard.dao.HedgeDocDao;
@@ -457,6 +458,87 @@ class PlanServiceTest {
         assertEquals(plan.id, tradePlanDao.rows.get(0).hedgePlanId, "追溯链必挂套保计划");
     }
 
+    // ------------------------------------------------------------ T-141 取号：当日最大序号 + 1
+
+    @Test
+    @DisplayName("交易计划取号（T-141）：seq = 当日最大序号 + 1（跨套保计划共享当日序号；批内自然递增）")
+    void tradePlanNoIsDailyMaxPlusOneAcrossHedgePlans() {
+        HedgePlan plan = approvedCandidate();
+        service.approve(plan.id, 9L, "同意");
+        contractDao.rows.add(contract(5L, "cu2612"));
+        String day = BizNoGenerator.tradePlanDayPrefix(Clocks.today());
+        // 他套保计划（id=9999）在同一业务日已有一条交易计划，占用当日序号 …00007
+        TradePlan otherPlanRow = new TradePlan();
+        otherPlanRow.id = 9001L;
+        otherPlanRow.hedgePlanId = 9999L;
+        otherPlanRow.subAccountId = 3;
+        otherPlanRow.tradePlanNo = BizNoGenerator.tradePlan(Clocks.today(), 7L);
+        tradePlanDao.rows.add(otherPlanRow);
+
+        // 本套保计划分解 3 条（N=3）：编号须接当日最大序号 + 1（而非按本计划计数从 1 起）
+        int n = service.decomposeTradePlans(plan.id,
+                Arrays.asList(trade("cu2612", new BigDecimal("20")),
+                        trade("cu2612", new BigDecimal("30")),
+                        trade("cu2612", new BigDecimal("30"))), 1L);
+        assertEquals(3, n);
+        // rows = [他计划 …00007, 本计划 b1, b2, b3]
+        assertEquals(day + "00008", tradePlanDao.rows.get(1).tradePlanNo,
+                "首条 = 当日最大序号(7) + 1 —— 改回按 hedge_plan_id 计数（从 1 起）本断言即红");
+        assertEquals(day + "00009", tradePlanDao.rows.get(2).tradePlanNo,
+                "批内逐行重查前缀 MAX ⇒ 自然递增（同事务可见已插入行）");
+        assertEquals(day + "00010", tradePlanDao.rows.get(3).tradePlanNo);
+    }
+
+    @Test
+    @DisplayName("交易计划取号（T-141）：按业务日重置 —— 次日首个交易计划号重新从 00001 起")
+    void tradePlanNoSeqResetsPerBusinessDay() {
+        HedgePlan plan = approvedCandidate();
+        service.approve(plan.id, 9L, "同意");
+        contractDao.rows.add(contract(5L, "cu2612"));
+        String day1 = BizNoGenerator.tradePlanDayPrefix(Clocks.today());
+        service.decomposeTradePlans(plan.id,
+                Arrays.asList(trade("cu2612", new BigDecimal("40"))), 1L);
+        assertEquals(day1 + "00001", tradePlanDao.rows.get(0).tradePlanNo, "基准日首个 = 当日 00001");
+
+        // 推进到次一业务日：seq 须【重置】为当日 00001（非累计前一日序号）
+        Clocks.set(Clock.fixed(T0.plusSeconds(86400), Clocks.ZONE));
+        String day2 = BizNoGenerator.tradePlanDayPrefix(Clocks.today());
+        service.decomposeTradePlans(plan.id,
+                Arrays.asList(trade("cu2612", new BigDecimal("40"))), 1L);
+        assertEquals(day2 + "00001", tradePlanDao.rows.get(1).tradePlanNo,
+                "次日首个应【重置】为当日 00001 —— 改回全局/累计取号本断言即红");
+    }
+
+    @Test
+    @DisplayName("交易计划取号重试（T-141）：trade_plan_no 唯一冲突重试至成功（§3.5 最多 3 次；关掉重试必红）")
+    void retriesTradePlanNoConflictUpToThreeAttempts() {
+        HedgePlan plan = approvedCandidate();
+        service.approve(plan.id, 9L, "同意");
+        contractDao.rows.add(contract(5L, "cu2612"));
+        tradePlanDao.failInsertsLeft = 2;             // 前两次 insert 抛 SqlState=23000
+        tradePlanDao.tradePlanNoConflictOnFailure = true;  // 判为 trade_plan_no 冲突 ⇒ 重试
+        int n = service.decomposeTradePlans(plan.id,
+                Arrays.asList(trade("cu2612", new BigDecimal("40"))), 1L);
+        assertEquals(1, n, "重试后应成功落库");
+        assertEquals(3, tradePlanDao.insertAttempts,
+                "应取号重试至第 3 次成功（RETRY_MAX_ATTEMPTS=3）——把该常量改小本断言即红");
+    }
+
+    @Test
+    @DisplayName("交易计划取号重试收窄（T-141）：非 trade_plan_no 唯一冲突不得重试（避免无谓重试与误报）")
+    void doesNotRetryNonTradePlanNoConflict() {
+        HedgePlan plan = approvedCandidate();
+        service.approve(plan.id, 9L, "同意");
+        contractDao.rows.add(contract(5L, "cu2612"));
+        tradePlanDao.failInsertsLeft = 1;
+        tradePlanDao.tradePlanNoConflictOnFailure = false;  // 候选 trade_plan_no 未被占用 ⇒ 其他唯一约束冲突
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> service.decomposeTradePlans(plan.id,
+                        Arrays.asList(trade("cu2612", new BigDecimal("40"))), 1L));
+        assertTrue(e.getMessage().contains("非交易计划编号"), e.getMessage());
+        assertEquals(1, tradePlanDao.insertAttempts, "非 trade_plan_no 唯一冲突只尝试 1 次（不重试）");
+    }
+
     // ------------------------------------------------------------ 桩与数据
 
     private static HedgePlan plan(String hedgeDirection) {
@@ -799,8 +881,22 @@ class PlanServiceTest {
         private final List<TradePlan> rows = new ArrayList<>();
         private long nextId = 1;
 
+        /** T-141 取号重试守卫：前 {@code failInsertsLeft} 次 {@code insert} 抛「唯一约束冲突」。 */
+        int failInsertsLeft;
+        /** 模拟冲突是否属 trade_plan_no（true ⇒ {@code findByTradePlanNo} 命中 ⇒ 判为编号冲突 ⇒ 重试）。 */
+        boolean tradePlanNoConflictOnFailure = true;
+        /** {@code insert} 实际调用次数（断言重试次数；关掉/缩短重试必红）。 */
+        int insertAttempts;
+
         @Override
         public int insert(TradePlan entity, long operatorId) {
+            insertAttempts++;
+            if (failInsertsLeft > 0) {
+                failInsertsLeft--;
+                // 模拟 TxTemplate 包装：IllegalStateException(cause = SQLException(SQLState=23000))
+                throw new IllegalStateException("唯一约束冲突（模拟）",
+                        new java.sql.SQLException("dup", "23000"));
+            }
             entity.id = nextId++;
             rows.add(entity);
             return 1;
@@ -878,7 +974,32 @@ class PlanServiceTest {
 
         @Override
         public TradePlan findByTradePlanNo(String tradePlanNo) {
-            throw com.hedgeguard.testsupport.FakeDao.unsupported("findByTradePlanNo");
+            // T-141 取号重试的 O-2 判别依赖此方法：候选 trade_plan_no 是否已被占用。
+            for (TradePlan row : rows) {
+                if (tradePlanNo != null && tradePlanNo.equals(row.tradePlanNo)) {
+                    return row;
+                }
+            }
+            // 模拟并发：冲突由「他笔事务已占用同名 trade_plan_no」造成 ⇒ 视为命中一条同号行（仅用于判别）。
+            if (tradePlanNoConflictOnFailure) {
+                TradePlan occupied = new TradePlan();
+                occupied.tradePlanNo = tradePlanNo;
+                return occupied;
+            }
+            return null;
+        }
+
+        @Override
+        public String findMaxTradePlanNoByPrefix(String tradePlanNoPrefix) {
+            // 批内可见性：本方法逐行重查，每次返回当前 rows 的当日前缀最大编号（模拟同事务可见已插入行）。
+            String max = null;
+            for (TradePlan row : rows) {
+                if (row.tradePlanNo != null && row.tradePlanNo.startsWith(tradePlanNoPrefix)
+                        && (max == null || row.tradePlanNo.compareTo(max) > 0)) {
+                    max = row.tradePlanNo;
+                }
+            }
+            return max;
         }
     }
 

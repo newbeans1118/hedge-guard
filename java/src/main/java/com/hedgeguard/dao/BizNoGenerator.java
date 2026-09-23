@@ -107,6 +107,47 @@ public final class BizNoGenerator {
     }
 
     /**
+     * 交易计划编号的<b>日期段前缀</b>（{@code TP<yyyyMMdd>}）——「当日最大序号 + 1」的取数键
+     * （{@code DATA_MODEL.md} §3.5）。
+     *
+     * <p>{@code t_trade_plan} 无独立业务日列，业务日仅隐含于 {@code trade_plan_no} 前缀；本方法提供
+     * 唯一的前缀拼装入口，供 DAO 以前缀区间取当日最大编号（禁止调用方各自拼串）。
+     *
+     * @param bizDate 业务日期
+     * @return 前缀（如 {@code TP20260920}）
+     */
+    public static String tradePlanDayPrefix(LocalDate bizDate) {
+        if (bizDate == null) {
+            throw new IllegalArgumentException("业务日期不得为空；复现=检查取号调用点");
+        }
+        return "TP" + bizDate.format(YYYYMMDD);
+    }
+
+    /**
+     * 交易计划「当日下一个序号」= <b>当日最大序号 + 1</b>（{@code DATA_MODEL.md} §3.5）。
+     *
+     * <p><b>按业务日重置</b>：当日无既有编号（{@code existingMaxTradePlanNo == null} 或前缀非当日）
+     * ⇒ 返回 {@code 1}；否则取当日最大编号末段 + 1。序号零填充定长 ⇒ 字典序最大即序号最大。
+     *
+     * @param bizDate               业务日期
+     * @param existingMaxTradePlanNo 当日字典序最大的既有编号（可为 {@code null}）
+     * @return 当日下一个序号（从 1 起）
+     */
+    public static long tradePlanNextSeq(LocalDate bizDate, String existingMaxTradePlanNo) {
+        String prefix = tradePlanDayPrefix(bizDate);
+        if (existingMaxTradePlanNo == null || !existingMaxTradePlanNo.startsWith(prefix)) {
+            return 1L;
+        }
+        String seqText = existingMaxTradePlanNo.substring(prefix.length());
+        try {
+            return Long.parseLong(seqText) + 1L;
+        } catch (NumberFormatException e) {
+            throw new IllegalStateException("交易计划编号当日序号段非数字：" + existingMaxTradePlanNo
+                    + "；复现=检查 trade_plan_no 形态（TP<yyyyMMdd><seq(5)>，DATA_MODEL.md §3.5）", e);
+        }
+    }
+
+    /**
      * 交易指令引用（幂等键，协议字段 {@code client_order_ref}）：{@code HG<yyyyMMdd><seq(6)>}。
      *
      * @param bizDate 业务日期

@@ -1362,6 +1362,14 @@ public final class PlanService {
      * ⇒ 在此要求「交易岗能力」会误拒需求明列的合法主体。`assertCanTrade` 的服务端强制点为 <b>M2 下单写路径</b>
      * （{@code POST /api/v1/trade/order} → {@code TradingBridge.placeOrder} 前置，归 {@code T-046}）。
      *
+     * <p><b>交易计划编号（{@code T-141}）</b>：编号形态 {@code TP<yyyyMMdd><seq(5)>}（{@code §3.5}，
+     * <b>不含子账户 / 套保计划维度</b>），受 {@code uk_trade_plan_no}（{@code DATA_MODEL.md}:1857
+     * 「交易计划编号（全系统唯一）」）约束。{@code seq} 取<b>当日最大序号 + 1</b>（按业务日重置）：
+     * 原「按 {@code hedge_plan_id} 计数 + 批内偏移」使两个不同套保计划在同一业务日各自从 1 起取号
+     * ⇒ 撞 {@code uk_trade_plan_no}（与 {@code BUG-003} 同构）。取数与插入在<b>同一事务</b>内完成，
+     * 并保留 {@code §3.5}「{@code UNIQUE} 冲突 + 最多 3 次重试」（并发窗口下重取号重试整笔事务）。
+     * <b>不使用</b> {@code SELECT MAX(...) FOR UPDATE}（{@code §3.5} 明令禁止）。
+     *
      * @param planId     套保计划
      * @param tradePlans 交易计划（数量 / 合约 / 期限 由调用方给出）
      * @param operatorId 操作人（会话身份，不接受请求体传入）
@@ -1416,26 +1424,66 @@ public final class PlanService {
                     "交易计划分解校验失败（共 " + problems.size() + " 项）：\n  - "
                             + String.join("\n  - ", problems));
         }
-        return tx.inTransaction(connection -> {
-            int n = 0;
-            for (TradePlan row : tradePlans) {
-                row.subAccountId = plan.subAccountId;
-                row.hedgePlanId = planId;
-                row.productId = plan.productId;
-                row.instrumentType = row.instrumentType == null ? "FUTURES" : row.instrumentType;
-                row.executedQty = BigDecimal.ZERO;
-                row.orderedQty = BigDecimal.ZERO;
-                row.status = "PENDING";
-                long seq = tradePlanDao.count("hedge_plan_id = ?", Arrays.asList(planId)) + n + 1;
-                row.tradePlanNo = BizNoGenerator.tradePlan(Clocks.today(), seq);
-                if (tradePlanDao.insert(row, operatorId) != 1) {
-                    throw BizException.of(ErrorCode.UNIQUE_CONFLICT,
-                            "交易计划编号冲突：tradePlanNo=" + row.tradePlanNo + "；复现=重试");
+        // 交易计划编号全局唯一（uk_trade_plan_no；DATA_MODEL.md:1857「交易计划编号（全系统唯一）」）：
+        // 编号形态 TP<yyyyMMdd><seq(5)>（§3.5，不含子账户 / 套保计划维度）。seq = 【当日】最大序号 + 1
+        // （按业务日重置）—— 原「按 hedge_plan_id 计数 + 批内偏移」使两个不同套保计划在同一业务日各自
+        // 从 1 起取号 ⇒ 撞 uk_trade_plan_no（与 BUG-003 同构，T-141）。
+        // t_trade_plan 无业务日列，业务日隐含于 trade_plan_no 前缀；序号零填充定长 ⇒ 前缀内字典序最大即
+        // 序号最大。批内每行**重新取前缀 MAX** —— 取数与插入在【同一事务内】（§3.5），同事务可见本事务
+        // 已插入的行 ⇒ seq 自然递增（N ≥ 3 的批得 …00001/…00002/…00003），无需再手工加批内偏移。
+        // 并发窗口下两笔读到同一当日最大编号 ⇒ 其中一笔撞 uk_trade_plan_no ⇒ 经
+        // BizNoGenerator.retryOnUniqueConflict（§3.5「最多 3 次」）重新取号并重试整笔事务（回滚后重取号，
+        // 幂等）。明确不使用 SELECT MAX(...) FOR UPDATE（§3.5 明令禁止：热点表锁竞争）。
+        final String[] candidateNo = {null};
+        final int[] inserted = {0};
+        BizNoGenerator.retryOnUniqueConflict(RETRY_MAX_ATTEMPTS, () -> {
+            try {
+                inserted[0] = tx.inTransaction(connection -> {
+                    int n = 0;
+                    for (TradePlan row : tradePlans) {
+                        row.subAccountId = plan.subAccountId;
+                        row.hedgePlanId = planId;
+                        row.productId = plan.productId;
+                        row.instrumentType = row.instrumentType == null ? "FUTURES" : row.instrumentType;
+                        row.executedQty = BigDecimal.ZERO;
+                        row.orderedQty = BigDecimal.ZERO;
+                        row.status = "PENDING";
+                        LocalDate bizDate = Clocks.today();
+                        String maxTradePlanNo = tradePlanDao.findMaxTradePlanNoByPrefix(
+                                BizNoGenerator.tradePlanDayPrefix(bizDate));
+                        row.tradePlanNo = BizNoGenerator.tradePlan(bizDate,
+                                BizNoGenerator.tradePlanNextSeq(bizDate, maxTradePlanNo));
+                        candidateNo[0] = row.tradePlanNo;
+                        if (tradePlanDao.insert(row, operatorId) != 1) {
+                            throw BizException.of(ErrorCode.UNIQUE_CONFLICT,
+                                    "交易计划编号冲突（uk_trade_plan_no）：tradePlanNo=" + row.tradePlanNo
+                                            + "；复现=重试（编号由应用层按当日最大序号生成）");
+                        }
+                        n++;
+                    }
+                    return n;
+                });
+                return true;
+            } catch (IllegalStateException e) {
+                // TxTemplate 把 SQLException 包装为 IllegalStateException；仅根因为唯一约束冲突
+                // （SQLState 23xx）时解包为 SQLException 交重试器；其余原样抛出（不吞异常、不误重试）。
+                SQLException unique = uniqueViolationCause(e);
+                if (unique == null) {
+                    throw e;
                 }
-                n++;
+                // O-2 收窄重试谓词：整笔事务内的唯一约束不止 trade_plan_no 一处。仅 trade_plan_no 冲突
+                // 可经「重新取号 + 重试」自愈；其他唯一冲突重试必然再现（输入未变）。判别：候选
+                // tradePlanNo 已被占用 ⇒ trade_plan_no 冲突（重试）；未占用 ⇒ 其他约束冲突（原样抛出，
+                // 不误报为「编号冲突」、不做无谓重试）。
+                if (tradePlanDao.findByTradePlanNo(candidateNo[0]) == null) {
+                    throw new IllegalStateException(
+                            "唯一约束冲突非交易计划编号（uk_trade_plan_no），不重试：tradePlanNo="
+                                    + candidateNo[0] + "；复现=核对该事务其余唯一约束", e);
+                }
+                throw unique;
             }
-            return n;
         });
+        return inserted[0];
     }
 
     /**

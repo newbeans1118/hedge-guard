@@ -287,6 +287,8 @@ public interface TradePlanDao extends BaseDao<TradePlan, Long> {
     PageResult<TradePlan> findPageScoped(PageQuery query, SubAccountScope scope,
                                          String extraWhere, List<Object> extraArgs);
     TradePlan findByTradePlanNo(String tradePlanNo);
+    // T-141 追加：按编号前缀取当日字典序最大编号（§3.5「当日最大序号 + 1」取数；专用 SQL，走 uk_trade_plan_no 前缀区间）
+    String findMaxTradePlanNoByPrefix(String tradePlanNoPrefix);
 }
 
 // —— TB-PRODUCT-1 t_product（FR-PRODUCT-5 列表 / FR-PRODUCT-8 导出 / NFR-SEC-7）——
@@ -306,7 +308,7 @@ public interface ProductDao extends BaseDao<Product, Long> {
 ```
 
 - **`HedgePlanDao`**：`findPageScoped` / `findByIdScoped`（**`T-100` 交付，纯增量**；实现 `dao/impl/DmHedgePlanDao`，复用 `AbstractDmDao.findPageScoped`）——列表与详情面同接同一过滤；`findByIdScoped` 语义：**不可见 ≡ 不存在**（同一返回，不泄露存在性）。另加 **`findMaxPlanNoByPrefix`（`T-137` 交付，纯增量）**：`DATA_MODEL.md` §3.5「当日最大序号 + 1」取数（`t_hedge_plan` 无业务日列，业务日隐含于 `plan_no` 前缀；通用 WHERE 原子表达不了前缀匹配 ⇒ 专用 SQL `plan_no LIKE ?`，走 `uk_hedge_plan_no` 唯一索引区间）；**不使用 `SELECT MAX(...) FOR UPDATE`**（§3.5 明令禁止）。
-- **`TradePlanDao`**：`findByHedgePlanScoped`（**`T-101` 交付**）/ `findPageScoped`（**`T-103` 交付**）——**两处纯增量、非破坏性**，无需 `CH-xxx`。
+- **`TradePlanDao`**：`findByHedgePlanScoped`（**`T-101` 交付**）/ `findPageScoped`（**`T-103` 交付**）——**两处纯增量、非破坏性**，无需 `CH-xxx`。另加 **`findMaxTradePlanNoByPrefix`（`T-141` 交付，纯增量）**：`DATA_MODEL.md` §3.5「当日最大序号 + 1」取数（`t_trade_plan` 无业务日列，业务日隐含于 `trade_plan_no` 前缀；通用 WHERE 原子表达不了前缀匹配 ⇒ 专用 SQL `trade_plan_no LIKE ?`，走 `uk_trade_plan_no` 唯一索引区间）；**不使用 `SELECT MAX(...) FOR UPDATE`**（§3.5 明令禁止）。
 - **`ProductDao`**：`findPageScoped` / `findAllScoped` / `findAllOrderByCreatedDesc`（**`T-105` 交付，三处纯增量**；实现 `dao/impl/DmProductDao`）——**载体差异**：`t_product` 无 `sub_account_id` 列，故 scope 的 `sub_account_id` 谓词落在 **`t_sub_product_whitelist` 子查询**上（`id IN (SELECT product_id FROM t_sub_product_whitelist WHERE <scope.sql()>)`），即"可见品种 = 可见子账户白名单覆盖品种之并集"；`findAllOrderByCreatedDesc` 为**不加过滤**（跨账户只读 / 哨兵 0）路径，服务层据哨兵择一调用。
 - 语义（各 scoped 方法一致，冻结；`ProductDao` 的子查询形态为经登记的载体差异）：由服务层构造 `SubAccountScope` 后传入；本层**不解析权限语义**，只把
   `scope.appendTo(...)` 的条件与既有条件合并（`ProductDao` 为包一层白名单子查询）；**空集合 ⇒ 恒假条件**（返回空），**绝不**退化为不过滤；
@@ -737,6 +739,7 @@ instantiated OK        # 同时打印 SLF4J: Defaulting to no-operation (NOP) lo
 | 2026-09-21 19:39 | `backend-engineer#java`（实例 `be-t099b`） | **勘误：`scopeOf` 过时指引订正 2 处** —— `:312`（§2.2「不得以 `scopeOf` 取数」）改为**已完成态**（`T-099` 已删除 `scopeOf`；正确入口 = `AuthService.visibleSubAccountIds`）；`:798`（§7 `#java2` 检查清单；本行追加登记后该条现位于 `:799`）取数入口由 `userSubAccountPermDao.scopeOf(userId, "sub_account_id")` 改为 `AuthService.visibleSubAccountIds(userId)` → `SubAccountScope.of(...)`（保留"注入 `SubAccountScope`"原意）。**动因**：`:798` 与 `:312` 自相矛盾（失效入口继续冒充权威）；**授权链** = 编排者 2026-09-21 授权 + `T-099` 处置。**无签名 / 字段 / 错误码 / 路径变更** | **未升版**（`HGC-1.6` 不变） |
 | 2026-09-23（`T-135` 交付） | `backend-engineer#java2`（实例 `be-t135`） | **兼容性增量登记（`T-135`；`FR-AUTH-1/5/11/15④`、`FR-CONFIG-7` 验收3）**：① **新增 DAO 方法**（`§5.3`「新增方法属兼容变更」）—— `UserSubAccountPermDao.findUserIdsBySubAccount(int)`（+ `DmUserSubAccountPermDao` 实现；反向索引，仅供用户列表筛选下推 `id IN (...)`，**非**取数入口）；② **既有已声明路径补注册方法**（**未新增路径**）—— `PUT /api/v1/config/sub-account`（路径与 CONFIG 方法集 `GET/POST/PUT` 均在 `§4.1.1` 内；`ApiRoutes` 路径清单**未变**）；③ **既有端点新增可选入参**（`§0③` 字段级兼容）—— `GET /auth/user` 增 `role`/`keyword`/`subAccount`；`GET /auth/change-log` 增 `from`/`to`/`changeTarget`/`operatorId`；`POST /auth/user` 请求体增可选 `roleCode`；`PUT /auth/user` 的 `action` 取值域增 `FORCE_LOGOUT`；④ **新增服务重载**（`AuthService.listUsers`/`listPermissionChangeLogs`/`createUser` 及 `ConfigService.findSubAccountById`），旧签名保留委托。**无路径新增 / 无字段删除改类型 / 无错误码增减** ⇒ **未升版**（`HGC-1.6` 不变）。⚠️ **该 `PUT` 使装配面路由计数 `82 → 83`** —— `BootstrapAssemblyTest:140` 断言已同步订正（+加注理由）；**`web/js/core/routes.js` 头注仍写 `82`/`CONFIG17`，须由可写 `web/**` 的实例同步**（本席写入域为 `java/**`，未改）。 | **未升版**（`HGC-1.6` 不变） |
 | 2026-09-23（`T-137` 退回修复） | `backend-engineer#java2`（实例 `be-t137b`） | **兼容性增量登记（`T-137`；`§3.5` 取号口径修复 `BUG-003` 复核 `O-1`）**：§2.2.1 **追加 `HedgePlanDao.findMaxPlanNoByPrefix(String)` 一只纯增量方法**（+ `DmHedgePlanDao` 实现；专用 SQL `SELECT plan_no FROM t_hedge_plan WHERE plan_no LIKE ?`，先例 `T-105`/`T-109`/`T-110`）。取号由「全局累计计数」改为「**当日最大序号 + 1**（按业务日重置）」，取数与插入同事务，保留 §3.5「`UNIQUE` + 最多 3 次重试」（`retryOnUniqueConflict`）；**未新增路径 / 未改字段 / 未改错误码** ⇒ **未升版**（`HGC-1.6` 不变）。⚠️ 测试侧同步（非契约）：`InMemoryDmEngine` 增补 `LIKE ?` 前缀谓词求值（等价引擎能力扩展，既有 `=`/`IN`/`IS NULL` 路径不变）；9 个假 DAO 补 `findMaxPlanNoByPrefix`。 | **未升版**（`HGC-1.6` 不变） |
+| 2026-09-23（`T-141` 交付） | `backend-engineer#java2`（实例 `be-t141`） | **兼容性增量登记（`T-141`；`§3.5` 取号口径修复，与 `BUG-003` 同构）**：§2.2.1 **追加 `TradePlanDao.findMaxTradePlanNoByPrefix(String)` 一只纯增量方法**（+ `DmTradePlanDao` 实现；专用 SQL `SELECT trade_plan_no FROM t_trade_plan WHERE trade_plan_no LIKE ?`，走 `uk_trade_plan_no` 前缀区间）。`decomposeTradePlans` 取号由「按 `hedge_plan_id` 计数 + 批内偏移」改为「**当日最大序号 + 1**（按业务日重置，批内逐行重查前缀 MAX）」，取数与插入同事务并接线 §3.5「`UNIQUE` 冲突 + 最多 3 次重试」（`retryOnUniqueConflict`，非 `trade_plan_no` 唯一冲突不重试）；**未新增路径 / 未改字段 / 未改错误码** ⇒ **未升版**（`HGC-1.6` 不变）。⚠️ 测试侧同步（非契约）：4 个假 DAO 补 `findMaxTradePlanNoByPrefix`。 | **未升版**（`HGC-1.6` 不变） |
 
 ---
 
