@@ -81,6 +81,67 @@
         </dependency>
       </dependencies>
     </profile>
+
+    <!--
+      无 DM 单测档（T-023 验收标准 2 字面要求 `mvn test -Punit`）。
+      语义 = 不启用 dm 的默认档：不引入 DM JDBC 驱动、不建真实连接，
+      全部持久化验证走 `src/test/**` 的假 DAO / 假 JDBC（NFR-TEST-2）。
+      故本 profile **不增删任何依赖与插件** —— `mvn test -Punit` 与 `mvn test` 等价，
+      仅把「当前处于假 DAO 单测档」记入属性 `hg.test.mode` 供诊断/报告引用。
+    -->
+    <profile>
+      <id>unit</id>
+      <properties>
+        <hg.test.mode>unit</hg.test.mode>
+      </properties>
+    </profile>
+
+    <!--
+      覆盖率档（T-023 验收标准 1：核心模块单测覆盖率 >= 80%）。
+      仅在显式激活时生效，不影响默认 `mvn test` 与 `mvn -Pdm ...`。
+      激活方式：mvn -B test -Pcoverage（报告落 target/site/jacoco/jacoco.xml 与 index.html）
+      依据：PROJECT.md §10-8（核心模块单测覆盖率 >= 80%）。
+      版本 0.8.12 与 JDK 11 兼容（T-023 证据：见 docs/TEST_RESULT.md §T-023 节，由编排者落笔）。
+    -->
+    <profile>
+      <id>coverage</id>
+      <build>
+        <plugins>
+          <!--
+            默认 surefire 的 argLine 是写死的 `-Dfile.encoding=UTF-8`，会**覆盖** jacoco
+            prepare-agent 注入的 `${argLine}`（agent 挂不上 ⇒ 报「missing execution data file」）。
+            故在 coverage profile 内重设 argLine = 默认值 + `${argLine}`（jacoco 代理串）。
+            仅本 profile 生效，默认构建与 `-Punit` 不受影响。
+          -->
+          <plugin>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+              <argLine>-Dfile.encoding=UTF-8 ${argLine}</argLine>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>org.jacoco</groupId>
+            <artifactId>jacoco-maven-plugin</artifactId>
+            <version>0.8.12</version>
+            <executions>
+              <execution>
+                <id>jacoco-prepare-agent</id>
+                <goals>
+                  <goal>prepare-agent</goal>
+                </goals>
+              </execution>
+              <execution>
+                <id>jacoco-report</id>
+                <phase>test</phase>
+                <goals>
+                  <goal>report</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 
   <build>
