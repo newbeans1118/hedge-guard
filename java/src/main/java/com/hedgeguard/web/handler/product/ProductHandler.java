@@ -25,6 +25,10 @@ import java.util.List;
  * （{@code §4.1.1} 方法语义：查询 / 新增或动作 / 修改）。
  *
  * <p>品种**不允许物理删除**（{@code status} 无 {@code DELETED}），故本类**无** {@code DELETE}。
+ *
+ * <p><b>{@code T-106} 读取面隔离</b>：{@code GET /product/{id}} 详情按<b>调用者可见子账户范围</b>过滤
+ * （{@code NFR-SEC-7}）——可见集含哨兵 {@code 0}（跨账户只读）⇒ 不加过滤；否则走白名单子查询
+ * （{@link #requireVisibleProduct}）。<b>不可见 ≡ 不存在</b>（统一错误，不泄露存在性）。
  */
 public final class ProductHandler implements RouteHandler {
 
@@ -59,7 +63,8 @@ public final class ProductHandler implements RouteHandler {
             String id = ctx.pathParam("id");
             if (id != null && !id.isEmpty()) {
                 return HttpResult.json(200, ApiResponse.ok(
-                        ProductView.of(requireProduct(varietyService, id)), ctx.traceId()));
+                        ProductView.of(requireVisibleProduct(varietyService, id, ctx.currentUserId())),
+                        ctx.traceId()));
             }
             return list(ctx);
         }
@@ -103,18 +108,64 @@ public final class ProductHandler implements RouteHandler {
         return HttpResult.json(200, ApiResponse.ok(data, ctx.traceId()));
     }
 
-    static Product requireProduct(VarietyService varietyService, String rawId) {
-        long id;
+    /**
+     * 解析品种路径参数（{@code {id}} 须为十进制整数；格式非法 ⇒ {@code 10001}）。
+     *
+     * @param rawId 路径参数原文
+     * @return 品种主键
+     */
+    static long parseId(String rawId) {
         try {
-            id = Long.parseLong(rawId);
+            return Long.parseLong(rawId);
         } catch (NumberFormatException e) {
             throw BizException.of(ErrorCode.PARAM_INVALID,
                     "品种 ID 须为十进制整数：实际=" + rawId + "；复现=核对路径参数 {id}", e);
         }
+    }
+
+    /**
+     * 取品种（<b>不</b>施加子账户隔离）——仅供<b>全局共享</b>子资源路径复用
+     * （如 {@code ProductContractHandler} 的合约关联，其 {@code {id}} 非 {@code T-106} 收口面）。
+     *
+     * <p>{@code GET /product/{id}} 详情<b>不得</b>走本方法（会构成按 id 越权读取），
+     * 须走 {@link #requireVisibleProduct}。
+     *
+     * @param varietyService 品种服务
+     * @param rawId          路径参数
+     * @return 品种（不存在 ⇒ {@code 10001}）
+     */
+    static Product requireProduct(VarietyService varietyService, String rawId) {
+        long id = parseId(rawId);
         Product product = varietyService.getProduct(id);
         if (product == null) {
             throw BizException.of(ErrorCode.PARAM_INVALID,
                     "品种不存在：id=" + id + "；复现=按 product_code 查询确认 ID");
+        }
+        return product;
+    }
+
+    /**
+     * 取品种详情（{@code GET /product/{id}}，{@code FR-PRODUCT-6}）：按<b>调用者可见范围</b>过滤
+     * （{@code NFR-SEC-7} / {@code T-106}）。
+     *
+     * <p>隔离身份取自会话（{@code operatorId}），不由路径参数决定。可见集含哨兵 {@code 0}（跨账户只读）
+     * ⇒ 不加过滤；否则经白名单子查询过滤（空集 ⇒ 恒假）。
+     * <b>不可见 ≡ 不存在</b>（{@code getProduct(id, operatorId)} 返回 {@code null}），映射为
+     * <b>统一错误</b>（{@code FR-PRODUCT-6} 处理规则「无权限或不存在时返回统一错误，不泄露是否存在」；
+     * 同 {@code T-100}/{@code T-107} 口径）。
+     *
+     * @param varietyService 品种服务
+     * @param rawId          路径参数
+     * @param operatorId     调用者（由会话决定）
+     * @return 品种（不存在或不可见 ⇒ 同一 {@code 10001} 统一错误）
+     */
+    static Product requireVisibleProduct(VarietyService varietyService, String rawId, long operatorId) {
+        long id = parseId(rawId);
+        Product product = varietyService.getProduct(id, operatorId);
+        if (product == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "品种不存在或无权访问：id=" + id
+                            + "；复现=核对品种 ID 与该品种所属子账户的可见性（FR-PRODUCT-6）");
         }
         return product;
     }

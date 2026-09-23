@@ -304,6 +304,7 @@ public interface ProductDao extends BaseDao<Product, Long> {
     List<Product> findAllScoped(SubAccountScope scope);
     // T-105 追加：导出面跨账户只读路径（哨兵 0 ⇒ 不加过滤，created_time 倒序）
     List<Product> findAllOrderByCreatedDesc();
+    Product findByIdScoped(long id, SubAccountScope scope);   // T-106 追加：详情按主键 + scope（不可见 ≡ 不存在，同一返回；载体同 findPageScoped 走白名单子查询）
 }
 
 // —— TB-SPOT-8 t_exposure（FR-SPOT-15 列表分页 / 详情 / NFR-SEC-7）——

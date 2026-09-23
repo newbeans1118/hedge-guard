@@ -25,6 +25,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -149,12 +150,81 @@ class DmProductDaoScopedSqlTest {
                 "跨账户只读仍按创建时间倒序：" + jdbc.records().get(1).sql);
     }
 
+    // ------------------------------------------------------------ T-106：详情面（findByIdScoped）
+
+    @Test
+    @DisplayName("T-106 详情(真实 DAO)：非空 scope ⇒ WHERE 含 id = ? AND 白名单子查询 sub_account_id IN (?)，按序绑定")
+    void findByIdScopedEmitsIdAndScopePredicate() {
+        RecordingJdbc jdbc = new RecordingJdbc();
+        DmProductDao dao = new DmProductDao(newTx(jdbc));
+
+        Product product = dao.findByIdScoped(5L,
+                SubAccountScope.of("sub_account_id", Arrays.asList(7)));
+
+        assertEquals(1, jdbc.records().size(), "详情面单条 SELECT");
+        RecordingJdbc.Rec rec = jdbc.records().get(0);
+        assertTrue(rec.sql.contains("id = ? AND id IN (SELECT product_id FROM t_sub_product_whitelist"),
+                "详情面须 {id=?} 与白名单子查询并列（载体差异：t_product 无 sub_account_id 列）：" + rec.sql);
+        assertTrue(rec.sql.contains("sub_account_id IN (?)"), "须含 scope 子句：" + rec.sql);
+        assertEquals(Arrays.asList((Object) 5L, 7), rec.args, "参数：主键 + scope；与占位符一一对应");
+        assertNull(product, "假 JDBC 无行 ⇒ 无命中（不可见 ≡ 不存在，同一返回 null）");
+    }
+
+    @Test
+    @DisplayName("T-106 详情(真实 DAO)：空 scope ⇒ 白名单子查询恒假 sub_account_id IN (-1)，不可见即无命中")
+    void findByIdScopedEmptyScopeNeverTrue() {
+        RecordingJdbc jdbc = new RecordingJdbc();
+        DmProductDao dao = new DmProductDao(newTx(jdbc));
+
+        Product product = dao.findByIdScoped(5L,
+                SubAccountScope.of("sub_account_id", Collections.emptyList()));
+
+        assertEquals(1, jdbc.records().size());
+        RecordingJdbc.Rec rec = jdbc.records().get(0);
+        assertTrue(rec.sql.contains("id IN (SELECT product_id FROM t_sub_product_whitelist"), rec.sql);
+        assertTrue(rec.sql.contains("sub_account_id IN (-1)"),
+                "空 scope 须产出恒假条件（无命中），不得退化为不过滤：" + rec.sql);
+        assertEquals(Collections.singletonList((Object) 5L), rec.args, "空 scope 仅绑定主键");
+        assertNull(product, "恒假 ⇒ 无命中");
+    }
+
+    @Test
+    @DisplayName("T-106 详情(服务层→真实 DAO)：受限身份 getProduct 过滤落到详情 SQL；哨兵 0 ⇒ 不加过滤")
+    void serviceGetProductScopedSql() {
+        // 受限身份（可见 [7]）：过滤落详情 SQL
+        RecordingJdbc limited = new RecordingJdbc();
+        TxTemplate limitedTx = newTx(limited);
+        VarietyService limitedService = new VarietyService(limitedTx, new DmProductDao(limitedTx),
+                null, null, null, null, null, null, null, uid -> Arrays.asList(7));
+
+        limitedService.getProduct(5L, 42L);
+
+        assertEquals(1, limited.records().size());
+        assertTrue(limited.records().get(0).sql.contains("sub_account_id IN (?)"),
+                "受限身份须把子账户过滤落到详情 SQL：" + limited.records().get(0).sql);
+        assertEquals(Arrays.asList((Object) 5L, 7), limited.records().get(0).args);
+
+        // 跨账户只读（哨兵 0）：不加过滤
+        RecordingJdbc cross = new RecordingJdbc();
+        TxTemplate crossTx = newTx(cross);
+        VarietyService crossService = new VarietyService(crossTx, new DmProductDao(crossTx),
+                null, null, null, null, null, null, null,
+                uid -> Arrays.asList(SubAccountScope.ALL_ACCOUNT_SENTINEL));
+
+        crossService.getProduct(5L, 42L);
+
+        assertEquals(1, cross.records().size());
+        assertFalse(cross.records().get(0).sql.contains("sub_account_id IN"),
+                "哨兵 0 不得加子账户 IN 过滤：" + cross.records().get(0).sql);
+        assertEquals(Collections.singletonList((Object) 5L), cross.records().get(0).args,
+                "哨兵 0 详情仅按主键");
+    }
+
     // ------------------------------------------------------------ 工具
 
     private static TxTemplate newTx(RecordingJdbc jdbc) {
         return new TxTemplate(new DataSourcePool(jdbc, new PoolConfig(0, 2, 500, 2)));
     }
-
     /**
      * 记录型假 JDBC：捕获<b>每一条</b> PreparedStatement 的 SQL 与按序参数；含 {@code COUNT(*)}
      * 的查询返回一行固定值 {@link #COUNT_VALUE}，其余查询返回空结果集。

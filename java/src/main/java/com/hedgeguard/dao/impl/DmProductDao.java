@@ -169,6 +169,23 @@ public final class DmProductDao extends AbstractDmDao<Product, Long> implements 
     }
 
     /**
+     * {@inheritDoc}
+     *
+     * <p>条件形态 {@code WHERE id = ? AND id IN (SELECT product_id FROM t_sub_product_whitelist
+     * WHERE <scope.sql()>)}；主键条件与白名单子查询并列后，不可见（scope 不含该行子账户的白名单）
+     * 与不存在同样无命中 ⇒ 同一返回（{@code null}，不泄露存在性，{@code T-106}）。
+     */
+    @Override
+    public Product findByIdScoped(long id, SubAccountScope scope) {
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE " + idColumn() + " = ? AND " + scopedProductIdsPredicate(scope);
+        List<Object> args = new ArrayList<>();
+        args.add(id);
+        args.addAll(scope.params());
+        return queryOne(sql, args, this::mapRow);
+    }
+
+    /**
      * 可见品种主键谓词：{@code id IN (SELECT product_id FROM t_sub_product_whitelist WHERE <scope>)}。
      *
      * <p>把 {@link SubAccountScope} 的 {@code sub_account_id} 谓词放入白名单子查询（形态见接口注释）；

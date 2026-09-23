@@ -787,6 +787,12 @@ class SpotT110VisibilityTest {
         public List<Product> findAllOrderByCreatedDesc() {
             throw com.hedgeguard.testsupport.FakeDao.unsupported("findAllOrderByCreatedDesc");
         }
+
+        // T-106：ProductDao 新增单对象读取面方法（本用例不驱动详情，显式失败）
+        @Override
+        public Product findByIdScoped(long id, com.hedgeguard.dao.SubAccountScope scope) {
+            throw com.hedgeguard.testsupport.FakeDao.unsupported("findByIdScoped");
+        }
     }
 
     private static final class FakePermDao extends UnsupportedBaseDao<UserSubAccountPerm, Long>

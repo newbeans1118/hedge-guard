@@ -24,6 +24,9 @@ import java.util.Map;
  *
  * <p>{@code GET ?subAccountId=&productId=} 取**三层全景**（展示用；其中的
  * {@code used_qty}/{@code frozen_qty} 是库内投影，**不作判定依据**，{@code R-RISK-9}）。
+ * <b>读取面隔离</b>（{@code NFR-SEC-7} / {@code T-106}）：服务层对入参子账户做可见性断言
+ * （越权 {@code 10004}），隔离身份取自<b>会话</b>（{@code ctx.currentUserId()}），不由查询参数决定；
+ * 层③（账户级哨兵 {@code 0}）非子账户行级归属，不另行过滤（同 {@code T-112}/{@code CH-012} 口径）。
  */
 public final class QuotaHandler implements RouteHandler {
 
@@ -46,7 +49,8 @@ public final class QuotaHandler implements RouteHandler {
         if ("GET".equalsIgnoreCase(ctx.method())) {
             int subAccountId = parseInt(ctx.queryParam("subAccountId"), "subAccountId");
             long productId = parseLong(ctx.queryParam("productId"), "productId");
-            Map<String, Object> panorama = varietyService.quotaPanorama(subAccountId, productId);
+            Map<String, Object> panorama = varietyService.quotaPanorama(subAccountId, productId,
+                    ctx.currentUserId());
             return HttpResult.json(200, ApiResponse.ok(panorama, ctx.traceId()));
         }
         Request request = JsonCodec.fromJson(ctx.body(), Request.class);

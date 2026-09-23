@@ -323,7 +323,7 @@ class VarietyServiceTest {
         service.putInstrumentQuota(3, "cu2612", cu, new BigDecimal("20"), "LOT", from, 1L);
         service.putInstrumentQuota(3, "al2612", al, new BigDecimal("10"), "LOT", from, 1L);
 
-        Map<String, Object> panorama = service.quotaPanorama(3, cu);
+        Map<String, Object> panorama = service.quotaPanorama(3, cu, 1L);
         assertEquals(1, ((List<?>) panorama.get("layer1SubProduct")).size());
         assertEquals(1, ((List<?>) panorama.get("layer3AccountProduct")).size());
         assertEquals(1, ((List<?>) panorama.get("layer2SubInstrument")).size());
@@ -535,6 +535,12 @@ class VarietyServiceTest {
         @Override
         public List<Product> findAllScoped(SubAccountScope scope) {
             throw FakeDao.unsupported("findAllScoped");
+        }
+
+        // T-106：ProductDao 新增单对象读取面方法（本用例不驱动详情，显式失败）
+        @Override
+        public Product findByIdScoped(long id, SubAccountScope scope) {
+            throw FakeDao.unsupported("findByIdScoped");
         }
     }
 

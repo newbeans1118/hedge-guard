@@ -64,6 +64,11 @@ import java.util.regex.Pattern;
  * （否则会把账户级配置误拒，见 {@link #putQuota} 注释）。品种档案 / 换算关系 / 合约 / 现货映射等
  * <b>全局共享</b>对象（{@code R-PRODUCT-7}「品种一份」）不带子账户维度 ⇒ 同样不适用。
  *
+ * <p><b>子账户读取面强制</b>（{@code NFR-SEC-7} / {@code T-105}/{@code T-106}）：列表 / 导出（{@code T-105}）
+ * 与品种详情（{@code T-106}）经 {@code visibleSubAccountIds} → {@code SubAccountScope} 施加过滤
+ * （含哨兵 {@code 0} ⇒ 不加过滤；空集 ⇒ 恒假）；三层额度全景则对<b>入参子账户</b>做读取面可见性断言
+ * （{@link #requireSubAccountVisible}，越权 {@code 10004}）。
+ *
  * <p>CSV 导入（{@code T-012} 验收 3）：<b>全量预校验通过后一次性插入</b>；任一行不合格 →
  * 汇总**全部**错误后抛 {@code 10019}，且<b>不产生任何部分写入</b>（不在报错前逐行落库）。
  */
@@ -220,13 +225,44 @@ public final class VarietyService {
     }
 
     /**
-     * 按主键取品种。
+     * 按主键取品种（<b>不</b>施加子账户隔离；仅供创建后回读等内部路径）。
+     *
+     * <p><b>读取面（HTTP 详情）须用</b> {@link #getProduct(long, long)}：本方法不过滤可见范围，
+     * 直接暴露会构成按 id 越权读取（{@code NFR-SEC-7}）。
      *
      * @param productId 品种
      * @return 品种；不存在返回 {@code null}
      */
     public Product getProduct(long productId) {
         return productDao.findById(productId);
+    }
+
+    /**
+     * 按主键取品种 + <b>调用者可见范围过滤</b>（{@code FR-PRODUCT-6} 详情 / {@code NFR-SEC-7} /
+     * {@code T-106}）。
+     *
+     * <p>可见集来自<b>会话身份</b>（{@link #visibleSubAccountIds}），不由请求参数决定：
+     * <ul>
+     *   <li>含哨兵 {@link SubAccountScope#ALL_ACCOUNT_SENTINEL}（跨账户只读）⇒ <b>不加过滤</b>
+     *       （管理层 / 审计岗可跨子账户查看）；</li>
+     *   <li>否则经 {@link ProductDao#findByIdScoped} 注入白名单子查询
+     *       （{@code id IN (SELECT product_id FROM t_sub_product_whitelist WHERE sub_account_id IN (...))}）；
+     *       空集 ⇒ 恒假（返回 {@code null}）。</li>
+     * </ul>
+     * <b>不可见 ≡ 不存在</b>（同一返回 {@code null}，不泄露存在性，{@code T-100}/{@code T-107} 口径）；
+     * 由 handler 映射为<b>统一错误</b>（{@code FR-PRODUCT-6} 处理规则「无权限或不存在时返回统一错误」）。
+     *
+     * @param productId  品种
+     * @param operatorId 调用者（用于解析可见子账户；由会话决定，不接受请求参数传入）
+     * @return 品种；不存在或不可见均返回 {@code null}
+     */
+    public Product getProduct(long productId, long operatorId) {
+        List<Integer> visible = visibleSubAccountIds(operatorId);
+        if (visible.contains(SubAccountScope.ALL_ACCOUNT_SENTINEL)) {
+            // 跨账户只读（管理层 / 审计岗）：不构造 scope、不加过滤
+            return productDao.findById(productId);
+        }
+        return productDao.findByIdScoped(productId, SubAccountScope.of("sub_account_id", visible));
     }
 
     /**
@@ -749,12 +785,21 @@ public final class VarietyService {
      * <p>本方法只做**展示与核对**取数；返回中的 {@code usedQty}/{@code frozenQty} 是库内投影，
      * <b>不得</b>作为判定依据（{@code R-RISK-9}）。
      *
-     * @param subAccountId 子账户
+     * <p><b>子账户读取面强制</b>（{@code NFR-SEC-7} / {@code T-106}）：全景按<b>入参子账户</b>取层①/层②
+     * 额度行，故先强制调用者对该子账户<b>可见</b>（{@link #requireSubAccountVisible}，越权 {@code 10004}），
+     * 否则任意调用者可凭 {@code subAccountId} 读取他人子账户额度配置（读取面越权）。
+     * <b>层③</b>（{@code ACCOUNT_PRODUCT}）的有效目标是账户哨兵 {@code 0}、<b>非子账户行级归属</b>，
+     * 故<b>不</b>按子账户可见性单独过滤（套用会制造误拒，同 {@code T-112}/{@code CH-012} 对层③的口径）；
+     * 其可见性由「能否查看该子账户全景」这一入口强制承载。
+     *
+     * @param subAccountId 子账户（真实子账户，{@code > 0}）
      * @param productId    品种
+     * @param operatorId   调用者（用于解析可见子账户；由会话决定，不接受请求参数传入）
      * @return 三层额度视图（层① / 层③ / 层②）
      */
-    public Map<String, Object> quotaPanorama(int subAccountId, long productId) {
+    public Map<String, Object> quotaPanorama(int subAccountId, long productId, long operatorId) {
         requireSubAccount(subAccountId);
+        requireSubAccountVisible(operatorId, subAccountId);
         List<ProductQuota> layer1 = productQuotaDao.findByLayerAndScope("SUB_PRODUCT", subAccountId);
         List<ProductQuota> layer3 = productQuotaDao.findByLayerAndScope("ACCOUNT_PRODUCT",
                 SubAccountScope.ALL_ACCOUNT_SENTINEL);
@@ -1047,6 +1092,28 @@ public final class VarietyService {
                     "子账户必须为真实子账户（> 0；哨兵值 0 仅用于账户级作用域列）：实际=" + subAccountId
                             + "；复现=传入真实子账户 ID（DATA_MODEL.md §0.2）");
         }
+    }
+
+    /**
+     * 子账户<b>读取面</b>可见性强制（{@code NFR-SEC-7}；{@code T-106}；{@code FR-PRODUCT-6} / {@code FR-PRODUCT-11}）。
+     *
+     * <p><b>仅用于只读面</b>（如三层额度全景 {@link #quotaPanorama}）：持有跨子账户只读
+     * （{@code CROSS_READONLY}）者可查看全部子账户数据 ⇒ 放行。写动作一律走
+     * {@link #requireSubAccountWritable}（{@code T-115}）。判据由
+     * {@link SubAccountVisibility#assertSubAccountVisible} 给出（生产装配下即 {@link AuthService}
+     * 的带留痕实现）。<b>fail-closed</b>：取数入口缺位（{@code null}）时一律拒绝（{@code 10004}），
+     * 绝不退化为"不校验 = 放行"。入参 {@code subAccountId} 已由 {@link #requireSubAccount} 保证 {@code > 0}。
+     *
+     * @param operatorId   调用者
+     * @param subAccountId 目标子账户（真实子账户，{@code > 0}）
+     */
+    private void requireSubAccountVisible(long operatorId, int subAccountId) {
+        if (subAccountVisibility == null) {
+            throw BizException.of(ErrorCode.SUB_ACCOUNT_PERMISSION_DENIED,
+                    "子账户可见性取数入口缺位，按安全默认拒绝（NFR-SEC-7）：subAccountId=" + subAccountId
+                            + "；复现=核对装配注入 SubAccountVisibility");
+        }
+        subAccountVisibility.assertSubAccountVisible(operatorId, subAccountId);
     }
 
     /**

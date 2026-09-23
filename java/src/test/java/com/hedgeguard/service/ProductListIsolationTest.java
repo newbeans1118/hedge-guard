@@ -299,5 +299,16 @@ class ProductListIsolationTest {
         public List<Product> findAllOrderByCode() {
             return new ArrayList<>(rows);
         }
+
+        // T-106：单对象读取面（忠实模拟白名单子查询：不可见 ≡ 不存在，同一返回 null）
+        @Override
+        public Product findByIdScoped(long id, SubAccountScope scope) {
+            for (Product row : visible(scope)) {
+                if (row.id == id) {
+                    return row;
+                }
+            }
+            return null;
+        }
     }
 }

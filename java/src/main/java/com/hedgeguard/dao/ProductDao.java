@@ -9,7 +9,8 @@ import java.util.List;
  * <p>接口签名冻结于 {@code java/CONTRACTS.md}（{@code HGC-1.0}）：通用增删改查经 {@link BaseDao}；
  * 子账户数据权限由服务层构造 {@link SubAccountScope} 后注入（{@code NFR-SEC-7}）。
  *
- * <p><b>子账户隔离载体（{@code T-105}）</b>：{@code t_product} 本身<b>无</b> {@code sub_account_id} 列
+ * <p><b>子账户隔离载体（{@code T-105} 列表 / 导出；{@code T-106} 详情）</b>：{@code t_product} 本身<b>无</b>
+ * {@code sub_account_id} 列
  * （{@code DATA_MODEL.md} §2.3 TB-PRODUCT-1）；可见范围由 {@code TB-PRODUCT-5
  * t_sub_product_whitelist(sub_account_id, product_id)} 表达。故本 DAO 的 scoped 方法把 scope 的
  * {@code sub_account_id} 谓词落在<b>白名单子查询</b>上：{@code t_product.id IN (SELECT product_id
@@ -74,4 +75,23 @@ public interface ProductDao extends BaseDao<Product, Long> {
      * @return 列表（{@code created_time} 倒序）
      */
     List<Product> findAllOrderByCreatedDesc();
+
+    // ------------------------------------------------------------ T-106：单对象详情读取面
+
+    /**
+     * 按主键取品种 + 子账户可见范围过滤（{@code FR-PRODUCT-6} 详情 / {@code NFR-SEC-7} 读取面强制点）。
+     *
+     * <p>条件形态 {@code WHERE id = ? AND id IN (SELECT product_id FROM t_sub_product_whitelist
+     * WHERE <scope.sql()>)}；scope 为空集时其 {@code sql()} 为恒假条件（{@code sub_account_id IN (-1)}），
+     * 与主键条件并列后必然无命中——即<b>不可见 ≡ 不存在</b>（同一返回 {@code null}，不泄露存在性，
+     * 同 {@code HedgePlanDao#findByIdScoped} / {@code ExposureDao#findByIdScoped}）。
+     *
+     * <p><b>载体差异</b>：{@code t_product} 无 {@code sub_account_id} 列，scope 谓词落白名单子查询
+     * （与 {@link #findPageScoped} 同形态），<b>非</b>本表列。
+     *
+     * @param id    主键
+     * @param scope 子账户过滤（列名取白名单表的 {@code sub_account_id}）
+     * @return 命中的品种；不可见或不存在均返回 {@code null}
+     */
+    Product findByIdScoped(long id, SubAccountScope scope);
 }

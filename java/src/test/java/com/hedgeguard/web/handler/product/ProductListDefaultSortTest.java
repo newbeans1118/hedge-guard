@@ -123,5 +123,11 @@ class ProductListDefaultSortTest {
         public List<Product> findAllOrderByCode() {
             throw FakeDao.unsupported("findAllOrderByCode");
         }
+
+        // T-106：ProductDao 新增单对象读取面方法（本用例只验列表缺省排序，详情面显式失败）
+        @Override
+        public Product findByIdScoped(long id, SubAccountScope scope) {
+            throw FakeDao.unsupported("findByIdScoped");
+        }
     }
 }
