@@ -9849,3 +9849,121 @@ user.mustChangePassword = "N"; // 单条 UPDATE，仍是单写，但值写错
 - 本节追加于 `docs/TEST_RESULT.md`：**起始行 `9758`**（原文件末行 `9757`）。
 - **纯追加证明**：追加前 `docs/TEST_RESULT.md` = 9757 行 / `md5 = 618bbb4a5c96a9b15c3b79e09018e6e4`；`head -9757 docs/TEST_RESULT.md | md5sum` **追加后仍 = `618bbb4a96…`**（见文末「追加后 md5」）。
 - 隔离副本与基线副本：`/root/t148-verify`（=`498a1d5a…`/350）、`/root/t148-base`（=`2a74492e…`/349）；变异日志 `/root/mut_M1..M5.log`。
+
+---
+
+# 附录：T-149 独立复核证据（席位 `test-engineer` / 实例 `te-verify-t149`）
+
+- **复核时间**：2026-09-23T19:32Z
+- **冻结点**：提交 `dad6a0e`（`HEAD`/`5d77084`；其后 `edf45bc`、`5d77084` 两笔**仅动 `docs/*`**，经 `git show --stat` 实测）
+- **被检树锚（`web`，内容级）**：`71b81a4ecaa929c80a3fa3b107b46147` / **27** 文件（3×恒定；命令 `find web -type f | LC_ALL=C sort | xargs md5sum | md5sum`）
+- **三文件 md5**：`app.js b1c6229f…`（178 行）、`errmsg.js 7010fc30…`（93 行）、`session.js fc780f2e…`（175 行）—— 与交付报告 §6 **逐字节一致**
+- **方法**：**自建**三套只读探针（不采信产出方自述、不复用其断言）：
+  1. `te-verify-t149-core.mjs` —— 真实 `import` `errmsg.js`/`session.js`，**无 DOM 垫片**，直测分类表与 `bootstrap()` 四象限；
+  2. `te-verify-t149-app.mjs` —— 自建最小 DOM + **拦截 `HG.ui.banner`**（非文本抓取），真实 `import app.js`；
+  3. `te-verify-t149-mut.mjs` —— 隔离副本（`/root/hg-t149-verify`，`/` 下、含 `{docs,java,tools,web}` 布局）**自设 6 组变异**。
+- **约束遵守**：共享树**只读**（复核后 `git status` 仅 `java/**` 有改动、`web/**` 净；`mvn` 未跑）；git **只读**（`log/show/diff`）。
+
+## A. `errmsg.isBackendUnavailable` 分类表（独立实测）
+
+| 输入 | isUnauth | isBackendUnavailable | bootstrap 分支 |
+|---|---|---|---|
+| 网络错 `_network:true` | false | **true** | degraded |
+| 非信封 200（`_network,_http:200`） | false | **true** | degraded |
+| 非信封 502（`_network,_http:502`） | false | **true** | degraded |
+| 401+10006 | **true** | false | unauthenticated→跳登录 |
+| 403+10003 / 403+10004 / 404+10009 / 429+10001 / 400+10001 / 409+10010 | false | false | forbidden（中立） |
+| 500/502/503 + 信封(10022) | false | **true** | degraded |
+| 10006 无 `_http` | true | false | 跳登录 |
+| 10003 无 `_http` | false | false | forbidden |
+| 10003 + 500（矛盾） | false | **true** | degraded |
+| `null` | false | false | forbidden |
+
+结论：判据 `_network===true || _http>=500` **未把业务拒绝（4xx，含 10003/10004）误判为不可达**（无「误拒」）；4xx 全部落中立。语义边界见观察 O-1/O-2。
+
+## B. `bootstrap()` 四象限（真实 `session.js` 驱动）
+
+| 标记 | 会话 | 探针 | 返回 | localStorage（事后） |
+|---|---|---|---|---|
+| 有 | 有效 | ok | `ok:true` | `{}`（**自愈清除** ✓） |
+| 有 | 失效 | 10006 | `unauthenticated:true` | `{gate:'1'}`（**未清**，见 O-3） |
+| 无 | 有效 | ok | `ok:true` | `{}` |
+| 无 | 服务端门禁 | 10003 | `forbidden:true` | `{}` |
+| 有 | 服务端门禁 | 10003 | `mustChangePassword:true` | `{gate:'1'}` |
+| 有 | 网络错 | throw | `degraded:true` | `{gate:'1'}`（真不可达**优先于**门禁 ✓） |
+| 有 | HTTP 500 | 500 | `degraded:true` | `{gate:'1'}` |
+| 无 | 失效 | 10006 | `unauthenticated:true` | `{}` |
+
+四象限关键格全部符合预期：**「有+失效」⇒ 跳登录（不停门禁页）**；**「无+服务端门禁」⇒ 中立 `forbidden`（不报不可达）**。
+
+## C. app 层 9 场景（自建 harness，拦截 `HG.ui.banner`）
+
+| 场景 | 横幅 kind | 含「后端不可达」 | 含「须先修改口令」 | hash / href |
+|---|---|---|---|---|
+| gated-newtab | warn | **false** ✓ | **true** ✓ | `#/auth?tab=password` |
+| gated-sametab-summaryonly | warn | false ✓ | true ✓ | `#/auth?tab=password` |
+| gated-storageblocked | warn(中立) | false ✓ | false ✓ | "" |
+| stale-flag-unauth | 无 | false ✓ | false ✓ | `href=/web/login.html`（`return` 早退） |
+| stale-flag-gatelifted | 无 | false ✓ | false ✓ | ""（自愈） |
+| perm-denied | warn(中立) | false ✓ | false ✓ | "" |
+| network-error | **error** | **true** ✓ | false | "" |
+| http-500 | **error** | **true** ✓ | false | "" |
+| success | 无 | false | false | "" |
+
+**与产出方探针 9 场景判定逐条一致**（复跑其 `hg-t149-probe.mjs` = ALL PASS，`rc=0`；其 `--selftest` = FAIL→PASS 自测通过；缺陷态夹具 `hg-t149-defect` = gated-newtab 等 4 场景 FAIL、红点含 `DOM 不含「后端不可达」`，与报告 §3 完全吻合）。**注**：以上为**佐证**（复跑产出方制品）；主证据为 A/B/C 自建三套。
+
+## D. 承重变异台账（**自设 6 组**，隔离副本）
+
+| # | 变异点（file） | 改前→改后 | 目标场景 | 结果（红点） |
+|---|---|---|---|---|
+| MUT-G | `app.js` 消费块 | `if (res.mustChangePassword){`→`if(false&&…)` | gated-newtab | ❌红：横幅消失（`须先修改口令=false`）→ **(g) 消费点确受覆盖** |
+| MUT-H | `session.js:91` | `readGate() \|\| …`→`…`（回退 (i)） | gated-newtab | ❌红：落中立（`功能权限不足=true`） |
+| MUT-I | `errmsg.js:60` | `_http>=500`→`true`（过宽） | gated-storageblocked / perm-denied | ❌红：中立态被改成「后端不可达」error 横幅 |
+| MUT-J | `errmsg.js:59-60` | `isTransport`→false、`>=500`→false（过窄） | network-error / http-500 | ❌红：真不可达被吞（`后端不可达=false`）→ **镜像方向有守卫** |
+| MUT-K | `session.js:139` | `if(isUnauthenticated(err)){`→`if(false){` | stale-flag-unauth | ❌红：陈旧标记下停在门禁（`须先修改口令=true`、未跳登录） |
+| MUT-M | `app.js:168` 中立横幅 | 追加「须先修改口令」 | perm-denied | ❌红：③「不误标」断言有牙 |
+
+复位：每次注入前 `count==1` 校验；末次 `restore` 后副本 `app.js` md5 = `b1c6229f…`（＝共享树原值）。**6/6 击落，无假红/假绿。**
+
+## E. 垫片保真度差异清单（对照真实浏览器）—— 关键项
+
+| # | 垫片行为 | 真实浏览器 | 对本修复的影响 |
+|---|---|---|---|
+| 1 | `localStorage/sessionStorage` = 进程内 `Map` | 同源**跨标签页共享**、有配额/驱逐/`storage` 事件 | **核心未证项**：跨标签页共享由 Web Storage 规范保证，垫片**不可证** ⇒ 「不可判定」，缺条件=真实浏览器双标签页 |
+| 2 | `fetch` 桩；无 Cookie/CORS/重定向 | 真实 HTTP + `HGSESSION` HttpOnly Cookie | 已用**后端契约**补齐：`LoginHandler.java:72` 回传 `mustChangePassword` ⇒ 写路径非死路 |
+| 3 | 产出方 `win.addEventListener=()=>{}`（本席基线 `router.start` 置桩） | 赋值 `location.hash` 异步触发 `hashchange`→`renderCurrent` | 已用 `REAL_ROUTER=1` 实测：`renderAuth`+`passwordTab` **确实渲染** `#au-pw-old`/`#au-pw-new`（门禁用户可改密）⇒ 未掩盖缺陷 |
+| 4 | `window.location` = 普通对象；无 `history`/`reload` | 真导航 | 本修复仅置 `hash`，无影响 |
+| 5 | `innerHTML` 不解析成树；`<strong>/<a>` 为裸串 | 真 DOM | 仅文本断言，无影响 |
+| 6 | 无 CSSOM/布局/绘制；无 DOMContentLoaded（模块顶层直跑 `main()`） | 真渲染 | 断言仅涉分支与文本，无影响 |
+| 7 | `crypto.randomUUID`/`Blob`/`WebSocket` 桩 | 真实现 | 本单路径未用（GET 探针） |
+
+**假说检验（≥1 组）**：「**垫片绿、真实环境挂**」——本席**构造**并**证伪**之：假设「门禁态跳 `#/auth?tab=password` 后，`renderAuth` 因需拉取门禁端点而报错、用户无法改密」。实测（`REAL_ROUTER=1`）：`passwordTab` 为**纯表单**、不拉门禁数据（`auth.js:1109-1156`），`#au-pw-old` **渲染成功**，`fatal/unhandled = none` ⇒ **假说不成立**。唯一保留的不可判定项＝#1（跨标签页共享，见上）。
+
+## F. 扫描面 (a)–(i) 结论（独立）
+
+- **(a) localStorage 合规**：实测键仅 `hg.session.gate.mustChangePassword = "1"`（**布尔标记、非凭据、无 PII**，用户名/口令均不入 localStorage；摘要仍留 `sessionStorage`）。`NFR-SEC-1/2` 约束对象=密码/AuthCode/资金密码/auth_token（`ARCHITECTURE.md:78/109/2830`）⇒ **不触碰**。跨用户误导：登出/改密成功/换登录/探针成功自愈**四路**均清标记（§D 后半 writepath 实测），公开终端**不引入未登录可见误导**。**合规**。
+- **(b) 四象限**：见 §B，**全格符合**。
+- **(c) 镜像方向**：见 §A，**无过宽误拒、无过窄漏防**（4xx 全中立、网络/5xx 全不可达、10006 优先）。边界见 O-1/O-2。
+- **(d) 垫片保真**：见 §E；负控**自设**（MUT 组 + 产出方 `--selftest` 复跑）均能杀 ⇒ 断言机制非恒真。
+- **(e) 判据稳健性**：**锚定中文字面**（实证：门禁词改为「请先改口令」⇒ 行为不变而断言**假红**）。风险面＝凡以文案为锚的 `domIncludes/Excludes`；改文案须同批改探针。**固有性质，非本单缺陷**（O-5）。
+- **(f) `app.js:168` 引导句**：中立横幅含「**若**刚登录 / 口令被重置，请先前往『我的口令』完成修改」——**条件式软提示、不含「须先修改口令」字样** ⇒ **不违反判据③**；记为 O-4（建议但不阻断）。
+- **(g) 死值处置**：`bootstrap().mustChangePassword` 由 `app.js:142` 消费；**自设 MUT-G**（删消费块）⇒ 红 ⇒ **确受覆盖**。
+- **(h) 契约面/免 CH 独立判定**：`git show --numstat dad6a0e` = **仅 3 个 `web/js`**；`git diff dad6a0e^ dad6a0e -- web/js/core/routes.js java/` = **空**；`errmsg` 的 `CODE_HINT` 码表**未改**；无新增端点/错误码/响应字段。新增者仅**客户端** `localStorage` 键（不属 §4.1.1 冻结面：信封/分页/幂等/路径）。⇒ **「免 CH」成立**。
+- **(i) 台账只读核对**：`BOARD.md` 分区行数 = `TODO 59 / IN_PROGRESS 1 / 已完成待复核 16 / DONE 57 / BLOCKED 15 / REJECTED 2` = **150**，与四区「本区共 N 条」注（59/16/57/15）**逐区一致**；`TASKS.md` §1 表 **150 行、唯一 id 150、全部 9 格**（口径=**未转义竖线数−1**，非 `p−n`）。`T-149` 现处「已完成，待独立复核」区 ✓。
+
+## G. 缺陷 / 观察
+
+**阻断缺陷：0。**
+
+| 编号 | 现象 | `file:line` | 失败场景 | 定级 | 归属 |
+|---|---|---|---|---|---|
+| te-verify-t149-001（观察） | `_http>=500` 把**带合法信封的 500**（如 10022）并入「后端不可达」；语义上「服务端错误」≠「不可达」。与判据②「HTTP 500 仍报」口径**一致**，故不判缺陷 | `errmsg.js:60` | http-500 | 观察 | 编排者裁定是否收紧 |
+| te-verify-t149-002（观察） | 非信封 **200**（网关 HTML）因 `_network:true` 落 degraded；429 落中立。前者=「不可达」略宽、后者=「业务拒绝」略宽 | `api.js:75-84`、`errmsg.js:57-61` | 反代/限流 | 观察 | 存量（api.js，非本单） |
+| te-verify-t149-003（观察） | 「陈旧标记 + 10006」路径**不清标记**（`localStorage` 仍 `'1'`），与「探针成功自愈」「登出」两路**不对称**；不阻断（下次登录/自愈/登出均覆盖） | `session.js:139-143` | stale-flag-unauth | 低 | 本单（可顺手补 `writeGate(false)`） |
+| te-verify-t149-004（观察） | 中立 `forbidden` 横幅含条件式引导句「**若**…口令被重置，请先前往『我的口令』…」；不含「须先修改口令」⇒ 不违反③，但语义偏近门禁 | `app.js:168` | perm-denied | 观察 | 编排者裁定（建议收紧/或不改） |
+| te-verify-t149-005（观察） | 探针断言**锚定中文字面**：改文案即**假红**（实证「须先修改口令」→「请先改口令」），「仍绿≠仍被守卫」 | 探针断言 | 全部 | 观察 | 探针固有；改文案须同步探针 |
+| te-verify-t149-006（观察） | 垫片**不可**证「跨标签页 localStorage 共享」（规范保证、非本机可测）；真实浏览器复验仍缺 | 探针方法 | gated-newtab | 观察 | 验证层级残余 |
+
+## H. 结论
+
+**通过（0 阻断缺陷 / 6 观察）⇒ `T-149` 可转 `DONE`。** 5 条判据 ①–⑤ 独立实测全部成立；镜像方向（真不可达仍报）经 MUT-J 承重；四象限、分类表、死值消费、契约面（免 CH）、台账计数均符合。观察项 O-3/O-4 建议编排者裁定是否另立单（**不阻断**本单）。
