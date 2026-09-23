@@ -8862,3 +8862,257 @@ cd /root/verify-t141/java && TMPDIR=/root mvn -B -o -Punit clean test
 | 变异台账 | `/root/verify-t141/mutations-run.log`、`mut-MUT-*.log`、`/root/verify-t141/driver2-run.log` |
 | 树锚三度复现 | §0（`5dfd1d51…`/343） |
 | arch-check | 聚合 rc 0，E1–E7 全 0 |
+
+---
+
+## 第 125 轮独立复核证据章（`T-136` 形态 (B)，编排者 `team-lead` 并入登记 · 2026-09-23）
+
+> **并入口径**：以下章由独立复核席 `te-verify-t136`（`test-engineer`，**只读共享树、验证在副本内**）产出，**原文照录**；编排者仅在章首加本登记块。**纯追加已核**（追加前 `docs/TEST_RESULT.md` = `3efd6c7edbd128269bc58ab5acbe080f` / **8864 行**）。
+>
+> **结论 = 有条件通过 / 0 缺陷 / 0 阻断 / 6 观察 + 1 待裁定（非缺陷）** ⇒ 按本项目判据（**授权 + 独立验证**）**转 `DONE`**；其「待裁定」项（`FR-AUTH-4` 输入列回写）**编排者已于第 124 轮裁定**（澄清性/勘误、免 `CH`、承接方产品席）；6 观察中仅 `O-2` 需处置（见下）。冻结 `8553b4f`；`java/src` `1020b464…`/343、`web` `a8999a16…`/27、`@Test` = **558** —— 独立实测**全吻合**；取样 2026-09-23T16:23:59Z。
+>
+> **★门禁（隔离副本）**：`-Punit` **558/0/0/0**；surefire **65 类 Σ = 558** == 源码 `@Test`；`arch-check` `E1`–`E7` 聚合 rc0；`node --check` rc0。
+>
+> **★(2) 验收 3 三面（界面 / 日志 / 持久化）全部 ✅**：**界面** = `web` 0 处 `oneTimePassword`、控件 `type=password` + 不回显 + 提交清空；**日志** = 重置仅 1 条 `LOG` 且无口令、访问日志**不记请求体**、`SensitiveLog` 覆盖 `password`；**持久化** = 仅 `pbkdf2-sha256$…` 哈希、**无明文列/文件**。**★自设新检查点（错误路径）**：4 类异常体实测响应**均不回显口令**（仅 JSON 路径名）。
+> **★(3) 形态 (B) 合规 = 独立判定「合规」**：依据 = `FR-AUTH-16` **输入列本就含「新口令」** + 「不得展示/传递」系**系统侧义务**（验收 3 / `R-AUTH-6` 均限「界面 / 日志 / 持久化」）+ `FR-AUTH-1` 初始口令**同构先例**。⇒ **与编排者裁定一致**。
+> **★(4) 「复用既有校验」= 真复用且真生效**：逐行搬移、三路共用；**2 组自设注入先编译通过再见红**（关强度 ⇒ `P2` 红；关历史 ⇒ `P3` 红），复位 `diff` 恒等。**★复核方自纠一次假绿**：`P3` 首版因 `changePassword` 触发 `ClassCastException` 而**假绿**，改用 `resetPassword` 造历史 + 断言**具体错误码**后才真红。
+> **★(5) `ENABLE` 同批加**：`FR-AUTH-4:145/151` 依据成立；**受影响调用方 = 1**（前端 `auth.js`）；**失效既有用例 = 0**（穷举 `main`/`test`/`web` 三面）。
+> **★(6) 顺带「单条 UPDATE」修复**：**改前不可靠已复现** —— 真实 DAO + 引擎实测**基线两步写后 `must_change_password='N'`**（乐观锁 **0 行**吞掉置位）；改后 `='Y'`；判定**在范围内、无回归**（全 558 绿，`changePassword` 语义不变）。
+> **★(7) 契约**：**免 `CH`、未升版成立**（`§3.1`/`§2.2` 均不含 handler 请求 DTO / `AuthService`；`ARCHITECTURE §4.1.1` AUTH 行仅路径+方法）；`§5.1` 登记**逐项吻合**。
+> **★(10) 新增检查点**：① 错误路径无泄漏 ✅；② 不记请求体 ✅；③ `autocomplete='new-password'` ✅；④ 留痕无口令 ✅（但重置**不写** `t_permission_change_log`，见 `O-3`）。
+> **观察 6 条**：**`O-2`（中·★需处置）** —— 单条 UPDATE 修复**无真实 DAO 回归守卫**：产出方用假 DAO（`updateById` **不建模 `row_version`**）⇒ **改回两步写后 558 仍全绿**；`O-3` 重置未写权限变更留痕表（既存/范围外）；`O-4` 弱口令用例 `assertThrows(RuntimeException)` 偏松；`O-5` 引擎不解析 `>`、raw `updatePasswordHash` 存 `Timestamp`；`O-1` `randomPassword` 成**死代码**；`O-6` 正向（`autocomplete`）。
+> **★编排者处置**：`T-136` **转 `DONE`**（0 阻断 / 0 缺陷）；**`O-2` 立 `T-144`**（真实 DAO 回归守卫，并顺带收紧 `O-4` 偏松断言、清理 `O-1` 死代码）；`O-3`/`O-5` **登记为观察**（既存/范围外，不立号）。
+
+# T-136 独立复核报告（席 `te-verify-t136`）
+
+- **复核对象**：`T-136`（P0，`FR-AUTH-16` 口令明文回传）**最终形态 (B)「管理员设定新口令（作为输入）」**
+- **冻结点**：提交 `8553b4f`（`java/src` 树锚 `1020b464f3d0df414c07675d764b665a`/343、`web` 树锚 `a8999a1656ccb76fc526bb8182656c87`/27、`@Test` 558）
+- **复核席**：`te-verify-t136`（独立于产出方 `be-t136b`）
+- **独立性方式**：`git archive 8553b4f` 隔离副本 `/root/verify-t136`（共享树只读）；`TMPDIR=/root`
+- **取样时刻**：2026-09-23T16:23:59Z（= 2026-09-24 00:23 +0800）
+- **结论**：**有条件通过 / 0 缺陷 / 0 阻断 / 6 观察 + 1 待裁定（需求侧回写，非本席缺陷）**
+- 说明：本席**不自评** `T-136` 为 `DONE`。
+
+---
+
+## 0. 冻结锚点核验（先决条件）
+
+| 项 | 编排者给定 | 本席独立实测 | 判定 |
+|----|-----------|-------------|------|
+| `java/src` 树锚 | `1020b464…` / 343 | `1020b464f3d0df414c07675d764b665a` / 343 | ✅ 吻合 |
+| `web` 树锚 | `a8999a16…` / 27 | `a8999a1656ccb76fc526bb8182656c87` / 27 | ✅ 吻合 |
+| `@Test`（源码） | 558 | 558 | ✅ 吻合 |
+| 改动面 | 7 文件 | 见 §9（代码+契约 = 7；含台账共 9） | ✅ 吻合 |
+
+共享树 `git status --porcelain` **空**、`HEAD=8553b4f`；本席探针只落隔离副本，**未污染共享树**（`java/src/test/java/com/hedgeguard/verify` 在共享树不存在）。
+
+---
+
+## 1. 门禁复算（隔离副本）
+
+| 门禁 | 实测 | 判定 |
+|------|------|------|
+| `mvn -B -o -Punit clean test` | **`Tests run: 558, Failures: 0, Errors: 0, Skipped: 0` / BUILD SUCCESS** | ✅ |
+| surefire 逐类和 | **65 类，Σ = 558** | ✅ |
+| 源码 `@Test` == surefire | 558 == 558（0 注释吞并） | ✅ |
+| `arch-check` 聚合 | **rc 0**；`E1`=0(SKIP) · `E2`=0 · `E3`=0 · `E4`=0（实扫 N=6，WARN 3=信息性）· `E5`=0 · `E6`=0 · `E7`=0 | ✅ |
+| `node --check web/js/pages/auth.js` | rc 0（`web/js` 全量 rc 0） | ✅ |
+| `E6` | rc 0（前端零构建链 + 无直连） | ✅ |
+
+> 证据：`/root/verify-t136/build.log`（`EXIT=0`）。
+
+---
+
+## 2. ★验收 3 全文核对（**本单核心**）
+
+`FR-AUTH-16` 验收 3 = 「管理员重置口令后，新口令**不以明文出现在任何界面或日志**」；处理规则另有「**明文口令不得出现在任何日志与持久化文件中**」。三面独立取证：
+
+### 2① 界面（`web/**`）
+- `grep -rn "oneTimePassword" web/` ⇒ **0 命中**；`tempPassword|plainPassword` ⇒ **0**。
+- `auth.js` 重置表单（`:427-431`）与 ENABLE 控件（`:319-320`）用 `type:'password'` + `autocomplete:'new-password'`，**不回显**；提交后 `newPwd.value=''`（`:390`/`:450`，**口令不驻留**）。
+- **判定：✅ 界面面通过。**
+
+### 2② 日志
+- `AuthService` 全类 `LOG.*` 仅 1 处涉及重置：`:418` `LOG.info("已重置口令并要求首次登录修改：targetUserId=… operatorId=…")` —— **不含口令**。
+- 访问日志 `RequestDispatcher.logAccess:104` 用 `SensitiveLog.Kv()`，字段仅 `traceId/method/path/status/ms/user/ip` —— **不记请求体**。
+- `SensitiveLog.SENSITIVE_FIELDS` 含 `password`（`SensitiveLoggingAndConfigTest:74-77`）。
+- **判定：✅ 日志面通过。**
+
+### 2③ 持久化
+- `DmUserAccountDao` 只搬运 `password_hash`（PBKDF2 串）；`updatePasswordHash`/`updateById` 写 `password_hash` + `must_change_password` + `password_updated_time`，**无明文列**。
+- `resetPassword` 事务内仅 `recordPasswordHistory`（写**旧口令哈希**）+ 单条 `UPDATE`；`t_password_history` 存的是哈希。
+- **本席探针 P1（真实 DAO + 引擎）实测**：重置后 `password_hash.startsWith("pbkdf2-sha256$")`、`!= 明文`、`!contains(明文)`；`verify(新)==true`、`verify(旧)==false`。
+- **判定：✅ 持久化面通过。**
+
+**⇒ 验收 3 三面（界面/日志/持久化）全部独立证实，无缺陷。**
+
+### 2★ 自设新检查点（10①）错误路径泄漏 —— **本席新增，产出方未提及**
+探针 P7（同一进程真跑 handler + `ErrorMapper`）送 4 种异常体，实测**响应消息均不回显口令**：
+
+| 输入（含口令明文 `SECRETPwd#2027x`） | 实测消息（节选） | 含口令? |
+|---|---|---|
+| `{"userId":1,"newPassword":"SECRETPwd#2027x"`（未闭合） | `请求体不是合法 JSON：位置=…End of input at line 1 column 44 path $.newPassword` | ❌ 否（仅 JSON **路径**，非值） |
+| `{"userId":1,"newPassword":SECRETPwd#2027x}`（非法 token） | `…End of input at line 1 column 43 path $.newPassword` | ❌ 否 |
+| `{"userId":1,"newPassword":"SECRETPwd#2027x",}`（尾逗号） | `…Expected name at line 1 column 46 path $.newPassword` | ❌ 否 |
+| `{"userId":1,"newPassword":"short"}`（强度不足） | `口令强度不足，缺少：长度≥12 大写字母 数字 符号；…（不满足则拒绝，**不以明文回显口令**）` | ❌ 否 |
+
+**结论：错误路径不泄漏口令（自设检查点通过）。**
+
+---
+
+## 3. ★形态 (B) 合规性判定（本席独立下结论）
+
+**命题**：`FR-AUTH-16` 说「（管理员重置）**不得以明文方式展示或传递新口令**」，而 (B) 让调用方传入 `newPassword`。**「管理员作为输入传入」是否构成「展示/传递」？**
+
+**本席判定：(B) 合规，(B) 不违反 `FR-AUTH-16`。依据如下（逐条独立回读原文）：**
+
+1. **需求自身的「输入」列已含「新口令」**：`docs/REQUIREMENTS/AUTH.md:324` —— `FR-AUTH-16` **输入**：`口令修改动作、新口令、强度策略参数`。需求**本就预设**新口令由调用方提供。
+2. **「不得展示或传递」是系统侧义务**，语境为「支持管理员重置（重置须留痕，不得以明文方式展示或传递新口令）」（`:325`）—— 主语是**系统**：系统不得把口令**展示**（界面）或**传递**（回传响应 / 传给他人 / 落日志）。验收 3（`:333`）与 `R-AUTH-6`（`:377`）进一步把该义务收敛为「不得出现在任何**界面或日志**」「不得出现在任何**日志与持久化文件**中」—— 均为**系统侧**。
+3. **同类先例 `FR-AUTH-1`**：新增用户「**输入**」含**初始口令**（`:99`），处理规则同样要求「初始口令以加盐哈希存储，**不得明文留存**」（`:100`）、验收 4「库中与日志中不存在明文初始口令」（`:109`）。即项目**既定口径**＝「**调用方传入口令为输入、系统只存哈希**」是合规惯用法。
+4. **(A) 形态功能不可达**：(A) 生成即弃 ⇒ 用户无从得知临时口令 ⇒ `FR-AUTH-16`/`FR-AUTH-4` 的「首次登录与重置后**强制修改**」流程断裂（**功能缺陷**，非合规取舍）。故 (B) 是唯一可落地的合规形态。
+
+**残留解读张力（不构成缺陷，留痕）**：若把「传递」超字面读为「口令进入网络请求体」本身，则 (B)（以及 `FR-AUTH-1` 初始口令、`POST /auth/password` 改口令）都存在；但该读法与需求自身的输入列、以及上述三项原文相悖，**传输层保密属 `NFR-SEC` 部署事项**，非本 FR 的判定面。**⇒ 判定 (B) 合规。**
+
+---
+
+## 4. ★「复用既有校验」是否真复用、且真生效
+
+### 4.1 确无新增实现（对比既有）
+- `assertNewPasswordAcceptable:430` 体 = **原 `changePassword` 内联的三段**（`assertStrength` → 与当前哈希比对 → 遍历 `findRecent` 历史），**逐行搬移、无改写**。
+- `recordPasswordHistory:450` 体 = **原 `changePassword` 内的历史写入四步**（`shiftSeqNo`+`insert`+`deleteBeyond`），**逐行搬移**。
+- 复用点：`changePassword:369/373`、`resetPassword:401/405`、`enableUser:936/946` —— **三路共用**。
+- **判定：✅ 无新增实现、真复用。**
+
+### 4.2 在重置/ENABLE 路径上真被调用（不给强度或给历史内口令 ⇒ 必须被拒）
+- 探针 P2：重置 `"short"` ⇒ `IllegalArgumentException`（强度），且**被拒后哈希不变**。
+- 探针 P3：`resetPassword` 后（当前=hash(NEW)、历史含 hash(OLD)），再 `resetPassword(id, OLD)` ⇒ **`BizException`（`PARAM_INVALID`/10001）**。
+- 探针 P6：ENABLE 缺 `newPassword` ⇒ `PARAM_INVALID`。
+- **判定：✅ 真生效。**
+
+### 4.3 注入必红（**自设 2 组，不复用产出方 M1/M2/M3**）
+| 注入 | 位置 | 结果 | 负控作用 |
+|------|------|------|---------|
+| **A** 关掉强度校验 | `AuthService.java:431` 删 `PasswordHasher.assertStrength(...)` | **P2 红**（`Expected IllegalArgumentException…nothing was thrown`），其余 5 绿 | 证强度校验承重 + 探针可检出 |
+| **B** 关掉历史循环 | `AuthService.java:435-437` 置空循环体 | **P3 红**（`Expected BizException…nothing was thrown`），其余 5 绿 | 证历史校验承重 + 探针可检出 |
+
+> **★ 勘误留痕（本席自纠）**：P3 首版用 `changePassword` 造历史，**假绿**——因 `changePassword` 走 raw `updatePasswordHash`（见 §6），在内存引擎下会把 `password_updated_time` 存成 `java.sql.Timestamp`，致后续 `findById` 抛 `ClassCastException`（`RuntimeException`），把 `assertThrows(RuntimeException.class)` **碰巧蒙混**。改为「`resetPassword` 造历史 + 断言 `BizException`/`PARAM_INVALID`」后，注入 B 才**真红**。**教训：`assertThrows(宽松父类)` 会被无关异常蒙混，须断言具体类型+错误码。**
+> 两次注入均「先证编译通过再见红」，注入后 `cp .orig` 复位、`diff` 恒等（`AuthService.java` md5 `552e036b86ccfe470e8f473dabeab12f`）。
+
+---
+
+## 5. ★`ENABLE` 同批加 `newPassword` 的判定
+
+1. **`FR-AUTH-4` 原文确含该要求**：`:145` 处理规则「…**须强制重置口令**」；`:151` 验收 1「启用用户后**须重置口令**，首次登录强制修改」。**✅ 依据成立。**
+2. **ENABLE 路径现必填 `newPassword`**：`UserHandler.java:124-129` 缺则 `10001`；实测 P6 通过。**✅**
+3. **既有调用方/用例受影响清单（穷举）**：
+   - **服务层调用方**（`grep "\.enableUser("`）：仅 `UserHandler.java:129`（已改）。**✅ 无遗漏。**
+   - **前端调用方**（`grep "auth/user|R.USER"` 于 `web/js`）：**仅 `auth.js`**（`config.js`/`routes.js` 命中为无关枚举/镜像注释）；`auth.js:374` 已置 `payload.newPassword`。**✅ 无第二前端调用点。**
+   - **测试调用方**（`grep "\.enableUser("` 于 `src/test`）：仅 `AuthAdminServiceTest:176/186`，**均已加** `newPassword`。**✅ 无失效用例。**
+   - **`PUT /auth/user` + `action=ENABLE` 的 HTTP 级测试**：`grep` 结果**无**（既有 ENABLE 命中均为白名单 `action`，与用户启用无关）。**✅ 无遗漏。**
+   - **结论：受影响调用方 = 1（前端按模块计）；失效既有用例 = 0。**
+
+---
+
+## 6. ★顺带改动（两步写 → 单条 `UPDATE`）定性
+
+1. **改前是否确不可靠（可复现）**：**✅ 已复现。** 探针 P4（**真实 `DmUserAccountDao` + InMemoryDmEngine**）模拟基线序列 `updatePasswordHash`（写新哈希 + `must_change='N'` + `row_version++`）→ `updateById`（实体陈旧 `row_version`，乐观锁 `WHERE row_version=?` 匹配 **0 行**）⇒ 实测 **`must_change_password = 'N'`**（应为 `'Y'`）。**根因**：两步写中「置位」被前置 `updatePasswordHash` 的 `'N'` 覆盖且 `updateById` 因乐观锁失效（`CONTRACTS §2.2` 明载 `updateById` 「返回 0 = 版本冲突」）。**该缺陷为基线 `59b6f70` 起既存、非本轮引入。**
+2. **改后新旧值**：改后为**同一 `UPDATE` 写全**（`AuthService:408-414`）⇒ 探针 P1 实测 `must_change_password='Y'`、`verify(新)=true`。**✅**
+3. **是否在 `T-136` 必要范围内**：**✅ 合理，非越界。** `T-136` 主体即 `FR-AUTH-16`，其处理规则/验收 1 明含「**重置后强制修改**」；重置路径的**置位可靠性**是该合规面的组成部分（且 (A) 形态下这是重置**唯一的功能效果**）。
+4. **有无行为回归**：**✅ 无。** ① 全量 558 绿；② `changePassword` 仍走 `updatePasswordHash`（自改口令应 `must_change='N'`，语义不变）；③ ENABLE 路径同步收敛为单事务。**✅**
+
+---
+
+## 7. 契约判定独立复核
+
+**产出方主张**：「新字段不在冻结面内 ⇒ 免 `CH`、未升版」。
+
+**本席独立回读**：
+- `CONTRACTS §0③`：共享 DTO 载体 = `com.hedgeguard.web`/`bridge`/`dao.entity`；「**字段级新增可（向后兼容）**；删除/改类型须 `CH-xxx`」。
+- `CONTRACTS §3.1`（`:334-352`）**逐条列举**冻结类型：`ApiResponse`/`ErrorInfo`/`ErrorCode`/`BizException`/`PageData`/`HttpResult`/`RequestContext`/`RouteHandler`/`Router`/`Session`/`SessionStore`/`AuthFilter`/`ApiRoutes`/`StaticHandler` —— **不含** `PasswordHandler.ResetRequest` / `UserHandler.MutateRequest`。**✅**
+- `CONTRACTS §2.2`（`:182-318`）冻结接口签名 = `TradingBridge`/`BaseDao`/`DeletableDao`/`TxTemplate`/`TxCallback`/`DataSourcePool` … —— **不含 `AuthService`**（`grep AuthService` 全文件仅命中散文 3 处，非签名清单）。**✅**
+- `ARCHITECTURE §4.1.1:641` AUTH 行**仅列路径 + 方法** `GET/POST/PUT`，**无字段级内容**（字段级定义归 `DATA_MODEL.md`）。**✅**
+- `CONTRACTS §3.2.1` 的 `payload` 键名冻结**仅适用 WS `ParamChange`**，不适用 REST 请求体。**✅**
+- `CONTRACTS §5.3`「新增方法属兼容变更，可直接追加并回写本节」。**✅**
+
+**⇒ 主张成立：新增请求体字段 + 服务方法签名增参（方法不在 §2.2）均为兼容变更 ⇒ 免 `CH`、`HGC-1.6` 未升版。✅**
+
+**`§5.1` 编辑登记行逐项核对**（`java/CONTRACTS.md:744`）：
+| 登记内容 | 实际 | 判定 |
+|---|---|---|
+| `PUT /auth/password` 体 `{userId}`→`{userId,newPassword}`（必填） | `PasswordHandler.java:44-54` | ✅ |
+| `PUT /auth/user` ENABLE 增 `newPassword`（必填） | `UserHandler.java:124-129` | ✅ |
+| 两终点响应仍 `data:null` | `PasswordHandler:56` / `UserHandler:130` | ✅ |
+| 签名 `resetPassword(long,String,long)` / `enableUser(long,String,long,Long)` | `:395` / `:921` | ✅ |
+| 三路复用 `assertStrength` + `findRecent` | `:431` / `:435` | ✅ |
+
+---
+
+## 8. 错误码
+
+- 缺 `newPassword` ⇒ **`10001`**（`ErrorCode.PARAM_INVALID`，HTTP 400）—— 探针 P6 实测一致。
+- **与先例比对**：`be-t135` 用的 `10002`（`COMPONENT_UNAVAILABLE`/503）语义为「**缺外部源/组件不可用**」；本处为「**缺必填入参**」⇒ **`10001` 更贴切**（非不一致）。**✅**
+- 文案明确：`"管理员重置须提交由管理员设定的新口令 {userId, newPassword}（FR-AUTH-16：…；复现=按 §4.1.1 提交 application/json）"`。**✅**
+
+---
+
+## 9. 改动面（逐 hunk 归纳）
+
+- `git diff --numstat 8553b4f^ 8553b4f` = **`docs/TASKS.md` 1/1**（冻结点本身为台账竖线修正）。
+- **`T-136` 代码交付 = `f26b3b5`**，`--numstat`：
+
+| 文件 | +/− | 归纳 |
+|---|---|---|
+| `java/src/main/.../service/AuthService.java` | 89/42 | 抽 `assertNewPasswordAcceptable`/`recordPasswordHistory`（复用）；`resetPassword`/`enableUser` 增 `newPassword` + 单条 `UPDATE`；ENABLE 收敛单事务 |
+| `java/src/main/.../handler/auth/PasswordHandler.java` | 16/6 | `ResetRequest.newPassword` + 必填校验 + 传参 |
+| `java/src/main/.../handler/auth/UserHandler.java` | 15/3 | `MutateRequest.newPassword` + ENABLE 必填校验 + 传参 |
+| `java/src/test/.../service/AuthAdminServiceTest.java` | 76/8 | 新增/改写 5 用例（响应无口令 / 缺参 10001 / 复用拒绝 / 强度拒绝 / ENABLE） |
+| `java/src/test/.../service/AuthServiceTest.java` | 12/5 | 改写重置用例（形状演进 A→B） |
+| `web/js/pages/auth.js` | 66/15 | 重置/EANBLE 口令输入控件 + 文案 + 头注 |
+| `java/CONTRACTS.md` | 1/0 | `§5.1` 追加登记行 |
+| `docs/BOARD.md` / `docs/TASKS.md` | 5/2、1/1 | 台账 |
+
+- **范围**：**仅 `java/**` + `web/js/pages/auth.js` + 台账 `docs/**`** ⇒ **✅ 未越界**。`web/**` 仅 `auth.js` 一个文件（前端原子耦合）。
+- **既有断言是否被放宽**：`git show f26b3b5 | grep '^-.*assert'` ⇒ **删除的 assert 仅 2 行且为重构/参数化**（① `changePassword` 内联 `assertStrength` 搬入私有方法；② `enableUser` 调用行增 `newPassword` 入参）。**无任何断言被放松**；第一轮形态 (A) 的「响应无口令字段 / 无 `data` 载荷」断言**保留并加强**（新增 `assertFalse(body.contains(newPwd))`）。**✅**
+
+---
+
+## 10. 自设扫描面（产出方未提及）
+
+| # | 检查点 | 方法 | 结论 |
+|---|--------|------|------|
+| ① | 口令经错误路径泄漏 | 探针 P7（4 类异常体 + `ErrorMapper`） | **✅ 干净**（仅 JSON 路径名，非值） |
+| ② | 通用请求日志/过滤器记请求体 | `grep ctx.body()` + `RequestDispatcher.logAccess` 逐字段 | **✅ 不记请求体** |
+| ③ | 前端输入控件 `autocomplete`/明文 | `grep autocomplete` 于 `auth.js` | **✅ `type=password` + `autocomplete='new-password'`，无明文控件** |
+| ④ | 重置审计留痕内容含口令 | 追 `resetPassword` 写面 | **✅ 无口令**；`t_password_history` 仅存哈希；ENABLE 的 `recordChange` afterValue=「启用用户（须强制改口令）」无口令。**注：重置不写 `t_permission_change_log`（见观察 O-3）** |
+
+---
+
+## 观察清单（不阻断）
+
+- **O-1（低·非缺陷）`PasswordHasher.randomPassword` 成 `src/main` 死代码**：仅 `PasswordHasherTest` 引用（`:86/:96`）。形态 (B) 后无生产调用点。可保留为工具方法，建议登记或删除。
+- **O-2（中·测试强度缺口·★重要）单条 `UPDATE` 修复无真实 DAO 回归守卫**：产出方新用例用**假 DAO**，其 `FakeUserAccountDao.updateById`（`AuthAdminServiceTest:662`）**不复制字段、不建模 `row_version`**，且 `findById` 返回同一引用 ⇒ **假 DAO 恰恰屏蔽了 §6 的失败模式**。经核：全量 558 中**无任何用例**以真实 DAO 驱动重置/启用（`grep .resetPassword(` 于 `src/test` 仅命中假 DAO 用例）。⇒ **若回归为两步写，558 仍全绿**。建议补一条真实 DAO/引擎的重置置位守卫（本席 P1/P4 可作蓝本）。
+- **O-3（低·既存·超 `T-136` 字面范围）重置未写权限变更留痕表**：`resetPassword` 仅 `LOG.info` + `t_password_history`（无 operator）⇒ `FR-AUTH-16`「重置须留痕」的**操作人**未落 `t_permission_change_log`。基线 `59b6f70` 即如此，**非本轮引入**；是否满足「留痕」属需求解读，请裁定是否单独立号。
+- **O-4（低）产出方弱口令用例断言偏松**：`AuthAdminServiceTest` 的 `resetPasswordRejectsWeakPassword` 用 `assertThrows(RuntimeException.class, …)`，会被无关 `RuntimeException`（如本席 §4.3 勘误所遇 `ClassCastException`）蒙混。建议收窄为 `BizException`/`IllegalArgumentException`。
+- **O-5（低·测试基建·既存）内存引擎两处保真度限制**：① `parseWhere` 不解析 `>` ⇒ 真实 `DmPasswordHistoryDao.deleteBeyond`（`seq_no > ?`）在引擎下**抛 UnsupportedOperation**；② raw `updatePasswordHash` 绑 `java.sql.Timestamp`（`bindArgs` 落 `setObject`）⇒ 该行 `password_updated_time` 被存成 `Timestamp`，后续 `findById` 抛 `ClassCastException`。二者均使**真实历史 DAO 路径无引擎覆盖**，非 `T-136` 引入。
+- **O-6（低·正向）`autocomplete='new-password'` 已设**：降低浏览器误填登录口令风险（合规加分项）。
+
+## 待裁定项（需求侧，非本席缺陷）
+
+- **需求回写**：`FR-AUTH-4` **输入列**仅列「用户标识」而处理规则已要求「须强制重置口令」⇒ 输入列遗漏「新口令」。编排者已裁定**定级「澄清性/勘误」、免 `CH`、承接方=产品席**。本席**认可**该定性（与 `FR-AUTH-16`/`FR-AUTH-1` 输入列口径一致），**但该项属产品席待办，未落即不得视为已闭环**。
+
+---
+
+## 结论
+
+**T-136 形态 (B)：有条件通过 / 0 缺陷 / 0 阻断。**
+
+- 门禁：隔离副本 **558/0/0/0**、surefire==源码==558、`E1`–`E7` 聚合 rc0、`node --check` rc0。**✅**
+- 验收 3 三面（界面/日志/持久化）+ 自设错误路径面：**全通过**。**✅**
+- 形态 (B) 合规性：**合规**（履行需求输入列 + 系统侧不展示/不传递/不落日志）。**✅**
+- 复用校验：**真复用、真生效**（2 组自设注入均先编译通过再见红 + 复位恒等）。**✅**
+- `ENABLE` 加 `newPassword`：依据成立、无失效调用方/用例。**✅**
+- 顺带单条 `UPDATE`：**改前不可靠已复现（`must_change='N'`）、改后正确（`'Y'`）、在范围内、无回归**。**✅**
+- 契约判定：**免 `CH`、未升版成立**；`§5.1` 登记逐项吻合。**✅**
+- 建议：**O-2 应补真实 DAO 回归守卫**；O-3/O-4/O-5 登记为观察/待裁定，**均不阻断**。
+
+> 本席**不自评 `T-136` 为 `DONE`**；转 `DONE` 与否由编排者裁定。
