@@ -10014,3 +10014,92 @@ user.mustChangePassword = "N"; // 单条 UPDATE，仍是单写，但值写错
 
 ### I.6 结论
 **通过（0 阻断缺陷 / 8 观察）⇒ `T-106` 可转 `DONE`。** 门禁 612/0/0/0 独立复现、冻结锚逐字吻合、隔离语义 6 组自设变异承重（handler/服务/DAO/quota 各 ≥1 红）、信息泄露闭合且逐字无泄露、哨兵 0 无误拒。观察 `te-verify-t106-001`（假 JDBC 中子串断言不守卫「谓词生效」）与 `te-verify-t106-002`（引擎自述失效形态与本形态实测不符）为**测试强度/文档层面**、**不阻断**本单，建议另立单或并入既有测试收口任务；`004`（`CONTRACTS` 未留 §5.1 登记行）建议交付方补齐（不阻断）。
+
+---
+
+## J. `T-151` 独立复核证据章（席 `te-verify-t151`，2026-09-24）
+
+**冻结提交** `1137801`（工作区干净、`git status` 空）；**结论 = 通过（0 阻断缺陷 / 5 观察）**。
+本章为**纯追加**：本席未修改 `java/src/main/**`、`java/src/test/**`；探针置于一次性目录 `/probe151`（`javac` 独立编译）与隔离副本 `/iso151`（保持 `<root>/{docs,java,tools}` 布局），**复核结束已删除**。
+
+### J.1 冻结锚点与改动面（独立实测）
+
+| 项 | 产出方自述 | 独立实测 | 判定 |
+|---|---|---|---|
+| `java/src` 树锚 | `414fa584…` / 354 | `find java/src -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum` = `414fa5847cbf306a6b7fd5a104f0dbfc` / **354**（仓库根口径，**3/3 复测同值**）；`git ls-tree` 内容级口径**同值** | ✅ 吻合 |
+| 口径陷阱 | 目录内 `find . -type f` = `b0ac2e52…` | 复核确认：前缀差异，**非锚不可复现** | ✅ |
+| 改动面 | 10 文件 / `+843/−22`，全在 `java/**` | `git show --numstat`：**10 文件**，`java/` 内；合计 `+843 −22` 逐文件吻合 | ✅ |
+| `web/Router.java` | 零改动（明令） | 提交内**无**该文件；工作区该文件与 `1137801^` 逐字节同 | ✅ |
+| `docs/**` | 不在提交内 | `git show --name-only \| grep '^docs/'` = **0** | ✅ |
+| 既有行丢失 | `CONTRACTS.md` 既有行零丢失 | `diff 1137801^:java/CONTRACTS.md java/CONTRACTS.md`：`<` 侧**仅 1 行**（`:325` `ProductDao` bullet，被**升级为含第 4 法**的超集版本）、`>` 侧 2 行（升级后 bullet + `§5.1` `T-151` 登记行）⇒ **无内容丢失** | ✅ |
+| 未披露改动 | — | 无：提交面精确 10 文件；4 个测试文件中**新增 3 个、纯增 0 删**，`DmProductDaoScopedSqlTest` `+59/−0` ⇒ **既有断言语义未被改写/削弱** | ✅ |
+
+### J.2 门禁（独立实测）
+
+- `mvn -B -o compile`（`java/` 下）= **rc 0**（先证无在飞假象）；同轮 `arch-check` 打印 `E1…E7 全 0 / 汇总 rc 0`。
+- `mvn -B -o -Punit clean test` = **`632 / 0 / 0 / 0`**，`BUILD SUCCESS`（`TEST_RC=0`）。
+- 计数三源一致：`@Test`（`src/test`）= **632** == surefire 汇总 **632**（76 个类）；`1137801^` 基线 `@Test` = **612** ⇒ **+20**（`ProductReadScopeResidual 14` + `RouteReachabilityBug004 2` + `ProductRouteDispatch 2` + `DmProductDaoScopedSql 9→7+2`）。
+- `bash tools/arch-check/arch-check.sh`（仓库根）= **rc 0**，`E1…E7` 逐项 `0`。
+
+### J.3 ★`BUG-004` 前后对照（**本席自建证据，非复跑**）
+
+自建探针 `Probe`：五模块完整装配（`AuthRoutes`/`ConfigRoutes`/`ProductRoutes`/`SpotRoutes`/`PlanRoutes`），穷举**全部 81 条**路由，对每条构造**具体实例路径**（占位符段→探针 token）调 `Router.match`，要求命中 `pattern()` == 自身；另对**静态路由**用**字面路径**复查。**改前**由 `git show 1137801^:` 取回原 `ProductRoutes.java`/`SpotRoutes.java` 单独 `javac` 后**前置 classpath** 复现（不改共享树）。
+
+| 装配 | `TOTAL_ROUTES` | 占位符实例遮蔽 | 静态字面遮蔽 | 清单 |
+|---|---|---|---|---|
+| **改后（`1137801`）** | 81 | **0** | **0** | — |
+| **改前（原注册序）** | 81 | **5** | **5** | `GET /product/quota`、`/product/mapping`、`/product/change-log`、`/product/export` → `/product/{id}`；`GET /spot/exposure/export` → `/spot/exposure/{id}` |
+
+- **穷举同类（同方法 + 同段数混组）**（`Probe3`）：混组仅 **3 组** = `GET|5`、`POST|6`、`GET|6`；真实遮蔽 **改后 0 / 改前 5**。验证派单示例：`/config/dispatch/{id}`（`GET|6`）与 `GET /config/change-log`（`GET|5`）**不同段数** ⇒ **非**遮蔽（逐段对齐）。**未发现第 6 处遮蔽。**
+- **负例自测（证判据非恒绿）**：`Probe2` 同一判据在「静态先注册」= **0**、「占位符先注册（注入 1 处）」= **1**。
+- **镜像方向**：改后 `/product/{id}`、`/spot/exposure/{id}` 对 token 仍**命中自身**（未被自己或他人遮蔽）；`POST /product/whitelist` 等 4 段写面无同段数占位符冲突；完整装配**无重复注册异常**（81 条全注册、`Router.register` 重复即抛）。
+
+### J.4 三端点载体判定（**「有列但故意不用」独立回读**）
+
+`docs/DEPLOY/schema/m1_product.sql` 实测：
+
+| 表 | 行 | `sub_account_id` | 判定 |
+|---|---|---|---|
+| `t_product_contract` | `:94–125` | **无** | 经 `product_id` 关联 `t_product` 判可见性 ✅ |
+| `t_product_spot_category` | `:129–156` | **无** | 同上 ✅ |
+| `t_product_change_log` | `:276–304` | **有**（`:283` `INT NULL`），`:301` 注释 = 「涉及子账户（白名单/额度变更时非空；**品种档案本体变更为 NULL**）」 | **语义非行级归属** ⇒ 据该列过滤会**误滤 `CREATE` 行** ✅ |
+
+写入点实证：`VarietyService.writeLog`（`:1019–1032`，第 6 参 `subAccountId` 直落 `log.subAccountId`），`CREATE` 调用 `:297` / `:906` **明传 `null`**；`status` 变更 `:345`/`:393` 亦传 `null` ⇒ **该列 NULL 是常态** ⇒ 判定「有列但故意不用」**成立**。
+
+### J.5 口径与写面（独立实测 + 反事实）
+
+- 统一错误 = `ErrorCode.PARAM_INVALID = (10001, 400)`（`ErrorCode.java:17`）；三 handler 经 `ProductHandler.requireVisibleProduct`（`:162` 包内 `static`，**`1137801^` 已存在** = `T-106` 交付，本单**复用**）→ `VarietyService.getProduct(id, operatorId)`（`:259–266`，哨兵 `0` ⇒ 不加过滤；否则 `ProductDao.findByIdScoped` 白名单子查询）。生产接线实证：`Bootstrap.java:226–230` 第 10 参传 `authService` ⇒ **真隔离**（非 stub）。
+- 写面未加可见性：`ProductContractHandler` POST 走 `requireProduct`（`:61`）、`ProductMappingHandler` POST 无 gate —— 与自述一致。
+- **反事实（本席自设）**：把 POST `/product/{id}/contracts` 改为 `requireVisibleProduct` ⇒ `M1EndToEndAcceptanceTest` **11/11 全红**（`POST /api/v1/product/1/contracts` 对 `user=100` 返 **500**）⇒ 「POST 维持 `requireProduct` 因 E2E 依赖」的**理由成立**。
+- PRODUCT 读面**穷举 = 7 个 GET**（探针列印）：`/product`、`/product/{id}`、`/product/quota`、`/product/mapping`、`/product/change-log`、`/product/export`、`/product/{id}/contracts` ⇒ **7/7 均有可见性门禁**（T-105×2 / T-106×2 / T-151×3），**无第四处残留**。
+
+### J.6 变异台账（隔离副本 `/iso151`，每组**先证 build 绿再跑**，结束**逐字节复位**）
+
+| 组 | 注入 | 结果（独立实测） | 产出方自述 |
+|---|---|---|---|
+| `MUT-A` | 路由序回退（`1137801^` 两 Routes） | **10 红**（`ProdRouteDispatch 2` + `RouteReachabilityBug004 1` + `ProductReadScopeResidual 7`） | 10 红 ✅ |
+| `MUT-B` | 三 handler 去隔离（`requireVisibleProduct`→`requireProduct`） | **8 红**（全部在 `ProductReadScopeResidualTest`） | 8 红 ✅ |
+| `MUT-C` | `DmProductDao.findByIdScoped` SQL 尾附 ` OR 1=1`（谓词中和） | **2 红** = 两条新语义守卫（`:244`/`:264`）；**同文件 `T-106` `contains` 形状断言（`:166`）仍全绿**（9 测仅 2 失败） | 2 红 + 形状断言全绿 ✅ |
+| `MUT-C2` | （本席追加）`AbstractDmDao.findPageScoped` 的 `scope.sql()` 尾附 ` OR 1=1` | **1 红，但系 InMemoryDmEngine 解析失败 `10022 内部错误`**（非守卫命中）⇒ **分页路径的 SQL 形状断言对谓词中和无牙** | — |
+| `MUT-D` | （本席追加）POST 合约面加可见性 | `M1E2E` **11/11 红** | — |
+
+复位证据：每组结束 `mv *.orig` 回位后，`/iso151` 的 `find java/src -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum` = `414fa5847cbf306a6b7fd5a104f0dbfc`，与共享树**逐字节同**；共享树 `git status` 全程为空。
+
+### J.7 观察项（单列，**不阻断**）
+
+- `te-verify-t151-001`（信息·**决定 `T-152` 去留**）：`MUT-C` 证 `T-151` 新守卫**仅覆盖 `findByIdScoped` 一条 SQL**；`MUT-C2` 证**分页路径（`findPageScoped`）仍无「顶层谓词生效」守卫**（形状断言全绿、唯一红例为引擎解析失败）⇒ **`T-152` 作为通用收口仍应保留**（可收窄为「其余 scoped SQL 的谓词生效守卫」），不应因本单 2 条新守卫而关闭。
+- `te-verify-t151-002`（低·边界）：反事实 `MUT-D` 中，写面加可见性在 E2E 装配下呈 **500（非 10001）** 而非统一错误 —— 本单写面未改、**不影响结论**；但若未来要给写面加可见性，须先解决该 5xx 形态。
+- `te-verify-t151-003`（信息）：统一错误复用了 `PARAM_INVALID(10001)`（同一码兼载「格式非法」与「不可见/不存在」）—— 与 `T-106` 既定口径一致，**非本单新增**。
+- `te-verify-t151-004`（信息·测试强度）：`ProductReadScopeResidualTest.assertNoObjectIdentifiers` 为 `contains` 子串断言（查 `"AL"`/`"cu2612"`/…），未查可见侧编码 `"CU"`；其断言对象为**被拒**消息，风险极低。
+- `te-verify-t151-005`（信息）：`ProductChangeLogHandler`/`ProductMappingHandler`/`ProductContractHandler` 三处旧内联 `Long.parseLong` 已改由 `requireVisibleProduct`→`parseId` 统一（格式非法同为 `10001`）—— 属**向既有口径对齐**，行为无退化。
+
+### J.8 边界与「不覆盖」清单（逐项说明不影响本单结论）
+
+- **未覆盖 · 非本单范围**：`SPOT`/`PLAN`/`CONFIG`/`AUTH` 各模块**读取面的子账户隔离**（本单仅 PRODUCT 读面）；其中 `SPOT` 读取面另有 `T-107`/`T-110` 等承载，**不影响** `T-151` 范围判定。
+- **未覆盖 · 路由层已全量**：五模块 **81 条**路由的**可达性**已穷举（`J.3`）⇒ 路由遮蔽面**无遗漏**。
+- **未覆盖 · 框架级**：`Router.match` 的「注册序首次命中」**框架语义未改**（明令不得改 `web/Router.java`），优先级裁定归 `T-153`、防复发判据归 `T-154`；本单仅**就地改注册序**，故「先静态后占位符」为**约定**而非**框架保证** ⇒ 后续新增路由仍可能复发（已由 `T-154` 承接）。
+- **未覆盖 · DM8 真库**：全部验证在离线（假 DAO / 记录型假 JDBC / `InMemoryDmEngine`）下完成，**未联 DM8**（同项目既定口径）。
+
+### J.9 结论
+
+**通过（0 阻断缺陷 / 5 观察）⇒ `T-151` 可转 `DONE`。** 冻结锚 `414fa584…/354` 独立复现；门禁 `632/0/0/0` 独立复现且 `@Test==surefire==632`（基线 612 ⇒ +20）；`arch-check` `E1–E7` 全 `0`；`BUG-004` 五端点遮蔽**改前 5 / 改后 0** 经**自建穷举探针**证实，且判据经**负例自测**证明非恒绿；三端点载体判定「有列但故意不用」经 **DDL + 写入点**回读成立；三组承重变异 `10/8/2` 红独立复现、`T-106` 形状断言「无牙」事实证实。
