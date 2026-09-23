@@ -116,7 +116,7 @@ class BootstrapAssemblyTest {
     // ------------------------------------------------------------------ 2b. 正分支：直接断言业务路由注册
 
     @Test
-    @DisplayName("🔴 正分支直接断言：配了 hg.db.url（假驱动）时 5 个注册器真的被调用、82 条路由真的注册")
+    @DisplayName("🔴 正分支直接断言：配了 hg.db.url（假驱动）时 5 个注册器真的被调用、83 条路由真的注册")
     void configuredDatabaseRegistersAllBusinessRoutes() {
         System.setProperty(Config.KEY_DB_URL, "jdbc:dm://127.0.0.1:5236/HG");
         System.setProperty(Config.KEY_DB_DRIVER, FakeJdbcDriver.class.getName());
@@ -131,14 +131,19 @@ class BootstrapAssemblyTest {
             assertNotNull(assembly.pool(), "应持有连接池");
             assertNotNull(assembly.factory(), "应持有连接工厂");
 
-            // 精确断言（**非下界**）：80 条业务路由（含 T-109 补齐的 19 条 + T-010 补齐的 AUTH 15 条）
-            // + ping 的 GET/HEAD 2 条 = 82。
+            // 精确断言（**非下界**）：81 条业务路由（含 T-109 补齐的 19 条 + T-010 补齐的 AUTH 15 条
+            // + T-135 补齐的 CONFIG 停用 1 条）+ ping 的 GET/HEAD 2 条 = 83。
             // 若 registerBusinessRoutes(...) 被删除/短路，此处必红 —— 这是本用例的唯一目的。
             // 【T-010 订正（加注）】断言值由 67 订正为 82：订正理由 = 需求面（`ApiRoutes` 声明 AUTH 10 条
             //   路径、「声明面 ⊇ 注册面」缺口被补齐）——`AuthRoutes` 由 2 个 (方法,路径) 对补齐为 17
             //   （+15），非为过测试而放宽断言。计数明细（业务）= AUTH17/CONFIG17/PRODUCT13/SPOT15/PLAN18。
-            assertEquals(82, assembly.routeCount(),
-                    "业务路由必须全部注册：80（AUTH17/CONFIG17/PRODUCT13/SPOT15/PLAN18）+ ping 2");
+            // 【T-135 订正（加注）】断言值由 82 订正为 83：订正理由 = 需求面（`FR-CONFIG-7` 验收 3「停用
+            //   条件不满足时停用被拒绝」要求可调用的停用端点；`ConfigService.disableSubAccount` 已实现但
+            //   生产 0 调用）——`ConfigRoutes` 于既有已声明路径 `/config/sub-account` 上补注册 `PUT`
+            //   （该路径已在 `ApiRoutes` CONFIG 清单内，未新增路径），CONFIG 由 17 对增为 18 对（+1），
+            //   非为过测试而放宽断言。
+            assertEquals(83, assembly.routeCount(),
+                    "业务路由必须全部注册：81（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。
             // （不真发 HTTP：经 RequestDispatcher 进程内分发；handler 因无真实库而 4xx/5xx 皆可，

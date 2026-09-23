@@ -714,6 +714,30 @@ public final class AuthService implements SubAccountVisibility {
     public long createUser(String username, String realName, String naturalPersonKey,
                            String department, String isEnterpriseLeader, String initialPassword,
                            long operatorId) {
+        return createUser(username, realName, naturalPersonKey, department, isEnterpriseLeader,
+                initialPassword, operatorId, null);
+    }
+
+    /**
+     * 新增用户并<b>可选授予初始角色</b>（{@code FR-AUTH-1} 输入列「…、初始角色」；{@code T-135} 补齐）。
+     *
+     * <p>校验一律在<b>任何落库之前</b>完成（{@code CONTRACTS.md} §5.3「状态变更须在全部校验通过之后」）：
+     * 初始角色编码不存在 ⇒ {@code 10001}；企业负责人被授交易岗 ⇒ {@code 10005}（{@code FR-AUTH-9} 验收 1）。
+     * 用户与初始角色行在同一事务内写入（避免"有用户无角色"的半态）。
+     *
+     * @param username           登录名
+     * @param realName           姓名
+     * @param naturalPersonKey   自然人唯一键
+     * @param department         所属部门
+     * @param isEnterpriseLeader 是否企业负责人（{@code 'Y'/'N'}）
+     * @param initialPassword    初始明文口令（仅内存）
+     * @param operatorId         操作人
+     * @param initialRoleCode    初始角色编码（可为 {@code null} / 空 ⇒ 不授角色）
+     * @return 新用户 ID
+     */
+    public long createUser(String username, String realName, String naturalPersonKey,
+                           String department, String isEnterpriseLeader, String initialPassword,
+                           long operatorId, String initialRoleCode) {
         requireNonBlank(username, "username");
         requireNonBlank(realName, "realName");
         requireNonBlank(naturalPersonKey, "natural_person_key");
@@ -727,19 +751,52 @@ public final class AuthService implements SubAccountVisibility {
                             + "；复现=合并重复账号（R-AUTH-2「一个自然人一个账号」）");
         }
         PasswordHasher.assertStrength(initialPassword, passwordMinLength());
+        String leader = "Y".equals(isEnterpriseLeader) ? "Y" : "N";
+        // 初始角色：先校验（任何失败都发生在落库之前，避免半态）
+        Role initialRole = null;
+        if (initialRoleCode != null && !initialRoleCode.trim().isEmpty()) {
+            String code = initialRoleCode.trim();
+            initialRole = roleDao.findByCode(code);
+            if (initialRole == null) {
+                throw BizException.of(ErrorCode.PARAM_INVALID,
+                        "初始角色不存在：role_code=" + code
+                                + "；复现=改用已定义角色（FR-AUTH-1 输入列「初始角色」）");
+            }
+            if ("Y".equals(leader) && "Y".equals(initialRole.hasTradingOperation)) {
+                throw BizException.of(ErrorCode.POSITION_SEPARATION_CONFLICT,
+                        "企业负责人不得被授予交易岗角色 " + initialRole.roleCode
+                                + "；复现=改授管理/审计岗（FR-AUTH-9 验收 1 / R-AUTH-2）");
+            }
+        }
         UserAccount user = new UserAccount();
         user.username = username;
         user.realName = realName;
         user.naturalPersonKey = naturalPersonKey;
         user.department = department;
-        user.isEnterpriseLeader = "Y".equals(isEnterpriseLeader) ? "Y" : "N";
+        user.isEnterpriseLeader = leader;
         user.status = "ENABLED";
         user.mustChangePassword = "Y";
         user.passwordHash = PasswordHasher.hash(initialPassword);
         user.failCount = 0;
-        userAccountDao.insert(user, operatorId);
+        final Role granted = initialRole;
+        tx.inTransaction(connection -> {
+            userAccountDao.insert(user, operatorId);
+            if (granted != null) {
+                UserRole userRole = new UserRole();
+                userRole.userId = user.id;
+                userRole.roleId = granted.id;
+                userRole.grantedBy = operatorId;
+                userRole.grantedTime = Clocks.now();
+                userRoleDao.insert(userRole, operatorId);
+            }
+            return null;
+        });
         // 安全默认：不插入任何 t_user_sub_account_perm 行（FR-AUTH-1 验收 3 / R-AUTH-5）
         recordChange(CHANGE_USER_ATTR, user.id, user.id, null, "创建用户 " + username, operatorId, null);
+        if (granted != null) {
+            recordChange(CHANGE_USER_ROLE, null, user.id, null,
+                    "授予初始角色 " + granted.roleCode, operatorId, null);
+        }
         return user.id;
     }
 
@@ -857,6 +914,30 @@ public final class AuthService implements SubAccountVisibility {
      * @return 分页用户
      */
     public PageResult<UserAccount> listUsers(PageQuery query, String status, String leaderFlag) {
+        return listUsers(query, status, leaderFlag, null, null, null);
+    }
+
+    /**
+     * 查询用户列表（{@code FR-AUTH-5}，含全部输入列筛选：关键字 / 角色 / 状态 / 企业负责人 / 子账户）。
+     *
+     * <p>筛选一律<b>下推 SQL</b>（不取回内存再过滤，避免分页失真）：{@code T-135} 补齐
+     * {@code FR-AUTH-5} 输入列中此前缺位的「用户名/姓名关键字」「角色」「子账户」三项。
+     * <ul>
+     *   <li>关键字：{@code (username LIKE ? OR real_name LIKE ?)}，两侧加 {@code %}；</li>
+     *   <li>角色：按 {@code role_code} 解析受授用户集 ⇒ {@code id IN (...)}（无匹配 ⇒ 空页）；</li>
+     *   <li>子账户：按 {@code sub_account_id} 解析授权用户集 ⇒ {@code id IN (...)}（无匹配 ⇒ 空页）。</li>
+     * </ul>
+     *
+     * @param query        分页（默认排序字段 {@code created_time}，缺省倒序）
+     * @param status       状态筛选（{@code ENABLED}/{@code DISABLED}；可为 {@code null}）
+     * @param leaderFlag   企业负责人标记筛选（{@code Y}/{@code N}；可为 {@code null}）
+     * @param roleCode     角色编码筛选（{@code role_code}；可为 {@code null}）
+     * @param keyword      用户名/姓名关键字（模糊匹配；可为 {@code null}）
+     * @param subAccountId 子账户 ID 筛选（SQL 面恒为整数，非空即筛；可为 {@code null}）
+     * @return 分页用户
+     */
+    public PageResult<UserAccount> listUsers(PageQuery query, String status, String leaderFlag,
+                                             String roleCode, String keyword, Integer subAccountId) {
         StringBuilder where = new StringBuilder();
         List<Object> args = new ArrayList<>();
         if (status != null && !status.isEmpty()) {
@@ -864,13 +945,63 @@ public final class AuthService implements SubAccountVisibility {
             args.add(status);
         }
         if (leaderFlag != null && !leaderFlag.isEmpty()) {
-            if (where.length() > 0) {
-                where.append(" AND ");
-            }
+            appendAnd(where);
             where.append("is_enterprise_leader = ?");
             args.add(leaderFlag);
         }
+        if (keyword != null && !keyword.trim().isEmpty()) {
+            appendAnd(where);
+            where.append("(username LIKE ? OR real_name LIKE ?)");
+            String like = "%" + keyword.trim() + "%";
+            args.add(like);
+            args.add(like);
+        }
+        if (roleCode != null && !roleCode.isEmpty()) {
+            Role role = roleDao.findByCode(roleCode);
+            if (role == null) {
+                return emptyUserPage(query);
+            }
+            List<Long> userIds = new ArrayList<>();
+            for (UserRole userRole : userRoleDao.findByRole(role.id)) {
+                if (!userIds.contains(userRole.userId)) {
+                    userIds.add(userRole.userId);
+                }
+            }
+            if (userIds.isEmpty()) {
+                return emptyUserPage(query);
+            }
+            appendAnd(where);
+            where.append("id IN (").append(placeholders(userIds.size())).append(")");
+            args.addAll(userIds);
+        }
+        if (subAccountId != null) {
+            List<Long> userIds = userSubAccountPermDao.findUserIdsBySubAccount(subAccountId);
+            if (userIds.isEmpty()) {
+                return emptyUserPage(query);
+            }
+            appendAnd(where);
+            where.append("id IN (").append(placeholders(userIds.size())).append(")");
+            args.addAll(userIds);
+        }
         return userAccountDao.findPage(query, where.length() == 0 ? null : where.toString(), args);
+    }
+
+    private static void appendAnd(StringBuilder where) {
+        if (where.length() > 0) {
+            where.append(" AND ");
+        }
+    }
+
+    private static String placeholders(int count) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            sb.append(i == 0 ? "?" : ",?");
+        }
+        return sb.toString();
+    }
+
+    private static PageResult<UserAccount> emptyUserPage(PageQuery query) {
+        return new PageResult<>(new ArrayList<>(), 0, query.page(), query.size());
     }
 
     // ------------------------------------------------------------ 角色与岗位分离（FR-AUTH-6/7）
@@ -1142,9 +1273,54 @@ public final class AuthService implements SubAccountVisibility {
      */
     public PageResult<PermissionChangeLog> listPermissionChangeLogs(PageQuery query,
                                                                     Long targetUserId) {
-        String where = targetUserId == null ? null : "target_user_id = ?";
-        List<Object> args = targetUserId == null ? new ArrayList<>() : args(targetUserId);
-        return permissionChangeLogDao.findPage(query, where, args);
+        return listPermissionChangeLogs(query, targetUserId, null, null, null, null);
+    }
+
+    /**
+     * 查询权限变更留痕（{@code FR-AUTH-11} 验收 3：可按<b>用户 / 时间范围</b>筛选，输入列另含
+     * <b>变更类型 / 操作人</b>）。筛选一律<b>下推 SQL</b>（{@code T-135} 补齐此前缺位的
+     * 时间范围、变更类型、操作人三项）。
+     *
+     * @param query        分页（默认排序字段 {@code change_time}，缺省倒序）
+     * @param targetUserId 按受影响用户筛选（可为 {@code null}）
+     * @param changeTarget 变更类型筛选（{@code USER_ROLE}/{@code AUTHORIZATION}/…；可为 {@code null}）
+     * @param operatorId   按操作人筛选（可为 {@code null}）
+     * @param from         起始时间（含；{@code change_time >= ?}；可为 {@code null}）
+     * @param to           截止时间（含；{@code change_time <= ?}；可为 {@code null}）
+     * @return 分页留痕
+     */
+    public PageResult<PermissionChangeLog> listPermissionChangeLogs(PageQuery query, Long targetUserId,
+                                                                    String changeTarget, Long operatorId,
+                                                                    LocalDateTime from, LocalDateTime to) {
+        StringBuilder where = new StringBuilder();
+        List<Object> whereArgs = new ArrayList<>();
+        if (targetUserId != null) {
+            appendAnd(where);
+            where.append("target_user_id = ?");
+            whereArgs.add(targetUserId);
+        }
+        if (changeTarget != null && !changeTarget.isEmpty()) {
+            appendAnd(where);
+            where.append("change_target = ?");
+            whereArgs.add(changeTarget);
+        }
+        if (operatorId != null) {
+            appendAnd(where);
+            where.append("operator_id = ?");
+            whereArgs.add(operatorId);
+        }
+        if (from != null) {
+            appendAnd(where);
+            where.append("change_time >= ?");
+            whereArgs.add(from);
+        }
+        if (to != null) {
+            appendAnd(where);
+            where.append("change_time <= ?");
+            whereArgs.add(to);
+        }
+        return permissionChangeLogDao.findPage(query, where.length() == 0 ? null : where.toString(),
+                whereArgs);
     }
 
     /**

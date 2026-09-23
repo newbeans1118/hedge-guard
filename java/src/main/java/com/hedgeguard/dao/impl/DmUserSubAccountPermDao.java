@@ -8,6 +8,7 @@ import com.hedgeguard.dao.tx.TxTemplate;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -105,5 +106,22 @@ public final class DmUserSubAccountPermDao extends AbstractDmDao<UserSubAccountP
         String sql = "SELECT " + selectList() + " FROM " + tableName()
                 + " WHERE user_id = ? ORDER BY sub_account_id ASC";
         return queryList(sql, Collections.singletonList(userId), this::mapRow);
+    }
+
+    @Override
+    public List<Long> findUserIdsBySubAccount(int subAccountId) {
+        // 反向索引：按 sub_account_id 枚举授权主体，供用户列表筛选下推 id IN (...)。
+        String sql = "SELECT user_id FROM " + tableName()
+                + " WHERE sub_account_id = ? ORDER BY user_id ASC";
+        List<Long> rows = queryList(sql, Collections.singletonList(subAccountId),
+                rs -> rs.getLong("user_id"));
+        // 同一用户可能有多行（历史/多类型授权）⇒ 去重后保持一致顺序。
+        List<Long> out = new ArrayList<>();
+        for (Long id : rows) {
+            if (!out.contains(id)) {
+                out.add(id);
+            }
+        }
+        return out;
     }
 }

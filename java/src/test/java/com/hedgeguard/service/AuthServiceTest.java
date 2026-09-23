@@ -827,6 +827,17 @@ class AuthServiceTest {
             }
             return out;
         }
+
+        @Override
+        public List<Long> findUserIdsBySubAccount(int subAccountId) {
+            List<Long> out = new ArrayList<>();
+            for (UserSubAccountPerm row : rows) {
+                if (row.subAccountId == subAccountId && !out.contains(row.userId)) {
+                    out.add(row.userId);
+                }
+            }
+            return out;
+        }
     }
 
     /** 内存假越权尝试 DAO。 */

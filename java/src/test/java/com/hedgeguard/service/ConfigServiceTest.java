@@ -8,9 +8,13 @@ import com.hedgeguard.dao.SubAccountDao;
 import com.hedgeguard.dao.entity.ConfigChangeLog;
 import com.hedgeguard.dao.entity.ConfigItem;
 import com.hedgeguard.dao.entity.SubAccount;
+import com.hedgeguard.service.impl.UnavailableSubAccountDisablePrecheck;
 import com.hedgeguard.testsupport.FakeDao;
 import com.hedgeguard.web.BizException;
 import com.hedgeguard.web.ErrorCode;
+import com.hedgeguard.web.HttpResult;
+import com.hedgeguard.web.RequestContext;
+import com.hedgeguard.web.handler.config.SubAccountHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -298,6 +302,61 @@ class ConfigServiceTest {
                 assertThrows(BizException.class,
                         () -> service.disableSubAccount(99, "不存在",
                                 precheck(true, true, true, true), 1L)).errorCode());
+    }
+
+    @Test
+    @DisplayName("T-135 FR-CONFIG-7 验收3：PUT /config/sub-account {subAccountId, reason} 经 handler 接线停用")
+    void disableEndpointWiredViaHandler() {
+        service.createSubAccount(subAccount("SA-T135-01", "停用接线", "COMMODITY", null), 1L);
+        SubAccountHandler handler = new SubAccountHandler(service, precheck(true, true, true, true));
+        HttpResult r = handler.handle(new RequestContext("PUT", SubAccountHandler.PATH, null,
+                java.util.Collections.emptyMap(),
+                "{\"subAccountId\":1,\"reason\":\"业务结束\"}", "HGT135", "127.0.0.1"));
+        assertEquals(200, r.status);
+        assertEquals("DISABLED", subAccountDao.findById(1).status,
+                "PUT 须接线到 disableSubAccount（此前生产 0 调用）");
+    }
+
+    @Test
+    @DisplayName("T-135 FR-CONFIG-7 验收3：停用条件不满足经 handler 仍阻断 10012，状态不变")
+    void disableEndpointBlocksWhenPrecheckFails() {
+        service.createSubAccount(subAccount("SA-T135-02", "停用阻断", "COMMODITY", null), 1L);
+        SubAccountHandler handler = new SubAccountHandler(service, precheck(false, true, true, true));
+        BizException e = assertThrows(BizException.class, () -> handler.handle(
+                new RequestContext("PUT", SubAccountHandler.PATH, null, java.util.Collections.emptyMap(),
+                        "{\"subAccountId\":1,\"reason\":\"业务结束\"}", "HGT135", "127.0.0.1")));
+        assertEquals(ErrorCode.COMPLIANCE_GATE_FAILED, e.errorCode());
+        assertEquals("ENABLED", subAccountDao.findById(1).status, "被拒后状态不得改变");
+    }
+
+    @Test
+    @DisplayName("T-135：M1 停用前置端口不可用 ⇒ 10002 且不改变状态（诚实失败，不伪报成功）")
+    void m1PrecheckUnavailableFailsHonestly() {
+        service.createSubAccount(subAccount("SA-T135-03", "M1 不可用", "COMMODITY", null), 1L);
+        SubAccountHandler handler = new SubAccountHandler(service,
+                new UnavailableSubAccountDisablePrecheck("FUND/TRADE/SETTLE（M1 未交付）"));
+        BizException e = assertThrows(BizException.class, () -> handler.handle(
+                new RequestContext("PUT", SubAccountHandler.PATH, null, java.util.Collections.emptyMap(),
+                        "{\"subAccountId\":1,\"reason\":\"业务结束\"}", "HGT135", "127.0.0.1")));
+        assertEquals(ErrorCode.COMPONENT_UNAVAILABLE, e.errorCode(), "应返回 10002");
+        assertTrue(e.getMessage().contains("FUND"), "错误信息须点名缺失数据源：" + e.getMessage());
+        assertEquals("ENABLED", subAccountDao.findById(1).status, "不得改状态");
+    }
+
+    @Test
+    @DisplayName("T-135：未装配停用端口 / 缺参 ⇒ 明确失败（不静默放行）")
+    void disableEndpointRejectsWhenUnwiredOrMalformed() {
+        SubAccountHandler unwired = new SubAccountHandler(service);
+        assertEquals(ErrorCode.COMPONENT_UNAVAILABLE,
+                assertThrows(BizException.class, () -> unwired.handle(
+                        new RequestContext("PUT", SubAccountHandler.PATH, null,
+                                java.util.Collections.emptyMap(),
+                                "{\"subAccountId\":1,\"reason\":\"x\"}", "T", "127.0.0.1"))).errorCode());
+        SubAccountHandler handler = new SubAccountHandler(service, precheck(true, true, true, true));
+        assertEquals(ErrorCode.PARAM_INVALID,
+                assertThrows(BizException.class, () -> handler.handle(
+                        new RequestContext("PUT", SubAccountHandler.PATH, null,
+                                java.util.Collections.emptyMap(), "{}", "T", "127.0.0.1"))).errorCode());
     }
 
     @Test

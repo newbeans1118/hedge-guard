@@ -31,4 +31,15 @@ public interface UserSubAccountPermDao extends BaseDao<UserSubAccountPerm, Long>
      * @return 列表
      */
     List<UserSubAccountPerm> findByUser(long userId);
+
+    /**
+     * 取对指定子账户有数据权限的用户 ID 集（{@code FR-AUTH-5} 验收 1「按子账户筛选用户列表」；{@code T-135}）。
+     *
+     * <p>与 {@link #findByUser} 呈<b>反向</b>索引；供用户列表筛选下推 {@code id IN (...)} 使用。
+     * <b>不是</b>取数入口（不带 {@code perm_type} 语义），仅用于枚举授权行主体。
+     *
+     * @param subAccountId 子账户 ID
+     * @return 用户 ID 列表（去重后升序；无授权返回空集）
+     */
+    List<Long> findUserIdsBySubAccount(int subAccountId);
 }

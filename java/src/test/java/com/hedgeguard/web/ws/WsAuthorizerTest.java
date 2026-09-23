@@ -208,6 +208,11 @@ class WsAuthorizerTest {
         }
 
         @Override
+        public List<Long> findUserIdsBySubAccount(int subAccountId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public int insert(UserSubAccountPerm entity, long operatorId) {
             throw new UnsupportedOperationException();
         }

@@ -21,9 +21,11 @@ import java.util.List;
  * 用户管理 {@code GET|POST|PUT /api/v1/auth/user}（{@code FR-AUTH-1~5}）。
  *
  * <ul>
- *   <li>{@code GET} 列表（默认创建时间倒序；<b>绝不回任何口令字段</b>，{@code FR-AUTH-5} 验收 3）；</li>
- *   <li>{@code POST} 新增用户（{@code FR-AUTH-1}）；</li>
- *   <li>{@code PUT} 变更：{@code action=UPDATE|DISABLE|ENABLE}（{@code FR-AUTH-2/3/4}）。</li>
+ *   <li>{@code GET} 列表（默认创建时间倒序；筛选 {@code status}/{@code leader}/{@code role}/
+ *       {@code keyword}/{@code subAccount}；<b>绝不回任何口令字段</b>，{@code FR-AUTH-5} 验收 3）；</li>
+ *   <li>{@code POST} 新增用户（{@code FR-AUTH-1}；可选 {@code roleCode} 授初始角色）；</li>
+ *   <li>{@code PUT} 变更：{@code action=UPDATE|DISABLE|ENABLE|FORCE_LOGOUT}
+ *       （{@code FR-AUTH-2/3/4/15④}；{@code FORCE_LOGOUT} 由 {@code T-135} 接线）。</li>
  * </ul>
  */
 public final class UserHandler implements RouteHandler {
@@ -57,8 +59,11 @@ public final class UserHandler implements RouteHandler {
     private HttpResult list(RequestContext ctx) {
         PageQuery query = PageQuery.of(ctx.queryParam("page"), ctx.queryParam("size"),
                 ctx.queryParam("sort"), "created_time", "desc");
+        // T-135：补齐 FR-AUTH-5 输入列的筛选 —— 关键字（keyword）/ 角色（role）/ 子账户（subAccount）。
+        Integer subAccount = parseOptionalInt(ctx.queryParam("subAccount"), "subAccount");
         PageResult<UserAccount> page = authService.listUsers(query,
-                ctx.queryParam("status"), ctx.queryParam("leader"));
+                ctx.queryParam("status"), ctx.queryParam("leader"),
+                ctx.queryParam("role"), ctx.queryParam("keyword"), subAccount);
         List<UserView> items = new ArrayList<>();
         for (UserAccount user : page.items()) {
             items.add(UserView.of(user, authService.roleCodesOf(user.id),
@@ -77,8 +82,21 @@ public final class UserHandler implements RouteHandler {
         }
         long id = authService.createUser(request.username, request.realName,
                 request.naturalPersonKey, request.department, request.isEnterpriseLeader,
-                request.initialPassword, ctx.currentUserId());
+                request.initialPassword, ctx.currentUserId(), request.roleCode);
         return HttpResult.json(200, ApiResponse.ok(id, ctx.traceId()));
+    }
+
+    /** 解析可选整数查询参数；非数字 ⇒ {@code 10001}（不静默忽略）。 */
+    private static Integer parseOptionalInt(String raw, String name) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(raw.trim());
+        } catch (NumberFormatException e) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "查询参数 " + name + " 须为十进制整数：" + raw + "；复现=改正取值", e);
+        }
     }
 
     private HttpResult mutate(RequestContext ctx) {
@@ -99,9 +117,14 @@ public final class UserHandler implements RouteHandler {
             case "ENABLE":
                 String oneTime = authService.enableUser(request.userId, operatorId, request.reviewerId);
                 return HttpResult.json(200, ApiResponse.ok(new ResetView(oneTime), ctx.traceId()));
+            case "FORCE_LOGOUT":
+                // FR-AUTH-15 验收 4：管理员强制下线指定用户（须留痕）——T-135 接线（服务层已实现）
+                int kicked = authService.forceLogout(request.userId, operatorId);
+                return HttpResult.json(200, ApiResponse.ok(kicked, ctx.traceId()));
             default:
                 throw BizException.of(ErrorCode.PARAM_INVALID,
-                        "未知 action：" + request.action + "；复现=改用 UPDATE|DISABLE|ENABLE");
+                        "未知 action：" + request.action
+                                + "；复现=改用 UPDATE|DISABLE|ENABLE|FORCE_LOGOUT");
         }
     }
 
@@ -125,6 +148,9 @@ public final class UserHandler implements RouteHandler {
 
         /** 初始口令（仅内存）。 */
         public String initialPassword;
+
+        /** 初始角色编码（{@code FR-AUTH-1} 输入列「初始角色」；可选，缺省不授角色）。 */
+        public String roleCode;
     }
 
     /** 变更请求体。 */

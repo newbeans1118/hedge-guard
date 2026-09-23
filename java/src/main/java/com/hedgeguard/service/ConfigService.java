@@ -551,6 +551,16 @@ public final class ConfigService {
         return subAccountDao.findByCode(code);
     }
 
+    /**
+     * 按 ID 查子账户（{@code T-135}；供停用端点回传停用后的视图）。
+     *
+     * @param id 子账户 ID
+     * @return 子账户；不存在返回 {@code null}
+     */
+    public SubAccount findSubAccountById(int id) {
+        return subAccountDao.findById(id);
+    }
+
     // ------------------------------------------------------------ T-109 CONFIG 声明面补齐
 
     /**

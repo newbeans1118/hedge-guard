@@ -483,6 +483,17 @@ class VarietyT112VisibilityTest {
             }
             return out;
         }
+
+        @Override
+        public List<Long> findUserIdsBySubAccount(int subAccountId) {
+            List<Long> out = new ArrayList<>();
+            for (UserSubAccountPerm row : rows) {
+                if (row.subAccountId == subAccountId && !out.contains(row.userId)) {
+                    out.add(row.userId);
+                }
+            }
+            return out;
+        }
     }
 
     private static final class FakeAttemptDao

@@ -245,7 +245,11 @@ public final class Bootstrap {
                 new DmPurchaseContractDao(tx), new DmSalesContractDao(tx), authService::hasTradingRole);
 
         AuthRoutes.register(router, authService, sessionStore);
-        ConfigRoutes.register(router, configService);
+        // T-135：子账户停用端点的四条件判定端口。M1 未交付 FUND/TRADE/SETTLE 表 ⇒ 以
+        // 「不可用」实现诚实失败（10002），M2 以真实 DAO 替换（CtpTestHandler 同姿态）。
+        ConfigRoutes.register(router, configService,
+                new com.hedgeguard.service.impl.UnavailableSubAccountDisablePrecheck(
+                        "FUND/TRADE/SETTLE（M1 未交付）"));
         ProductRoutes.register(router, varietyService);
         SpotRoutes.register(router, spotService);
         PlanRoutes.register(router, planService);

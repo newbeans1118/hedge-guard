@@ -13,7 +13,8 @@ import com.hedgeguard.web.Router;
  * <p>当前已交付的路由（{@code T-008}/{@code T-009}/{@code T-109}）：
  * <pre>
  *   GET|PUT /api/v1/config/item           配置项查询与取值变更（敏感项 10020 / 绑定键 10021）
- *   GET|POST /api/v1/config/sub-account   子账户列表与创建（DISABLE_ONLY，无删除）
+ *   GET|POST|PUT /api/v1/config/sub-account 子账户列表 / 创建 / 停用（DISABLE_ONLY，无删除；
+ *                                         PUT 停用由 T-135 接线，FR-CONFIG-7 验收 3）
  *   GET|POST /api/v1/config/ctp           CTP 前置配置（FR-CONFIG-1/10）
  *   POST /api/v1/config/ctp/test          CTP 连接测试（M1 显式 10002，待 M2 组件桥接）
  *   GET|POST /api/v1/config/dict          枚举字典（FR-CONFIG-14；无删除，只停用）
@@ -38,10 +39,26 @@ public final class ConfigRoutes {
      * @param configService 配置服务
      */
     public static void register(Router router, ConfigService configService) {
+        register(router, configService, null);
+    }
+
+    /**
+     * 注册 {@code CONFIG} 模块路由（含停用端口装配）。
+     *
+     * @param router          路由
+     * @param configService   配置服务
+     * @param disablePrecheck 子账户停用四条件判定端口（{@code FR-CONFIG-7} 验收 3；可为 {@code null}）
+     */
+    public static void register(Router router, ConfigService configService,
+                                ConfigService.SubAccountDisablePrecheck disablePrecheck) {
         router.register("GET", ConfigItemHandler.PATH, new ConfigItemHandler(configService));
         router.register("PUT", ConfigItemHandler.PATH, new ConfigItemHandler(configService));
-        router.register("GET", SubAccountHandler.PATH, new SubAccountHandler(configService));
-        router.register("POST", SubAccountHandler.PATH, new SubAccountHandler(configService));
+        router.register("GET", SubAccountHandler.PATH,
+                new SubAccountHandler(configService, disablePrecheck));
+        router.register("POST", SubAccountHandler.PATH,
+                new SubAccountHandler(configService, disablePrecheck));
+        router.register("PUT", SubAccountHandler.PATH,
+                new SubAccountHandler(configService, disablePrecheck));
         // T-109：补齐声明面（配置项之外的全部 CONFIG 路径）
         router.register("GET", CtpConfigHandler.PATH, new CtpConfigHandler(configService));
         router.register("POST", CtpConfigHandler.PATH, new CtpConfigHandler(configService));

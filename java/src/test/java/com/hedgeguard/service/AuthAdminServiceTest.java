@@ -32,8 +32,12 @@ import com.hedgeguard.testsupport.FakeDao;
 import com.hedgeguard.testsupport.UnsupportedBaseDao;
 import com.hedgeguard.web.BizException;
 import com.hedgeguard.web.ErrorCode;
+import com.hedgeguard.web.HttpResult;
+import com.hedgeguard.web.RequestContext;
 import com.hedgeguard.web.Session;
 import com.hedgeguard.web.SessionStore;
+import com.hedgeguard.web.handler.auth.ChangeLogHandler;
+import com.hedgeguard.web.handler.auth.UserHandler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -278,6 +282,167 @@ class AuthAdminServiceTest {
         assertTrue(loginLogDao.rows.stream().anyMatch(l -> "KICKED".equals(l.eventType)));
     }
 
+    // ------------------------------------------------------------ T-135：FR-AUTH-5/11 筛选 + FR-AUTH-1 初始角色 + FR-AUTH-15④ 端点
+
+    @Test
+    @DisplayName("T-135 FR-AUTH-5：关键字 / 角色 / 子账户筛选下推 SQL（不取回内存再过滤）")
+    void listUsersPushesDownRoleKeywordSubAccount() {
+        // 关键字 ⇒ username/real_name 二者取其一（LIKE 两侧 %）
+        service.listUsers(PageQuery.of("1", "20", null, "created_time", "desc"),
+                null, null, null, "ali", null);
+        assertTrue(userDao.lastWhere.contains("username LIKE ?"), "关键字须下推 username LIKE");
+        assertTrue(userDao.lastWhere.contains("real_name LIKE ?"), "关键字须下推 real_name LIKE");
+        assertTrue(userDao.lastWhere.contains("OR"), "关键字须 username/real_name 取其一（OR）");
+
+        // 角色 ⇒ 解析受授用户集 ⇒ id IN (...)
+        roleDao.put(role(10L, AuthService.ROLE_TRADER, 1, "Y"));
+        userRoleDao.put(userRole(1L, 10L));
+        service.listUsers(PageQuery.of("1", "20", null, "created_time", "desc"),
+                null, null, AuthService.ROLE_TRADER, null, null);
+        assertTrue(userDao.lastWhere.contains("id IN ("), "角色筛须下推 id IN");
+
+        // 子账户 ⇒ 授权用户集 ⇒ id IN (...)
+        permDao.rows.add(perm(1L, 7));
+        service.listUsers(PageQuery.of("1", "20", null, "created_time", "desc"),
+                null, null, null, null, 7);
+        assertTrue(userDao.lastWhere.contains("id IN ("), "子账户筛须下推 id IN");
+
+        // 组合：状态 + 负责人 + 关键字 + 角色 ⇒ 以 AND 连接
+        service.listUsers(PageQuery.of("1", "20", null, "created_time", "desc"),
+                "ENABLED", "N", AuthService.ROLE_TRADER, "ali", null);
+        assertTrue(userDao.lastWhere.contains("status = ?"), "状态筛在册");
+        assertTrue(userDao.lastWhere.contains("is_enterprise_leader = ?"), "负责人筛在册");
+        assertTrue(userDao.lastWhere.contains("username LIKE ?"), "关键字在册");
+        assertTrue(userDao.lastWhere.contains("id IN ("), "角色在册");
+    }
+
+    @Test
+    @DisplayName("T-135 FR-AUTH-5：未知角色 / 无授权子账户 ⇒ 空页（不落查询、不误报全量）")
+    void listUsersUnknownFilterShortCircuits() {
+        PageResult<UserAccount> byRole = service.listUsers(
+                PageQuery.of("1", "20", null, "created_time", "desc"),
+                null, null, "NO_SUCH_ROLE", null, null);
+        assertEquals(0, byRole.total(), "未知角色 ⇒ 空页（不得退化为不过滤）");
+        PageResult<UserAccount> bySub = service.listUsers(
+                PageQuery.of("1", "20", null, "created_time", "desc"),
+                null, null, null, null, 99);
+        assertEquals(0, bySub.total(), "无授权子账户 ⇒ 空页");
+    }
+
+    @Test
+    @DisplayName("T-135 FR-AUTH-11：变更留痕按 变更类型 / 操作人 / 时间范围 筛选下推")
+    void changeLogPushesDownFilters() {
+        service.listPermissionChangeLogs(PageQuery.of("1", "20", null, "change_time", "desc"),
+                1L, AuthService.CHANGE_USER_ROLE, 9L,
+                LocalDateTime.of(2026, 1, 1, 0, 0), LocalDateTime.of(2026, 12, 31, 23, 59, 59));
+        String w = changeLogDao.lastWhere;
+        assertTrue(w.contains("target_user_id = ?"), "用户维度在册");
+        assertTrue(w.contains("change_target = ?"), "变更类型在册");
+        assertTrue(w.contains("operator_id = ?"), "操作人在册");
+        assertTrue(w.contains("change_time >= ?"), "起始时间在册");
+        assertTrue(w.contains("change_time <= ?"), "截止时间在册");
+    }
+
+    @Test
+    @DisplayName("T-135 FR-AUTH-1：初始角色随创建授予（落 t_user_role + 留痕）")
+    void createUserWithInitialRole() {
+        roleDao.put(role(10L, AuthService.ROLE_AUDITOR, 1, "N"));
+        long id = service.createUser("lisi", "李四", "NP-001", "财务部", "N",
+                "Hg#2026Trading01", 9L, AuthService.ROLE_AUDITOR);
+        assertTrue(userRoleDao.rows.stream().anyMatch(r -> r.userId == id && r.roleId == 10L),
+                "初始角色须落 t_user_role");
+        assertTrue(changeLogDao.rows.stream().anyMatch(r ->
+                        AuthService.CHANGE_USER_ROLE.equals(r.changeTarget)
+                                && r.targetUserId != null && r.targetUserId == id),
+                "初始角色授予须留痕（CHANGE_USER_ROLE）");
+    }
+
+    @Test
+    @DisplayName("T-135 FR-AUTH-1：UserHandler POST 透传 roleCode ⇒ 授予初始角色")
+    void userHandlerCreatePassesRoleCode() {
+        roleDao.put(role(10L, AuthService.ROLE_AUDITOR, 1, "N"));
+        HttpResult result = new UserHandler(service).handle(new RequestContext("POST", UserHandler.PATH,
+                null, java.util.Collections.emptyMap(),
+                "{\"username\":\"lisi\",\"realName\":\"李四\",\"naturalPersonKey\":\"NP-001\","
+                        + "\"department\":\"财务部\",\"isEnterpriseLeader\":\"N\","
+                        + "\"initialPassword\":\"Hg#2026Trading01\",\"roleCode\":\"AUDITOR\"}",
+                "HGT135", "127.0.0.1"));
+        assertEquals(200, result.status);
+        assertTrue(userRoleDao.rows.stream().anyMatch(r -> r.roleId == 10L),
+                "handler 的 roleCode 须透传到 createUser 并授予初始角色");
+    }
+
+    @Test
+    @DisplayName("T-135 FR-AUTH-1：初始角色校验先于落库（负责人+交易岗 / 未知角色 ⇒ 无用户半态）")
+    void createUserInitialRoleValidatedBeforeInsert() {
+        roleDao.put(role(10L, AuthService.ROLE_TRADER, 1, "Y"));
+        assertEquals(ErrorCode.POSITION_SEPARATION_CONFLICT,
+                assertThrows(BizException.class, () -> service.createUser("lisi", "李四", "NP-001",
+                        "财务部", "Y", "Hg#2026Trading01", 9L, AuthService.ROLE_TRADER)).errorCode(),
+                "企业负责人授交易岗初始角色须拒（FR-AUTH-9 验收 1）");
+        assertTrue(userDao.byId.isEmpty(), "校验失败不得留下用户半态（CONTRACTS §5.3）");
+
+        assertEquals(ErrorCode.PARAM_INVALID,
+                assertThrows(BizException.class, () -> service.createUser("wang", "王", "NP-002",
+                        "财务部", "N", "Hg#2026Trading01", 9L, "NO_SUCH_ROLE")).errorCode(),
+                "未知初始角色须拒");
+        assertTrue(userDao.byId.isEmpty(), "未知初始角色不得留下用户半态");
+    }
+
+    @Test
+    @DisplayName("T-135 FR-AUTH-15④：PUT /auth/user action=FORCE_LOGOUT 经 handler 接线（作废会话 + 留痕）")
+    void forceLogoutWiredViaHandler() {
+        service.createUser("lisi", "李四", "NP-001", "财务部", "N", "Hg#2026Trading01", 9L);
+        HttpResult result = new UserHandler(service).handle(new RequestContext("PUT", UserHandler.PATH,
+                null, java.util.Collections.emptyMap(),
+                "{\"action\":\"FORCE_LOGOUT\",\"userId\":1}", "HGT135", "127.0.0.1"));
+        assertEquals(200, result.status);
+        assertTrue(sessionDao.invalidateCalls >= 1, "强制下线须作废会话");
+        assertTrue(loginLogDao.rows.stream().anyMatch(l -> "KICKED".equals(l.eventType)), "须留痕");
+    }
+
+    @Test
+    @DisplayName("T-135 FR-AUTH-5：UserHandler 逐项透传 keyword / role / subAccount 查询参数")
+    void userHandlerReadsFilterParams() {
+        roleDao.put(role(10L, AuthService.ROLE_TRADER, 1, "Y"));
+        userRoleDao.put(userRole(1L, 10L));
+        permDao.rows.add(perm(1L, 7));
+        UserHandler handler = new UserHandler(service);
+
+        // 单项调用，使每条参数的下推可被独立观测（role 与 subAccount 均产出 id IN，合调会互相掩盖）
+        userDao.lastWhere = "";
+        handler.handle(ctx("keyword=ali"));
+        assertTrue(userDao.lastWhere.contains("username LIKE ?"), "handler 须透传 keyword");
+
+        userDao.lastWhere = "";
+        handler.handle(ctx("role=TRADER"));
+        assertTrue(userDao.lastWhere.contains("id IN ("), "handler 须透传 role");
+
+        userDao.lastWhere = "";
+        handler.handle(ctx("subAccount=7"));
+        assertTrue(userDao.lastWhere.contains("id IN ("), "handler 须透传 subAccount");
+    }
+
+    private static RequestContext ctx(String query) {
+        return new RequestContext("GET", UserHandler.PATH, query,
+                java.util.Collections.emptyMap(), "", "HGT135", "127.0.0.1");
+    }
+
+    @Test
+    @DisplayName("T-135 FR-AUTH-11：ChangeLogHandler 读取 from/to/changeTarget/operatorId 查询参数并下推")
+    void changeLogHandlerReadsFilterParams() {
+        HttpResult result = new ChangeLogHandler(service).handle(new RequestContext("GET",
+                ChangeLogHandler.PATH,
+                "userId=1&changeTarget=USER_ROLE&operatorId=9&from=2026-01-01&to=2026-12-31",
+                java.util.Collections.emptyMap(), "", "HGT135", "127.0.0.1"));
+        assertEquals(200, result.status);
+        String w = changeLogDao.lastWhere;
+        assertTrue(w.contains("change_target = ?"), "handler 须透传 changeTarget");
+        assertTrue(w.contains("operator_id = ?"), "handler 须透传 operatorId");
+        assertTrue(w.contains("change_time >= ?"), "handler 须透传 from");
+        assertTrue(w.contains("change_time <= ?"), "handler 须透传 to");
+    }
+
     // ------------------------------------------------------------ 缺口 (c)① CFG-23 配置化
 
     @Test
@@ -329,6 +494,16 @@ class AuthAdminServiceTest {
         ur.grantedBy = 1L;
         ur.grantedTime = Clocks.now();
         return ur;
+    }
+
+    private static UserSubAccountPerm perm(long userId, int subAccountId) {
+        UserSubAccountPerm p = new UserSubAccountPerm();
+        p.userId = userId;
+        p.subAccountId = subAccountId;
+        p.permType = AuthService.PERM_LIMITED;
+        p.grantedBy = 9L;
+        p.effectiveFrom = LocalDate.of(2026, 1, 1);
+        return p;
     }
 
     private static PermissionChangeLog changeLog(long targetUser) {
@@ -707,6 +882,17 @@ class AuthAdminServiceTest {
             }
             return out;
         }
+
+        @Override
+        public List<Long> findUserIdsBySubAccount(int subAccountId) {
+            List<Long> out = new ArrayList<>();
+            for (UserSubAccountPerm p : rows) {
+                if (p.subAccountId == subAccountId && !out.contains(p.userId)) {
+                    out.add(p.userId);
+                }
+            }
+            return out;
+        }
     }
 
     private static final class FakeAuthzDao extends UnsupportedBaseDao<Authorization, Long>
@@ -748,6 +934,7 @@ class AuthAdminServiceTest {
             implements PermissionChangeLogDao {
         final List<PermissionChangeLog> rows = new ArrayList<>();
         long seq;
+        String lastWhere = "";
 
         @Override
         public int insert(PermissionChangeLog e, long operatorId) {
@@ -773,6 +960,7 @@ class AuthAdminServiceTest {
         @Override
         public PageResult<PermissionChangeLog> findPage(PageQuery q, String where,
                                                         List<Object> args) {
+            lastWhere = where == null ? "" : where;
             return new PageResult<>(new ArrayList<>(rows), rows.size(), q.page(), q.size());
         }
     }
