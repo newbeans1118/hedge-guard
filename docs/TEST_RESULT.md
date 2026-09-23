@@ -8576,3 +8576,289 @@ M4 复位后 clean 重编译 **546/0/0/0**（`/root/verify-t137b-restore.log`）
 - **不覆盖**：真实 **DM8** 的行级唯一索引阻塞/可见性语义（本机不可达）；真实高并发下的 3 次上界实证。上述属**环境不可达**，已标注。
 - **未执行**：无（本轮无因环境跳过的用例；门禁全绿为一手实测）。
 - 本报告**未写入** `docs/**`（按纪律落 `/root/te-verify-t137b-chapter.md`）。
+
+---
+
+## 第 122 轮独立复核证据章（`T-141`，编排者 `team-lead` 并入登记 · 2026-09-23）
+
+> **并入口径**：以下章由独立复核席 `te-verify-t141`（`test-engineer`，**只读共享树、验证在副本 `/root/verify-t141`**）产出，**原文照录**；编排者仅在章首加本登记块。**纯追加已核**（追加前 `docs/TEST_RESULT.md` = `8bb106194bec9c2f6ecde6172a92f5db` / **8578 行**）。
+>
+> **结论 = 通过 / 0 缺陷 / 5 观察** ⇒ 按本项目判据（**授权 + 独立验证**）**转 `DONE`**。冻结 `d9f72c6`。
+>
+> **★锚点裁定（本轮要点）**：**编排者实测 `5dfd1d51541212684fbca2f58dd469ed` / 343 正确**（复核方在**冻结点副本 + 共享树 + 复位后**三度复现）；**产出方自报 `2203df3b…` 不成立** —— 复核方以 **1024 子集穷举 + 10 单回退 + 父提交 + 去 `LC_ALL` + `./` 前缀 + 方法名回退假设**逐一尝试**全不命中**，**无第三值** ⇒ 判为**中间态取样**（其自测早于末次落笔 **23:00:48** / 提交 **23:15:23**）或取自非冻结点副本；副本 `/root/t141-iso` 已删故不可比。**⇒ 编排者「不采信不可复现锚点、以实测替身为准」的处置得到确认。**
+>
+> **★门禁（独立实测）**：`mvn -B -o -Punit clean test` = **552/0/0/0**（BUILD SUCCESS）；`@Test` == surefire **逐类和** == **552**（65 类）；`arch-check` `E1`–`E7` 全 rc0（**`E4` 实扫三目录并集**）。
+>
+> **★(2) 口径**：`decomposeTradePlans:1451-1455` 同事务逐行「当日 max + 1」✓；SQL `:132` **无 `FOR UPDATE`**（`:128` 仅 javadoc 禁用声明）；**`seq(5)` 溢出（第 10 万条）由 `pad` 抛 `IllegalArgumentException` = loud 失败、无静默错序**。
+> **★(3) 批内前提在 DM8 上成立**（编排者点名加压项）：`TxTemplate` **线程绑定连接**，`AbstractDmDao` 的 `insert`/`queryList` **同走 `tx.execute` ⇒ 同连接 ⇒ read-your-own-writes**（`RC` 下标准保证）；**仅假引擎实证、已披露**（残留）。
+> **★(4) 注入**：复核方**自设 6 组全红**，目标用例 **4/4 承重**（`MUT-A` 杀 e2e 批用例、`B`/`B2` 杀跨计划 + 跨日、`C` 杀 `BizNoGenerator` 重置、`D` 杀重试、`E` 杀 `O-2` 收窄）。
+> **★(6) 与 `T-137` 一致性**：逐项同形（命名 / SQL / 参数 / 返 `null` / 重试壳 / `O-2` / `RC` 前提）⇒ **无不一致**。
+> **★(7) 无放宽**：唯一删除行 = `PlanServiceTest` 假件 `findByTradePlanNo` 由 `unsupported → 真实实现`（`O-2` 所需）；**3 个假 DAO 补方法系编译强制**。共享树未受复核方污染（其观测到现行树锚 `ec0f4953…` 系 `T-136` **在飞**写入）。
+
+# T-141 独立复核章（席 `te-verify-t141`）
+
+- **复核人**：测试工程师（独立复核席 `te-verify-t141`，独立于产出方 `be-t141`）
+- **冻结点**：提交 `d9f72c6`（`2026-09-23 23:15:23 +0800`）
+- **复核方式**：只读共享树；构建/变异全部在隔离副本 `/root/verify-t141`（`git archive d9f72c6`）内，
+  `TMPDIR=/root`（`/tmp` 为 tmpfs 且常满）；**未在共享树 `java/` 下跑 `mvn`**（`T-136` 并发写者）
+- **结论**：**通过 / 0 缺陷 / 5 观察**（不自评 `T-141` 为 `DONE`）
+
+---
+
+## 0. 锚点裁定（派单点名第一件事）
+
+### (a) 哪个值正确
+
+| 来源 | `java/src` 树锚 | 文件数 | 判定 |
+|------|----------------|--------|------|
+| 编排者实测 | `5dfd1d51541212684fbca2f58dd469ed` | 343 | **正确** |
+| 产出方 `be-t141` 自报 | `2203df3b66f0af8d8a75e8419ac9879e` | 未报 | **不成立** |
+| 本席在**冻结点副本**实测 | `5dfd1d51541212684fbca2f58dd469ed` | 343 | 与编排者一致 |
+
+**独立实测**（口径 `find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum`，cwd=仓库根）：
+- 隔离副本（`git archive d9f72c6`）：`5dfd1d51…`/343
+- 共享树（只读）：`5dfd1d51…`/343
+- 全 Cycle 后（变异全部复位、clean 重编译后）：`5dfd1d51…`/343（**三度复现**）
+
+### (b) 成因（含负控，否定性结论）
+
+对**冻结点**枚举了命令形态与部分回退，**均不产出产出方之值**：
+| 负控项 | 结果 | 是否 = `2203df3b…` |
+|--------|------|--------------------|
+| 父提交 `d9f72c6^` | `e5a86785f8c864415c6e0ac5cf91ab54`/343 | 否 |
+| 10 个改动文件逐一回退至父 | 10 个互异值 | 否 |
+| **全部 2^10 = 1024 个子集**（父/冻结点混合） | 穷举 | **否（NOT FOUND）** |
+| 去掉 `LC_ALL=C`（默认 locale `en_US.UTF-8`） | `abedfa7611a547ea310744bbeb9dbb92` | 否 |
+| `./java/src` 前缀 / `find . -path './java/src/*'` | `6386cb7b2d7782b3bbde7a9c3924ca1e` | 否 |
+| 方法名回退假设（`decomposeTradePlans`→`createTradePlan`） | `19803ef1…` / 仅 main `9f441ec1…` / 仅 test `a49d020f…` | 否 |
+
+⇒ 产出方之值**不是**冻结点在任一命令形态/部分回退下的取值。
+
+**成因判定**：属**中间态取样**（其自测早于最后一次 `java/src` 落笔 `23:00:48`；提交 `23:15:23`，
+提交信息记录了一次**末笔方法名订正** `createTradePlan`→`decomposeTradePlans`），
+或其副本**不等同于提交冻结点**（含未追踪中间文件）。其隔离副本 `/root/t141-iso` **已删** ⇒ 精确制品不可比。
+**非**冻结点上的命令/cwd 差异所致（负控已排除该方向）。
+
+### (c) 第三值
+
+**无**。本席实测与编排者**逐字相同**（`5dfd1d51…`/343）。
+**替身（可用值）** = `5dfd1d51541212684fbca2f58dd469ed` / 343 文件。
+
+---
+
+## 1. 门禁复算（隔离副本，独立实测）
+
+```
+cd /root/verify-t141/java && TMPDIR=/root mvn -B -o -Punit clean test
+```
+
+| 项 | 实测 | 判定 |
+|----|------|------|
+| 汇总 | `Tests run: 552, Failures: 0, Errors: 0, Skipped: 0` + `BUILD SUCCESS` | ✅ |
+| 源码 `@Test` 计数 | `grep -rho "@Test" java/src/test --include=*.java | wc -l` = **552** | ✅ |
+| surefire 逐类求和 | 65 类，逐类和 = **552** | ✅ |
+| 三口径一致 | `@Test` == surefire 逐类和 == 汇总 = **552**（0 注释吞并） | ✅ |
+| 基线对比 | 基线 546 ⇒ **+6**（=`BizNoGeneratorTest`+1、`PlanServiceTest`+4、`M1EndToEndAcceptanceTest`+1） | ✅ |
+| `arch-check` 聚合 | `bash tools/arch-check/arch-check.sh` ⇒ **E1–E7 全退 0**，聚合 rc 0 | ✅ |
+| `E4` 是否实扫 | 扫描根 = `cpp/src/{order_engine,risk_engine,risk_state}` **并集**，**实扫**（非 SKIP），WARN 3（`new` 信息性） | ✅ |
+
+> 变异全部复位后**再次** `mvn -B -o -Punit clean test` = **552/0/0/0**（无陈旧 class；树锚复原 `5dfd1d51…`/343）。
+
+---
+
+## 2. 口径符合 §3.5（规格原文：`docs/DATA_MODEL.md:4380`）
+
+`trade_plan_no` = `TP<yyyyMMdd><seq(5)>`；全系统唯一 `uk_trade_plan_no`（`DATA_MODEL.md:1857`/`:1876`）。
+
+### 2.1 取号点（同一事务内逐行「当日最大序号 + 1」）
+
+`PlanService.decomposeTradePlans`（`java/src/main/java/com/hedgeguard/service/PlanService.java:1378`）：
+- `:1451` `LocalDate bizDate = Clocks.today();`
+- `:1452-1453` `tradePlanDao.findMaxTradePlanNoByPrefix(BizNoGenerator.tradePlanDayPrefix(bizDate))`（**循环体内逐行**）
+- `:1454-1455` `row.tradePlanNo = BizNoGenerator.tradePlan(bizDate, tradePlanNextSeq(bizDate, maxTradePlanNo))`
+- 取号与 `tradePlanDao.insert`（`:1457`）**同一 `tx.inTransaction`**（`:1441`）内 ⇒ **符合 §3.5**。
+- 重试壳 `:1439` `BizNoGenerator.retryOnUniqueConflict(RETRY_MAX_ATTEMPTS, …)`（`RETRY_MAX_ATTEMPTS=3`，`:94`）⇒ 符合「UNIQUE 冲突 + 最多 3 次」。
+
+### 2.2 DAO SQL 形状（**无 `FOR UPDATE`**）
+
+`DmTradePlanDao.findMaxTradePlanNoByPrefix`（`java/src/main/java/com/hedgeguard/dao/impl/DmTradePlanDao.java:131`）：
+- **实际 SQL（`:132`）** = `SELECT trade_plan_no FROM t_trade_plan WHERE trade_plan_no LIKE ?`，
+  参数 `:133` = `Collections.singletonList(tradePlanNoPrefix + "%")` ⇒ 前缀区间，走 `uk_trade_plan_no`。
+- **应用侧取最大**（`:135-141`，避免依赖行序）。
+- ⚠️ **`:128` 的 `FOR UPDATE` 系 javadoc 内的「禁用声明」**（`<b>不使用</b> … FOR UPDATE`），**非 SQL** ⇒ 不误判。
+- 接口声明 `TradePlanDao:81`；前缀唯一拼装入口 `BizNoGenerator.tradePlanDayPrefix`（`:119`），
+  `findMaxTradePlanNoByPrefix` 在 `src/main` **唯一调用点** = `PlanService:1452`。
+
+### 2.3 位数（`seq(5)`）与「当日重置」相容 / 位数进位
+
+- 零填充定长 ⇒ 前缀内字典序最大 == 数值最大（域内无反例）。
+- **进位（`99999` 之后）**：`BizNoGenerator.pad`（`:297-308`）在 `value` 位数 > `width` 时
+  **抛 `IllegalArgumentException`**（`:300-301`）⇒ 第 `100000` 条/日 = **loud 失败**，
+  **不会静默截断/错序**。且该异常为 `RuntimeException`、**不被** `retryOnUniqueConflict`（只捕 `SQLException`）重试
+  ⇒ 直接上抛。**判定：无静默错序风险；溢出为显式失败（观察 O5）。**
+
+---
+
+## 3. 批内序号承重性（重点）
+
+### 3.1 用例是否真断言「三行互异且连续」
+
+`M1EndToEndAcceptanceTest.tradePlanBatchNumbersAdvanceWithinOneTransaction`
+（`java/src/test/java/com/hedgeguard/web/M1EndToEndAcceptanceTest.java:369-402`）：
+- `:399` `assertEquals(Arrays.asList(day+"00001", day+"00002", day+"00003"), nums, …)` ⇒ **互异且连续** ✅
+- `:401` `assertEquals(3, engine.table("t_trade_plan").rows.size())` ⇒ 3 行皆落库 ✅
+- 用**真实 `DmTradePlanDao` + 真实 `TxTemplate`**（`:370-371`）在**同一 `inTransaction`** 内逐行重查（`:390-395`）。
+
+### 3.2 该性质依赖的前提 —— **在 DM8 上是否成立？**
+
+**前提** = 「同一事务内的 `SELECT` 能看见本事务已插入的行」（read-your-own-writes）。
+
+**机制取证（`src/main`，非仅签名/javadoc）**：
+- `TxTemplate`（`java/src/main/java/com/hedgeguard/dao/tx/TxTemplate.java`）把连接绑到 `ThreadLocal<Holder>`（`:33`、`:64-66`）；
+  `inTransaction` 内 `callback.apply(holder.connection)`（`:69`）。
+- `tx.execute(...)`（`:92-109`）**若已在事务中 ⇒ 复用 `holder.connection`**（`:93-96`），**不另借新连接**。
+- `AbstractDmDao` 的 **`insert`（`:110/`:114`）与 `queryList`（`:198-199`）都走 `tx.execute(...)`** ⇒
+  **SELECT 与 INSERT 共用同一绑定连接**。
+
+**判定：前提在真实 DM8 上成立。** READ COMMITTED 下「事务必可见自身未提交改动」是 SQL 标准保证
+（DM8 默认 READ COMMITTED；即便更高隔离级亦成立）。⇒ **「逐行重查 ⇒ 自然递增、无需手工批内偏移」结论成立。**
+
+**披露（非缺陷）**：该性质**仅在 `InMemoryDmEngine`（假 JDBC）上被实证**，**未在 DM8 实机验证**（DM8 本机不可达）
+—— 与本项目既有口径一致；机制侧已由源码级取证补齐（O2）。
+
+### 3.3 对派单框架的一处**订正**（观察）
+
+派单 §(3)② 称「若前提不成立，则**退化为按 `hedge_plan_id` 计数**」——**该推论不成立**。
+若 read-your-own-writes 不成立，批内每行将读到**同一**当日最大编号 ⇒ 得**同一** `trade_plan_no` ⇒
+**第 2 行即撞 `uk_trade_plan_no`** ⇒ 整笔回滚重试（结果相同）⇒ **3 次后抛异常**。
+即**失败方向是 loud（唯一约束冲突），不是静默退化**。故该性质的风险形态为「并发/隔离异常⇒显式失败」，非「静默错号」。
+
+### 3.4 注入证明（承重）
+
+**MUT-A**（自设）：`DmTradePlanDao:141` `return max;` → `return null; // MUT-A`
+（即关掉「逐行重查前缀 MAX」）⇒ `M1EndToEndAcceptanceTest` **`tradePlanBatchNumbersAdvanceWithinOneTransaction` 变红（ERROR）** ✅
+（`Tests run: 11, Failures: 0, Errors: 1`）。
+
+---
+
+## 4. 三条新用例 + 负向变体的承重（全部**自设注入**，未复用产出方变异）
+
+| 注入 | 目标 | 变更 | 结果 |
+|------|------|------|------|
+| MUT-A | `M1EndToEndAcceptanceTest.tradePlanBatchNumbersAdvanceWithinOneTransaction` | `DmTradePlanDao:141` `return max;`→`return null;` | **红**（Error 1） |
+| MUT-B | `PlanServiceTest.tradePlanNoIsDailyMaxPlusOneAcrossHedgePlans`（`:465`） | `PlanServiceTest:1002` fake `return max;`→`return null;` | **红**（Failure 1） |
+| MUT-B2 | 同上 + `tradePlanNoSeqResetsPerBusinessDay`（`:494`） | 服务回退为「按 `hedge_plan_id` 计数 + 批内偏移」（原缺陷形态） | **两例皆红**（Failure 2） |
+| MUT-C | `BizNoGeneratorTest.tradePlanDailySeqResetsPerBusinessDay` | `BizNoGenerator:138` 去掉「前缀不匹配即重置」 | **红**（Failure 1） |
+| MUT-D | `PlanServiceTest.retriesTradePlanNoConflictUpToThreeAttempts`（`:514`） | `PlanService:94` `RETRY_MAX_ATTEMPTS` 3→1 | **红**（Error，另连带 T-137 同常量用例） |
+| MUT-E | `PlanServiceTest.doesNotRetryNonTradePlanNoConflict`（`:529`） | `PlanService:1478` O-2 收窄 `if (…)`→`if (false)` | **红**（Failure 1） |
+
+> **4/4 目标用例均被自设注入杀红**（6 次注入、6 次红）。每次注入均先证编译通过再看测试（`rc` 由 `mvn` 给出）；
+> 每条注入结束**逐字节复位**（`md5sum -c` 全 `OK`），终局 `clean test` = 552/0/0/0。
+
+**覆盖分布观察（O3）**：`PlanServiceTest.tradePlanNoSeqResetsPerBusinessDay` **不**被 MUT-C 杀红
+—— 因该用例的 fake `findMaxTradePlanNoByPrefix` 已按前缀过滤，次日查询返回 `null` ⇒ 重置「自动发生」。
+「前缀不匹配即重置」这一守卫**仅由** `BizNoGeneratorTest.tradePlanDailySeqResetsPerBusinessDay` 承重；
+而 `PlanServiceTest` 的重置用例由 MUT-B2（计数回退）承重。**二者结合覆盖完整，非缺陷。**
+
+---
+
+## 5. 契约与兼容性
+
+`java/CONTRACTS.md` 三处登记**均与实际新增接口一致**：
+1. §2.2.1 接口块（`~:287`）：`String findMaxTradePlanNoByPrefix(String tradePlanNoPrefix);` ✅
+2. bullet（`~:308`）：`TradePlanDao` 条目追加 `findMaxTradePlanNoByPrefix（T-141 交付，纯增量）…` ✅
+3. §5.1 编辑登记（`~:739`）：`2026-09-23（T-141 交付）` 行 ✅
+
+**兼容性主张成立**：**纯新增方法**（`TradePlanDao` 加一只、`DmTradePlanDao` 加实现）；
+**无既有签名变更**；**无错误码增减**（新增 `IllegalStateException` 非 `BizException`，不改错误码表）；
+**无路径变更** ⇒ **未升版**（`HGC-1.6` 不变，`:3` 实测）。
+
+---
+
+## 6. 与 `T-137` 的一致性（**逐项同形，无不一致**）
+
+| 维度 | `T-137`（`plan_no`） | `T-141`（`trade_plan_no`） | 一致 |
+|------|----------------------|----------------------------|------|
+| DAO 方法名 | `findMaxPlanNoByPrefix` | `findMaxTradePlanNoByPrefix` | ✅（随实体名） |
+| SQL | `plan_no LIKE ?`（`DmHedgePlanDao:176`） | `trade_plan_no LIKE ?`（`DmTradePlanDao:132`） | ✅ |
+| 参数 | `prefix + "%"` | `prefix + "%"` | ✅ |
+| 取最大 | 应用侧（`:179-185`） | 应用侧（`:135-141`） | ✅ |
+| 空表返回 | `null` | `null` | ✅ |
+| `FOR UPDATE` | 无（javadoc 禁用声明） | 无（`:128` javadoc 禁用声明） | ✅ |
+| 重试壳 | `retryOnUniqueConflict(RETRY_MAX_ATTEMPTS,…)`+`catch(IllegalStateException)` | 同（`PlanService:1439/`:1467`） | ✅ |
+| O-2 收窄谓词 | `findByPlanNo(planNo)==null ⇒ 抛非重试`（`:639`） | `findByTradePlanNo(candidateNo[0])==null ⇒ 抛非重试`（`:1478`） | ✅ |
+| `READ COMMITTED` 前提 | 同源 | 同源 | ✅ |
+
+> 唯一实现差异：`T-141` 候选号存于 `final String[] candidateNo`（`:1437`），`T-137` 存于实体字段 `plan.planNo`
+> —— **语义等价**（均在插入前赋值、异常时指向刚尝试的行）。**判定：两处口径一致，无缺陷。**
+
+---
+
+## 7. 改动面（`git diff --numstat d9f72c6^ d9f72c6`）
+
+13 文件 = **11 `java/**`** + 2 台账（`docs/BOARD.md`、`docs/TASKS.md`）。逐 hunk 归纳：
+
+| 文件 | +/- | 性质 |
+|------|-----|------|
+| `dao/BizNoGenerator.java` | +41/-0 | 取号纯函数（`tradePlanDayPrefix`/`tradePlanNextSeq`）| 取号相关 |
+| `dao/TradePlanDao.java` | +18/-0 | 接口新增方法 | 取号相关 |
+| `dao/impl/DmTradePlanDao.java` | +26/-0 | 实现（`LIKE ?` 直查） | 取号相关 |
+| `service/PlanService.java` | +65/-17 | `decomposeTradePlans` 取号重写（删 `count(...)+n+1`） | 取号相关 |
+| `java/CONTRACTS.md` | +4/-1 | 三处登记 | 契约 |
+| `dao/BizNoGeneratorTest.java` | +17/-0 | 新用例 | 测试 |
+| `service/PlanServiceTest.java` | +122/-1 | 4 新用例 + fake 变更 | 测试 |
+| `service/PlanWritePathPermissionTest.java` | +12/-0 | fake 补方法 | 编译强制 |
+| `service/TradePlanSubAccountIsolationTest.java` | +5/-0 | fake 补方法 | 编译强制 |
+| `web/M1EndToEndAcceptanceTest.java` | +53/-0 | 新 e2e 用例（+2 import） | 测试 |
+| `web/handler/plan/TradePlanListQueryTest.java` | +5/-0 | fake 补方法 | 编译强制 |
+
+**有无「与取号无关」的行为改动 / 既有断言被放宽？**
+- **无放宽**。`PlanServiceTest` 唯一删除行 = fake 的 `throw unsupported("findByTradePlanNo")` 改为
+  **真实实现**（O-2 判别所需，`:974` 起）—— 系**假件新增实现**，非断言放宽；无既有用例由红转绿。
+- 3 个 fake DAO 补 `findMaxTradePlanNoByPrefix` 系**接口新增抽象方法的编译强制**（不改既有方法行为）。
+- 台账 2 文件仅记交付/订正。⇒ **改动面收敛、无越界、无放宽。**
+
+---
+
+## 8. 自设扫描面（产出方未提及）
+
+1. **`tradePlanDayPrefix` ↔ `Clocks.today()` 同源？** —— **同源**。
+   服务侧仅 `bizDate = Clocks.today()`（`PlanService:1451`）**一次**，同日用于
+   `tradePlanDayPrefix(bizDate)`（`:1453`）与 `tradePlanNextSeq(bizDate, …)`（`:1455`）；
+   `BizNoGenerator` 两方法均**以入参日期为准、不内部读时钟** ⇒ 无「当日」口径二源隐患。✅
+2. **`LIKE` 模式串含 `%`/`_` 会怎样？** —— `findMaxTradePlanNoByPrefix` 末尾**拼接 `"%"`**（`DmTradePlanDao:133`）；
+   若 `prefix` 含 `%`/`_` 会被当通配符。**当前唯一调用点**传入 `TP<yyyyMMdd>`（干净串）⇒ **非缺陷**；
+   `T-137` 同形。**建议**（若日后可能传入用户输入）在前缀入口加字符白名单（观察 O4）。
+3. **`M1DaoReadAndClobTest.java:107` raw-type 告警是否由本批引入？** —— **否，存量**。
+   该文件**不在本批 `--name-only` 清单**内；且 `:106` 已带 `@SuppressWarnings("rawtypes")`（`:107` 为裸类型构造/调用）。✅
+
+---
+
+## 9. 缺陷 / 观察清单
+
+**缺陷：0**
+
+**观察（均不阻断）**：
+- **O1**｜**产出方自报树锚不成立**：`2203df3b…` 不可复现（1024 子集 + 命令变体负控均不命中）；
+  正确值 = `5dfd1d51541212684fbca2f58dd469ed`/343。成因 = 中间态取样 / 非冻结点副本（副本已删不可比）。
+  ⇒ **台账须沿用 `5dfd1d51…`/343 为冻结锚**（编排者已记）。
+- **O2**｜**批内递增仅在假引擎上实证**：机制（同绑定连接的 read-your-own-writes）已源码级取证并判定
+  **在 DM8 上成立**；但**未在 DM8 实机验证**（不可达）⇒ 与既有口径一致的**披露项**，非缺陷。
+- **O3**｜**守卫覆盖分布**：重置守卫仅由 `BizNoGeneratorTest` 承重；`PlanServiceTest` 的重置用例由计数回退注入承重
+  （详见 §4）。**合并覆盖完整**。
+- **O4**｜`findMaxTradePlanNoByPrefix` 对 `%`/`_` 无转义（当前调用点干净）⇒ 潜在形态，非现症。
+- **O5**｜序号溢出（≥100000/日）抛 `IllegalArgumentException` 且**不经重试**（loud 失败）；
+  §5.1 登记称「4 个假 DAO 补 `findMaxTradePlanNoByPrefix`」但**未提** `PlanServiceTest` 假件的
+  `findByTradePlanNo` 由 unsupported 改为真实实现（测试侧）⇒ **披露精度**，非缺陷。
+
+---
+
+## 10. 证据索引（本席实测）
+
+| 证据 | 命令/路径 |
+|------|-----------|
+| 门禁 | `/root/verify-t141/unit-test.log`（552/0/0/0） |
+| 终局复位复核 | `/root/verify-t141/final-clean-test.log`（552/0/0/0，clean） |
+| 变异台账 | `/root/verify-t141/mutations-run.log`、`mut-MUT-*.log`、`/root/verify-t141/driver2-run.log` |
+| 树锚三度复现 | §0（`5dfd1d51…`/343） |
+| arch-check | 聚合 rc 0，E1–E7 全 0 |
