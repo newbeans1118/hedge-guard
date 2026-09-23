@@ -6498,3 +6498,44 @@ POST (dfd23bfd…):  ① missing =  0   ② extra = 0   NOT_REGISTERED false = 0
 - **未自评 `DONE`**：结论 = **通过**；是否置 `DONE` 由编排者/门禁裁定。
 
 > **📌（复核期时点补记 · 纯追加）** 本席复核**起始**时点 HEAD = `1b15d92`；复核期间**编排者**提交了第 95 轮台账（`fbc1c5a`/`cdcea10`/`c0bd24f`），**现行 HEAD = `c0bd24f`**。**独立实测** `git diff --name-only 1b15d92 c0bd24f` = **仅** `docs/BOARD.md`、`docs/TASKS.md`、`docs/TEST_RESULT.md` 三个文档 ⇒ **`web/**` 与 `java/**` 未变**；本席全部锚点在**现行 HEAD** 下**复测一致**（`routes.js dfd23bfd…`、`session.js 25740708…`、`plan.js 28316f6b…`、`web` 树锚 `926022d9…`/27）。另：本席**落笔前**全档 md5 `83377e3d…`/6293 行 = 提交 `fbc1c5a` 所落 `docs/TEST_RESULT.md`（⇒ 追加基线为**已提交态**，未覆盖他人未提交增量）。
+
+---
+
+# `T-023` 退回补测报告 —— `TE-T023-001` 覆盖盲区消除（2026-09-23）
+
+> **本章由编排者落笔**：内容为交付方实例 `be-t023b` 回执中「§4 报告正文」的**逐字转录**
+>（编排者请其写入 `/root/t023b-report.md` 以便文件交接，但因该实例已收工未落；遂由编排者**照其回执原文**转录，
+>  **未改写任何数字或措辞**）。文内「见上文 §2」指针指向**其回执**的 §2（变异自证），本章内不复述该节正文，
+> 要点已并入台账：`:661` 恒假 ⇒ 4 例变红；复位后逐字节同 ⇒ 13/13 绿。
+> 相关台账：`docs/TASKS.md` §2 `T-023`（第 95/99 轮登记）、`docs/BOARD.md` §5。
+
+### `T-023` 退回补测（`TE-T023-001` 覆盖盲区消除）——测试工程师
+
+**缺陷**：`PlanService.bindExposure`（端点 `POST /api/v1/plan/{id}/bind-exposure`，承载 `FR-PLAN-19` 验收 3）此前在 `src/test` **零引用**，可整条删除而全量 504 例全绿（假绿盲区）。本次补测新增 13 例（2 类），并保留 `src/main` 零改动。
+
+**执行概况**：`mvn -B -o -Punit clean test` = **517/0/0/0**（基线 504 ⇒ +13），BUILD SUCCESS；`arch-check` E1–E7 **全部退出码 0**。
+- `@Test` 出现数 == surefire 汇总 == **517**（64 类）。
+- 环境：JDK 11、离线、无 DM8（沿用等价引擎口径）。
+
+**覆盖（补测后，`-Pcoverage` 快照）**——**指标＝LINE，聚合层级＝类级**：
+- `PlanService#bindExposure`：**由 0% 提升**。方法本体 `LINE 36/37 = 97.3%`、`BRANCH 25/28 = 89.3%`；连同其写事务 lambda（`lambda$bindExposure$1`，`LINE 18/20`、`BRANCH 6/8`）**合计 LINE 54/57 = 94.7%、BRANCH 31/36 = 86.1%**。
+- 仍未覆盖的 3 处均为 **defensive/error throw**（需故障注入，非本次范围）：`L637` 非法套保方向、`L695` 绑定写入失败、`L702` 敞口乐观锁冲突。
+- 五个核心服务类 **LINE**（均 ≥80%）：`ConfigService 91.6%`、`PlanService 90.4%`、`VarietyService 89.9%`、`AuthService 87.9%`、`SpotService 82.0%`。
+- ⚠️ **`BRANCH` 口径未达标（须明示）**：五模块**全 <80%** —— `VarietyService 76.2%`、`PlanService 69.8%`、`ConfigService 68.7%`、`AuthService 67.6%`、`SpotService 65.1%`（补测前复核方实测 `PlanService` BRANCH＝61.6%；本次补测后升至 69.8%，仍 <80%）。
+- 另注：`NFR-TEST-1`（及 `PROJECT.md §10-8`）原文**未锚定** LINE/BRANCH/INSTRUCTION 具体指标与聚合层级，故上列口径须与本报告一并阅读，不得单引百分比。
+
+**`-Pcoverage` 非确定性（声明）**：复核方曾「2 跑 1 红」（`WsAcceptanceTest.e2` 的 P95=236ms 在 jacoco 开销下越界）。本席**取得方式＝`mvn -B -o -Pcoverage clean test -Dmaven.test.failure.ignore=true`**（规避该已知抖动以稳定取快照）；本次共 2 跑（含 1 跑**不带** ignore）**均 517/0/0/0 全绿**，未复现该抖动，`e2 P95` 分别为 10ms / 13ms。**该现象属 jacoco 开销致 WS 延迟用例越界的已知非确定性，本报告覆盖数取自上述 ignore 快照。**
+
+**订正 1（E5 计数）**：原 `be-t023` 报告称「测试基建落非 `dao` 包被 `E5` 判红 **6 处**」；复核方实测为 **5 处**。**本报告改以实测值 5 处为准**（方向与结论不变：含 SQL 的测试基建须落 `**/dao/**`，故 `InMemoryDmEngine` 置于 `dao/testsupport/`）。
+> 说明：该「6 vs 5」系复核方（`te-verify-t023`）在隔离副本上的实测，本席本轮未重跑该历史实验，故此值**属采信复核实测**（非本席自测），特此标注。
+
+**订正 2（引擎「不覆盖」清单须分开表述）**：原报告把 **JOIN / 聚合** 与 **子查询** 并列，二者**性质不同**。本席以隔离副本探针（自有 fixture）**实测**并已同步写入 `InMemoryDmEngine` javadoc：
+- **JOIN / 聚合 → 静默返回错值**（不抛异常）：`SELECT a.id FROM a JOIN b ON …` 与 `SELECT MAX(id) FROM a`（正确应 1 行）**均返回 2 行**；SELECT 解析只取首个表名（`^SELECT … FROM (\w+) …`），后缀被忽略。**此类最易假绿**（只断言「不报错」即放过）。
+- **子查询 → loud 抛**（不会静默）：`WHERE id IN (SELECT …)`（裸列名）抛 `IndexOutOfBoundsException`；`WHERE a.id IN (SELECT …)`（点号限定）抛 `UnsupportedOperationException("无法求值的 WHERE 原子…")`。
+- 本单未触发该路径。
+
+**变异自证（承重）**：`:661` 恒假 ⇒ 本席 4 例变红；复位（`8dd973e7…` 逐字节同）⇒ 回绿 13/13。
+
+**残留与范围**：全树扫 `.orig/.bak/.rej/MUTATION*/*Probe*` = **0**；`git status` 仅余本席 3 个文件（2 新增 + `InMemoryDmEngine` javadoc）；`src/main` 零改动；变异只在隔离副本（已删）。
+
+**结论**：`TE-T023-001`（覆盖盲区）**已消除**——核心规则「覆盖量不得超敞口未覆盖量」现有 **4 例承重**（3 服务层 + 1 端点层），`bindExposure` 行覆盖由 **0% → 94.7%**。**待独立复核**。
