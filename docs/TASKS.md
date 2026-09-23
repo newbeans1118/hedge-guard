@@ -544,6 +544,9 @@
 - **产出**：`web/js/pages/plan.js`
 - **备注**：**交易计划列表前端**（`FR-PLAN-15`，`GET /plan/{id}/trade-plans`）归本任务 —— 须消费 `T-103` 的 `PageData` 分页信封并展示 `T-104` 的 `remainingQty` / `limitReached`（**依赖 `T-103` / `T-104`**）。⚠️ 本条为 `T-104`「前端展示」归属的落点登记（原「待编排者指派」已明确归本任务）；**本任务状态与估时不变**。
 
+  **📌（2026-09-23 编排者派单前实测 · 只加不改）** **订正一条误导性自述**：`web/js/pages/plan.js:15-16` 写「**`GET /plan`（列表）未注册**（`PlanRoutes` 仅注册 `POST /plan` 与 `GET /plan/{id}`）⇒ 命中 `pathExists` → **405**」，并据此做了「探测真实响应」按钮（`:96`）。**实测否证**：`PlanRoutes.java:52` = `router.register("GET", PlanHandler.PATH, new PlanHandler(planService));` ⇒ **`GET /plan` 已注册**（同文件 `:53` 注册 `POST /plan`、`:54` 注册 `GET /plan/{id}`；`ApiRoutes.java:38` 亦含 `"/plan"`）。该自述引用的 `Q-FE-001` **早已 `CLOSED`**（`GET /plan` 的隔离/分页已由 `T-100`/`T-103` 交付）⇒ **注释与按钮前提均已陈旧**。**处置（归本任务，不另立号）**：交付 `T-020` 时**一并订正**该注释与探测按钮的表述，**不得**按「后端未注册」去改后端（`java/**` 非本任务写域）；**其真正的缺口**见本任务验收 5（`unverified` 展示，`grep unverified web/` = 0）与验收 4（**真前置 `T-104` = `TODO`**）。
+  **📌（2026-09-23 缺口登记 · 只加不改）** 编排者派单前实测（另一席只读普查）：本页 `plan.js` = **339 行（部分实现）**；**缺** 编制表单（`POST /plan`）、**三档比率**（`POST /plan/ratio/{simple|minvar|custom}`）、**书面文件预览**（`POST /plan/{id}/doc`，三要素门禁）、**8 个状态操作**（`submit/approve/reject/withdraw/freeze/unfreeze/terminate/extend` —— `grep approve web/` 的 2 处命中全在 `routes.js` 注释与 `fund.js` 桩）；且 **`unverified` / `precheckResult` / `limitReached` / `remainingQty` 在 `web/` 全 0 命中**。**注意**：验收 4 的 `remainingQty`/`limitReached` **须消费服务端字段**，而服务端字段归 **`T-104`（实测 `TODO`）** ⇒ **T-020 验收 4 有真前置**。
+
 ### T-021 实现权限与系统配置前端页面
 
 - **需求追溯**：`FR-AUTH-1~18`, `FR-CONFIG-1~15`
