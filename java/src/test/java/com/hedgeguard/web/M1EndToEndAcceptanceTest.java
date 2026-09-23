@@ -239,10 +239,9 @@ class M1EndToEndAcceptanceTest {
         // ⑥ 各自产出套保计划（BUY_HEDGE 反向于 SELL 敞口）
         planA = dataLong(call("POST", ApiRoutes.full("/plan"), null, S_A,
                 planBody(subA, "80", exposureA, "80")));
-        // ⚠️ 规避「跨子账户 plan_no 冲突」缺陷（BUG 见 acceptance1SameDay... 用例）：
-        //    A 的计划用基准日、B 的计划用次一业务日窗口，使本 world 的两个计划编号互异，
-        //    以便隔离/落库断言可独立成立。该规避不掩盖缺陷——验收 1 的「同日」场景由
-        //    acceptance1SameDayTwoSubAccountsPlanCreation 用例如实复现。
+        // 夹具约定：本 world 让 planB 落在次一业务日（planA=基准日），使 planA/planB 的编号取值
+        // 直观可辨（不同日期段）。「同一业务日、两个子账户各建计划」的跨子账户取号场景由本类
+        // acceptance1SameDayTwoSubAccountsPlanCreation… 用例专门覆盖（BUG-003 / T-137 修复守卫）。
         Clocks.set(Clock.fixed(BASE_DAY.plusDays(1).atStartOfDay(Clocks.ZONE).toInstant(),
                 Clocks.ZONE));
         planB = dataLong(call("POST", ApiRoutes.full("/plan"), null, S_B,
@@ -254,58 +253,71 @@ class M1EndToEndAcceptanceTest {
         Clocks.reset();
     }
 
-    // ------------------------------------------------------------ 验收 1 的反例：跨子账户 plan_no 冲突（P0）
+    // ------------------------------------------------------------ 验收 1：同日子账户各建计划（BUG-003 / T-137 修复守卫）
 
     /**
-     * <b>验收 1 的阻断缺陷复现</b>：两个子账户在<b>同一业务日</b>各自产出套保计划时，
-     * 第二个子账户的编制<b>失败</b>——计划编号 {@code plan_no} 冲突。
+     * <b>验收 1（{@code BUG-003} / {@code T-137} 修复后）</b>：两个子账户在<b>同一业务日</b>
+     * 各自产出套保计划 ⇒ <b>两者皆成功</b>，且各自 {@code plan_no} 互异（全局唯一）、均落库。
      *
      * <p><b>期望依据（需求）</b>：
      * <ul>
-     *   <li>{@code DATA_MODEL.md}：{@code plan_no}「计划编号，<b>全系统唯一</b>」，约束
+     *   <li>{@code DATA_MODEL.md}:1661 / :1687：{@code plan_no}「计划编号，<b>全系统唯一</b>」，约束
      *       {@code uk_hedge_plan_no UNIQUE(plan_no)}「计划编号全局唯一」；</li>
-     *   <li>{@code DATA_MODEL.md} §3.5：套保计划编号格式 {@code HP<yyyyMMdd><seq(4)>}；</li>
-     *   <li>{@code REQUIREMENTS/PLAN.md}:34/35：「计划编号全系统唯一」。</li>
+     *   <li>{@code DATA_MODEL.md} §3.5：套保计划编号格式 {@code HP<yyyyMMdd><seq(4)>}（不含子账户维度）；</li>
+     *   <li>{@code REQUIREMENTS/PLAN.md}:34/35：「计划编号全系统唯一」；</li>
+     *   <li>{@code PROJECT.md} §9 M1「验收方式」：创建两个子账户 → … → 各自产出套保计划。</li>
      * </ul>
      *
-     * <p><b>实际（缺陷）</b>：{@code PlanService.createPlan}（{@code PlanService.java:573}）
-     * 取序号为 {@code hedgePlanDao.count("sub_account_id = ?", [当前子账户]) + 1} —— <b>按子账户计数</b>，
-     * 而编号 {@code HP<yyyyMMdd><seq>} <b>不含子账户维度</b>。故两个各含 1 条计划的子账户，同日
-     * 取到相同 {@code seq} ⇒ 第二个子账户编号与第一个撞 {@code uk_hedge_plan_no}。
+     * <p><b>🔁 本用例由「缺陷复现」演化为「修复守卫」</b>：{@code BUG-003} 时
+     * {@code PlanService.createPlan} 取序号为 {@code count("sub_account_id = ?", [当前子账户]) + 1}
+     * —— <b>按子账户计数</b>，而编号 {@code HP<yyyyMMdd><seq>} 不含子账户维度 ⇒ 两个子账户同日取到
+     * 相同 {@code seq}，第二条撞 {@code uk_hedge_plan_no} 被拒（{@code 500} / {@code 10022}）。
+     * {@code T-137} 已改为 <b>全局取号</b>（去 {@code sub_account_id} 过滤）+ {@code retryOnUniqueConflict}
+     * 兜并发 ⇒ 同日两子账户各建计划皆成功。
      *
-     * <p><b>🔁 修复后本用例须反转</b>：当前断言「第二个子账户创建被拒（code ≠ 0）+ 计划行数不增」；
-     * 修复后须改为「两次创建皆 200，且两个 {@code plan_no} 互异」。
+     * <p><b>承重</b>：移除 {@code T-137} 的取号修复（还原为按子账户计数）后本方法必红
+     * （第二子账户又撞号）。
      *
-     * <p>证据见缺陷单（`docs/BUGS/`）。
+     * <p><b>方法名说明</b>：{@code …IsBlockedByPlanNoCollision} 为 {@code BUG-003} 复现期的历史名，
+     * 保留以对齐缺陷单引用；<b>本方法现断言「不再被阻断」</b>。
      */
     @Test
-    @DisplayName("验收1反例：同日子账户 A/B 各建计划，第二个因 plan_no 全局唯一冲突被拒（P0 缺陷复现）")
+    @DisplayName("验收1：同日子账户 A/B 各建计划 ⇒ 两者皆成功且 plan_no 互异（BUG-003/T-137 修复守卫）")
     void acceptance1SameDayTwoSubAccountsPlanCreationIsBlockedByPlanNoCollision() {
-        // 回到基准日：A/B 在当前 world 各已有 1 条计划（planA=基准日、planB=次一日）
+        // 回到基准日：A/B 各已有 1 条计划（planA=基准日、planB=次一日）
         Clocks.set(Clock.fixed(BASE_DAY.atStartOfDay(Clocks.ZONE).toInstant(), Clocks.ZONE));
         int before = engine.table("t_hedge_plan").rows.size();   // = 2
 
-        // 子账户 A：同日再建一条（A 计数=1 ⇒ seq=2），成功
+        // 子账户 A：同日再建一条
         HttpResult a2 = call("POST", ApiRoutes.full("/plan"), null, S_A,
                 planBody(subA, "20", exposureA, "20"));
         assertEquals(200, a2.status, "A 的同日第二计划应成功：" + body(a2));
-        // 子账户 B：同日再建一条（B 计数=1 ⇒ seq=2，与 A 的第二条同号）⇒ 冲突
+        assertEquals(0, code(a2), body(a2));
+        // 子账户 B：同日再建一条（修复前与 A 取到同一 seq ⇒ 撞 uk_hedge_plan_no）
         HttpResult b2 = call("POST", ApiRoutes.full("/plan"), null, S_B,
                 planBody(subB, "50", exposureB, "50"));
+        assertEquals(200, b2.status, "B 的同日计划应成功（BUG-003/T-137 修复后不再被阻断）："
+                + body(b2));
+        assertEquals(0, code(b2), body(b2));
 
-        // —— 原始证据（可复现）：编号取值 + 第二子账户的响应 ——
         long planA2Id = dataLong(a2);
-        System.out.println("[T-024][BUG-003] plan_no：A=" + row("t_hedge_plan", planA).get("plan_no")
-                + " ; A2=" + row("t_hedge_plan", planA2Id).get("plan_no")
-                + " ; B2 序号同 A2（均应 = HP<日><seq>，无子账户维度）");
-        System.out.println("[T-024][BUG-003] 第二子账户 B2：status=" + b2.status
-                + " code=" + code(b2) + " body=" + body(b2));
+        long planB2Id = dataLong(b2);
+        String noA2 = strCol("t_hedge_plan", planA2Id, "plan_no");
+        String noB2 = strCol("t_hedge_plan", planB2Id, "plan_no");
+        System.out.println("[T-137][BUG-003] plan_no：A2=" + noA2 + " ; B2=" + noB2);
 
-        // 缺陷现状：第二个子账户被拒（编号冲突），计划行数只增 1
-        assertTrue(b2.status != 200 || code(b2) != 0,
-                "第二个子账户的编制应因 plan_no 冲突被拒（缺陷复现），实际=200/code0：" + body(b2));
-        assertEquals(before + 1, engine.table("t_hedge_plan").rows.size(),
-                "被拒的第二条计划不得落库（应仅新增 A 的第二条）");
+        // plan_no 均落库、非空、互异（全局唯一 uk_hedge_plan_no）
+        assertNotNull(noA2, "A 的第二计划编号应落库");
+        assertNotNull(noB2, "B 的第二计划编号应落库");
+        assertTrue(!noA2.equals(noB2), "两子账户同日的 plan_no 必须互异：" + noA2 + " vs " + noB2);
+        // 同日 ⇒ 同一日期段（HP<yyyyMMdd>），差异仅在序号
+        String dayPrefix = "HP" + BASE_DAY.toString().replace("-", "");
+        assertTrue(noA2.startsWith(dayPrefix) && noB2.startsWith(dayPrefix),
+                "同日编号应以同一日期段开头：" + dayPrefix + " ⇒ " + noA2 + " / " + noB2);
+
+        // 两条计划均落库（before + 2）
+        assertEquals(before + 2, engine.table("t_hedge_plan").rows.size(),
+                "两子账户同日的计划均应落库");
     }
 
     // ------------------------------------------------------------ 验收 1：全链路无断点

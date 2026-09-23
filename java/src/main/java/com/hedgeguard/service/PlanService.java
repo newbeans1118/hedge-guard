@@ -46,6 +46,7 @@ import com.hedgeguard.web.ErrorCode;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
+import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -88,6 +89,9 @@ public final class PlanService {
 
     /** 期限红线宽限：实货合同到期日 + {@value} 天（{@code CFG-03} 冻结默认 {@code 30}；{@code Q-4}）。 */
     public static final int CONTRACT_GRACE_DAYS = 30;
+
+    /** 业务编号唯一冲突重试上限（{@code DATA_MODEL.md} §3.5：最多 3 次）。 */
+    private static final int RETRY_MAX_ATTEMPTS = 3;
 
     // ------------------------------------------------------------ R-PLAN-3 合规预校验项编号
     //
@@ -570,40 +574,63 @@ public final class PlanService {
         plan.orderedQty = BigDecimal.ZERO;
         plan.currentDocVersion = 0;
         plan.applicantId = operatorId;
-        long seq = hedgePlanDao.count("sub_account_id = ?", Arrays.asList(plan.subAccountId)) + 1;
-        plan.planNo = BizNoGenerator.hedgePlan(Clocks.today(), seq);
-        return tx.inTransaction(connection -> {
-            if (hedgePlanDao.insert(plan, operatorId) != 1) {
-                throw BizException.of(ErrorCode.UNIQUE_CONFLICT,
-                        "计划编号冲突（uk_hedge_plan_no）：planNo=" + plan.planNo
-                                + "；复现=重试（编号由应用层按日序号生成）");
-            }
-            for (int i = 0; i < binds.size(); i++) {
-                BindSpec bind = binds.get(i);
-                Exposure exposure = exposures.get(i);
-                HedgePlanExposure row = new HedgePlanExposure();
-                row.subAccountId = plan.subAccountId;
-                row.hedgePlanId = plan.id;
-                row.exposureId = bind.exposureId;
-                row.coveredQty = bind.coveredQty;
-                row.bindTime = Clocks.now();
-                row.status = "BOUND";
-                if (hedgePlanExposureDao.insert(row, operatorId) != 1) {
-                    throw BizException.of(ErrorCode.INTERNAL_ERROR,
-                            "计划-敞口绑定写入失败；复现=核对 uk_plan_exposure");
+        // 计划编号全局唯一（uk_hedge_plan_no；DATA_MODEL.md:1687「计划编号全局唯一」）：编号形态
+        // HP<yyyyMMdd><seq(4)>（§3.5，不含子账户维度），故 seq 必须取【全局】序号 —— count 不得带
+        // sub_account_id 过滤。原「按子账户计数」使两个子账户在同一业务日各建计划时取到同一 seq，
+        // 撞 uk_hedge_plan_no（BUG-003 / T-137）。
+        // 全局计数随行数单调递增 ⇒ 任一既有 plan_no 的 seq 均 ≤ 全局计数 < 全局计数 + 1 ⇒ 新号必不撞既有行。
+        // 并发窗口：两笔并发读到同一全局计数 ⇒ 取到同一 seq ⇒ 其中一笔撞唯一约束；经
+        // BizNoGenerator.retryOnUniqueConflict（§3.5「最多 3 次」）重新取号并重试整笔事务。冲突发生在
+        // 首条 plan 插入处，其后绑定 / 敞口乐观锁尚未执行 ⇒ 重试无副作用（幂等）。
+        BizNoGenerator.retryOnUniqueConflict(RETRY_MAX_ATTEMPTS, () -> {
+            try {
+                long seq = hedgePlanDao.count(null, null) + 1;
+                plan.planNo = BizNoGenerator.hedgePlan(Clocks.today(), seq);
+                tx.inTransaction(connection -> {
+                    if (hedgePlanDao.insert(plan, operatorId) != 1) {
+                        throw BizException.of(ErrorCode.UNIQUE_CONFLICT,
+                                "计划编号冲突（uk_hedge_plan_no）：planNo=" + plan.planNo
+                                        + "；复现=重试（编号由应用层按全局序号生成）");
+                    }
+                    for (int i = 0; i < binds.size(); i++) {
+                        BindSpec bind = binds.get(i);
+                        Exposure exposure = exposures.get(i);
+                        HedgePlanExposure row = new HedgePlanExposure();
+                        row.subAccountId = plan.subAccountId;
+                        row.hedgePlanId = plan.id;
+                        row.exposureId = bind.exposureId;
+                        row.coveredQty = bind.coveredQty;
+                        row.bindTime = Clocks.now();
+                        row.status = "BOUND";
+                        if (hedgePlanExposureDao.insert(row, operatorId) != 1) {
+                            throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                                    "计划-敞口绑定写入失败；复现=核对 uk_plan_exposure");
+                        }
+                        exposure.coveredQty = nz(exposure.coveredQty).add(bind.coveredQty);
+                        exposure.status = exposure.coveredQty.compareTo(nz(exposure.exposureQty)) >= 0
+                                ? "COVERED" : "PARTIALLY_COVERED";
+                        if (exposureDao.updateById(exposure, operatorId) != 1) {
+                            throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                                    "敞口并发冲突（covered_qty 乐观锁）：exposureId=" + bind.exposureId
+                                            + "；复现=重新读取后再提交");
+                        }
+                    }
+                    writeStateLog(plan, null, "DRAFT", "NONE", null, operatorId, "编制计划（草稿）");
+                    return null;
+                });
+                return true;
+            } catch (IllegalStateException e) {
+                // TxTemplate 把 SQLException 包装为 IllegalStateException（TxTemplate.java:147 附近）；
+                // 仅当根因为唯一约束冲突（SQLState 23xx，DM 与主流库遵循）时解包为 SQLException 交重试器
+                // 重试；其余原样抛出（不吞异常、不误重试）。
+                SQLException unique = uniqueViolationCause(e);
+                if (unique != null) {
+                    throw unique;
                 }
-                exposure.coveredQty = nz(exposure.coveredQty).add(bind.coveredQty);
-                exposure.status = exposure.coveredQty.compareTo(nz(exposure.exposureQty)) >= 0
-                        ? "COVERED" : "PARTIALLY_COVERED";
-                if (exposureDao.updateById(exposure, operatorId) != 1) {
-                    throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
-                            "敞口并发冲突（covered_qty 乐观锁）：exposureId=" + bind.exposureId
-                                    + "；复现=重新读取后再提交");
-                }
+                throw e;
             }
-            writeStateLog(plan, null, "DRAFT", "NONE", null, operatorId, "编制计划（草稿）");
-            return plan.id;
         });
+        return plan.id;
     }
 
     /**
@@ -1932,6 +1959,26 @@ public final class PlanService {
             throw BizException.of(ErrorCode.PARAM_INVALID,
                     "必填字段为空：" + field + "；复现=补齐该字段后重新提交");
         }
+    }
+
+    /**
+     * 从异常链中解出「唯一约束冲突」的 {@link SQLException}（编号重试判定用）。
+     *
+     * <p>{@code TxTemplate} 会把 DAO 抛出的 {@link SQLException} 包装为 {@link IllegalStateException}
+     * （{@code TxTemplate.java:147} 附近）；本方法沿因果链查找唯一约束冲突（{@code SQLState 23xx}）的
+     * 原始 {@link SQLException}，供 {@link BizNoGenerator#retryOnUniqueConflict} 判定并重试。
+     *
+     * @param error 异常（通常为包装后的 {@link IllegalStateException}）
+     * @return 唯一约束冲突的 SQL 异常；非唯一冲突（或不可判定）返回 {@code null}
+     */
+    private static SQLException uniqueViolationCause(Throwable error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SQLException
+                    && BizNoGenerator.isUniqueViolation((SQLException) cause)) {
+                return (SQLException) cause;
+            }
+        }
+        return null;
     }
 
     private static Map<String, String> oppositeMap() {
