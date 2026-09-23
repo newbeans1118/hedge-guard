@@ -9967,3 +9967,50 @@ user.mustChangePassword = "N"; // 单条 UPDATE，仍是单写，但值写错
 ## H. 结论
 
 **通过（0 阻断缺陷 / 6 观察）⇒ `T-149` 可转 `DONE`。** 5 条判据 ①–⑤ 独立实测全部成立；镜像方向（真不可达仍报）经 MUT-J 承重；四象限、分类表、死值消费、契约面（免 CH）、台账计数均符合。观察项 O-3/O-4 建议编排者裁定是否另立单（**不阻断**本单）。
+
+---
+
+## I. `T-106` 独立复核（席 `test-engineer` / 实例 `te-verify-t106`；纯追加）
+
+- **复核对象**：交付提交 `0367ed4`（`feat(product): T-106`）；复核时 `HEAD=fe2b751`（其后 1 笔仅动 `docs/*`）。交付面 `git show --stat` = **14 文件 / +943 −11**（与派单一致）。
+- **冻结树锚**（`java/src` 内容级）：`6296009d716d207025d0c3ef22f3b33a`（**351** 文件）；口径 `find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum`。取样时刻 `2026-09-23T19:40Z`，3× 恒定；工作树 `java/src` 与 `0367ed4` 逐字节同。
+- **隔离副本**：`/t106v`（含 `{docs,java,tools,web}`、`TMPDIR=/root`）。纪律：备份 `.orig` → 注入前校验目标串 `count==1` → 复位后 `md5sum` 对比 → 终态 `diff -rq /t106v/java/src <共享树> = IDENTICAL`、副本锚复原 `6296009d.../351`。
+
+### I.1 门禁复现
+`cd /t106v/java && TMPDIR=/root mvn -B -o -Punit clean test` ⇒ **`Tests run: 612, Failures: 0, Errors: 0, Skipped: 0` + `BUILD SUCCESS`**（基线 593 ⇒ +19 吻合）。`@Test`（行首锚 `^\s*@Test`）计数 = **612** == surefire 汇总 **612** == 73 个报告类。聚合 `arch-check` rc 0（E1–E7 全 0）。
+
+### I.2 承重变异台账（**自设 6 组，不复用交付方 A–D**；均先证 compile rc=0）
+| # | 变异点（file:line） | 改前 → 改后 | 编译 | 红点（file:line） | 复位 |
+|---|--------------------|------------|------|------------------|------|
+| MUT-1 | `ProductHandler.java:66` handler 层去隔离 | `requireVisibleProduct(svc,id,currentUserId())` → `requireProduct(svc,id)` | rc0 | `ProductDetailIsolationTest.detailHandlerThreadsSessionIdentity:185`（400→200）；`nonexistentEqualsInvisibleError:128`（**泄出整包 `{"code":0,...,"data":{"id":2,"productCode":"AL",...}}`**） | `ProductHandler.java` md5 `a95e22d2…` 复原一致 |
+| MUT-2 | `VarietyService.java:265` 服务层去 scope | `findByIdScoped(id,scope)` → `findById(id)` | rc0 | 服务层 6 红（`invisibleProductIsAbsent:116`／`noGrantDetailIsAbsent:159`／`nullVisibilityDetailFailsClosed:169`／`visibleSubscriberReadsDetail:106`／`detailHandlerThreadsSessionIdentity:185`／`nonexistentEqualsInvisibleError:128`）+ `DmProductDaoScopedSqlTest.serviceGetProductScopedSql:203`（SQL 实测 `WHERE id = ?`） | `VarietyService.java` md5 `f20e9d61…` 复原 |
+| MUT-3 | `DmProductDao.java:198` DAO 谓词去过滤 | `"id IN (SELECT product_id FROM t_sub_product_whitelist WHERE " + scope.sql() + ")"` → `"1 = 1"` | rc0 | `DmProductDaoScopedSqlTest` 6 红（`:72/:99/:166/:184/:203/:121`） | `DmProductDao.java` md5 `47b83add…` 复原 |
+| MUT-4 | `VarietyService.java:802` quota 门禁禁用 | `requireSubAccountVisible(op,sub)` → `if(false){...}` | rc0 | `ProductDetailIsolationTest` 5 红（`invisibleSubAccountQuotaRejected`／`noGrantQuotaRejected`／`nullVisibilityQuotaFailsClosed`／`quotaHandlerThreadsSessionIdentity:311` 403→200／`realAuthServiceRejectsCrossSubAccountQuota`） | `VarietyService.java` md5 `f20e9d61…` 复原 |
+| **MUT-5** | `DmProductDao.java:181` 详情 SQL 尾附 ` OR 1=1`（**谓词在、语义被中和**） | `... AND <scope谓词>` → `... AND <scope谓词> OR 1=1` | rc0 | **无红：交付的 612 用例全绿**（该面两测试类 23/0；全量 612/0）⇒ **见 `te-verify-t106-001`** | `DmProductDao.java` md5 `47b83add…` 复原 |
+| MUT-6 | `DmProductDao.findByIdScoped` 绑定值（**同数量错值**） | `args.addAll(scope.params())` → `args.add(id)` | rc0 | `DmProductDaoScopedSqlTest` 3 红（`:169` 期望 `[5,7]` 实得 `[5,5]`；`:187` 期望 `[5]` 实得 `[5,5]`；`:203`） | `DmProductDao.java` md5 `47b83add…` 复原 |
+
+### I.3 引擎支持性实测（**`te-verify-t106-002`，本单最薄弱处**）
+- **PROBE-A**（空表）：真实 `DmProductDao.findByIdScoped` 跑 `InMemoryDmEngine` ⇒ **NO-THROW，返回 `null`**（**不抛**）。
+- **PROBE-B**：带点号限定 `t_product.id IN (SELECT …)` ⇒ 抛 `UnsupportedOperationException("无法求值的 WHERE 原子…")`。
+- **PROBE-C**（播种 product{1,2,7} + 白名单 sub7→product1）：`findByIdScoped(1, scope[7])` **= `null`**（正确应为 `CU`，**静默假阴性**）；`findByIdScoped(7, scope[7])` **= `XX`**（正确应为 `null`，**静默假阳性旁路**）。
+- **结论**：引擎对**裸列名** `id IN (SELECT …)` **不抛而静默错值**（把 `t_product.id` 与绑定的 `sub_account_id` 相比）；仅**点号限定**形态抛。⇒ 交付方「未用真引擎」的**决策成立**（更因静默错值而成立），但其**理由措辞「loud 抛」不准确**；`InMemoryDmEngine.java:69` 自述（裸列名抛 `IndexOutOfBoundsException`）**对本形态实测为假**（该自述系 `T-023` 期存量、非本单引入）。
+
+### I.4 缺陷 / 观察（编号 `te-verify-t106-00N`；**0 阻断缺陷**）
+| 编号 | 现象 | 证据 | 定级 | 归属 |
+|------|------|------|------|------|
+| te-verify-t106-001 | **假 JDBC「SQL 形状」断言可被「语义中和」蒙混**：DAO 形状断言用 `String.contains` 子串，对「谓词在但被 `OR 1=1` 短路」**无守卫力** ⇒ MUT-5 全 612 绿。**仅测「写了谓词＋绑了值」，不测「谓词生效」** | MUT-5；对照 MUT-6（错值同数量**被**捕获） | 观察（中）·测试强度 | 测试设计（`T-023`/`T-105` 同源；DM8 不可达的固有约束） |
+| te-verify-t106-002 | 引擎子查询**静默错值**非「loud 抛」；`InMemoryDmEngine.java:69` 自述与实测不符 | PROBE-A/B/C | 观察（中）·文档准确性 | `InMemoryDmEngine` 自述（存量，非本单） |
+| te-verify-t106-003 | 派单称「**11 行删除分布在既有测试文件**」**不成立**：实测 **9/11 在 `src/main`**（`ProductDao` 1／`VarietyService` 3／`ProductHandler` 4／`QuotaHandler` 1），仅 **2** 在测试（`DmProductDaoScopedSqlTest` **1 空行**、`VarietyServiceTest` **1 签名行**）。**全量 diff 内被删的 `assert*` = ∅** ⇒ **无断言被放宽/删除** | `git diff --numstat` + 删行枚举 | 观察（信息）·**派单前提勘误** | 派单 |
+| te-verify-t106-004 | `quotaPanorama` 公共签名增参（+`operatorId`）：生产调用点 **1**（`QuotaHandler:52`）、测试调用点 **1**（`VarietyServiceTest:326`）**均已同步**（否则不编译）；但 **`CONTRACTS.md` 全仓 `grep quotaPanorama` = 0** ⇒ 「称已登记」**不成立**；`VarietyService` 不在冻结 §2.2 接口 ⇒ **无需 CH**（同 `T-135/136/146` 口径），惟三者各留 `§5.1 编辑登记` 行，本单**未留** | `grep -n quotaPanorama java/CONTRACTS.md` | 观察（低）·登记完整性 | 交付方 |
+| te-verify-t106-005 | `CONTRACTS.md §2.2.1` 描述性 bullet（`:325`）仍写「`T-105` 交付，**三处**纯增量」，未反映 T-106 第 4 法（同节代码块 `:304` 已有）⇒ 轻微内部陈旧（**非既有行被改写**，属未同步） | `sed -n '304p;325p'` | 观察（低） | 交付方 |
+| te-verify-t106-006 | 派单 §3-7 modified-test 清单**漏列**两项 T-106 专属测试（`DmProductDaoScopedSqlTest` +71/−1、`ProductDetailIsolationTest` 新增 661） | `--numstat` | 观察（信息）·派单勘误 | 派单 |
+| te-verify-t106-007 | 层③读面：**零授权用户在入口即被拒**（`requireSubAccountVisible`→10004）⇒ 层③**不可达**、**非越权读取面**；层③不单列子账户过滤（同 `T-112`/`CH-012`，防误拒）。写面授权归 `T-119`（本单范围外） | `noGrantQuotaRejected`；MUT-4 | 观察（信息） | — |
+| te-verify-t106-008 | 细节：`ProductDetailIsolationTest:61` javadoc 有笔误 `findByld`（应为 `findById`，仅注释） | `Read` | 观察（极低·外观） | 交付方 |
+
+### I.5 第 4 节三条裁定的独立判定
+- **① 「不可见」双口径并存 —— 成立。** `{id}` 面（无显式目标）：不可见与不存在经 PROBE-D 实测**仅回显 `id` 不同、模板逐字同**（`10001`「品种不存在或无权访问：id=…」），**不含 `productCode`/白名单痕迹** ⇒ (a) **无信息泄露**（改动前旧 `requireProduct` 路径泄 `AL`，已闭合，见 MUT-1）；哨兵 0 者读任意品种（PROBE-D `哨兵0 读 id=2 → OK 'AL'`）⇒ (b) **无误拒**。`quota?subAccountId=` 面（**显式目标**）出 `10004` 属调用者**自身权限**反馈、非被查对象存在性泄露。消解轴（是否显式给定目标）**与 `FR-PRODUCT-6` 处理规则「统一错误、不泄露存在性」一致**——若对 `{id}` 另出「无权限」反而**违背**该处理规则。**确认。**
+- **② 三端点残留 —— 成立，无第四。** `GET /product/{id}/contracts`（`ProductContractHandler:42` 走 `requireProduct`，无可见性）、`GET /product/change-log?productId=`（`ProductChangeLogHandler:53` 直调 `listChangeLogs`，**无任何存在性/可见性校验**）、`GET /product/mapping?productId=`（`ProductMappingHandler:55` 直调 `listSpotMappings`，同上）。**穷举 PRODUCT 读面 = 恰好 7 个 GET**（`/product`＝T-105✓、`/product/{id}`＝T-106✓、`/product/{id}/contracts`✗、`/product/mapping`✗、`/product/change-log`✗、`/product/quota`＝T-106✓、`/product/export`＝T-105✓）⇒ **无第四**（`WhitelistHandler`/`ProductImportHandler` 均为写面）。三者字面即 `FR-PRODUCT-6`「详情含…合约关联、现货品类映射、…变更历史摘要」。**`T-151` 立项依据成立。**
+- **③ 改后判据 `A∖B=∅` —— 正确（附 1 条收严建议）。** 实测 `comm -23`（`A∖B`）= **∅**、`B∖A` = **1 行**（`findByIdScoped` 接口行）；且 `--numstat` = `1 0` ⇒ 字面判据与改后判据**本单同时成立**。改后判据更合原则（容许描述性同步、禁既有行丢失/改写）。**收严建议**：`sort|comm` 是**集合级、去重且序不敏**，建议同时断言 **`numstat` 删除数 = 0**（本单 = 0）以覆盖「同行改写/位移」之漏。
+
+### I.6 结论
+**通过（0 阻断缺陷 / 8 观察）⇒ `T-106` 可转 `DONE`。** 门禁 612/0/0/0 独立复现、冻结锚逐字吻合、隔离语义 6 组自设变异承重（handler/服务/DAO/quota 各 ≥1 红）、信息泄露闭合且逐字无泄露、哨兵 0 无误拒。观察 `te-verify-t106-001`（假 JDBC 中子串断言不守卫「谓词生效」）与 `te-verify-t106-002`（引擎自述失效形态与本形态实测不符）为**测试强度/文档层面**、**不阻断**本单，建议另立单或并入既有测试收口任务；`004`（`CONTRACTS` 未留 §5.1 登记行）建议交付方补齐（不阻断）。
