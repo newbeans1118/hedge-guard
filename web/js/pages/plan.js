@@ -939,7 +939,8 @@ function renderBindings(d, reload) {
     card.appendChild(ui.el('p', { class: 'hg-muted', text: '该计划未返回绑定敞口清单。' }));
   } else {
     card.appendChild(ui.el('div', { html: ui.tableHTML([
-      { title: '敞口 ID', render: (r) => `<a href="#/spot/exposure">#${F.esc(r.exposureId)}</a>` },
+      // FR-PLAN-5 验收 2：须直达「该敞口详情」，故携带 id（由 spot.js renderExposure 读取 ctx.query.id）
+      { title: '敞口 ID', render: (r) => `<a href="#/spot/exposure?id=${encodeURIComponent(r.exposureId)}">#${F.esc(r.exposureId)}</a>` },
       { title: '被覆盖数量', num: true, render: (r) => F.qty(r.coveredQty) },
       { title: '绑定状态', render: (r) => ui.statusBadge(r.status) }
     ], binds) }));

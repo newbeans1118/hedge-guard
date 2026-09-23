@@ -63,6 +63,10 @@ const PRICE_SOURCE_LABEL = { MANUAL: '手工录入', BATCH_PASTE: '批量粘贴'
 const DOC_TYPE = { PURCHASE_CONTRACT: '采购合同', SALES_CONTRACT: '销售合同', PRODUCTION_PLAN: '生产计划' };
 const SAMPLE_MIN = 30; // FR-SPOT-13 验收 3 / R-SPOT-8：最小方差法样本门槛（交易日）
 
+/* 实货敞口页的「子账户切换 ⇒ 刷新」订阅：模块级持有退订句柄，
+ * 保证任一时刻至多 1 个活跃订阅（见 renderExposure 尾部）。 */
+let exposureSessionOff = null;
+
 /* ------------------------------------------------------------------ *
  * 通用：品种加载（一次拉全量，多下拉共享）+ 子账户 / 品种 下拉
  * ------------------------------------------------------------------ */
@@ -572,6 +576,9 @@ function seriesPanel() {
   }
 
   function renderSeries(rows) {
+    // 每次重查都会重入本函数：先清掉上一次 doQuery 留下的 loading 态与旧结果，
+    // 否则 renderLoading 写入的加载圈会与结果并存在 body 中（本函数此前全程只 appendChild）
+    ui.clear(body);
     if (!rows.length) { ui.renderEmpty(body, '无可查询价格。'); return; }
     const header = rows[0];
     const idx = (name) => header.indexOf(name);
@@ -1131,7 +1138,7 @@ function renderEntry(root, ctx) {
  * 实货敞口页（FR-SPOT-15 查询 / FR-SPOT-18 导出）
  * ------------------------------------------------------------------ */
 
-function renderExposure(root) {
+function renderExposure(root, ctx) {
   root.appendChild(ui.el('h2', { class: 'hg-page__title', text: '实货敞口' }));
   root.appendChild(ui.el('p', { class: 'hg-page__desc', text: '期现一体的起点：实货敞口由现货数据单向推导，是套保计划的唯一输入。' }));
 
@@ -1346,8 +1353,15 @@ function renderExposure(root) {
 
   exportBtn.addEventListener('click', doExport);
   refresh.addEventListener('click', load);
-  HG.session.onChange(load);
-  load();
+  // 子账户切换须刷新本页（功能需求，不可删）。但 registry 每次进入该路由都会重新执行本函数，
+  // 故先退订上一次闭包的订阅，保证任一时刻至多 1 个活跃订阅（否则切换 1 次触发 N 次请求）。
+  if (exposureSessionOff) { exposureSessionOff(); exposureSessionOff = null; }
+  exposureSessionOff = HG.session.onChange(load);
+  // FR-PLAN-5 验收 2：支持从计划详情直达某敞口详情（#/spot/exposure?id=…）。
+  // 先让 load() 收敛（其内部会给 detailCard 加 hg-hidden），再打开指定详情，避免被 load 覆盖。
+  const initialId = ctx && ctx.query && ctx.query.id;
+  if (initialId) load().then(() => loadDetail(initialId));
+  else load();
 }
 
 /* ------------------------------------------------------------------ *
