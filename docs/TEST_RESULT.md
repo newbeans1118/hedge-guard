@@ -7957,3 +7957,209 @@ surefire 测试类 **65**；`@Test`（`grep -rc`）**526** == surefire **526**�
 | 变异 | 负控绿；MUT-A 红1；MUT-B 红2；MUT-E 红1；MUT-C 绿（自愈，见 §3.1） |
 | 复位核验 | `diff -rq /root/t024-pristine/java/src /root/verify-t024/java/src` = **空** |
 | 备份 | `/root/t024-verify-bak/*.orig` |
+
+---
+
+## 第 114 轮独立复核证据章（`T-140`，编排者 `team-lead` 并入登记 · 2026-09-23）
+
+> **并入口径**：以下章由独立复核席 `te-verify-t140`（`test-engineer`，**只读、未改共享树**）产出，**原文照录**；编排者仅在章首加本登记块。**纯追加已核**（追加前 `docs/TEST_RESULT.md` = `024384d127ed702a7e2f305ccde56dee` / **7959 行**）。
+>
+> **结论 = 通过 / 0 缺陷 / 4 观察** ⇒ 按本项目判据（**授权 + 独立验证**）**转 `DONE`**。冻结点（14:22:40Z 复测，与冻结值逐字吻合）：`web` 树锚 `c7391f21…`/27、`auth` `f05cfd30…`/1176、`plan` `db896393…`/1285、`spot` `3cfb17f9…`/1392；13 文件 `+30/−0`（`router`×11 / `ui`×8 / `format`×6 / `_stub`×5）。
+>
+> **★(1) 漏报 = 无**：复核方**自写**词法遮罩扫描器（**含负控自检**：能检出合成的求值期 `HG.nonexistent`、且不误判 `/x/**` 字符串 / 模板 / 函数体），枚举求值期提供者并集 = `router`/`ui`/`format`/`routes`/`pages.stub` ⇒ **无第 5 提供者、无漏补页**；并**独立复现**了朴素状态机在 `trade.js:26` 的漏扫盲区（`L62-65`）属实。
+> **★(2) 三态独立复现（防恒真，本轮关键）**：**r0 13/14 RED → r1 8/14 RED → r2 14/14 PASS**（逐字节吻合）；**关闭断言③后 r1 的 `auth`/`plan` 即转绿** ⇒ **断言③是唯一区分器、非恒真、确有区分力**。另澄清探针 14 条目 = 11 页 + `_dashboard` + `_stub` + `login`。
+> **★(3) 自建 `app.js` 原序整装对拍**：`topSeq` 16 / `leafSeq` 36 / `routes` 15，于 **r0 = r1 = r2 逐字节相同** ⇒ **「零行为变化」成立**（此为本单硬证据，复核方未采信产出方自述）。
+> **★(4) 承重性判定**：**承重 24 行**（`router` 11 + `_stub` 5 + `ui` 8）；**传递已满足 6 行**（`format`，由 `web/js/core/ui.js:10` 传递 import）；证实 `M8`「仅删 `spot` 的 `format` 单行不红」；判定 **`format` 显式行应保留（自声明依赖，非冗余噪声）**。
+> **★(5) 变异复核**：复核方**自跑 6 例**（严格 `count==1` + 局部化 + 逐字节复原）**全符合**；并核出**产出方 `mutate.mjs` 缺显式 `assert count==1`**（登记为观察 `O-2`，**经复核方独立验证未造成假绿**）。回归：`node --check` **24/0**、`E6` rc0、聚合 **7/7 rc0**。
+> **观察 4 条（均不阻断）**：`O-1` `format` 非承重属**正当自声明**；`O-2` 产出方变异脚本缺 `count==1` 断言；**`O-3` 产出方称「`node --check` 25 文件」实为 24**（据实订正）；`O-4` 深度交叉引用仅存在于函数体（运行期、非求值期）。
+
+# T-140 独立复核章（席 `te-verify-t140`）
+
+- **复核对象**：`T-140` 前端页面**模块求值期** `HG.*` 依赖脆弱性（两轮 r1/r2）
+- **冻结点**：提交 `d72257b`（HEAD 工作树 `e88b2cc`，`d72257b..HEAD` 对 `web/` 零改动）
+- **取样时刻**：2026-09-23T14:11Z（初测）/ **14:22:40Z**（锚点复测）
+- **纪律**：只读共享树（未改任何文件）；临时产物 `/root/verify-t140/`；全仓 grep 排除 `.codebuddy/`
+- **证据分栏**：`【独立实测】`=本席亲跑；`【产出方自述】`=仅转录
+
+---
+
+## 0. 锚点核验（先决，全过）
+
+| 项 | 期望（派单/产出方） | 本席实测 | 结论 |
+|----|------|----------|------|
+| `web` 树锚 `find web -type f \| sort \| xargs md5sum \| md5sum` | `c7391f21cbfad07d7556fe2bb7c1513b` / 27 | `c7391f21…`/27 | ✅ |
+| `auth.js` | `f05cfd30…`/1176 | `f05cfd30204e940e692acefbacb1a02f`/1176 | ✅ |
+| `plan.js` | `db896393…`/1285 | `db89639352cd60756fa25d06a6e33617`/1285 | ✅ |
+| `spot.js` | `3cfb17f9…`/1392 | `3cfb17f9821593e6c1b5a73de26db804`/1392 | ✅ |
+| `d72257b^..d72257b -- web/` | 13 文件全 `N/0`、Σ=30 | 13 行、全 `N/0`、Σ=30 | ✅ |
+
+13 文件新增行分布：【独立实测】`router.js ×11`、`ui.js ×8`、`format.js ×6`、`_stub.js ×5`（合计 30）。
+提交范围：`web/js/pages/*13` + `docs/{BOARD,TASKS}.md`；`web/js/app.js`、`web/js/core/**`、`java/**` **零改动**。
+
+---
+
+## 1. ★自建扫描面（本单核心之一）：无漏报
+
+**本席未复用产出方扫描器**，自写词法遮罩（注释/字符串/模板含 `${}`/正则，按位替空格）。
+**负控自检**【独立实测】：合成页 `/root/verify-t140/negctl/synth.js` 含「缩进0 读 `HG.nonexistent`」+「缩进0 调 `HG.phantom.deep.member()`」+「字符串 `"…/x/**…HG.fakeMember…"`」+「反引号含 `/*` 与 `HG.alsoFake`」+「函数体内 `HG.insideFunction`」：
+- 检出 `L3 HG.nonexistent`、`L4 HG.phantom.deep.member()` ✅（能检出）
+- **不**检出 `HG.fakeMember` / `HG.alsoFake` / `HG.insideFunction` ✅（不误判 `/x/**` 与模板、不误取函数体）
+
+**全 14 页枚举结果**（求值期=缩进0；union）：**`format, pages, router, routes, ui`**。
+`pages` 系 `HG.pages = HG.pages || {}` **自建容器**（非外部提供者）；叶子提供者仅 **5 个**：
+`HG.router`←`core/router.js:90`、`HG.ui`←`core/ui.js:178`、`HG.format`←`core/format.js:152`、
+`HG.routes`←`core/routes.js:121`、`HG.pages.stub`←`pages/_stub.js:48-49`。**无第 5 个外部提供者、无漏补页。**
+别名/解构/方括号防漏【独立实测】：全量目视所有「缩进0 含 `HG` 但不匹配 `HG.<ident>`」的行 —— 仅 14 条
+`import { HG } from '../core/ns.js';`，**无**解构/方括号读取。
+
+**逐文件「所需提供者 → 是否可得 → 判定」【独立实测】**（传递闭包算法，非抄产出方表）：
+
+| 页面 | 直接 import | 求值期所需叶子 | 判定(r2) |
+|------|-------------|----------------|----------|
+| `acct/audit/fund/risk/settle` | ns, router, _stub | router, pages.stub | 满足 |
+| `auth/config/product/spot` | ns, format, router, routes, ui | router, routes, ui, format | 满足 |
+| `plan/trade` | ns, format, router, ui | router, ui, format | 满足 |
+| `_dashboard` | ns, routes, ui | ui | 满足 |
+| `_stub` | ns, ui | ui | 满足 |
+| `login` | ns, routes, session | （自建 `HG.pages.login`） | 不适用 |
+
+**r0 对照**：`auth/config/product/spot` 的 `HG.routes` 已由其**既有** `routes.js` import 满足
+（`grep -c "import '../core/routes.js';"` r0=1 各）⇒ 印证产出方「**已满足 4 处**」清单。
+
+**产出方盲区披露核验**【独立实测】：用**朴素行级状态机**（`/*`…`*/`）扫 `trade.js`，因 L26 字符串
+`'…<code>/trade/**</code>…'` 内含 `/*` 且同行无 `*/`，其后整体被当块注释 ⇒ **实测仅命中 L15/L16，漏 L62-65**
+（与产出方披露逐字吻合）。即：**盲区属实**；改用词法遮罩后本席独立扫器**恢复命中 L62-65**。
+→ **结论：产出方已修盲区且无残留漏报；本单 (1) 项未发现缺陷。**
+
+---
+
+## 2. ★探针断言③可区分性（防恒真）：非恒真，具区分力
+
+三态构造（未改共享树）：`r0 = d72257b^`（`git archive`）、`r2 = d72257b`、
+**r1 = r0 + {router×11, _stub×5}**（本席脚本重建，产出方 r1 未单独提交）。逐页**独立子进程**=`全新模块注册表`。
+
+**本席独立探针结果**【独立实测】（断言①②③全开）：
+
+| 状态 | PASS | RED | 明细 |
+|------|------|-----|------|
+| r0（HEAD 未修） | 1/14 | **13** | 11 页 `import-throw`(`Cannot read …'register'`) + `_dashboard`/`_stub` `undef=[HG.ui]`；`login` PASS |
+| r1（仅 router+_stub） | 6/14 | **8** | `auth/config/product/spot/plan/trade` `undef=[HG.ui,HG.format]`；`_dashboard`/`_stub` `undef=[HG.ui]` |
+| r2（现行） | **14/14** | 0 | — |
+
+**与产出方自述完全一致**：`HEAD 13/14 RED → r1 8/14 RED → r2 14/14 PASS`。
+**断言③是否为唯一区分器**【独立实测】：在 r1 关闭断言③（`required=[]`）重跑 ⇒ `auth` rc=0、`plan` rc=0
+（①②已满足）⇒ **断言①②无法区分 r1/r2，区分力完全来自③** ⇒ **③非恒真、确有区分力**。
+**14 条目构成**：11 页 + `_dashboard` + `_stub` + **`login`** = 14；`login` 期望路由 `[]`、要求 `HG.pages.login`
+（自建），作「无外部依赖」对照项。
+
+---
+
+## 3. 行为保持（独立对拍）：逐条相同
+
+自写「按 `app.js` 实际 import 顺序整装加载」探针（`myappload.mjs`，深代理记录 顶层+`pages.*` 叶子 + rank）；
+`app.js` 的 import 序由脚本从其正文解析（未写死）。**【r0 vs r1 vs r2】**
+
+| 量 | r0 | r1 | r2 | 逐字节相同？ |
+|----|----|----|----|------|
+| `topSeq`（`HG.<key>` 顶层挂载序） | 16 项 | 16 | 16 | **相同** |
+| `leafSeq`（`HG.pages.<key>` 叶子序，**比产出方更深**） | 36 项 | 36 | 36 | **相同** |
+| `routes`（`router.register` 序列） | 15 | 15 | 15 | **相同** |
+| `specs`（app.js import 序） | 22 | 22 | 22 | **相同** |
+
+`topSeq` = `[format,errmsg,api,ui,routes,session,router,ws,pages×8]`；`routes` 含关键
+`/plan/new`→`/plan`→`/plan/:id` 次序不变。→ **零行为变化结论的硬证据成立。**
+
+---
+
+## 4. ★M8 诚实披露复核 + 承重性判定
+
+**M8 证实**【独立实测】：`spot.js` **仅删** `import '../core/format.js';` 单行 ⇒ **不红**（探针空 RED）。
+机理：`core/ui.js:10 import './format.js'` 传递 import ⇒ `HG.format` 仍被定义；且 `ui.js:12 const F = HG.format`
+（ui 顶层读 format）—— 即**对 `HG.format` 的承重者是 `ui.js`**。
+反证：删 `ui.js+format.js` 两行 ⇒ 红；仅删 `ui.js`（留 format）⇒ 红；仅删 `format.js`（留 ui）⇒ 不红。**三点闭合。**
+
+**30 行承重性逐条分类**【独立实测】（承重=单删该行则本页必红）：
+
+| 类别 | 行数 | 页面 | 判定 |
+|------|------|------|------|
+| `router.js` | 11 | acct audit auth config fund plan product risk settle spot trade | **承重** |
+| `_stub.js` | 5 | acct audit fund risk settle | **承重** |
+| `ui.js` | 8 | _dashboard _stub auth config plan product spot trade | **承重** |
+| `format.js` | 6 | auth config plan product spot trade | **传递已满足**（由同页 `ui.js:10` 提供；非承重） |
+
+**结论（问题4）**：这类「显式但非承重」的 `format.js` import 行**应当保留**，理由：
+① 该 6 页**各自**在求值期直接读 `HG.format`（`const F = HG.format`），对 `format.js` 被求值有**真实直接依赖**；
+② 若删，则把「format 已求值」这一前提**外包**给 `ui.js` 的内部 side-effect —— 恰是 `T-140` 要消除的隐式载入序耦合
+（`ui.js` 一旦不再 import format，这 6 页将**静默** `F=undefined`）；③ 显式 import 本就是 ESM 惯用法。
+⇒ 属**正当「自声明」**，非冗余噪声。
+
+---
+
+## 5. 改动面与最小性
+
+- **纯追加**：13 文件全 `+N/−0`，无删改；无重复 import（逐文件 `uniq -d` 空）。✅
+- **无夹带**：`git diff --numstat d72257b^ d72257b -- web/js/app.js web/js/core java/` = **0 行**。✅
+- **`_dashboard.js`/`_stub.js` 纳入有据**：二者求值期均 `const ui = HG.ui`（`_dashboard:10` / `_stub:9`）⇒ 需 `ui.js`。✅
+- **无多余 import**：30 行**逐行**对应一处求值期直接使用（11 router 调用 / 5 `pages.stub` 调用 / 8 `HG.ui` 读 / 6 `HG.format` 读）；
+  无「既不承重、也非自声明必要」的行（唯一的 6 行 format 属**自声明**，见 §4）。✅
+
+---
+
+## 6. 回归
+
+| 项 | 命令 | 结果 |
+|----|------|------|
+| 语法 | `node --check` ×`web/js/**/*.js` | **24 文件 rc0 / 0 失败** |
+| E6 | `bash tools/arch-check/check_frontend.sh` | **rc=0** |
+| 聚合 | `bash tools/arch-check/arch-check.sh` | **7/7 rc=0**（E1–E7） |
+
+> ⚠️ 观察：`web/js/**` 实为 **24** 个 `.js`；产出方自述「`node --check` **25** 文件」**多计 1**（见 O-3）。
+
+---
+
+## 7. 变异复核（独立自跑）
+
+本席自写变异脚本（**严格 `assert count==1`** + 局部化 + 逐字节复原）【独立实测】：
+
+| 变异 | 预期 RED | 实测 RED | 局部化 | 复原 |
+|------|----------|----------|--------|------|
+| MU1 `plan.js` 删 `ui.js` | plan.js | `["plan.js"]` | ✅ | ✅ |
+| MU2 `trade.js` 删 `router.js` | trade.js | `["trade.js"]` | ✅ | ✅ |
+| MU3 `acct.js` 删 `router.js` | acct.js | `["acct.js"]` | ✅ | ✅ |
+| MU4 `acct.js` 删 `_stub.js` | acct.js | `["acct.js"]` | ✅ | ✅ |
+| MU5 `spot.js` 仅删 `format.js`（M8） | （不红） | `[]` | ✅ | ✅ |
+| MU6 `spot.js` 删 `ui.js`+`format.js` | spot.js | `["spot.js"]` | ✅ | ✅ |
+
+→ 2 组必备（删 `ui.js` / 删 `router.js`）**必红且局部化到该页**，成立。
+**产出方脚本核验**：`/root/fe-t140/mutate.mjs:49-50` 用 `if (!mutated.includes(d)) { ok=false } else mutated.replace(d,'')`
+—— 为**存在性检查 + 首次出现替换**，**未**写 `assert count==1`（见 O-2）。因其对每行另有**逐字节复原**校验、且相关行实测
+`count==1`，**不构成静默 no-op 假绿**（本席以更严口径复跑结论一致）。
+
+---
+
+## 8. 不掩盖前案（`T-134` P0 修复面完好）
+
+【独立实测】`web/js/app.js` md5：`d72257b^ = d72257b = 工作树 = ab7163f7dc845b24922bf0c5bc04c88f`（**逐字节同**）；
+§3 已证 `app.js` 载入序与路由序列不变 ⇒ **未以「调整 app.js 顺序」取巧**，`T-134` 根因修复面完好。✅
+
+---
+
+## 9. 缺陷 / 观察清单
+
+**缺陷：0（无任何级别阻断）**
+
+**观察**：
+- **O-1（信息）**：6 行 `format.js` 为「显式但非承重」（传递已满足）—— **正当自声明，建议保留**（§4）。产出方已诚实披露，非缺陷。
+- **O-2（低·过程质量）**：产出方变异脚本 `mutate.mjs` 用 `includes`+首次替换，**未**写 `assert count==1`；本席以严格口径复跑结论一致 ⇒ 不影响结论。
+- **O-3（低·计数）**：产出方自述「`node --check` 25 文件」，实测 `web/js/**/*.js` = **24**；建议台账订正为 24。
+- **O-4（信息）**：以**卷曲深度**交叉扫描时 `plan.js`/`product.js` 出现「缩进>0 但深度误判为0」的命中
+  （`HG.api.*`/`HG.routes.PLAN.*`/`HG.router.navigate`）—— 经目视全属**函数体内运行时**引用（掩码致深度漂移），
+  **非求值期依赖** ⇒ 缩进0 判据在本仓充分，无遗漏。
+
+---
+
+## 10. 结论
+
+**通过（0 缺陷 / 4 观察）** —— 锚点、扫描面(含负控)、三态可区分性、行为保持(逐字节)、M8 承重性、
+最小性、回归、变异、前案不掩盖 **九项全部独立证实**；无漏报、无夹带、无取巧。
+**不自评 `T-140` 为 `DONE`**（留待编排者门禁）。
