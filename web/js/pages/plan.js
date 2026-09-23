@@ -12,9 +12,9 @@
  *                                  查询：page / size∈{10,20,50,100}（默认 20）/ sort=exec_deadline,asc|desc（默认升序）
  *                                  筛选：subAccountId / instrumentId / status / execDeadlineFrom / execDeadlineTo
  *
- * ⚠️ **`GET /plan`（列表）未注册**（PlanRoutes 仅注册 `POST /plan` 与 `GET /plan/{id}`）：
- *    `GET /plan` 命中 pathExists → **405**。`FR-PLAN-4` 的列表页因此**受阻**，已投 Q-FE-001 请示。
- *    本页对该阻塞**显式呈现**（并提供"探测真实响应"按钮留证），不伪装成已完成。
+ * ✅ **`GET /plan`（列表）已注册**（`java/src/main/java/com/hedgeguard/web/handler/plan/PlanRoutes.java:52`
+ *    `router.register("GET", PlanHandler.PATH, …)`；`T-010` 补齐）。本页的**列表 UI 尚未铺开**（归 `T-020`）；
+ *    下方「探测真实响应」按钮可实测 `GET /plan` 的真实响应作为留证。
  *
  * 易用性 NFR-USE-2：详情页提供「下单」按钮，预填 计划ID / 子账户 / 品种 / 方向。
  */
@@ -61,10 +61,10 @@ function renderList(root) {
   root.appendChild(ui.el('p', { class: 'hg-page__desc', text: '计划由实货敞口出发编制、经审批后方可下单；每笔交易须绑定计划 ID。' }));
 
   root.appendChild(ui.banner(
-    '<strong>接口未就绪（诚实登记）</strong>：后端 <code>PlanRoutes</code> 仅注册了 <code>POST /plan</code> 与 ' +
-    '<code>GET /plan/{id}</code>，<strong>未注册 <code>GET /plan</code>（列表）</strong>；' +
-    '按 <code>RequestDispatcher</code> 的分发规则，<code>GET /plan</code> 将命中 <code>pathExists</code> → <strong>405</strong>。' +
-    '故 <code>FR-PLAN-4</code> 的列表页暂不可用；已投 <strong>Q-FE-001</strong> 请示补注册或改用其它口径。',
+    '<strong>列表 UI 未铺开（诚实登记）</strong>：后端 <code>GET /plan</code>（列表）<strong>已注册</strong> ' +
+    '（<code>PlanRoutes.java:52</code>；<code>T-010</code> 补齐）——原「未注册 ⇒ 405」表述已订正。' +
+    '本页<strong>列表界面尚未实现</strong>（归 <strong>T-020</strong>）；' +
+    '可用按 ID 直达详情，或用下方「探测真实响应」按钮核对 <code>GET /plan</code> 的实际响应。',
     'warn'
   ));
 
@@ -86,14 +86,14 @@ function renderList(root) {
   probeBtn.addEventListener('click', async () => {
     ui.renderLoading(probeOut, '正在探测 GET /plan …');
     try {
-      const data = await HG.api.get(HG.routes.NOT_REGISTERED.PLAN_LIST);
+      const data = await HG.api.get(HG.routes.PLAN.LIST);
       ui.clear(probeOut);
-      probeOut.appendChild(ui.el('div', { html: ui.banner('意外成功：后端已提供列表。请据此启用列表页。', 'warn') }));
+      probeOut.appendChild(ui.el('div', { html: ui.banner('探测结果：<code>GET /plan</code> 已注册并返回列表数据（列表 UI 待 T-020 铺开）。', 'warn') }));
       probeOut.appendChild(ui.el('pre', { text: JSON.stringify(data, null, 2).slice(0, 2000) }));
     } catch (err) {
       ui.clear(probeOut);
       probeOut.appendChild(ui.el('div', { html: ui.blockedHTML(err) }));
-      probeOut.appendChild(ui.el('p', { class: 'hg-muted', text: '预期为 HTTP 405（方法不被允许）——即"路径存在但未注册 GET"的证据。' }));
+      probeOut.appendChild(ui.el('p', { class: 'hg-muted', text: '若此处为错误：GET /plan 已注册（PlanRoutes.java:52），失败多为未登录/参数问题或后端未装配，请按响应排查。' }));
     }
   });
   probeCard.appendChild(probeBtn);

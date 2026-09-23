@@ -5,7 +5,8 @@
  *  - 登录：POST /auth/login {username,password} → data {userId, username, expireTime}，并下发 HGSESSION Cookie（HttpOnly）。
  *  - 会话有效性探针：GET /config/sub-account（**已注册且需认证**）。未认证时后端对任何 /api/v1/** 一律回 10006
  *    （先认证再路由，不区分路径是否存在）——故探测即可判定登录态，且同时取得子账户清单。
- *  - ⚠️ GET /auth/user 与 /auth/sub-account-perm **未注册**（见 Q-FE-001），本层**不调用**。
+ *  - `GET /auth/user`、`GET /auth/sub-account-perm` 亦**已注册**（`T-010` 补齐；见 `routes.js` 镜像），
+ *    本层**不依赖**它们 —— 统一以 `/config/sub-account` 作认证探针并同时取得子账户清单。
  *  - 子账户：软隔离（AUTH §2 / NFR-SEC-7）；切换器形态「下拉 + 汇总选项」——1 次点开 + 1 次选择 = ≤ 2 次点击（NFR-USE-5）。
  *
  * 本层不做权限判定（越权由后端 10004 拒绝并留痕）；只持**展示用**会话摘要（不含任何凭据）。
