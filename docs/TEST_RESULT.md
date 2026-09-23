@@ -10103,3 +10103,152 @@ user.mustChangePassword = "N"; // 单条 UPDATE，仍是单写，但值写错
 ### J.9 结论
 
 **通过（0 阻断缺陷 / 5 观察）⇒ `T-151` 可转 `DONE`。** 冻结锚 `414fa584…/354` 独立复现；门禁 `632/0/0/0` 独立复现且 `@Test==surefire==632`（基线 612 ⇒ +20）；`arch-check` `E1–E7` 全 `0`；`BUG-004` 五端点遮蔽**改前 5 / 改后 0** 经**自建穷举探针**证实，且判据经**负例自测**证明非恒绿；三端点载体判定「有列但故意不用」经 **DDL + 写入点**回读成立；三组承重变异 `10/8/2` 红独立复现、`T-106` 形状断言「无牙」事实证实。
+
+---
+
+### K. 独立复核：`T-154` 路由遮蔽防复发判据（席 `te-verify-t154`，2026-09-24）
+
+**对象** = `T-154`（P1）。冻结点 `8799a5f`（混合提交：产出方 3 个 `java/src/test/**` + 编排者 2 份 `docs/**`）；`a7a8fbc`/`48898b9` 均 docs-only；复核时 `HEAD = 48898b9`。**本席只读共享树 `java/**`；全部变异在隔离副本 `/t154-iso` 内完成并逐字节复位。**
+
+**锚点（本席独立实测，仓库根口径 `find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum`）**：
+
+- 树锚 = `a0dadfa33c7a0e02966d261fd71343c7` / **356** 文件，**连续 3 次一致**。
+- `RouteReachabilityExhaustiveTest.java` = **177 行** / `e2c507db066e8aacc1d018a9aad23eeb`
+- `FullWebAssembly.java` = **39 行** / `3d51a996f406a15fc8bf6fdadb07aa27`
+- `RouteReachabilityBug004Test.java` = **76 行** / `88268d5b58092c6754dba2a98ec75664`
+- `Router.java`（`main`）= 复核前后逐字节未变（`8799a5f` 对 `java/src/main` 的 `--stat` 为空）
+
+#### K.1 门禁（独立实测 vs 产出方自述）
+
+- **独立实测**：`TMPDIR=/ mvn -B -o -Punit clean test` = **`Tests run: 637, Failures: 0, Errors: 0, Skipped: 0` / BUILD SUCCESS**；先跑 `mvn -B -o compile` 成功（排除在飞假象，`Nothing to compile - all classes are up to date`）。
+- **独立实测**：默认档 `TMPDIR=/ mvn -B -o clean test` 亦 = **637/0/0/0**（证明 `-Punit` 与默认等价；见 K.7）。
+- **独立实测**：`@Test` 计数 = **637**（`^\s*@Test\s*$` 精确行 = 637，裸 `@Test` grep = 637，**无注释吞并**）；surefire 汇总 = **637**；surefire `*.txt` 报告文件 = **77** ⇒ `@Test == surefire == 637`、**77 类** 成立。
+- **独立实测**：`bash tools/arch-check/arch-check.sh` = **rc 0**，`E1`–`E7` **全 0**。
+- **产出方自述**（`docs/TASKS.md:199` 第 144 轮）：637/0/0/0、`@Test`==surefire==637（77 类）、arch rc 0、树锚 `a0dadfa3…`/356、基线 632 ⇒ +5。**逐条吻合，无不符。**
+
+#### K.2 判据形态（读源码 + 独立验证）
+
+- `RouteReachabilityExhaustiveTest` **遍历 `Router.routes()`**（`:81`），**不**用手写清单；对每条 `(方法,模式)` 经 `instantiate()`（`:163-176`）把每段 `{...}` → `1`，断言 `match(...).pattern()` **等于模式自身**（`:92-95`）且 `handler()` 非空（`:96-98`）；**先收集 `failures` 再一次性断言**（`:100-102`），非首个即停。
+- **覆盖 `GET`/`POST`/`PUT`**：81 条中含 PUT **4** 条（`PUT /auth/user`、`PUT /auth/password`、`PUT /config/item`、`PUT /config/sub-account`）；**含 `PlanRoutes` 两个动态循环**（`PlanActionHandler.Action.values()` 8 值 / `PlanRatioHandler.Method.values()` 3 值）—— 由 K.3 的清单逐条可见。
+- `routes()` 而非 `ApiRoutes.byModule()`：**理由成立**。`ApiRoutes.byModule()`（`:92-94`）含 11 模块，其中 `TRADE`/`SETTLE`/`RISK`/`AUDIT`/`ACCT`/`FUND` **6 模块未纳入本装配**，其路径数 12+12+10+11+12+12 = **69 条**若入面将全部 `match()==null` ⇒ 假红一片。故取 `routes()`（已注册面）为穷举面是正确选择。
+- **失败消息自解释**（`T-153` §5.4 ②）：实测消息形如 `GET /api/v1/product/quota → 实例路径 /api/v1/product/quota 被**遮蔽**：实际命中 /api/v1/product/{id}`，含方法、模式、实例路径、实际命中模式四项。
+
+#### K.3 装配规模守卫 `ROUTE_COUNT = 81` 独立核算
+
+**自建探针**（不依赖产出方测试文件，直接调用 5 个模块注册器）实测：五模块装配 `routes().size() == 81`；含 ping 的生产装配 = **83**（`Bootstrap.java:129-130` 对 `GET`/`HEAD` `/api/v1/ping` 各注册 1 条）。
+
+静态核算（`grep -c 'router.register('`，含循环展开）：
+
+- `AuthRoutes` **17**（`GET /auth/*` 等；含 `PUT /auth/user`、`PUT /auth/password`）
+- `ConfigRoutes` **18**（含 `PUT /config/item`、`PUT /config/sub-account`）
+- `ProductRoutes` **13**
+- `SpotRoutes` **15**
+- `PlanRoutes` **18** = 3 + 1（doc）+ **8**（Action 枚举）+ 2（trade-plans）+ **3**（Ratio 枚举）+ 1（bind-exposure）
+- 合计 **17+18+13+15+18 = 81** ✔ 与 `FullWebAssembly.ROUTE_COUNT`（`:24`）一致。
+
+**声明面 vs 注册面（独立对账）**：五模块在 `ApiRoutes` 中声明路径 **59** 条，实际注册路径（去重）**59** 条，**声明未注册 = ∅、注册未声明 = ∅**。⇒ 当前不存在「已声明未注册」的覆盖漏洞（该差异属于 `routes()` 口径 vs `ApiRoutes` 口径的**理论**差异，见 K.9-O5）。
+
+#### K.4 自设注入（≥4 组、两方向；均在隔离副本 `/t154-iso`，逐字节复位）
+
+每轮注入后只跑 `-Dtest='RouteReachabilityExhaustiveTest,RouteReachabilityBug004Test'`，并**仅在被注入处同时把 `ROUTE_COUNT` 同步**（除 D/E），以把「遮蔽检测」与「规模守卫」分离归因。
+
+- **注入 A（漏防方向·新位置 = `PlanRoutes` 动态循环邻域·POST）**：在 ratio 循环前插 `POST /api/v1/plan/ratio/{m}`（`ROUTE_COUNT→82`）⇒ `everyRegisteredRouteMatchesItself` **1 红，失败集 = {ratio/simple, ratio/minvar, ratio/custom}**（各报「被遮蔽：实际命中 `/plan/ratio/{m}`」）；`Bug004Test` 仍绿（其只测 5 条 GET）。
+- **注入 B（漏防方向·另一模块·GET 面）**：在 `ConfigRoutes` 首插 `GET /api/v1/config/{x}`（`ROUTE_COUNT→82`）⇒ **1 红，失败集 = 8 条**（`config/item`、`sub-account`、`ctp`、`dict`、`subject`、`report-period`、`change-log`、`export`）。
+- **注入 C（★误拒方向，须保持绿）**：插 `POST /api/v1/plan/{id}/zzz`（占位段 idx3、与 `POST /plan/ratio/simple|minvar|custom` **同方法同段数**，但末段 `zzz` 与 `simple|minvar|custom` 均不同；`ROUTE_COUNT→82`）⇒ **全绿（5+2=7/7）**。→ 证实「逐段对齐」优势：naive 的「有占位符 + 同段数即报红」会把它列为候选，而实例回查**正确不报**。
+- **注入 D（静默变宽方向）**：删去 `GET /api/v1/config/export` 一条 `register`（`ROUTE_COUNT` 保持 81）⇒ **2 红**：`assemblySizeIsStable`（`expected: <81> but was: <80>`）+ `exhaustiveSurfaceEqualsRegisteredSurface`（`穷举面条数 ≠ 装配规模 ⇒ 判据可能漏项`）。→ 规模守卫**有牙**（防「删路由使穷举面静默变宽」）。
+- **注入 E（空转方向）**：令 `FullWebAssembly.assemble()` 直接 `return new Router()` ⇒ **3 红**（`assemblySizeIsStable` / `everyRegisteredRouteMatchesItself` 的 `assertFalse(routes.isEmpty())` + `exhaustiveSurfaceEqualsRegisteredSurface` 0≠81）+ `Bug004Test` 2 红。→ `assertFalse(routes.isEmpty())` 守卫**有牙**。
+- **注入 F（判据是否依赖 `routes()` 顺序）**：在 `Router.routes()` 内加 `Collections.sort(out)` —— **(F1)** 无遮蔽时 **7/7 全绿**；**(F2)** 叠加注入 A 时**仍红**（失败集仍为 ratio 三条，仅**报告顺序**变字母序）。→ 结论：**判据守卫力不来自 `routes()` 的顺序，而来自 `match()` 的注册序（即被判对象本身）**；排序 `routes()` 不削弱检出。故「依赖注册序」这一前提的载体是 `Router.match`（`Router.java:58-71`），而 `FullWebAssembly` 以**同一批注册器、同一调用序**重放 ⇒ 注册序一致性由构造保证（见 K.9-O4）。
+
+#### K.5 ★取回 `1137801^` 原态 ⇒ 恰 5 红（最强证据，独立复现）
+
+以 `git show 1137801^:.../ProductRoutes.java`、`.../SpotRoutes.java` 覆盖隔离副本（`ROUTE_COUNT` 保持 81，条数不变）后运行：
+
+```
+GET /api/v1/product/quota        → 实际命中 /api/v1/product/{id}
+GET /api/v1/product/mapping      → 实际命中 /api/v1/product/{id}
+GET /api/v1/product/change-log   → 实际命中 /api/v1/product/{id}
+GET /api/v1/product/export       → 实际命中 /api/v1/product/{id}
+GET /api/v1/spot/exposure/export → 实际命中 /api/v1/spot/exposure/{id}
+```
+
+**失败集 = 恰 5 条，与 `BUG-004` 的 5 项集合逐条一致（无多无少）**；产出方自述的「① 注入 Product ⇒ 1 红 / ② 注入 Spot ⇒ 1 红 / ③ 取回 `1137801^` ⇒ 恰 5 红」中 **③ 已独立复现**；①② 本席未逐字复跑（以 K.4 的 A/B 两处**新位置**注入等效覆盖，且更强）。**复位证据**：`diff -rq java/src /t154-probe/src-backup` 输出为空 + 树锚复原为 `a0dadfa3…`/356。
+
+#### K.6 `RouteReachabilityBug004Test` 改委托：断言逐字未改 + 语义等价
+
+- `git show --numstat 8799a5f -- .../RouteReachabilityBug004Test.java` = **`1  12`**（+1/−12）✔。
+- `git diff 8799a5f^ 8799a5f` 的**全部 `±` 行**仅 5 条 `import` 删除 + 7 行 `fullAssembly()` 体删除 + 1 行委托 `return FullWebAssembly.assemble();`；**diff 中不含任何 `assert` 行** ⇒ **5 条自有断言（2 个 `@Test` + 2 个 helper）逐字未改** ✔。
+- **语义等价** ✔：`FullWebAssembly.assemble()`（`:30-38`）与改前 `fullAssembly()` 体内联的 5 次 `register` **同一批类、同一顺序、同参 `null`**，逐字对应。
+
+#### K.7 `T-153` 证伪条件 `F1` 前置（独立裁定）
+
+**问题**：本判据是否在**默认 `mvn test` 中必然执行**？
+
+**证据（四条独立实测）**：
+
+1. `pom.xml` 的 `unit` profile（`:92-99`）**只设属性** `hg.test.mode=unit`，**不增删任何依赖与插件**（注释自陈 `mvn test -Punit` 与 `mvn test` 等价）；实测默认 `mvn -B -o clean test` = **637/0/0/0**，与 `-Punit` 同值。
+2. surefire 配置（`pom.xml:169-174`）**无 `<includes>`/`<excludes>`/`<groups>`/`<excludedGroups>`/`<skipTests>`** ⇒ 走默认 include `**/*Test.java`；`RouteReachabilityExhaustiveTest`/`RouteReachabilityBug004Test` 均匹配，且**位于 `src/test/java/com/hedgeguard/web/`**。
+3. 三个文件（判据 + `FullWebAssembly` + `Bug004Test`）**无 `@Disabled`/`@DisabledIf`/`@Tag`/`@Ignore`/`assumeTrue`**（grep 命中 0）。
+4. **默认档实跑**后 surefire 报告含二者：`RouteReachabilityExhaustiveTest` 5 绿 / `RouteReachabilityBug004Test` 2 绿。
+
+**另**：`F1` 文义含「`FullWebAssembly.ROUTE_COUNT` 与实际不符且未同步」子句 —— 该子句**有牙**（注入 D 实证红），故「装配清单漂移」这一支不会静默。
+
+**裁定**：`F1` **不成立** ⇒ `T-153` 裁定 **(a) 维持现状** 的机械守卫成立，**无须改判 (b)**。（注：占位符∩占位符部分遮蔽等 `F2` 情形不在本判据面内，见 K.8。）
+
+#### K.8 对抗性假设：是否存在后果严重而本判据检不出的遮蔽
+
+本席构造并实测了两类**检不出**形态（隔离探针，非改共享树）：
+
+1. **占位∩占位「部分遮蔽」（`T-153` `R4`/`F2` 已登）**：先 `POST /api/v1/p/x/{b}`（更具体）、后 `POST /api/v1/p/{a}/{b}`（更通用）。判据失败集 = **∅**（`{b}` 实例化为 `1`，与字面 `x` 不遇）；而 `/p/x/7` 由**先者**命中 ⇒ 后者在该子域被吞并。**判定：良性**（「具体胜通用」符合常规路由语义，且该形态**当前表中不存在**），与决策文件 `R4` 一致。
+2. **模块外（Bootstrap 直接）注册的遮蔽路由**：`FullWebAssembly` 只重放 5 个模块注册器 ⇒ 若在 `Bootstrap.registerBusinessRoutes` 之前**直接**注册一条遮蔽路由（如 `GET /api/v1/product/{x}`），**判据失败集 = ∅ 而生产 `/product/quota` 实际被遮蔽**（探针实证）。**当前无害**：`Bootstrap` 直接注册的仅 `GET|HEAD /api/v1/ping`（`:129-130`），3 段、最先注册、全字面 ⇒ **既不遮蔽也不被遮蔽**。且「直接注册**新增**一条」会使 `BootstrapAssemblyTest.java:145` 的 `routeCount==83` 变红（间接兜底）。
+
+**结论**：**未发现后果严重的漏检形态**。唯一检不出的真实遮蔽属「更具体者在前」的部分吞并（良性）；模块外漂移属**理论盲区**（当前被另一测试的计数守卫间接覆盖），列为观察 O-2/O-3。
+
+#### K.9 「不覆盖」清单逐项判定（产出方 7 项 + 本席补充）
+
+产出方自列 7 项，**逐项判定「是否影响 `T-154` 的结论」**：
+
+1. **未注册模块（`TRADE`/`SETTLE`/`RISK`/`AUDIT`/`ACCT`/`FUND`）** —— **不影响**。未装配即在生产不可达，不属于「可达性」面；且 `routes()` 口径自动排除，正是其合理处（`T-153` `F5` 已就「其余 6 模块注册后」另设证伪条件）。
+2. **`pathExists` 的 405 语义** —— **不影响**。`pathExists`（`Router.java:79-87`）是**忽略方法的全体 OR**，与注册序无关（`T-153` `N5` 已核）；遮蔽判定只涉 `match`。
+3. **真实 HTTP 分发链** —— **不影响**。本判据判的是 `Router.match`（分发器的核心），`RequestDispatcher` 的 404/405 分支不改变命中语义。
+4. **handler 业务行为** —— **不影响**。本判据只断言「命中自身 + handler 非空」（穷举面），业务正确性由各 Handler 用例承载。**注**：`Bug004Test` 额外断言了 5 条端点的**预期 Handler 类名**，覆盖面更细。
+5. **`{id}` 取值合法性** —— **不影响**。`matchSegments`（`Router.java:116-130`）只保证「非空单段」，取值域校验在各 Handler。
+6. **重复注册** —— **不影响**。`register`（`:41-45`）在启动期显式抛错，重复注册根本装配不成；`ModuleRoutesConsistencyTest:100-101` 另有 `HashSet` 等值断言。
+7. **镜像方向非穷举** —— **不影响结论，但强度有限**。`unregisteredPathsAreNotMatched`（`:124-139`）只 `assertNull` **4 条**手选路径，防「恒返回非空」的实现；非穷举（本席已核实 4 条在含 ping 的生产装配下确为 `null`）。
+
+**本席补充的不覆盖项（产出方未列）**：
+
+- **O-5-a（模块外注册面）**：见 K.8 ② —— 穷举面 = 5 模块注册器，**不含** `Bootstrap` 的直接注册（当前仅 ping，无害）。**建议**（非本单必须）：`FullWebAssembly` javadoc 明写该边界，或加一条「生产装配 `routes()` 集合 == FullWebAssembly ∪ {ping GET,HEAD}」的对账断言。
+- **O-5-b（`instantiate` 哨兵值 `1` 的可碰撞性）**：`instantiate` 用 `1` 作占位实例；若将来出现**字面段 `1`** 的静态路由且注册在占位符之前，则占位符路由的实例路径会命中该静态路由 ⇒ **误报「被遮蔽」**（本席探针 G 实证：`GET /api/v1/x/1` 先注册 + `GET /api/v1/x/{id}` 后注册 ⇒ 失败集含 `/x/{id}`，而其 `id=2` 明明可达）。**当前安全**：81 条路由的字面段集合**不含 `1`**（独立实测 `contains("1") == false`）。属**潜在假阳性**，建议在判据内加一条不变式「全部字面段 ∌ 哨兵值」或改用必然不存在的哨兵。
+- **O-5-c（`FullWebAssembly` 与 `Bootstrap` 的模块调用序未断言）**：二者当前同序（Auth→Config→Product→Spot→Plan），但**无断言保护**。**结构性无害**：模块名位于段位 idx2 且**恒为字面**（所有路由经 `ApiRoutes.full("/<module>/…")`）⇒ 跨模块在 `matchSegments` 的 idx2 即失配，**模块间顺序不可能造成遮蔽**；模块内注册序由**同一注册器函数**执行 ⇒ 两装配逐字同序。故该漂移**不影响**遮蔽结论。
+
+#### K.10 产出方自报面逐条对照
+
+- 门禁 637/0/0/0、`@Test`==surefire==637、77 类、arch rc 0 / `E1`–`E7` 全 0、树锚 `a0dadfa3…`/356 —— **独立实测吻合**。
+- 判据形态（遍历 `routes()` / `instantiate` 回查 / 收集后断言 / 覆盖 GET·POST·PUT + 两动态循环 / 用 `routes()` 而非 `byModule()` 的理由）—— **吻合**。
+- `FullWebAssembly` 39 行、`ROUTE_COUNT=81` —— **吻合**（81 已独立重算，见 K.3）。
+- `Bug004Test` +1/−12、5 条断言逐字未改 —— **吻合**（见 K.6）。
+- 「取回 `1137801^` ⇒ 恰 5 红且与 BUG-004 集合逐条一致」—— **独立复现吻合**（见 K.5，本单最强证据）。
+- 「判据非空转（内建 mini Router，占位符在前 ⇒ `assertNotEquals` 检出）」—— **源码 `:143-155` 确认，机制与主判据同一**（`assertNotEquals(pattern, hit.pattern())` + `assertEquals("{id}" 模板, hit.pattern())`）。
+- **★一项不符**：产出方称「naive「有占位符 + 同段数即报红」候选 = **47 组** near-miss / 0 真遮蔽」。本席以同一 81 条路由逐对穷举，**未能复现 47**：按「同方法+同段数+∃k 早占位/晚字面」= **46**；按「同方法+同段数+任一含占位」= **115**；按「早含占位且晚全静态」= **42**。**定性结论不受影响**（naive 规则确会产出数十条假阳性，而实例回查真遮蔽 = **0**，两口径均独立证实），但 **47 缺可复现口径**。列观察 O-1，**不阻断**。
+
+#### K.11 观察项
+
+- **O-1（信息）**：`docs/TASKS.md:199` 记「47 组 near-miss」**未能独立复现**（本席口径给 46 / 42 / 115，见 K.10）。建议补「复现命令 + 口径定义」或据实订正；**不影响判据有效性**。
+- **O-2（信息）**：穷举面 = 5 模块注册器，**不含 `Bootstrap` 直接注册**；当前仅 ping（3 段、最先、全字面）⇒ 无害（K.8 ②）。
+- **O-3（信息）**：`FullWebAssembly` 与 `Bootstrap` 的**模块调用序**未断言（当前同序）；结构性无害（idx2 恒字面 ⇒ 跨模块不可能遮蔽）（K.9-O5-c）。
+- **O-4（信息）**：`FullWebAssembly` 作为「单一装配来源」**仅对 2 个可达性测试成立**；另有 **8 个**测试文件（`M1EndToEndAcceptanceTest`、`T109EndpointRegistrationTest`、`ModuleRoutesConsistencyTest`、`ProductReadScopeResidualTest`、`ProductRouteDispatchTest`、`PlanListRouteTest`、`BindExposureHandlerTest`、`AUTHEndpointRegistrationTest`）仍各自调用 `*Routes.register`。因只有可达性判据依赖注册序，风险受控；但「单一来源」的表述宜限定范围。
+- **O-5（信息）**：`instantiate` 哨兵 `1` 的潜在假阳性（K.9-O5-b），当前安全（字面段集合不含 `1`）。
+- **O-6（信息）**：镜像方向仅 4 条手选 `assertNull`（非穷举）；本单不要求穷举，且已核 4 条确实未注册。
+
+#### K.12 结论
+
+**通过（0 阻断缺陷 / 0 高 / 0 中 / 0 低缺陷；6 项观察）⇒ `T-154` 可转 `DONE`。**
+
+- 门禁、计数、架构判据、树锚、文件锚**全部独立实测吻合**。
+- 判据**非空转**、**有牙**、**两方向正确**：漏防注入 A/B 各红（1 处新位置 `PlanRoutes` 动态循环邻域、1 处新模块 `ConfigRoutes`）、误拒注入 C 全绿、静默变宽注入 D 红、空转注入 E 红、`routes()` 排序注入 F **不削弱检出**。
+- **最强证据**：取回 `1137801^` 原态 ⇒ 失败集**恰 5 条且与 `BUG-004` 集合逐条一致（无多无少）**，即**判据的失败集 == 真实缺陷集**。
+- **`T-153` `F1` 不成立** ⇒ 裁定 **(a) 维持现状** 的机械守卫成立，**无须改判 (b)**。
+- 未发现后果严重的漏检形态（唯一检不出者为「更具体者在前」的良性部分吞并；模块外漂移被另一测试的计数守卫间接兜底）。
+- 唯一不符 = 观察 O-1（47 未能复现），**不阻断**。
+
+**复位声明**：全部注入均在隔离副本 `/t154-iso` 内完成；复核结束时 `diff -rq` 空、树锚复原 `a0dadfa33c7a0e02966d261fd71343c7`/356、共享树 `git status --short` 为空。探针目录 `/t154-probe`、`/t154-iso` 已删除（回执附 `[ -e ]` 核实）。
