@@ -494,6 +494,13 @@
   4. 阻断类错误统一渲染 `ruleId/current/threshold/nextStep`（`NFR-USE-3/4`）；金额/数量按字符串展示（避免 `Number` 精度丢失）。
 - **产出**：`web/index.html`, `web/login.html`, `web/css/hg.css`, `web/js/core/**`
 - **备注**：前端只与 Java 的 `/api/v1/**` 与 `/ws/**` 通信，**不得**直连数据库或 C++（`E6`）。
+  **📌（2026-09-23 编排者只读复核 · 只加不改 —— 订正第 88 轮普查「T-017 仅差登记」的结论）** 本席在派发 `T-022` 后顺带实测 T-017 交付面，结论 = **「仅差登记」不成立**，其交付物 **`web/js/core/routes.js` 另有 4 处陈旧/不实**（该文件自述为「前端只读镜像」，且**头部明确要求**「新增/改名须先改 §4.1.1 → `ApiRoutes.java` → 本文件」⇒ **镜像失真即违约**）：
+  **(1) 头部路由计数陈旧**：`:14` 写「统一写 **47 个 (方法, 路径) 对 / 37 个路径**」，而**实测现行 = 82 对**（判据 = `java/src/test/java/com/hedgeguard/web/BootstrapAssemblyTest.java:140` `assertEquals(82, assembly.routeCount(), …)`）⇒ **陈旧**（该计数系 `T-109` 补齐「已声明未注册」端点前的旧值）。
+  **(2) 「`GET /plan` 未注册」为不实**：`:33` 头部把「`GET /plan`（列表）」列入**「未注册（前端不得调用）」**清单，且 `:84` `NOT_REGISTERED.PLAN_LIST = '/plan'`；**实测已注册** = `java/src/main/java/com/hedgeguard/web/handler/plan/PlanRoutes.java:52` `router.register("GET", PlanHandler.PATH, new PlanHandler(planService))` ⇒ **不实**（与 `plan.js:15-16` 的陈旧误述**同源**，本席第 88 轮补已就 `plan.js` 登记于 `T-020`；**本条在 `routes.js`，属 `T-017` 产出面**）。
+  **(3) SPOT 段漏登记 5 条已注册路径**：`:64-73` 仅列 8 条，缺 `T-109` 补齐的 **`/spot/production`**（`SpotRoutes.java:57`）、**`/spot/price/import`**（`:58`）、**`/spot/price/export`**（`:59`）、**`/spot/exposure/export`**（`:60`）、**`/spot/doc/sub-account`**（`:62`）—— 逐条 `grep` 实测**均为 0 命中**。**⚠️ 直接阻塞面**：`T-019`（现货与实货敞口前端页面）若按本镜像施工，将**看不到**上述 5 条 ⇒ **`T-019` 开工前须先修好本镜像**（或授权其自行直读 `ApiRoutes.java`）。
+  **(4) PLAN 段未覆盖 `/plan/{id}/bind-exposure`**（小项）：`:74-81` 用通用式 `action(id, action)` 覆盖 8 个 action、`ratio(method)` 覆盖 3 个 ratio，但 `bind-exposure` 既非 `Action` 枚举亦非 ratio ⇒ **未覆盖**（`ApiRoutes.java` PLAN 组含该路径）。
+  **另附（非缺陷，据实存档）**：验收 2 列举 **6** 个 `js/core/*.js`，实有 **9** 个（多 `ns.js` 命名空间、`routes.js` 路径镜像、`ws.js`）⇒ **超集、验收 2 满足**；`web` 树锚 = `f827e00e6687afb092ab933fe0816ce4` / **27 文件**，与 `T-018` 冻结点**逐字节一致**（⇒ 自 `T-018` 交付以来 `web/**` 未再变）。
+  **处置**：**并入 `T-017`**（其产出面 = `web/js/core/**`；不另立号）；**待 `te-verify-t018` 回执后再改 `web/**`**（避免污染该复核的取证锚点）。
 
 ### T-018 实现品种管理前端页面
 
