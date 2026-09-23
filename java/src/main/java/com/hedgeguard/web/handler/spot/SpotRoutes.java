@@ -27,6 +27,11 @@ import com.hedgeguard.web.Router;
  *   POST /api/v1/spot/doc/sub-account  单据子账户归属变更（FR-SPOT-16）
  * </pre>
  * ⇒ {@code SPOT} 模块的 {@code ApiRoutes} 清单**已全量注册**（{@code T-109} 补齐声明面）。
+ *
+ * <p><b>注册序约束（{@code T-151} / {@code BUG-004}）</b>：{@code Router.match} 按**注册序首次命中**，
+ * 故占位符路由 {@code GET /spot/exposure/{id}} 必须**最后**注册；否则会抢占**同段数**的静态 GET
+ * {@code /spot/exposure/export}（原序下不可达，被解析为敞口详情 {@code id=export}）。
+ * 新增本模块路由时须**先静态、后占位符**。
  */
 public final class SpotRoutes {
 
@@ -51,7 +56,6 @@ public final class SpotRoutes {
         router.register("GET", SpotPriceHandler.PATH, new SpotPriceHandler(spotService));
         router.register("POST", SpotExposureHandler.PATH, new SpotExposureHandler(spotService));
         router.register("GET", SpotExposureHandler.PATH, new SpotExposureHandler(spotService));
-        router.register("GET", SpotExposureHandler.PATH_BY_ID, new SpotExposureHandler(spotService));
         router.register("POST", SpotExposureHandler.PATH_RECALC, new SpotExposureHandler(spotService));
         // T-109：补齐声明面
         router.register("POST", ProductionPlanHandler.PATH, new ProductionPlanHandler(spotService));
@@ -61,5 +65,9 @@ public final class SpotRoutes {
                 new SpotExposureExportHandler(spotService));
         router.register("POST", SpotDocSubAccountHandler.PATH,
                 new SpotDocSubAccountHandler(spotService));
+        // ★T-151（BUG-004）：占位符路由 `/spot/exposure/{id}` 必须**最后**注册。Router.match 为
+        //   「注册序首次命中」；若先注册会抢占**同段数**的静态 GET `/spot/exposure/export`（5 段，
+        //   原注册序下被解析为敞口详情 id=export）⇒ 该导出端点在生产装配下不可达。
+        router.register("GET", SpotExposureHandler.PATH_BY_ID, new SpotExposureHandler(spotService));
     }
 }

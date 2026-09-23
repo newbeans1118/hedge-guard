@@ -20,6 +20,12 @@ import com.hedgeguard.web.Router;
  * 另含（{@code T-012} 剩余面）：{@code /product/{id}/contracts}、{@code /product/mapping}
  * （{@code GET｜POST}）、{@code /product/change-log}、{@code /product/import}、{@code /product/export}。
  * ⇒ {@code PRODUCT} 模块的 {@code ApiRoutes} 清单**已全量注册**。
+ *
+ * <p><b>注册序约束（{@code T-151}）</b>：{@code Router.match} 按**注册序首次命中**，故占位符路由
+ * {@code GET /product/{id}} 必须**最后**注册；否则会抢占**同段数**的静态 GET
+ * （{@code /product/quota}、{@code /product/mapping}、{@code /product/change-log}、{@code /product/export}），
+ * 使其在生产装配下不可达（被解析为品种详情 {@code id=quota|mapping|…}）。
+ * 新增本模块路由时须**先静态、后占位符**。
  */
 public final class ProductRoutes {
 
@@ -35,7 +41,6 @@ public final class ProductRoutes {
     public static void register(Router router, VarietyService varietyService) {
         router.register("GET", ProductHandler.PATH, new ProductHandler(varietyService));
         router.register("POST", ProductHandler.PATH, new ProductHandler(varietyService));
-        router.register("GET", ProductHandler.PATH_BY_ID, new ProductHandler(varietyService));
         router.register("POST", WhitelistHandler.PATH, new WhitelistHandler(varietyService));
         router.register("GET", QuotaHandler.PATH, new QuotaHandler(varietyService));
         router.register("POST", QuotaHandler.PATH, new QuotaHandler(varietyService));
@@ -50,5 +55,9 @@ public final class ProductRoutes {
                 new ProductChangeLogHandler(varietyService));
         router.register("POST", ProductImportHandler.PATH, new ProductImportHandler(varietyService));
         router.register("GET", ProductExportHandler.PATH, new ProductExportHandler(varietyService));
+        // ★T-151：占位符路由 `/product/{id}` 必须**最后**注册。Router.match 为「注册序首次命中」，
+        //   若先注册会抢占同段数的静态 GET（/product/quota、/product/mapping、/product/change-log、
+        //   /product/export）⇒ 这 4 条端点在生产装配下不可达（被解析为品种详情 id=quota/mapping/…）。
+        router.register("GET", ProductHandler.PATH_BY_ID, new ProductHandler(varietyService));
     }
 }

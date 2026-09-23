@@ -220,6 +220,65 @@ class DmProductDaoScopedSqlTest {
                 "哨兵 0 详情仅按主键");
     }
 
+    // ------------------------------------------------------------ T-151：顶层谓词「仍生效」（防谓词中和）
+
+    /**
+     * {@code T-151} 负向守卫：{@code findByIdScoped} 的 SQL <b>顶层不得含 {@code OR}</b>，
+     * 且占位符个数须与绑定参数个数**一致**。
+     *
+     * <p><b>为何要这条</b>：既有形状断言用 {@code contains("id = ? AND id IN (SELECT …")} ——
+     * 它能挡「把 {@code AND} 改成 {@code OR}」，却<b>挡不住</b>「在 SQL 尾部追加 {@code OR 1=1}」这类
+     * <b>谓词中和</b>（SQL 里「谓词还在、绑定也对」，语义却被旁路）。故此处补两条<b>语义级</b>断言：
+     * ① 顶层<b>不存在</b> {@code OR}；② 占位符数 == 参数数（防"多写谓词少绑参 / 多绑少写"）。
+     * 任一被中和即红（见交付报告变异台账 MUT-2）。
+     */
+    @Test
+    @DisplayName("T-151 顶层谓词仍生效：findByIdScoped 的 SQL 顶层无 OR，且 占位符数==绑定参数数")
+    void findByIdScopedTopLevelPredicateStillEffective() {
+        RecordingJdbc jdbc = new RecordingJdbc();
+        DmProductDao dao = new DmProductDao(newTx(jdbc));
+
+        dao.findByIdScoped(5L, SubAccountScope.of("sub_account_id", Arrays.asList(7, 8)));
+
+        RecordingJdbc.Rec rec = jdbc.records().get(0);
+        assertFalse(rec.sql.contains(" OR "),
+                "顶层谓词不得被中和（SQL 不得含顶层 OR）：" + rec.sql);
+        assertEquals(placeholderCount(rec.sql), rec.args.size(),
+                "占位符个数须与绑定参数个数一致（防谓词中和/漏绑）：" + rec.sql);
+        assertEquals(3, rec.args.size(), "id + 两个子账户 = 3 个绑定：");
+        assertTrue(rec.sql.contains("WHERE id = ? AND id IN (SELECT product_id FROM t_sub_product_whitelist"),
+                "顶层须为 {id=?} AND 白名单子查询：" + rec.sql);
+    }
+
+    @Test
+    @DisplayName("T-151 顶层谓词仍生效：服务层受限身份 getProduct 的详情 SQL 顶层无 OR，占位符==参数")
+    void serviceGetProductTopLevelPredicateStillEffective() {
+        RecordingJdbc jdbc = new RecordingJdbc();
+        TxTemplate tx = newTx(jdbc);
+        VarietyService service = new VarietyService(tx, new DmProductDao(tx), null, null, null, null,
+                null, null, null, uid -> Arrays.asList(7));
+
+        service.getProduct(5L, 42L);
+
+        RecordingJdbc.Rec rec = jdbc.records().get(0);
+        assertFalse(rec.sql.contains(" OR "), "顶层谓词不得被中和：" + rec.sql);
+        assertEquals(placeholderCount(rec.sql), rec.args.size(),
+                "占位符个数须与绑定参数个数一致：" + rec.sql);
+        assertEquals(Arrays.asList((Object) 5L, 7), rec.args,
+                "参数 = 主键 + 可见子账户，与占位符一一对应");
+    }
+
+    /** 统计 SQL 中 {@code ?} 占位符个数（{@code ??}/{@code ?} 皆为占位符；本 SQL 无字面问号）。 */
+    private static int placeholderCount(String sql) {
+        int count = 0;
+        for (int i = 0; i < sql.length(); i++) {
+            if (sql.charAt(i) == '?') {
+                count++;
+            }
+        }
+        return count;
+    }
+
     // ------------------------------------------------------------ 工具
 
     private static TxTemplate newTx(RecordingJdbc jdbc) {

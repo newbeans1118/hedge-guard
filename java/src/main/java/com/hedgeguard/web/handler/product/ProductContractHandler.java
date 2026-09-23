@@ -1,5 +1,6 @@
 package com.hedgeguard.web.handler.product;
 
+import com.hedgeguard.dao.entity.Product;
 import com.hedgeguard.dao.entity.ProductContract;
 import com.hedgeguard.service.VarietyService;
 import com.hedgeguard.web.ApiResponse;
@@ -20,6 +21,12 @@ import java.util.List;
  *
  * <p>{@code GET}：该品种的合约清单（下单合约下拉）；{@code POST}：新增关联。
  * 期权与期货**共用同一追溯链与同一套保额度**（{@code R-PLAN-11}），故 {@code instrumentType} 必显式。
+ *
+ * <p><b>{@code T-151} 读取面隔离</b>：{@code GET} 先按<b>调用者可见子账户范围</b>过滤品种
+ * （{@link ProductHandler#requireVisibleProduct}，{@code NFR-SEC-7} / {@code FR-PRODUCT-6} 处理规则）；
+ * <b>不可见 ≡ 不存在</b>（统一错误 {@code 10001}，不泄露存在性，不泄出合约明细）。
+ * {@code POST} 为写面：品种档案全局共享（{@code R-PRODUCT-7}），写入不改变可见集 ⇒ <b>不加</b>可见性过滤，
+ * 维持既有存在性校验。
  */
 public final class ProductContractHandler implements RouteHandler {
 
@@ -39,15 +46,19 @@ public final class ProductContractHandler implements RouteHandler {
 
     @Override
     public HttpResult handle(RequestContext ctx) {
-        long productId = Long.parseLong(ProductHandler.requireProduct(varietyService,
-                ctx.pathParam("id")).id + "");
+        String rawId = ctx.pathParam("id");
         if ("GET".equalsIgnoreCase(ctx.method())) {
+            // T-151：读取面（GET）按调用者可见子账户范围过滤品种；不可见 ≡ 不存在（统一错误，不泄露存在性）
+            Product product = ProductHandler.requireVisibleProduct(varietyService, rawId,
+                    ctx.currentUserId());
             List<ContractView> views = new ArrayList<>();
-            for (ProductContract contract : varietyService.listContracts(productId)) {
+            for (ProductContract contract : varietyService.listContracts(product.id)) {
                 views.add(ContractView.of(contract));
             }
             return HttpResult.json(200, ApiResponse.ok(views, ctx.traceId()));
         }
+        // 写面（POST）：品种档案全局共享（R-PRODUCT-7），写入不改变可见集 ⇒ 维持既有存在性校验（无需可见性过滤）
+        long productId = ProductHandler.requireProduct(varietyService, rawId).id;
         Request request = JsonCodec.fromJson(ctx.body(), Request.class);
         if (request == null || request.instrumentId == null || request.instrumentType == null) {
             throw BizException.of(ErrorCode.PARAM_INVALID,
