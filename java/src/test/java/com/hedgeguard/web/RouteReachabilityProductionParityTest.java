@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@link FullWebAssembly} 的 {@code ROUTE_COUNT = 81} 与生产装配（{@link Bootstrap#assembleWithResources}）
  * 的 {@code 83} 是**两个互相独立的数**（差 {@code 2} = 平台级 {@code ping} 的 {@code GET}/{@code HEAD}），
  * 二者之间**无任何断言对齐**。后果：给生产装配新增第 6 个模块（{@code ApiRoutes} 已声明、尚未注册的
- * {@code TRADE}/{@code SETTLE}/{@code RISK}/{@code ACCOUNT}/{@code FUND}/{@code AUDIT}，将在 M3/M4 接入
+ * {@code TRADE}/{@code SETTLE}/{@code RISK}/{@code ACCT}/{@code FUND}/{@code AUDIT}，将在 M3/M4 接入
  * {@code Bootstrap}）而**忘记同步** {@code FullWebAssembly} 时，{@link RouteReachabilityExhaustiveTest}
  * 的穷举面**不含**该模块 ⇒ 该模块内的路由遮蔽**静默不报**。复核席实测：注入一个**含遮蔽形态**
  * （占位符在前、静态在后）的第 6 模块、但不改 {@code FullWebAssembly} ⇒ 该判据 **0 红（静默全绿）**，
@@ -59,6 +59,19 @@ class RouteReachabilityProductionParityTest {
     /** 平台级路由（{@code Bootstrap} 直接注册、非业务模块）——须从生产装配面显式减去。 */
     private static final Set<String> PLATFORM_ROUTES =
             Set.of("GET " + ApiRoutes.full(ApiRoutes.PING), "HEAD " + ApiRoutes.full(ApiRoutes.PING));
+
+    /**
+     * 【{@code T-160}】合成「第 6 模块」路由（供非空转自测 {@link #parityDetectorIsNotVacuous()} 使用）。
+     *
+     * <p><b>必须不在 {@link ApiRoutes} 内</b>（{@code T-160} 收口）：若取真实模块路径（原实现用
+     * {@code /trade/order} = {@code ApiRoutes.byModule()["TRADE"]} 的成员），则 {@code TRADE} 等模块在
+     * M3/M4 接入并加入 {@link FullWebAssembly} 后，本自测会**重复注册**同一路径而抛
+     * {@code IllegalStateException} ⇒ **以 ERROR 而非通过呈现**，反而误导维护者削弱/删除该自测。
+     *
+     * <p>取 {@code /probe/**}（探测专用前缀）：{@code ApiRoutes} 的 11 个模块路径均无 {@code probe} 段，
+     * 故该合成路由**不随任何真实模块接入**而变真路由。
+     */
+    private static final String PROBE_MODULE_ROUTE = "/api/v1/probe/x";
 
     /** 假库装配所需的属性键（与 {@code BootstrapAssemblyTest} 同集合子集）。 */
     private static final String[] FAKE_DB_PROPERTIES = {
@@ -113,9 +126,10 @@ class RouteReachabilityProductionParityTest {
     @DisplayName("判据非空转：生产侧多一个「第 6 模块」路由 ⇒ 双向差集必非空（红）")
     void parityDetectorIsNotVacuous() {
         // 模拟「生产装配多一个模块、FullWebAssembly 不动」：判据装配面 + ping + 一条合成第 6 模块路由。
+        // 【T-160】合成路径**不得**取 `ApiRoutes` 内的真实路径 —— 见 `PROBE_MODULE_ROUTE` 注释。
         Router productionLike = FullWebAssembly.assemble();
-        String sixthModuleRoute = "GET " + ApiRoutes.full("/trade/order");
-        productionLike.register("GET", ApiRoutes.full("/trade/order"), ctx -> null);
+        String sixthModuleRoute = "GET " + PROBE_MODULE_ROUTE;
+        productionLike.register("GET", PROBE_MODULE_ROUTE, ctx -> null);
         for (String platform : PLATFORM_ROUTES) {
             int sep = platform.indexOf(' ');
             productionLike.register(platform.substring(0, sep), platform.substring(sep + 1), ctx -> null);

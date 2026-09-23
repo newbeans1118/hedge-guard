@@ -75,7 +75,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>假 DAO 忠实模拟 {@code t_sub_product_whitelist} 语义（可见品种 = 可见子账户白名单覆盖之并集；
  * 空集 ⇒ 恒假）；真实 SQL 形状由 {@code DmProductDaoScopedSqlTest} 覆盖（{@code t_product} 走子查询，
- * {@code InMemoryDmEngine} 不支持 {@code id IN (SELECT …)} ⇒ 该面用记录型假 JDBC 断言 SQL 形状）。
+ * {@code InMemoryDmEngine} <b>不支持</b> {@code id IN (SELECT …)}（对该形态<b>不解析</b>：
+ * <b>多数形态静默错值</b>、非 loud 抛）⇒ 该面用记录型假 JDBC 断言 SQL 形状）。
  * 完全离线（{@code NFR-TEST-2}）。
  */
 class ProductDetailIsolationTest {

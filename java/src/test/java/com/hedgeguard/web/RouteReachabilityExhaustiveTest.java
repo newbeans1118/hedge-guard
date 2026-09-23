@@ -148,9 +148,10 @@ class RouteReachabilityExhaustiveTest {
         // ① 段数相同但末段不匹配任何静态路由（5 段，与 /product/{id}/contracts 同段数）
         assertNull(router.match("GET", "/api/v1/product/1/no-such-segment"),
                 "未注册路径却命中 ⇒ 判据过宽");
-        // ② 未注册模块（TRADE 未纳入本装配）
-        assertNull(router.match("GET", "/api/v1/trade/order"),
-                "未注册模块 TRADE 却被命中 ⇒ 判据过宽");
+        // ② 合成未注册路径（前缀 `probe` **不在** `ApiRoutes` ⇒ 不随 TRADE/SETTLE… 接入本装配而变真路由；
+        //    原用 `/api/v1/trade/order`（= `ApiRoutes.byModule()["TRADE"]` 成员）会在 TRADE 落地后变真路由 ⇒ 该负例失效，T-160 已改）
+        assertNull(router.match("GET", "/api/v1/probe/order"),
+                "未注册路径却命中 ⇒ 判据过宽");
         // ③ 未注册方法（DELETE 未在本装配注册于 /product）
         assertNull(router.match("DELETE", "/api/v1/product"),
                 "未注册方法 DELETE 却被命中 ⇒ 判据过宽");

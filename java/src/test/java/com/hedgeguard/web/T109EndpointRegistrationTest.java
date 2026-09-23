@@ -145,7 +145,7 @@ class T109EndpointRegistrationTest {
             //   已注册 ⇒ 命中处理（handler 因无真实库而 5xx，但**非** 404/405）；未注册 ⇒ 404（路径在而方法缺 ⇒ 405）。
             //   判据 =「19 条逐条不被 404/405 拒绝」；**删掉任一端点注册 ⇒ 其条目必 404/405 ⇒ 本断言必红**（已双向实测）。
             //   与 `AUTHEndpointRegistrationTest` 段② 同形；装配面注册完整性另由 `BootstrapAssemblyTest`
-            //   的 `routeCount == 82` 守卫，本用例不重复承担该职责（仅保留装配冒烟：假驱动下装配不抛）。
+            //   的 `routeCount == 83` 守卫，本用例不重复承担该职责（仅保留装配冒烟：假驱动下装配不抛）。
             Router plainRouter = new Router();
             plainRouter.register("GET", ApiRoutes.full(ApiRoutes.PING),
                     new com.hedgeguard.web.handler.PingHandler());

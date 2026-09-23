@@ -10766,3 +10766,188 @@ for f in DmProductDaoScopedSqlTest DmExposureDaoScopedSqlTest DmTradePlanDaoScop
 - 只读共享树；全部注入仅在 **`/root/iso-t152`**（`/` 下）内进行并**逐字节复位**（与共享树 `diff` 全同）；共享树 `git status --porcelain` **全程为空**。
 - `mvn` 串行执行（本席为唯一构建者）；全程 `TMPDIR=/root`，未用 `/tmp`。
 - 未 `commit`/`amend`/`reset`/`push`；未改 `java/src/main/**` 最终态。
+
+---
+
+# T-158 / T-160 / T-162 交付报告（席 `te-txt`；2026-09-24 第 147 轮补6；纯追加）
+
+> 三单同族（测试域「**陈旧 / 不实 / 自伤**文本」），均属 `test-engineer` 写域、均 P2。**唯一写者**=本席；`mvn` 全程串行（本环境同时只允许一个 `mvn`）、`TMPDIR=/root`。**未改** `java/src/main/**`、`web/**`、`ApiRoutes` 声明面。
+> **冻结基线**：`java/src` 树锚 `0e81c83090dcf5408944f84fc368322b` / 359 文件（开工时，与 `T-152` 记录逐字节同）；**交付后**树锚 `6693e9f5b954837e179f72caf907cf84` / 359（取样 `2026-09-24T07:17:21+08:00`，`find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum`）。文件**数**不变（仅改内容）。
+> **本文件处置**：本节**纯追加**；追加前 `md5sum docs/TEST_RESULT.md` = `5ee880877d564307c3152103d93ccda6` / 10768 行 —— `head -10768 | md5sum` 与之一致即证「原档逐字节未变」（见 §四）。
+
+## 门禁（交付态，实测）
+
+| 项 | 命令 | 结果 |
+|----|------|------|
+| 单测 | `cd java && TMPDIR=/root mvn -B -o -Punit clean test` | **Tests run: 650, Failures: 0, Errors: 0, Skipped: 0** + **BUILD SUCCESS**（开工基线同为 650/0/0/0） |
+| `@Test` 计数 | `grep -rn --include=*.java -E '^\s*@Test' java/src/test \| wc -l` | **650** == surefire 650 == 全出现次数 650；`@ParameterizedTest/@RepeatedTest` = **0**（**非** `grep -c @Test` 单口径） |
+| 架构判据 | `cd java && mvn -B -o validate` | **rc 0**；`E1`–`E7` 逐项退出码 **0**；末行 `arch-check 通过：七个判据脚本全部通过（退出码 0）` |
+
+## 改动清单（7 文件，md5 / 行 / `--numstat`）
+
+| 文件 | md5 | 行 | `git diff --numstat` |
+|------|-----|----|----------------------|
+| `java/src/test/java/com/hedgeguard/web/FakeJdbcDriver.java` | `41e4dfe164fa569aeb655bbb003e133e` | 149 | `1 1` |
+| `java/src/test/java/com/hedgeguard/web/T109EndpointRegistrationTest.java` | `1ab964df3b82af567fe24b84e75584ad` | 182 | `1 1` |
+| `java/src/test/java/com/hedgeguard/web/RouteReachabilityProductionParityTest.java` | `904e0ff5fa0e72708791daa91399289e` | 204 | `17 3` |
+| `java/src/test/java/com/hedgeguard/web/RouteReachabilityExhaustiveTest.java` | `ebae7a71a637357ab0d50663e50aaeba` | 226 | `4 3` |
+| `java/src/test/java/com/hedgeguard/web/M1EndToEndAcceptanceTest.java` | `4f31f4f9246b6e928df9d6496166582a` | 732 | `3 2` |
+| `java/src/test/java/com/hedgeguard/service/ProductDetailIsolationTest.java` | `bce4896209789ad5890f0c9001b451c5` | 662 | `2 1` |
+| `docs/TEST_PLAN/M1-report.md` | `274e9e6abc2e9c38cebd0b6f132922c4` | 202 | `2 2` |
+
+> `git status --porcelain` 提交前**只含上表 7 文件**（无他者改动）。**未改** `java/src/main/java/com/hedgeguard/web/Bootstrap.java`（md5 `f1cb861e285f9470d2ca4eac13b5fceb`，与 `te-t156` 记录逐字节同）、**未改** `java/src/test/java/com/hedgeguard/web/FullWebAssembly.java`（`14de24c7041965bd3461c24d465bb885`）。
+
+---
+
+## §T-158 —— `java/**` 内陈旧「计数」注释的穷举订正
+
+**扫描模式与范围**（实际使用）：`java/**`（`*.java`，含 `src/main` 与 `src/test`，供**判定**；**改动**仅限 `src/test`）——
+① `grep -rnP --include=*.java '路由数|业务路由|条路径|条路由|判据数|个 ?\(?方法|测试数|用例数|个 ?\(|ROUTE_COUNT|routeCount' java/src`；
+② `grep -rn --include=*.java -E '\b(45|47|81|82|83)\b' java/src | grep -iE 'route|路由|ping|路径|端点|个|条'`；
+③ `grep -rn --include=*.java 'ACCOUNT' java/src`（模块键名）。
+
+**真值（本席实测，非采信派单）**：`FullWebAssembly.ROUTE_COUNT = 81`、`BootstrapAssemblyTest:145` `assertEquals(83, assembly.routeCount())` —— 交付/开工全量 **650 绿**即证 **81 业务 + ping(GET/HEAD) 2 = 83** 成立；`ApiRoutes.byModule()` 共 **11 键**，账户键为 **`ACCT`**（`ApiRoutes.java:62`），**非** `ACCOUNT`。
+
+**穷举表（逐处判定）**：
+
+| # | 落点 | 原文（摘要） | 判定 | 依据 |
+|---|------|-------------|------|------|
+| 1 | `java/src/test/.../web/FakeJdbcDriver.java:23` | 「业务路由数 = **45**（+ ping 2 = **47**）」 | **陈旧 ⇒ 已改**为 `81（+ ping 2 = 83）` | `BootstrapAssemblyTest:145`=`83`、`FullWebAssembly:51`=`81` |
+| 2 | `java/src/test/.../web/T109EndpointRegistrationTest.java:148` | 「`routeCount == **82**` 守卫」 | **陈旧 ⇒ 已改**为 `83` | 同上（该注释是**转述** `BootstrapAssemblyTest` 的守卫值） |
+| 3 | `java/src/test/.../web/RouteReachabilityProductionParityTest.java:28` | 「`.../{@code **ACCOUNT**}/...`」 | **陈旧（键名）⇒ 已改**为 `ACCT` | `ApiRoutes.java:62` `BY_MODULE.put("ACCT", …)` |
+| 4 | `java/src/test/.../web/BootstrapAssemblyTest.java:119,134–146` | 81 / 83 / AUTH17·CONFIG18·PRODUCT13·SPOT15·PLAN18 | **正确** | 断言 `83` 实测通过；明细和 = 81 |
+| 5 | `java/src/test/.../web/FullWebAssembly.java:40,51` | `routeCount()==83` / `ROUTE_COUNT = 81` | **正确** | 同上 |
+| 6 | `java/src/test/.../web/RouteReachabilityProductionParityTest.java:25–26` | `ROUTE_COUNT = 81` / `83` | **正确** | 同上 |
+| 7 | `java/src/test/.../web/RouteReachabilityExhaustiveTest.java:64` | 「46 / 115 / 42，原自报的 47 无唯一口径」 | **正确**（定性叙述，`T-156` 已收口） | 与 `T-156` 裁决一致 |
+| 8 | `java/src/test/.../web/T109EndpointRegistrationTest.java:30–31,102` | 「CONFIG 9 / SPOT 5 / PLAN 1 共 15 条路径」「19 个 (方法,路径) 对」 | **正确** | `T-109` 交付 15 路径 / 19 对 |
+| 9 | `java/src/test/.../web/AUTHEndpointRegistrationTest.java:26,37,56,62` | 「AUTH 10 条路径」「15 个 (方法,路径) 对」 | **正确** | `T-010` 交付 |
+| 10 | `java/src/test/.../web/FullWebAssembly.java:26` | 「仍有 **8** 个测试类各自 register」 | **正确** | `te-t156` 产出方自测 + 列名 |
+| 11 | `java/src/test/.../web/BootstrapAssemblyTest.java:119` | 「**5** 个注册器」 | **正确** | 5 模块注册器 |
+| 12 | `java/src/test/.../web/RouterTest.java:100` | `assertEquals(4, router.routes().size())` | **正确**（局部 router） | 局部夹具，非生产装配 |
+| 13 | `java/src/test/.../web/RouteReachabilityBug004Test.java:10,17–20` | 「5 条被遮蔽」「4 条」「1 条」 | **正确** | `BUG-004` 事实 |
+| 14 | `java/src/main/.../handler/auth/AuthRoutes.java:20,52` | 「AUTH **10** 条路径」「其余 **8** 条路径」 | **正确**（且属 `src/main` ⇒ **报告不改**） | `ApiRoutes` AUTH 10 路径；T-010 补 8 条 |
+| 15 | `java/CONTRACTS.md`（`754/810/819` 等命中） | 版本锚 / 日期 / 条款 | **不属本类**（无路由/判据计数） | 目视逐行 |
+| 16 | `java/src/main/.../web/Bootstrap.java:78–81` | 「业务路由不注册」等 | **正确**（叙述，无计数；属 `src/main` ⇒ 不改） | — |
+
+**结论**：陈旧计数 = **3 处（#1/#2/#3）已全部订正**；其余 13 处**判正确/不属本类**，逐项给依据。**`src/main` 命中 2 处（#14/#16）据实正确且不改**（边界要求）。
+
+**「同类残留 = 0」可复现命令**（改动后）：
+```
+cd /root/myspace/hedge-guard
+# 陈旧值 45/47/82 及 ACCOUNT 模块键 —— 期望**无输出**（rc=1）
+grep -rnP --include=*.java '业务路由数 = 4[57]|ping 2 = 4[57]|routeCount == 8[02]' java/src/test ; echo "rc=$?"
+grep -rn --include=*.java -e '{@code ACCOUNT}' -e '"ACCOUNT"' java/src/test ; echo "rc=$?"
+# 现存路由计数一律 81/83 —— 期望**列出的每行**只含 81 或 83
+grep -rn --include=*.java -e '业务路由数' java/src/test
+```
+实测：前两条 **rc=1（无输出）**；第三条仅剩 `FakeJdbcDriver.java:23`（`81…83`）。
+
+---
+
+## §T-160 —— 「以 `ApiRoutes` 真实路径充当合成 / 未注册负例」同类点穷举订正
+
+**为何是缺陷（自伤机制）**：合成/负例路径若取自 `ApiRoutes` 内的**真实模块路径**，则该模块在 M3/M4 真接入并加入 `FullWebAssembly` 时——① 若用于**向装配克隆内注册** ⇒ **重复注册**抛 `IllegalStateException`（**以 ERROR 而非通过**呈现）；② 若用于**未注册负例** ⇒ 该路径变真路由 ⇒ 负例失效。二者都会**诱导维护者削弱/删除判据**。
+
+**扫描模式与范围**：`java/src/test/**`（`*.java`）——
+`grep -rn --include=*.java -E 'ApiRoutes\.(full|all)\(|\.register\(\s*"|\.match\(\s*"|unregistered|未注册|合成|synthetic|probe|no-such|sixth|第 6|/trade' java/src/test`，逐条区分「正向使用真实端点」vs「合成路由/负例」。
+
+**穷举表（逐处判定）**：
+
+| # | 落点 | 形态 | 判定 | 处置 |
+|---|------|------|------|------|
+| 1 | `RouteReachabilityProductionParityTest.java:117–118`（改前） | 合成「第 6 模块」路由 = `ApiRoutes.full("/trade/order")`（**∈ `ApiRoutes["TRADE"]`**）注册进 `FullWebAssembly` 克隆 | **须改（自伤）** | **⇒ `/api/v1/probe/x`**（新常量 `PROBE_MODULE_ROUTE`） |
+| 2 | `RouteReachabilityExhaustiveTest.java:152`（改前） | 「未注册模块」负例 = `/api/v1/trade/order`（**∈ `ApiRoutes["TRADE"]`**） | **须改（自伤）** | **⇒ `/api/v1/probe/order`** |
+| 3 | `RouteReachabilityExhaustiveTest.java:149` | 负例 `/api/v1/product/1/no-such-segment` | **正确**（合成段 `no-such-segment` 不在 `ApiRoutes`） | 不动 |
+| 4 | `RouteReachabilityExhaustiveTest.java:155` | 负例 `DELETE /api/v1/product` | **不可判定 / 低**（路径**在** `ApiRoutes` 内，负例由**方法维度**承担；**非**本自伤类，模块接入不影响；但若将来新增 `DELETE /product` 端点则失效） | 不动（**披露**） |
+| 5 | `RouteReachabilityExhaustiveTest.java:158` | 负例 `/api/v1/no-such-module/x` | **正确**（前缀不在 `ApiRoutes`） | 不动 |
+| 6 | `RouterTest.java:23–25,50–53,60` | 本地 `new Router()` 合成路由 / 负例 | **正确**（**本地实例**，不入生产装配、不断言「与 ApiRoutes 无交集」） | 不动 |
+| 7 | `RequestDispatcherTest.java:35,37,80,103,143,175,177` | 本地合成路由（含 `/api/v1/risk/dashboard` ∈ `ApiRoutes["RISK"]`） | **正确/不受影响**（本地实例；用于异常映射等，无重复注册风险、无「未注册」假设） | 不动（**披露**） |
+| 8 | `MustChangePasswordGateTest.java:34–42` | 本地合成路由 `/api/v1/auth/*` | **正确**（本地实例） | 不动 |
+| 9 | `RouteReachabilityBug004Test.java:58,69` | `ApiRoutes.full(path)` 正向回查 | **正确**（**正向**，非负例） | 不动 |
+| 10 | 其余 `ApiRoutes.full(...)`（`M1EndToEndAcceptanceTest`/`ProductDetailIsolationTest`/`T109EndpointRegistrationTest:150`/`ResetPassword…RealDaoTest`/`MustChangePasswordRealDaoTest`/`TradePlanSubAccountIsolationTest`/`PlanCompliancePrecheckTest`/`ProductRouteDispatchTest`/`PlanListRouteTest`/`AUTHEndpointRegistrationTest:96`/…） | 正向使用**真实端点** | **正确**（正向，非合成/负例） | 不动 |
+
+**判据 ② 注入前后对照（隔离副本 `/iso-t160`，用毕已 `rm -rf` 并 `[ ! -e ]` 核实）**：
+
+- **INJ-1（派单指定口径：生产装配多挂一个含遮蔽形态的第 6 模块、`FullWebAssembly` 不动）**：在副本 `Bootstrap.java:255` 后插 `router.register("GET","/api/v1/probe2/{id}",…)` + `…/probe2/x`（占位符在前、静态在后）⇒ `mvn -Dtest=RouteReachabilityProductionParityTest`：**`productionAssemblyEqualsCriteriaAssemblyMinusPing` 1 红**（失败文本点名 `差集=[GET /api/v1/probe2/{id}, GET /api/v1/probe2/x]`）⇒ **判据仍有牙**。**同一次运行** `RouteReachabilityExhaustiveTest` **6/6 绿**、`RouteReachabilityBug004Test` 2/2 绿（**精确复现 `TE-T153-001` 的「判据静默、生产已漂移」**）；`BootstrapAssemblyTest` 亦红（`expected:<83> but was:<85>`）⇒ 该精确等值守卫同为承重者。
+- **INJ-2（直证本单修复之必要：模拟 `TRADE` 真接入判据装配面）**：副本内 `FullWebAssembly.assemble()` 追加 `register("GET", ApiRoutes.full("/trade/order"), …)`（= M3/M4 场景）——
+  - **改后代码**运行 `-Dtest=…#parityDetectorIsNotVacuous`：**1/1 绿**（`PROBE_MODULE_ROUTE` 无冲突）；
+  - **把该行还原为改前写法**（`ApiRoutes.full("/trade/order")`）再运行：**ERROR 1** —— `java.lang.IllegalStateException: 路由重复注册：GET /api/v1/trade/order；原因=同一 (方法, 路径) 被注册两次` ⇒ **正是 `TE-T157-001` 所警示的自伤**，亦证本单修复**直接消除**该形态。
+- **逐字节复位**：INJ 期间共享树 `git status --porcelain` **全程为空**（本席在 `/iso-t160` 内作业，未触碰共享树）；副本内 `Bootstrap.java` md5 复位 `f1cb861e…`、与共享树同；用毕删除副本。
+
+**判据 ③（复位后全量绿）**：共享树 `mvn -B -o -Punit clean test` = **650/0/0/0 + BUILD SUCCESS**（下 §四）。
+
+**「同类残留 = 0」可复现命令**（改动后，**取代码形态**以免命中解释性注释）：
+```
+cd /root/myspace/hedge-guard
+grep -rn --include=*.java -e 'ApiRoutes.full("/trade' -e 'register("GET", "/api/v1/trade' -e '"/api/v1/trade/order"' java/src/test ; echo "rc=$?"
+```
+实测 **rc=1（无输出）**；合成探针在位：`grep -rn --include=*.java -e 'PROBE_MODULE_ROUTE' -e '/api/v1/probe' java/src/test`（列出新常量与两处新路径）。
+
+---
+
+## §T-162 —— 「子查询 loud 抛」不实表述的同类点穷举订正
+
+**真相（`T-152` 探针 P1–P5，已由 `te-verify-t152` 独立复现）**：`InMemoryDmEngine` **不解析子查询** ⇒ **多数形态静默错值**（**P4 = 假阳·越权可见** / **P5 = 假阴**），**仅**「带点号限定（如 `a.id IN (…)`）」与「裸列名且子查询逗号数 > 绑定参数数」才 **loud 抛**。⇒ 凡作「**子查询 → loud 抛**」**绝对措辞**者 **不实**。
+
+**扫描模式与范围**：`java/**`（含 `src/test`）与 `docs/**` ——
+`grep -rn -E 'loud|子查询|IndexOutOfBounds|UnsupportedOperation|引擎' …`，并交集 `grep -rn "loud" <f> | grep "子查询"`。
+
+**穷举表（逐处判定）**：
+
+| # | 落点 | 原文（摘要） | 判定 | 处置 |
+|---|------|-------------|------|------|
+| 1 | `java/src/test/.../web/M1EndToEndAcceptanceTest.java:108` | 「…子查询 loud 抛、多列外键…」 | **不实** | **已改**（`java/src/test` 写域）：「子查询**不解析**（**多数形态静默错值**、仅少数形式 loud 抛）」 |
+| 2 | `java/src/test/.../service/ProductDetailIsolationTest.java:78` | 「`InMemoryDmEngine` **不支持** `id IN (SELECT …)`」 | **不实（理由）**——「不支持」为真，但**理由**若指「loud 抛」则不实 | **已改（只更正理由）**：补「对该形态**不解析**：**多数形态静默错值**、非 loud 抛」；**断言与 RecordingJdbc 决策一字未动**（改用引擎会引入**静默假绿**） |
+| 3 | `docs/TEST_RESULT.md:6192` | `T-023` 证据行「子查询 … **抛**（`IndexOutOfBoundsException`/`UnsupportedOperationException`）✔（**loud**）」 | **不实** | **证据章（原文一字不删）⇒ §T-162 勘误节**（见下） |
+| 4 | `docs/TEST_RESULT.md:6197` | 「子查询**loud 抛**、JOIN/聚合—**静默返回错值**」 | **不实** | 同上（勘误节覆盖） |
+| 5 | `docs/TEST_RESULT.md:6284` | `OBS-4` 建议把「子查询＝**loud 抛**」分列 | **不实** | 同上 |
+| 6 | `docs/TEST_RESULT.md:6534` | 「**子查询 → loud 抛**（不会静默）：裸列名抛 `IOOBE`」 | **不实** | 同上 |
+| 7 | `docs/TEST_RESULT.md:6632` | 证据表「裸列名 `WHERE id IN (SELECT …)` → loud 抛 `IOOBE`」 | **不实** | 同上 |
+| 8 | `docs/TEST_RESULT.md:6635` | 「『子查询＝loud 抛』分开表述成立 ✔」 | **不实** | 同上 |
+| 9 | `docs/TEST_RESULT.md:7908` | 引述 `M1-report §4`「**未使用**…子查询 → loud 抛」 | **不可判定**（系**引述他制品措辞**且置于缺陷记录内；`M1-report` 本体见 #12/#13） | 不改（勘误节注明） |
+| 10 | `docs/TEST_RESULT.md:9994–10002` | PROBE「裸列名**不抛而静默错值**；仅点号限定抛」 | **正确**（即订正本身） | 不改 |
+| 11 | `docs/TEST_RESULT.md:10548+`（`T-152` 报告） | 「子查询多数形态静默错值…」 | **正确** | 不改 |
+| 12 | `docs/TEST_PLAN/M1-report.md:64` | 「**子查询 → loud 抛**」 | **不实** | **已改（表述）**：「子查询 → 不解析（多数形态静默错值、仅少数形式 loud 抛）」 |
+| 13 | `docs/TEST_PLAN/M1-report.md:185` | 「子查询（loud 抛）」 | **不实** | **已改（表述）**（同 #12） |
+| 14 | `docs/TEST_PLAN/INDEX.md:837` | 「引擎明确不覆盖：…子查询…」 | **正确**（仅列「不覆盖」，**无** loud 断言） | 不改 |
+| 15 | `docs/TASKS.md:743` | 裁定行「…『子查询 → loud 抛』分开表述…（其以自有 fixture 实测：子查询抛 `IOOBE`/`UnsupportedOperation`）⇒ 保留」 | **不实**（**历史动作记录**） | **只报不改**（编排者写域；依「只加不改」体例须**加注**而非改写） |
+| 16 | `docs/TASKS.md:776` | 派发登记「…子查询 loud 抛…」 | **不实**（派发记录） | 只报不改 |
+| 17 | `docs/TASKS.md:785` | `T-024` 诚实披露④「…子查询 loud 抛…」 | **不实** | 只报不改 |
+| 18 | `docs/BOARD.md:615,619` | 「…『子查询 → loud 抛』分开表述…」「…子查询 loud 抛 ⇒ 性质不同」 | **不实**（历史记录行） | 只报不改 |
+| 19 | `docs/TASKS.md:151,197`；`docs/BOARD.md:279,574,131,134,137` | 「…javadoc 自述『子查询 loud 抛』**为假**」/「真相=静默错值，非 loud 抛」 | **正确**（即披露其不实） | 不改 |
+| 20 | `java/src/test/.../testsupport/InMemoryDmEngine.java:59–83` | 已由 `T-152` 订正为「多数形态静默错值，仅少数 loud 抛」 | **正确** | 不改 |
+| 21 | `java/src/main/**` | — | **无命中** | — |
+
+**同类残留 = 0（可复现命令）**：
+```
+cd /root/myspace/hedge-guard
+# (a) java/src/test 写域 —— 期望**无输出**（rc=1）
+grep -rn --include=*.java -e '子查询 loud 抛' -e '子查询 → loud' -e '子查询（loud' java/src/test ; echo "rc=$?"
+# (b) docs/TEST_PLAN 写域 —— 期望**无输出**（rc=1）
+grep -rn -e '子查询 → loud' -e '子查询（loud' docs/TEST_PLAN ; echo "rc=$?"
+# (c) 全仓残留（**授权写域外**，据实列出 = 历史证据/账本行，不得改写）
+grep -rn "loud" docs/ java/ 2>/dev/null | grep "子查询" | grep -vE "TEST_RESULT.md|TASKS.md|BOARD.md"
+```
+实测：(a) **rc=1**；(b) **rc=1**；(c) **无输出**。⇒ 在**本席授权写域**内同类残留 = **0**；`docs/TEST_RESULT.md`（证据章，**已勘误**）、`docs/TASKS.md`/`docs/BOARD.md`（编排者账本，**待其加注**）**按体例保留原措辞**。
+
+### §T-162 勘误节（指向 `docs/TEST_RESULT.md` 历史行；**原行一字不删**）
+
+> ⚠️ **勘误（席 `te-txt`，2026-09-24）**：上列 **`:6192` / `:6197` / `:6284` / `:6534` / `:6632` / `:6635`** 六处为 `T-023`/`T-024` 期**证据与观察**，其中「**子查询 → loud 抛（不会静默）**」「裸列名 `WHERE id IN (SELECT …)` → loud 抛 `IndexOutOfBoundsException`」**经 `T-152` 探针 P1–P5 实测不成立**（**`te-verify-t152` 已独立复现**，见 `docs/TEST_RESULT.md:9994–10002` 与 `:10548+` 的 `T-152` 报告）。
+> **正解**：`InMemoryDmEngine` **不解析子查询** ⇒ **多数形态静默错值**（**P4 = 假阳·越权可见** / **P5 = 假阴**）；**仅**「带点号限定 `a.id IN (…)`」与「裸列名且子查询逗号数 > 绑定参数数」才 **loud 抛**；引擎类 javadoc（`InMemoryDmEngine.java:61–83`）**已按此订正**。
+> **对既有结论无影响**：该不实自述**未**导出放水断言（既有断言分别走 `FakeDao` / 记录型假 JDBC，**无一处**把白名单子查询路由进 `InMemoryDmEngine`）⇒ **结论未受累、仅表述受累**（`T-152` 独立复核已确认）。**历史行保留原措辞以存真**，以本勘误节为准。
+
+---
+
+## §四、边界、不变式与未覆盖声明（本席）
+
+- **写域**：`java/src/test/**` + `docs/TEST_RESULT.md`（纯追加）+ `docs/TEST_PLAN/M1-report.md`（表述订正）。**未改** `java/src/main/**`、`web/**`、`ApiRoutes` 声明面、任何测试**语义/断言**。
+- **`docs/TEST_RESULT.md` 纯追加证明**：追加前 10768 行 / md5 `5ee880877d564307c3152103d93ccda6`；`head -10768 docs/TEST_RESULT.md | md5sum` = 同值（本节在其后）。
+- **注入隔离**：全部注入仅在本席隔离副本 **`/iso-t160`**（布局 `<root>/{docs,java,tools}`，`TMPDIR=/root`、**未用 `/tmp`**）内进行；用毕 `rm -rf` 并 `[ ! -e ]` 核实。**共享树 `git status --porcelain` 全程仅本单 7 文件**。
+- **git**：未 `commit`/`amend`/`reset`/`push`；无脏工作树遗留。
+- **未覆盖 / 不可判定（显式声明）**：
+  1. `T-160` #4（`DELETE /api/v1/product` 负例）：路径在 `ApiRoutes` 内、负例由**方法维度**承担 ⇒ **非**本自伤类；但**若**将来新增 `DELETE /product` 端点则该负例会失效 ⇒ **残余风险已登记**，未改（避免越界削弱既有断言）。
+  2. `T-160` #7（`RequestDispatcherTest` 用 `/api/v1/risk/dashboard`）：**本地实例**、无重复注册风险 ⇒ 判**不受影响**，未改。
+  3. `T-162` #9（`:7908`）：**引述他制品措辞**，判**不可判定/非自身断言**，未改。
+  4. `T-162` #15–#18（`docs/TASKS.md`/`docs/BOARD.md`）：**授权写域外**（编排者账本，涉「只加不改」体例）⇒ **只报不改**；核对清单：`TASKS.md:743,776,785`、`BOARD.md:615,619`（建议以 `⚠️ 勘误` **加注**指向本报告）。**请编排者裁定是否授权本席或由其自行加注。**
+  5. `T-158` #14/#16：`src/main` 命中，**判正确且不改**（边界要求，逐处已给依据）。
+  6. 本报告 §T-158/#3 的「模块键名 `ACCOUNT`→`ACCT`」属**命名订正**（非计数），一并列出以免漏判。
