@@ -139,12 +139,35 @@ async function main() {
     window.location.href = '/web/login.html';
     return;
   }
+  if (res.mustChangePassword) {
+    // FR-AUTH-16 门禁：本会话被服务端限制为「仅可改口令 / 登出」，业务端点一律 10003 拒绝。
+    // 门禁标记落 localStorage ⇒ **新标签页**同样识别（不再误报「后端不可达」）；直接引导至改密页。
+    const b = ui.banner(
+      '<strong>须先修改口令</strong>：当前会话被限制为「仅可改口令 / 登出」（FR-AUTH-16），' +
+      '业务功能在完成修改前不可用。',
+      'warn',
+      [ui.el('button', { class: 'hg-btn hg-btn--ghost hg-btn--sm', type: 'button', text: '去修改口令', onclick: () => { window.location.hash = '#/auth?tab=password'; } })]
+    );
+    layout.insertBefore(b, layout.firstChild.nextSibling);
+    window.location.hash = '#/auth?tab=password';
+  }
   if (res.degraded) {
     const b = ui.banner(
       '<strong>后端不可达 / 尚未装配</strong>：无法加载用户与子账户（' + ui.esc(HG.errmsg.summary(res.error)) + '）。' +
       '当前为<strong>界面预览</strong>模式，任何数据操作都会失败——这是已知状态（Java 侧业务层尚未接线）。',
       'error',
       [ui.el('button', { class: 'hg-btn hg-btn--ghost hg-btn--sm', type: 'button', text: '重试', onclick: () => window.location.reload() })]
+    );
+    layout.insertBefore(b, layout.firstChild.nextSibling);
+  }
+  if (res.forbidden) {
+    // 后端**可达**但本请求被业务拒绝（典型 10003 功能权限不足；亦含 FR-AUTH-16 门禁）——
+    // 中立态：如实呈现后端结论，**不得**误报「后端不可达」，也**不**断言「须改口令」。
+    const b = ui.banner(
+      '<strong>当前会话暂无法加载用户与子账户</strong>：后端返回 ' + ui.esc(HG.errmsg.summary(res.error)) + '。' +
+      '若刚登录 / 口令被重置，请先前往 <a href="#/auth?tab=password">我的口令</a> 完成修改。',
+      'warn',
+      [ui.el('button', { class: 'hg-btn hg-btn--ghost hg-btn--sm', type: 'button', text: '去修改口令', onclick: () => { window.location.hash = '#/auth?tab=password'; } })]
     );
     layout.insertBefore(b, layout.firstChild.nextSibling);
   }

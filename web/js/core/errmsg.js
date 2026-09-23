@@ -48,6 +48,18 @@ function isUnauthenticated(err) {
 /** 是否为网络 / 未装配导致的失败（非业务错误）。 */
 function isTransport(err) { return !!err && err._network === true; }
 
+/**
+ * 后端是否**确实不可达**（区别于「后端可达、业务拒绝」）。
+ *   - 网络层失败：`fetch` 抛错 / 非统一信封响应（`_network === true`）；
+ *   - 服务端错误：HTTP 状态码 ≥ 500。
+ * 用途：会话引导据此判定是否降级告警；**10003 等功能权限拒绝不属此项**（后端是活的）。
+ */
+function isBackendUnavailable(err) {
+  if (!err) return false;
+  if (isTransport(err)) return true;
+  return typeof err._http === 'number' && err._http >= 500;
+}
+
 /** 单行摘要文本。 */
 function summary(err) {
   if (!err) return '未知错误';
@@ -77,5 +89,5 @@ function render(err) {
   return `<div class="hg-blocked"><div class="hg-blocked__msg">${safeMsg}</div><dl>${rows.join('')}</dl></div>`;
 }
 
-HG.errmsg = { render, summary, isBlocked, isUnauthenticated, isTransport, CODE_HINT };
+HG.errmsg = { render, summary, isBlocked, isUnauthenticated, isTransport, isBackendUnavailable, CODE_HINT };
 export default HG.errmsg;
