@@ -3,9 +3,6 @@ package com.hedgeguard.service;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import java.util.HashSet;
-import java.util.Set;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -15,9 +12,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * {@link PasswordHasher} 单元测试（{@code NFR-SEC-2} / {@code ARCHITECTURE.md} §7.2.2）。
  *
- * <p>验证四条要件：①JDK 内置 {@code PBKDF2WithHmacSHA256}；②盐随机且每次不同；
+ * <p>验证三条要件：①JDK 内置 {@code PBKDF2WithHmacSHA256}；②盐随机且每次不同；
  * ③迭代次数 ≥ 120000 并随编码记录（可升级强度而不失效历史口令）；
- * ④强度策略与一次性随机口令满足「长度 + 大小写 + 数字 + 符号」。
+ * ④强度策略满足「长度 + 大小写 + 数字 + 符号」。
+ *
+ * <p>{@code T-144}（{@code O-1}）：原「一次性随机口令」用例随
+ * {@code PasswordHasher.randomPassword} 一并删除——该工具方法在 {@code FR-AUTH-16} 形态 B
+ * （管理员设定新口令）下已无任何生产调用方（{@code src/main} 零引用），属死代码。
  */
 class PasswordHasherTest {
 
@@ -76,24 +77,5 @@ class PasswordHasherTest {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> PasswordHasher.assertStrength("short", 12));
         assertFalse(e.getMessage().contains("short"), "异常不得回显明文口令：" + e.getMessage());
-    }
-
-    @Test
-    @DisplayName("一次性随机口令：长度达标、四类字符齐备、多次生成不重复")
-    void oneTimePasswordIsStrongAndUnique() {
-        Set<String> seen = new HashSet<>();
-        for (int i = 0; i < 20; i++) {
-            String pwd = PasswordHasher.randomPassword(16);
-            assertEquals(16, pwd.length());
-            assertTrue(pwd.matches(".*[A-Z].*"), "含大写" + pwd);
-            assertTrue(pwd.matches(".*[a-z].*"), "含小写" + pwd);
-            assertTrue(pwd.matches(".*[0-9].*"), "含数字" + pwd);
-            assertTrue(pwd.matches(".*[^A-Za-z0-9].*"), "含符号" + pwd);
-            // 随机生成的弱口令不得可预测：至少存在差异（避免随机源被固定）
-            assertFalse(seen.contains(pwd), "随机口令不得重复：" + pwd);
-            seen.add(pwd);
-        }
-        assertThrows(IllegalArgumentException.class, () -> PasswordHasher.randomPassword(8),
-                "长度不足须拒绝");
     }
 }

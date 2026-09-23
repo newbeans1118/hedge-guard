@@ -466,11 +466,22 @@ class AuthAdminServiceTest {
     @DisplayName("T-136 形态 B：PUT /auth/password 强度不足 ⇒ 拒绝（复用 assertStrength）")
     void resetPasswordRejectsWeakPassword() {
         service.createUser("lisi", "李四", "NP-001", "财务部", "N", "Hg#2026Trading01", 9L);
-        assertThrows(RuntimeException.class, () -> new PasswordHandler(service).handle(
-                new RequestContext("PUT", PasswordHandler.PATH, null,
-                        java.util.Collections.emptyMap(),
-                        "{\"userId\":1,\"newPassword\":\"short\"}", "HGT136", "127.0.0.1")),
+        // O-4（收紧）：原为 assertThrows(RuntimeException)（过宽：任何运行时异常都能通过）。
+        // 本路径的拒绝来自 PasswordHasher.assertStrength ⇒ 精确的 IllegalArgumentException。
+        // 该异常非 BizException；在 HTTP 层由 ErrorMapper 映射为既有错误码 10001（PARAM_INVALID），
+        // 故此处同时断言「类型 + 报文 + 线上错误码语义」三者。
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> new PasswordHandler(service).handle(
+                        new RequestContext("PUT", PasswordHandler.PATH, null,
+                                java.util.Collections.emptyMap(),
+                                "{\"userId\":1,\"newPassword\":\"short\"}", "HGT136", "127.0.0.1")),
                 "强度不足须拒绝（FR-AUTH-16 处理规则复用）");
+        assertTrue(e.getMessage().contains("口令强度不足"),
+                "拒绝须点名口令强度策略（且不得回显明文）：" + e.getMessage());
+        assertFalse(e.getMessage().contains("short"), "异常信息不得回显明文口令：" + e.getMessage());
+        assertEquals(ErrorCode.PARAM_INVALID.code(),
+                com.hedgeguard.web.ErrorMapper.map(e, "HGT136").code,
+                "该拒绝在 HTTP 层须映射为既有错误码 10001（PARAM_INVALID）");
     }
 
     @Test

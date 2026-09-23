@@ -146,39 +146,6 @@ public final class PasswordHasher {
         }
     }
 
-    /**
-     * 生成一次性随机口令（重置口令时使用；不落日志，仅返回一次）。
-     *
-     * @param length 长度（≥ 12）
-     * @return 随机口令（含大小写、数字与符号各至少一个）
-     */
-    public static String randomPassword(int length) {
-        if (length < 12) {
-            throw new IllegalArgumentException(
-                    "一次性口令长度不得低于 12；实际=" + length + "；复现=按 CFG-23b 下限生成");
-        }
-        final String upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
-        final String lower = "abcdefghijkmnopqrstuvwxyz";
-        final String digits = "23456789";
-        final String symbols = "!@#$%^&*-_=+?";
-        String all = upper + lower + digits + symbols;
-        char[] out = new char[length];
-        out[0] = upper.charAt(RANDOM.nextInt(upper.length()));
-        out[1] = lower.charAt(RANDOM.nextInt(lower.length()));
-        out[2] = digits.charAt(RANDOM.nextInt(digits.length()));
-        out[3] = symbols.charAt(RANDOM.nextInt(symbols.length()));
-        for (int i = 4; i < length; i++) {
-            out[i] = all.charAt(RANDOM.nextInt(all.length()));
-        }
-        for (int i = length - 1; i > 3; i--) {
-            int j = RANDOM.nextInt(i + 1);
-            char tmp = out[i];
-            out[i] = out[j];
-            out[j] = tmp;
-        }
-        return new String(out);
-    }
-
     private static byte[] derive(char[] password, byte[] salt, int iterations, int keyBits) {
         PBEKeySpec spec = new PBEKeySpec(password, salt, iterations, keyBits);
         try {
