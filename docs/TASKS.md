@@ -59,7 +59,7 @@
 | T-014 | 实现实货敞口计算服务（三分量 + 快照时点 + 缺口处置） | FR-SPOT-13~18, CFG-12/12b/17/17b | backend-engineer#java2 | P0 | T-013 | 16 人时 | 初版 | 已完成，待独立复核 |
 | T-015 | 实现套保比率三档计算 | FR-PLAN-6/7/8, R-SPOT-8, CFG-06/06b | backend-engineer#java2 | P1 | T-007 | 16 人时 | 初版 | 已完成，待独立复核 |
 | T-016 | 实现套保计划编制/书面文件门禁/审批链/状态机 | FR-PLAN-1~5/9~20, R-PLAN-5 | backend-engineer#java2 | P0 | T-007, T-015 | 24 人时 | 初版 | DONE（附条件；判据 = 授权 + 独立验证；独立复核 = 有条件通过〔13 项判据 12 符合；`CR-002` 核心反例闭合；反退化 8/8 全红；隔离副本 `346/0/0/0` 独立复现〕；条件 = (c)「审批页面展示」由 `T-020` 承载，义务不减） |
-| T-017 | 搭建前端基座（登录/核心工具/零构建链） | NFR-USE-1~5, NFR-MAINT-1/5, NFR-COMPAT-3 | frontend-engineer | P0 | T-003 | 16 人时 | 初版 | TODO |
+| T-017 | 搭建前端基座（登录/核心工具/零构建链） | NFR-USE-1~5, NFR-MAINT-1/5, NFR-COMPAT-3 | frontend-engineer | P0 | T-003 | 16 人时 | 初版 | IN_PROGRESS |
 | T-018 | 实现品种管理前端页面 | FR-PRODUCT-1~14 | frontend-engineer | P1 | T-017, T-012 | 12 人时 | 初版 | **DONE（授权 + 独立验证）**〔第 91 轮 · 独立复核 `te-verify-t018` = **有条件通过 / 0 阻断缺陷**（缺陷单 0；观察 4）⇒ 转 `DONE`；证据章 `docs/TEST_RESULT.md:5580`（`L5579..5775`，**纯追加已核**：`head -5578` = `6988ede8…`）〕（2026-09-23 实例 `be-t018` 交付，**不自评 `DONE`**；**2 改**：`web/js/pages/product.js` 19 行 stub → **999 行**真实界面（`b8e66b70…`）、`web/js/core/api.js` **+45/−1**（`db1d4e9d…`，唯一改动 = `HG.api` 导出清单追加 `download`；8 个既有函数未动）；`web` 树锚 **`f827e00e…`/27**（基线 `81a06bce…`/27）；`E6` **rc=0**；无头桩自测 **23/23 PASS**（**非真实浏览器**，已如实标注）；**7 项未决**见 §2，其中 **2 项已立 `T-131`/`T-132`**） |
 | T-019 | 实现现货与实货敞口前端页面 | FR-SPOT-1~18 | frontend-engineer | P1 | T-017, T-013, T-014 | 16 人时 | 初版 | TODO |
 | T-020 | 实现套保计划前端页面 | FR-PLAN-1~20 | frontend-engineer | P1 | T-017, T-016 | 16 人时 | 初版 | TODO |
@@ -512,6 +512,7 @@
   - **(f) PLAN 段缺 1 条**：`/plan/{id}/bind-exposure`（`action()`/`ratio()` 通用式未覆盖）。
   - **合计：头部计数 1 项 + `NOT_REGISTERED` 不实 3 项 + 缺失已注册路径 23 条**（AUTH 8 + CONFIG 9 + SPOT 5 + PLAN 1；其中 `/auth/user`、`/auth/sub-account-perm` 同时属 (b)/(c)，故**去重后缺失路径 = 23**）。**判据口径**：路径「已存在」以**是否能由 `routes.js` 的常量或其拼接式还原**为准（`/product/{id}` 等由 `detail:`/`exposureDetail:`/`doc:`/`tradePlans:` 拼接者**算已存在**）⇒ 故**不含** `/product/{id}`、`/product/{id}/contracts`、`/spot/exposure/{id}`、`/plan/{id}`、`/plan/{id}/doc`、`/plan/{id}/trade-plans`。
   **⇒ 纪律（本次第四类失败）**：「**N 处**」这类计数**必须来自穷举**（对权威源**逐条**对账），**不得**由「抽验若干点」得出；抽验只能支撑「**至少 N 处**」，**不得**写成「**共 N 处**」。**已同步写入 `T-017` 验收 5**（见下）。
+  **📌（2026-09-23 第 92 轮派发登记 · 只加不改）** 状态 = **IN_PROGRESS**（实例 `be-t017`、**唯一写者**：`web/index.html`、`web/login.html`、`web/css/hg.css`、`web/js/core/**`）。**派发前置**：`te-verify-t018` 已回执并转 `DONE` ⇒ **该复核的取证锚点已定**，改 `web/**` 不再污染它（本条即上一条「待其回执后再改」的满足）。**基线**：`web` 树 = `f827e00e6687afb092ab933fe0816ce4` / **27 文件**（自 `T-018` 交付以来未变）。**交付内容** = ① 修 `routes.js` 镜像（**头部计数 47→82**、**`NOT_REGISTERED` 移出 `/plan`+`/auth/user`+`/auth/sub-account-perm` 三项**、**补 23 条缺失已注册路径**：AUTH 8 / CONFIG 9 / SPOT 5 / PLAN 1）；② 对验收 1–4 逐条实测自证。**并发约束**：同轮在飞 `te-verify-t022`/`te-verify-t023`（**均只读**，且在**隔离副本**内跑）与 `pm-ch012sync`（写 `docs/REQUIREMENTS/**`）⇒ 写域与 `web/**` 不重叠。**须你给「已注册 − 已登记 = ∅」的实测输出**（见验收 5）。**自评**：状态只能写「已完成（待独立复核）」。
 
 ### T-018 实现品种管理前端页面
 
