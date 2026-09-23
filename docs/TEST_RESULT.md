@@ -6291,3 +6291,210 @@ TMPDIR=/root mvn -B -o -Pcoverage test            # 生成 target/site/jacoco（
 - **只读声明**：本席**未改** `docs/TEST_PLAN/**`、`java/src/**`、`web/**`、`docs/TASKS.md`、`docs/BOARD.md`、`docs/REQUIREMENTS/**`；**唯一写入 = 本追加章**。
 - **隔离副本**：`/root/t023v/`（变异/探针跑毕复位、探针类已删；`/root/t023_*.orig`、`/root/t023_probe.py` 在仓库外）；**未用 `/tmp`**。
 - **未自评 `DONE`**。
+
+---
+
+# `T-017` 独立复核证据（2026-09-23）
+
+- **复核席位/实例**：`test-engineer` / `te-verify-t017`（独立复核者；**不采信产出方自评**）
+- **被复核对象**：`T-017` 搭建前端基座（登录/核心工具/零构建链）交付（产出方 `be-t017`）
+- **复核时点**：HEAD = `1b15d92`；交付提交 = `161e3d3`（其父 `161e3d3~1` = 基线）
+- **结论**：**通过**（**0 阻断缺陷 / 0 低缺陷 / 5 观察项**）。镜像与权威源在**严判据**下双向空集；验收 1–5 逐条成立；跨界修复在授权范围内且回归彻底消除。
+
+---
+
+## 1. 判据 1–9 逐条（「独立实测」vs「产出方自述」两栏）
+
+> 口径：下表「独立实测」= 本席本轮在 `HEAD=1b15d92` 亲自跑出的命令与输出；「产出方自述」= 交付报告/台账所称，未经我直接复现者。除注明外，**全部独立实测**。
+
+### 判据 1 锚点复现 —— 判定：✅ 成立
+
+| 项 | 独立实测 | 产出方/台账自述 | 判定 |
+|---|---|---|---|
+| `web/js/core/routes.js` | `dfd23bfd24dbc3af3e4a37b05066eaf8` / **122** 行 | 同 | ✅ |
+| `web/js/core/session.js` | `25740708d293a5f86057dcb344b7f872` / **112** 行 | 同 | ✅ |
+| `web/js/pages/plan.js` | `28316f6b41cfe526648181ea693992e6` / **339** 行 | 同 | ✅ |
+| `web` 树锚 | `find web -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum` = **`926022d9389bfa40c171279d2657d56d` / 27** | 同 | ✅ |
+| `git diff --numstat 161e3d3~1 161e3d3` | `49/20`(routes) `2/1`(session) `10/10`(plan) | 同 | ✅ |
+| 改前 md5（`git show 161e3d3~1:<f>`） | routes `80909124…`/93、session `18bbe7da…`/111、plan `4fcc0456…`/**339** | routes `80909124…`✅；plan「改前 208 行」**不实** | ✅（含台账已登记的产出方行数不实） |
+| 改前 `web` 树锚（`git archive 161e3d3~1 web`） | `f827e00e6687afb092ab933fe0816ce4` / 27 | 同 | ✅ |
+
+**独立实测命令**：`git show --stat 161e3d3`；`git diff --numstat 161e3d3~1 161e3d3`；`md5sum web/js/{core/routes,core/session,pages/plan}.js`；`find web -type f | LC_ALL=C sort | xargs md5sum | md5sum`。
+**附**：`plan.js` 改前/改后**均 339 行**（`+10/−10` 净值不变）⇒ 产出方回执称「改前 208 行」**确为不实**（台账第 94 轮已据实登记；**不影响制品**：md5/numstat 属实）。
+
+### 判据 2 ★镜像对账（本单核心）—— 判定：✅ 成立（严判据双向空集）
+
+**本席自算权威源**（脚本 `/root/verify-t017/extract_authority.py`：解析 `handler/**/*Routes.java` 全部 `router.register` + 各 `*Handler.PATH` 常量 + **展开两处循环** `PlanActionHandler.Action.values()`(8) / `PlanRatioHandler.Method.values()`(3) + `Bootstrap.java` 的 `ping` GET/HEAD）：
+
+```
+total_pairs = 82   total_paths = 60
+by_module  = { AUTH:17, CONFIG:17, PRODUCT:13, SPOT:15, PLAN:18, PING:2 }
+ping pairs = [GET /ping, HEAD /ping]
+```
+⇒ 与权威源（`BootstrapAssemblyTest.java:140` `assertEquals(82, assembly.routeCount(), …)`）**逐模块一致**。
+
+**双向对账（严判据脚本 `/root/verify-t017/reconcile_strict.mjs`）**：镜像侧**实际求值**每个常量/拼接式（Node 载入模块 + 桩参数调用，**非字面 grep**）。严判据 = ① 通配位须对齐权威 `{id}` 参数位（**不允许通配吞并字面段**，见 §5 M4/M5）；② `PLAN.action`/`PLAN.ratio` 两条通用式按 Java 枚举**展开**（8 + 3）。
+
+| 方向 | 改前（`80909124…`）**独立实测** | 改后（`dfd23bfd…`）**独立实测** | 判定 |
+|---|---|---|---|
+| ① 已注册 − 已登记 | **23 条缺失**（AUTH 8 / CONFIG 9 / SPOT 5〔含 `/spot/exposure/export`〕/ PLAN 1〔`/plan/{id}/bind-exposure`〕） | **∅（0）** | ✅ |
+| ② 已登记 − 已注册 | 0 | **∅（0）** | ✅ |
+| `NOT_REGISTERED` 不实项 | **3**（`/plan`、`/auth/user`、`/auth/sub-account-perm`） | **∅（0）** | ✅ |
+
+- 改前 **23 缺 + 3 不实** 与台账第 92/93 轮清单**逐条吻合**；改后**双向空集** ⇒ **验收 5 成立**。
+- **错值比缺项更危险**：本对账在**值级**生效——§5 M1（改错一个字面）被 ①②**同时**捕获；再叠加**逐条目视 key→value 表**（下方 §3），确认 52 条的键值与语义一一对应（无错值、无误绑）。
+
+### 判据 3 头部计数与判据来源 —— 判定：✅ 成立
+
+- 头部 `:14` 写「**82 个 (方法, 路径) 对 / 60 个路径**」；`:15–16` **写明判据来源** = `java/src/test/java/com/hedgeguard/web/BootstrapAssemblyTest.java:140`，并**逐字引用**其断言串。**独立实测** `sed -n '140p'` = `assertEquals(82, assembly.routeCount(),`（`:141–142` 为同串消息）；该文件 md5 `25c43970…`/214。
+- 头部模块/未注册清单与下方 `ROUTES` 对象**逐条一致**：AUTH 10 路径 / CONFIG 11 / PRODUCT 9 / SPOT 13 / PLAN 16 / PING 1 皆对得上（本席逐条比对方法标注，全部正确）。
+
+### 判据 4 `NOT_REGISTERED` 逐条属实 —— 判定：✅ 成立
+
+- 现仅 `RISK_DASHBOARD='/risk/dashboard'`、`TRADE_ORDER='/trade/order'`；**独立实测** `ls java/src/main/java/com/hedgeguard/web/handler/` ⇒ 仅 `auth config plan product spot`（**无 `risk`/`trade` 目录**）⇒ 二者确未注册，**保留正确**。
+- `/plan`、`/auth/user`、`/auth/sub-account-perm` 的**不实声明已移出**（三者实测已注册：`PlanRoutes.java:52`；`UserHandler.PATH` GET/POST/PUT；`SubAccountPermHandler.PATH` GET/POST）。
+
+### 判据 5 `session.js` 同源订正 —— 判定：✅ 成立
+
+- `git diff 161e3d3~1 161e3d3 -- web/js/core/session.js` = **单 hunk、1 行删 / 2 行增**（`+2/−1`）：原「`GET /auth/user` 与 `/auth/sub-account-perm` **未注册**」→「亦**已注册**（`T-010` 补齐）」。**只改该一处**，无其它改动。
+
+### 判据 6 ★授权跨界修复的范围与效果（`plan.js`）—— 判定：✅ 成立
+
+- **范围合规**：`git diff 161e3d3~1 161e3d3 -- web/js/pages/plan.js` = **恰 3 个 hunk / `+10/−10`**，**未越授权**：
+  - hunk1 `:15–17` 头注误述订正；hunk2 `:63–66` banner 误述订正（授权类②）；
+  - hunk3 `:89` `HG.routes.NOT_REGISTERED.PLAN_LIST` → **`HG.routes.PLAN.LIST`**（授权类①）；`:91`/`:96` 探测按钮**前提串同步**（授权类③）；`ui.banner(…,'warn')` 的 **`kind='warn'` 未动**。
+- **反弹验证（独立实测）**：`grep -rn 'NOT_REGISTERED\.' web/` ⇒ **0 命中**（rc=1）；`grep -rn 'NOT_REGISTERED' web/` 仅 `routes.js:115` 定义行。
+- **第二消费方排查（全仓）**：`grep -rn 'PLAN_LIST' .`（除 `.git`）**仅** 命中台账叙事（`TASKS.md`/`BOARD.md`）与**一个陈旧 worktree 副本**（见观察 O-4），**共享 `web/` 内无其它消费方**（含 `.html`：`web/*.html` 内联脚本无 `HG.routes.*` 引用）。
+- **新引入未定义引用**：逐条列出 `web/` 内**全部** 15 处 `HG.routes.*` 引用（app/session/_dashboard/login/plan/product/spot），**每处键均解析成功**（§3）；`node --check` 全 24 个 `.js` 语法通过。
+
+### 判据 7 余留项（`plan.js:56`/`:111`）—— 判定：✅ 成立（非回归）
+
+- **独立实测**：`sed -n '56p;111p'` 仍为「后端未提供列表端点，显式登记阻塞」/「← 返回计划列表（接口未就绪说明）」——**未动**，且措辞**确已陈旧**（`GET /plan` 已注册）。二者属 `T-020` 页面业务面（台账已在其 §2 补登），**非本单回归**。
+
+### 判据 8 验收 1/2/3/4 —— 判定：✅ 成立（**静态 + 无头桩**层面，**非真实浏览器**）
+
+| 验收 | 独立实测证据 | 判定 |
+|---|---|---|
+| ① 零构建链（`E6` + 全库 grep） | `bash tools/arch-check/check_frontend.sh` ⇒ **rc=0**；`find . -name package.json/node_modules/*.bundle.js/*.min.js/dist`（除 `.git`）⇒ **全仓 0 命中** | ✅ |
+| ② `core/` 就位 + `HG.<module>` + 禁全局 `var` | `web/js/core/` **9** 文件（`api/router/session/ui/format/errmsg` **6** 齐全 +`ns`/`routes`/`ws` ⇒ **超集**）；9 个各挂 `HG.<module>`；`grep -rn '\bvar\b' web/js/` ⇒ **0** | ✅ |
+| ③ 登录 `POST /api/v1/auth/login` + `HGSESSION` | 自撰无头桩（`/root/verify-t017/my_probe.mjs`）：`calls[0].url === '/api/v1/auth/login'`、`method=POST`、`credentials='same-origin'`（同源携带 Cookie）⇒ **PASS**；`HGSESSION` 为 HttpOnly Cookie（后端下发，见 `api.js:6`/`session.js:5`/`LoginHandler.java:18`） | ✅ |
+| ④ 阻断四项 + 金额/数量字符串 | 自撰桩：`errmsg.render` 含 `ruleId/current/threshold/nextStep` 四项、`isBlocked` 判真、非阻断不展开；`format.money('1234567.890')='1,234,567.89'`、`qty('1234.5')='1,234.5000'`、`decSub('0.3','0.1')='0.2'`、超 2^53 串仍精确 ⇒ **全 PASS** | ✅ |
+
+**自撰桩结果**：`PASS=24 FAIL=0`（rc=0）；**产出方桩**（`/root/be-t017/probe/run.mjs`，其 `core/` 9 文件与树**逐字节同**）**PASS=25 FAIL=0**。**⚠️ 二者均为「静态 + 无头桩」层面；环境无浏览器/jsdom/puppeteer ⇒ 真实浏览器行为（innerHTML 插桩、Cookie 实际传递）不在本轮可证范围。**
+
+### 判据 9 `E6` 与聚合 —— 判定：✅ 成立
+
+- `bash tools/arch-check/check_frontend.sh` ⇒ **rc=0**（判据 ①② 均「无」）。
+- `bash tools/arch-check/arch-check.sh` ⇒ **rc=0**，汇总 **通过(0)=7 / 命中(1)=0 / 前置错误(2)=0**（E1–E7 全 0）。
+
+---
+
+## 2. 缺陷单与观察项
+
+**缺陷单：无**（0 阻断 / 0 低）。**观察项 5 条**（均**不阻断**）：
+
+- **O-1（可用性/设计）**：`ROUTES` 对象**只含路径、不含 HTTP 方法**，方法信息仅在头部**散文**（如 `GET|POST|PUT /auth/user`、`POST|GET /spot/price`）。验收 5 为**路径级**镜像故合规；但 `T-019`/`T-020`/`T-021` 若**只读对象不读头注**，有误用方法之虞（如 `/spot/price` 的 POST(录入) vs GET(取价)）。
+- **O-2（判据强度）**：本单对账为**集合级一致性**，存在 3 类**方法论盲区**（见 §4 (H)）：(i) 「两边一致地错」不报；(ii) 键名改错不报；(iii) 两个**合法值对调**不报。**已用 (i) 目视 52 条 key→value 表**（§3）补偿 (ii)(iii)；并如实披露 (i) 为**根本极限**（一致性 ≠ 正确性）。
+- **O-3（承前/归属）**：`plan.js:56`/`:111` 陈旧措辞**未改**——**正确**（属 `T-020`）。但 `T-020` 执行方读 `:56` 可能误判「`GET /plan` 未注册」⇒ 建议 `T-020` 交付时一并订正（台账已登记）。
+- **O-4（环境）**：仓库存在**陈旧 git worktree** `.codebuddy/worktrees/bg-01a0bd8e`（commit `9221262` / mtime 2026-09-22），内含**旧版** `routes.js`/`plan.js`（仍有 `NOT_REGISTERED.PLAN_LIST`）。**非活跃消费方**（未 tracked、不在 `web` 树锚内），故不影响本单结论；但**全仓 grep（不排除 `.codebuddy/`）会命中 1 处 `NOT_REGISTERED.`** ⇒ 提醒他人勿据此误报「回归未消除」。
+- **O-5（验收面 vs 实测）**：验收 2 列举 **6** 个 `core/*.js`，实有 **9** ⇒ **超集**、验收 2 满足（台账已存为非缺陷）。
+
+**产出方/台账「据实记录」两处**（本席**独立证实**，均针对**报告**而非**制品**）：
+- (i) 回执称 `plan.js` 改前 **208** 行 —— 实测 **339**（§1 判据 1）⇒ **不实**。
+- (ii) 台账称 `dd55255c…` 系 `tools/arch-check/README.md` 的 md5 —— 实测 `docs/TEST_RESULT.md:2815` 该行确为 `README.md | 321 | dd55255c87a5b44120c2b1aeb1ab474d` ⇒ **属实**（交付方对该值「出自 `check_frontend.sh` 旧锚」的出处说明**不实**）。
+
+---
+
+## 3. 本席自算权威源数字 + 双向对账输出
+
+**权威源（独立解析，非引用）**：`82 对 / 60 路径`；`AUTH 17 / CONFIG 17 / PRODUCT 13 / SPOT 15 / PLAN 18 / PING 2`。
+
+**镜像 52 条 key→value（严判据展开前）逐条目视**（节点：`ROUTES` 求值；`action(1,'submit')` 等已展开）：
+
+```
+BASE=/api/v1  PING=/ping
+AUTH.LOGIN=/auth/login  LOGOUT=/auth/logout  USER=/auth/user  ROLE=/auth/role
+     POSITION_GROUP=/auth/position-group  AUTHORIZATION=/auth/authorization
+     SUB_ACCOUNT_PERM=/auth/sub-account-perm  CHANGE_LOG=/auth/change-log
+     UNAUTHORIZED_ATTEMPT=/auth/unauthorized-attempt  PASSWORD=/auth/password
+CONFIG.ITEM=/config/item  SUB_ACCOUNT=/config/sub-account  CTP=/config/ctp
+     CTP_TEST=/config/ctp/test  DICT=/config/dict  SUBJECT=/config/subject
+     REPORT_PERIOD=/config/report-period  CHANGE_LOG=/config/change-log
+     IMPORT=/config/import  EXPORT=/config/export  dispatch=/config/dispatch/<id>
+PRODUCT.LIST=/product  detail=/product/<id>  WHITELIST=/product/whitelist  QUOTA=/product/quota
+     CONTRACTS=/product/<id>/contracts  MAPPING=/product/mapping
+     CHANGE_LOG=/product/change-log  IMPORT=/product/import  EXPORT=/product/export
+SPOT.PURCHASE=/spot/purchase  SALES=/spot/sales  PRODUCTION=/spot/production
+     INVENTORY=/spot/inventory  WIP=/spot/wip  PRICE=/spot/price
+     PRICE_IMPORT=/spot/price/import  PRICE_EXPORT=/spot/price/export  EXPOSURE=/spot/exposure
+     EXPOSURE_RECALC=/spot/exposure/recalc  EXPOSURE_EXPORT=/spot/exposure/export
+     DOC_SUB_ACCOUNT=/spot/doc/sub-account  exposureDetail=/spot/exposure/<id>
+PLAN.LIST=/plan  CREATE=/plan  detail=/plan/<id>  doc=/plan/<id>/doc
+     bindExposure=/plan/<id>/bind-exposure  tradePlans=/plan/<id>/trade-plans
+     action=/plan/<id>/<submit|approve|reject|withdraw|freeze|unfreeze|terminate|extend>
+     ratio=/plan/ratio/<simple|minvar|custom>
+NOT_REGISTERED: RISK_DASHBOARD=/risk/dashboard  TRADE_ORDER=/trade/order
+```
+⇒ **52 条键值语义一一对应，无错值/误绑**（补偿 (H)-(ii)/(iii) 盲区）。
+
+**双向对账输出（严判据）**：
+
+```
+PRE  (80909124…):  ① missing = 23   ② extra = 0   NOT_REGISTERED false = 3
+POST (dfd23bfd…):  ① missing =  0   ② extra = 0   NOT_REGISTERED false = 0
+```
+
+---
+
+## 4. 三问答复 (F)/(G)/(H)
+
+### (F) 可用性判定：**可作 `T-019`/`T-020`/`T-021` 的施工依据（有保留）**
+- **可直用之处**：全部 **60** 条已注册路径经 `HG.routes.<MOD>.<KEY>` 或拼接式**可还原且值与权威源逐字一致**（严判据双向空集）；命名空间稳定（`HG.routes = ROUTES` 已挂载）；**头部计数 + 判据来源**齐备；`NOT_REGISTERED` 干净（不含已注册路径）。
+- **仍会误导执行方之处**：① **对象内无方法**（O-1）—— 只读 `ROUTES` 会拿不到 `GET/POST/PUT`；须并读头部散文（或直读 `ApiRoutes.java`）。② `plan.js:56`/`:111` **陈旧措辞仍在树中**（属 `T-020`，O-3）—— `T-020` 执行方若信 `:56`/`:111` 会误判「`GET /plan` 未注册」；应随 `T-020` 交付一并订正（台账已登记）。
+
+### (G) 回归是否真正消除：**是（共享 `web/` 内彻底消除）**
+- `plan.js:89` 现为 `HG.routes.PLAN.LIST`（求值 `/plan`，**非 `undefined`**）；`grep -rn 'NOT_REGISTERED\.' web/` = **0**；**全仓**消费方排查：仅台账叙事 + 一个**陈旧 worktree 副本**（O-4，非活跃），共享 `web/`（含 `.html`）内**无第二处消费方**；全部 15 处 `HG.routes.*` 引用**均可解析**，`node --check` 24/24 通过 ⇒ **无新引入的未定义引用**。
+
+### (H) 是否有「假绿」：**有，且本席构造出 3 例「能骗过本单集合级判据」的错误**（如实披露）
+
+| 尝试 | 形态 | 结果（预期 vs 实测） |
+|---|---|---|
+| **FG1（一致性≠正确性）** | 在**隔离副本**内把 Java(`AuthRoutes` 字面)与镜像**同时**改成错值 `/auth/loginx` | 严判据 **①∅ ②∅ ⇒ 通过**（**骗过**）—— 证明本对账是**一致性**检查，**不能发现「两边一致地错」**（根本极限）。 |
+| **FG2（键名盲区）** | 把镜像键 `SPOT.PRICE_IMPORT` 改名为 `PRICE_IMP`（**值不变**） | 严判据 **①∅ ②∅ ⇒ 通过**（**骗过**）—— 判据**不校验键名**；消费方若用 `SPOT.PRICE_IMPORT` 会 `undefined`。 |
+| **FG3（键值对调）** | 对调两个**合法**值：`SPOT.PURCHASE`↔`SALES`（集合不变） | 严判据 **①∅ ②∅ ⇒ 通过**（**骗过**）—— 集合级判据**不校验键↔值绑定**。**用 §3 目视 52 条 key→value 表补偿**（实测绑定全对）。 |
+
+> **结论**：本单判据**足以**验证「镜像路径集 == 权威路径集」（值级、方法无关），但**不足以**独立担保「键名/键值绑定正确」「两边一致地错」。故交付方**应保留**「逐条 key→value 目视」作为补充；台账第 92 轮「**计数必须来自穷举**」纪律与此同源。
+
+---
+
+## 5. 自设变异清单（隔离副本 `/root/verify-t017/`，共享源树零改动）
+
+| 变异 | 形态 | 期望 | 实测 | 复位校验 |
+|---|---|---|---|---|
+| M1 | `CONFIG.SUBJECT` 值 `/config/subject`→`/config/subjects` | ①②均报 | ✅ ①=`['/config/subject']`、②=`[CONFIG.SUBJECT=>/config/subjects]` | 副本，注入计数 1→已核 |
+| M2 | 删 `SPOT.PRODUCTION` 行 | ①报 | ✅ ①=`['/spot/production']` | 副本，删后计数 0→已核 |
+| M3 | `NOT_REGISTERED` 塞回 `/plan` | 不实项报 | ✅ 不实=1（`PLAN_LIST=/plan`） | 副本，注入计数 1→已核 |
+| **M4** | **删显式 `EXPOSURE_EXPORT`**（保留 `exposureDetail` 通配） | **严判据**①应报 | ✅ 严①=`['/spot/exposure/export']`；**宽松变体 ①=∅（盲区）** | 副本，删后计数 0→已核 |
+| **M5** | **删显式 `bindExposure`**（保留 `action` 通配） | **严判据**①应报 | ✅ 严①=`['/plan/{id}/bind-exposure']` | 副本，删后计数 0→已核 |
+
+**★方法论订正（本席自曝）**：本席初版对账用「**通配吞并任意字面**」的**宽松**口径，得**改前缺 21 条**（漏 `/spot/exposure/export`、`/plan/{id}/bind-exposure`）；改成**严口径**（通配须对齐 `{id}` 参数位 + 枚举展开）后得**改前缺 23 条**，**与台账逐条吻合**。M4/M5 即证明严口径**严格强于**宽松口径。**最终判据取严口径**（上述 §1 判据 2 结果）。
+**变异纪律**：全部在 `/root/verify-t017/` 下副本进行，**共享源树 `web/**`/`java/**` 零改动**（`git status --short` 仅 `docs/{BOARD,TASKS,TEST_RESULT}.md` 三处他人/既有改动，见 §7）。
+
+---
+
+## 6. 证据章落笔前后 md5 + 行数
+
+- **落笔前**：`docs/TEST_RESULT.md` md5 = **`83377e3db2aa66d58b2243ebf42f361a`** / **6293** 行；且 **`head -6293 docs/TEST_RESULT.md | md5sum` = `83377e3db2aa66d58b2243ebf42f361a`**（= 落笔前全档 md5 ⇒ 纯追加证明）。
+- **静默校验**：落笔前 **3 次 × 10s** 取样 md5 恒为 `83377e3d…`（mtime 稳定、无活跃 mvn/node 写者）。
+- **本追加章**：自 `L6297` 起（前有 `---` 分隔，遵前列体例：空行 / `---` / 空行 / `# ` 头）。
+- **落笔后**：以实时 `md5sum` 为准（**本文件不可自洽写死自身落笔后 md5**）。
+
+---
+
+## 7. 只读范围声明 + 隔离副本路径
+
+- **只读声明**：本席**未改** `web/**`、`java/**`、`docs/TASKS.md`、`docs/BOARD.md`、`docs/REQUIREMENTS/**`、`docs/TEST_PLAN/**`；**唯一写入 = 本追加章**（`docs/TEST_RESULT.md` 末尾纯追加）。复核时点 `git status --short` = ` M docs/BOARD.md`/` M docs/TASKS.md`/` M docs/TEST_RESULT.md`（前二者为**他人既有改动**、`TEST_RESULT.md` 含他人〔`te-verify-t023`〕已落章的未提交增量，均非本席所改）。
+- **隔离副本/脚本**（均在仓库外、**未用 `/tmp`**）：`/root/verify-t017/`——`extract_authority.py`（权威源解析）、`eval_mirror.mjs`（宽松对账）、`reconcile_strict.mjs`（**严对账**）、`my_probe.mjs`（自撰无头桩）、`mutate.sh`（M1–M3）、`fakegreen.sh`（FG1/FG2）、`mirror/`·`full/`·`pre/`·`mut{1..5}/`·`fg{1..3}/`（副本）。
+- **未自评 `DONE`**：结论 = **通过**；是否置 `DONE` 由编排者/门禁裁定。
+
+> **📌（复核期时点补记 · 纯追加）** 本席复核**起始**时点 HEAD = `1b15d92`；复核期间**编排者**提交了第 95 轮台账（`fbc1c5a`/`cdcea10`/`c0bd24f`），**现行 HEAD = `c0bd24f`**。**独立实测** `git diff --name-only 1b15d92 c0bd24f` = **仅** `docs/BOARD.md`、`docs/TASKS.md`、`docs/TEST_RESULT.md` 三个文档 ⇒ **`web/**` 与 `java/**` 未变**；本席全部锚点在**现行 HEAD** 下**复测一致**（`routes.js dfd23bfd…`、`session.js 25740708…`、`plan.js 28316f6b…`、`web` 树锚 `926022d9…`/27）。另：本席**落笔前**全档 md5 `83377e3d…`/6293 行 = 提交 `fbc1c5a` 所落 `docs/TEST_RESULT.md`（⇒ 追加基线为**已提交态**，未覆盖他人未提交增量）。
