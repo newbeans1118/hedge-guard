@@ -124,5 +124,49 @@ async function list(path, params) {
   };
 }
 
-HG.api = { BASE, PAGE_SIZES, DEFAULT_PAGE_SIZE, newIdempotencyKey, get, post, put, del, list, request };
+/** 从 Content-Disposition 取文件名（导出类响应，§4.1.1「请求体 … 导出除外」）。 */
+function filenameFromDisposition(header) {
+  if (!header) return null;
+  const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(header);
+  if (!m) return null;
+  try { return decodeURIComponent(m[1].trim()); } catch (e) { return m[1].trim(); }
+}
+
+/**
+ * 下载类接口（非 JSON 响应，如 CSV 导出）。
+ * 返回 { blob, filename }；若服务端返回统一 JSON 信封（业务错误 / 未登录），
+ * 按普通错误抛出，交由 errmsg 渲染四项（不吞错误、不静默失败）。
+ *
+ * 边界：仍是前端**唯一出网通道**（同源 fetch），不新增任何直连（NFR-MAINT-5 / E6）。
+ */
+async function download(path, query) {
+  const url = BASE + path + buildQuery(query);
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'GET', credentials: 'same-origin',
+      headers: { Accept: 'text/csv, application/json;q=0.9, */*;q=0.8' }
+    });
+  } catch (e) {
+    throw { code: -1, message: '无法连接后端服务', _network: true, nextStep: '请确认 Java 业务组件已启动并完成装配，然后重试。' };
+  }
+
+  const ct = (res.headers.get('Content-Type') || '').toLowerCase();
+  if (ct.indexOf('json') !== -1) {
+    const text = await res.text();
+    let env = null;
+    try { env = JSON.parse(text); } catch (e) { env = null; }
+    if (env && typeof env === 'object') {
+      if (env.code === 0) return { blob: new Blob([text], { type: ct }), filename: filenameFromDisposition(res.headers.get('Content-Disposition')) };
+      throw Object.assign({ _http: res.status }, env);
+    }
+    throw {
+      code: -1, message: '导出响应不是合法信封', _network: true, _http: res.status,
+      _raw: text.slice(0, 300), nextStep: '请确认后端已装配业务层并返回统一响应信封。'
+    };
+  }
+  return { blob: await res.blob(), filename: filenameFromDisposition(res.headers.get('Content-Disposition')) };
+}
+
+HG.api = { BASE, PAGE_SIZES, DEFAULT_PAGE_SIZE, newIdempotencyKey, get, post, put, del, list, download, request };
 export default HG.api;
