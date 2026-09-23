@@ -1,10 +1,5 @@
 package com.hedgeguard.web;
 
-import com.hedgeguard.web.handler.auth.AuthRoutes;
-import com.hedgeguard.web.handler.config.ConfigRoutes;
-import com.hedgeguard.web.handler.plan.PlanRoutes;
-import com.hedgeguard.web.handler.product.ProductRoutes;
-import com.hedgeguard.web.handler.spot.SpotRoutes;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -56,13 +51,7 @@ class RouteReachabilityBug004Test {
 
     /** 五模块完整装配（服务入参 {@code null}：注册期不驱动业务逻辑）。 */
     private static Router fullAssembly() {
-        Router router = new Router();
-        AuthRoutes.register(router, null, null);
-        ConfigRoutes.register(router, null);
-        ProductRoutes.register(router, null);
-        SpotRoutes.register(router, null);
-        PlanRoutes.register(router, null);
-        return router;
+        return FullWebAssembly.assemble();
     }
 
     private static void assertReaches(Router router, String path, String expectedHandler) {
