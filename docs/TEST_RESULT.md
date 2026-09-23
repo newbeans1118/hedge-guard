@@ -10465,3 +10465,80 @@ GET /api/v1/spot/exposure/export → 实际命中 /api/v1/spot/exposure/{id}
 - **逐条闭合判定**：`TE-T153-001`（中）= **闭合** ✅（`N2` 标题层限定 + 边界段；`F5` 前提行；`R5` 新增并指向已存在的 `T-157`；§0/`R1` 同步限定。**属实质补正**，非措辞粉饰）；`TE-T153-002`（低）= **闭合** ✅（`§5.5` 全篇 0 命中；5 处替代锚点**逐处语义正确**且指向实际存在的 `:725`；`§5.3` 未误删）；`O-3` = **闭合** ✅；`O-4` = **闭合** ✅（且**归因裁定：误计在 `CONTRACTS §1.4` 侧，非 `Router` javadoc 侧**）。
 - **`T-153` 是否可转 `DONE`**：**可以**（本 delta 复检已通过，授权在编排者）。**还差**：仅编排者按台账流程落 `DONE` 回写（本席只读，未动 `BOARD.md`/`TASKS.md`）。
 - **复位声明**：本席**只读** —— 未改 `java/**`、未改 `docs/DECISIONS/router-match-precedence.md`、未改 `docs/BOARD.md` / `docs/TASKS.md`；未构建、未动 `java/target/`（避免与在飞 `te-t156` 干扰）。本章为**纯追加**。
+
+## T-156 + T-157 独立复核（席 `te-verify-t156`，2026-09-24）—— 路由遮蔽判据健全性/覆盖面 + 生产装配面集合一致性
+
+**对象**：提交 `a180716`（`git show --stat` = **3 files / +273 −8**）= `java/src/test/java/com/hedgeguard/web/FullWebAssembly.java`（66 行）/ `RouteReachabilityExhaustiveTest.java`（225 行）/ `RouteReachabilityProductionParityTest.java`（190 行，新增）。交付域树锚（**仓库根**口径 `find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum`）= **`84acc7af94558bf2ee317df93ad38378` / 357**（本席 2026-09-24T05:58Z 实测，与编排者一致；改前 `a0dadfa3…`/356）。`git show --name-only a180716` **仅 3 个 test 文件** ⇒ `java/src/main/**` 未动（另实测 `RequestDispatcher.java` / `Bootstrap.java` 未改，`git status --porcelain -- java/src` 空）。
+
+**结论：通过（0 阻断 / 0 高 / 1 低 `TE-T157-001` / 6 观察）。** 本席**自设 7 组注入**（隔离副本）逐条证伪，核心闭合点 `TE-T153-001` 经 **G1「精确复现（判据静默）+ 修复后必红」** 双向证实已闭合。
+
+### 一、门禁（独立实测，非复跑产出方命令）
+
+| 项 | 独立实测 |
+|---|---|
+| `TMPDIR=/ mvn -B -o -Punit clean test`（`java/`） | **640 / 0 / 0 / 0**，BUILD SUCCESS |
+| `@Test` == surefire == 类数 | **640 == 640 == 78 类**（三数一致） |
+| `arch-check`（`validate` 阶段自动执行） | **E1–E7 全 0**；汇总「通过(0)=7 命中(1)=0 用法/前置错误(2)=0」 |
+| `Router.routes()` 规模（自建探针 `DumpProbe` 按模块 dump） | **TOTAL 81**（`ROUTE_COUNT=81` 独立证实） |
+
+**★环境抖动（派单要求观察）**：本席全量跑中 `WsAcceptanceTest.e2ConcurrentLatencyP95Under200ms` **未复现失败** —— 该类 **8/8 绿**，日志实测 `[E2] N=32 samples=480 P50=6ms P95=13ms P99=14ms max=14ms`（断言 `p95<=200`）。⇒ 产出方所报「基线 1 失败（`P95=228ms`）」在本机**不可复现**，与其「机器负载抖动」判定一致；**本单基线为 0 失败**（本席实测），但不以此否证产出方当时观察（负载态不同）。
+
+### 二、自报面逐条独立实测（分栏：独立实测 vs 产出方自述）
+
+1. **`T-156-①` 哨兵不变式** —— 独立实测：用例存在（`RouteReachabilityExhaustiveTest.java:180-187`，`@DisplayName` 含「哨兵不得与任何字面段碰撞」），且**与穷举主判据跑同一份装配**（`:181` 与 `:97` 均 `FullWebAssembly.assemble()`）。**提取正确性**（派单攻击点）：`literalSegments`（`:208-219`）与 `isPlaceholder`（`:222-224`）逐段处理，**覆盖多段（含 5 段）路由**（G2 红时 dump 的全字面段集合含 `contracts`/`trade-plans`/`bind-exposure`/`position-group`，皆为 5 段路由末段）；空段被 `!seg.isEmpty()` 跳过；「含 `{` 但非整段」由 `Router.validate:110` 拒绝注册（不可达此路径）；`isPlaceholder` 与 `Router.matchSegments:120` 判据等价（单字符段不可能同时 `startsWith("{")` 且 `endsWith("}")` ）。**G2 证明该不变式承重**。⇒ 成立。
+2. **`T-156-②` 数字口径** —— 独立实测：`RouteReachabilityExhaustiveTest` javadoc（`:61-66`）**明写不落 naive near-miss 具体数字**，并记录复核席三口径实测值 `46 / 115 / 42` 及「原自报 `47` 无唯一可复现口径」的理由，仅留定性表述。`ROUTE_COUNT=81` 为具名常量（可接受）。`FullWebAssembly` javadoc 的 `8`（`:26-27`）与 `2`（`:38-39`）**各附口径**。残留 1 处叙述性数字 `83`（`FullWebAssembly.java:40`、`RouteReachabilityProductionParityTest.java:26`）未见一行复现命令 ⇒ `O-T156-5`（低）。⇒ 基本成立。
+3. **`T-156-③` 不覆盖面披露** —— 独立实测：`FullWebAssembly` javadoc **限定「单一来源」仅对可达性系三测试成立**（`:20-24`）；**披露不覆盖面 (a) `Bootstrap` 直注册 `ping` 的 GET/HEAD 不在面内**（`:36-40`）、**(b) 镜像方向仅手选 4 条**（`:41-43`）。「**8** 个各自调用模块注册器的测试」**独立穷举复核**：按 `\w+Routes\.register\(` 在 `java/src/test` 检索、**按文件去重后去掉 `FullWebAssembly`** = **恰 8 个**，且**名单逐字一致**（`AUTHEndpointRegistrationTest`、`BindExposureHandlerTest`、`PlanListRouteTest`、`ModuleRoutesConsistencyTest`、`ProductRouteDispatchTest`、`ProductReadScopeResidualTest`、`T109EndpointRegistrationTest`、`M1EndToEndAcceptanceTest`）。**数与名单均无误**。⇒ 成立。
+4. **`T-157` 主判据（`RouteReachabilityProductionParityTest`）** —— 独立实测：
+   - **生产装配取得**：`assembleProductionOffline()`（`:137-143`）走 `Bootstrap.assembleWithResources(Config.empty())`（配 `hg.db.url`+`FakeJdbcDriver` 属性，**离线不触 DM8**），断言 `databaseAssembled()` 为真；经反射读 `RequestDispatcher.router`（main `:33` 实测为 `private final Router router`）。**取得的确是生产装配**（非 mock/非 `FullWebAssembly`）：由 `assertEquals(83, assembly.routeCount())` 与集合等式双侧共同钉住（G1 注入后必红即为佐证）。
+   - **响亮失败**：G7 实测改名 `router`→`routerX` ⇒ **ERROR**（`IllegalStateException: 无法经反射读取 RequestDispatcher.router ⇒ 本判据失效…`，`Caused by NoSuchFieldException: router`），**非静默跳过**（`AssertionError`/`Error` 不在 `catch` 内，亦不会被吞）。
+   - **双向**：断言为 `symmetricDifference(production, criteria).isEmpty()`（`:93-95`），G4 实测**两个方向各自非空**（详见注入表）。
+   - **`ping` 减项**：`PLATFORM_ROUTES`（`:60-61`）= `{GET /api/v1/ping, HEAD /api/v1/ping}` 恰 2 条（`ApiRoutes.PING="/ping"`、`ApiRoutes.full` 前缀 `/api/v1`；与 `Bootstrap.java:129-130` 逐字对应）。
+   - **精确等值**：`:104` `assertEquals(FullWebAssembly.ROUTE_COUNT + PLATFORM_ROUTES.size(), assembly.routeCount())` = **精确 `==`**（非下界/包含）。
+   - **非空转自测**：`parityDetectorIsNotVacuous`（`:114-132`）**存在**；**对比较器有牙**（G1/G4/G6 均命中其同一 `symmetricDifference` 路径），**但对「生产装配取得路径」无牙**（G5 实证）⇒ `O-T156-3`。
+5. **反射替代方案（`Assembly` 加包内 `routes()`）** —— 编排者已裁定「接受反射、不另立号」，本席**不再评该裁定**；仅核「失败是否真响亮」= **是**（G7）。
+6. **未动 `main`** —— 成立（见对象行）。
+
+### 三、自设注入台账（隔离副本 `/hg-t156-iso`，`<root>/{docs,java,tools}` 布局；`/tmp` 未用）
+
+| 组 | 变异（**7 组，均为本席自设**，非复跑产出方） | 实测红/绿 |
+|---|---|---|
+| **G1** | **生产装配**注入第 6 模块（`/trade/{id}` 占位在前、`/trade/order` 静态在后=**遮蔽形态**），`FullWebAssembly` **不动** | ✅ **parity RED**（`productionAssemblyEqualsCriteriaAssemblyMinusPing:95`，点名 `差集=[GET /api/v1/trade/{id}, GET /api/v1/trade/order]`、`仅判据装配有=[]`）；**同一次运行** `RouteReachabilityExhaustiveTest` **6/6 绿**、`Bug004` 2/2 绿 ⇒ **精确复现 `TE-T153-001`「判据静默、生产已漂移」，并证明已闭合** |
+| **G2** | 注入静态路由**字面段 == 哨兵 `1`**（`/api/v1/product/1`）于 `ProductRoutes` **之前**，`ROUTE_COUNT 81→82`（隔离规模守卫） | ✅ 哨兵用例 **RED**（`sentinelDoesNotCollideWithLiteralSegments:183`，消息含「哨兵="1" 出现在字面段集合中」并 dump 全字面段）；**并连带** `everyRegisteredRouteMatchesItself:121` RED（`/product/{id}` 实例路径 `/api/v1/product/1` 被**误报「被遮蔽」**）⇒ 不变式**承重**（不冗余） |
+| **G3b** | 生产+判据**同时**加**正确序**第 6 模块（`/probe/static` 先、`/probe/{id}` 后，同段数 4），`ROUTE_COUNT 81→83` | ✅ **10/10 全绿** BUILD SUCCESS ⇒ **不误拒**（同段数静态+占位对，顺序正确即双绿） |
+| **G4** | **仅判据面**双向漂移：移除 `SpotRoutes` **且**加 `GET /api/v1/probe/only-in-criteria` | ✅ **parity RED 且双向非空**：`仅生产装配有（判据缺）=[15 条 spot 路由]`、`仅判据装配有（生产缺）=[GET /api/v1/probe/only-in-criteria]` ⇒ 断言**确为对称差、非单向包含** |
+| **G5** | **判据自测的取得路径**变异：把 `productionRouter` 反射体替换为 `FullWebAssembly.assemble()` | ⚠️ **2/2 仍全绿**（BUILD SUCCESS）⇒ 非空转自测**不覆盖取得路径**（`O-T156-3`） |
+| **G6** | 生产装配追加**第 3 条平台级路由** `GET /api/v1/health` | ✅ parity RED，`仅生产装配有=[GET /api/v1/health]` ⇒ 加平台路由**须同步 `PLATFORM_ROUTES`**（`O-T156-4`） |
+| **G7** | 反射目标字段改名 `RequestDispatcher.router`→`routerX` | ✅ **ERROR**（`IllegalStateException` + `NoSuchFieldException: router`）⇒ **响亮失败**，非静默跳过 |
+
+**复位证据（逐字节）**：7 组变异全部结束于 `diff -r /root/myspace/hedge-guard/java/src /hg-t156-iso/java/src` **无差异**、副本树锚回 **`84acc7af…`/357**；探针目录 `/hg-order-probe` 为一次性，回执 `[ ! -e ]` 核实删除。
+
+### 四、缺陷（分级）
+
+**`TE-T157-001`（低）—— `T-157` 自测使用 `ApiRoutes` 真实路径作合成路由，将在其**目标场景**下自伤为 ERROR。**
+- `RouteReachabilityProductionParityTest.java:117-118` 以 `ApiRoutes.full("/trade/order")` 作为「合成的第 6 模块路由」，随即 `productionLike.register(...)`。
+- 但 `ApiRoutes.byModule()` 的 **`TRADE`** 键**正含 `/trade/order`**（`ApiRoutes.java:38`）。⇒ 当 `TRADE` 真接入并被加入 `FullWebAssembly`（**正是 `T-157` 存在的目标场景**），该自测会在 `FullWebAssembly.assemble()` 之上**重复注册** `/trade/order` ⇒ `Router.register` 抛 `IllegalStateException: 路由重复注册：GET /api/v1/trade/order` ⇒ 以 **ERROR（而非通过）** 呈现。
+- **独立实证**：本席 G3 首版正因使用 `/trade/order` 触发 `parityDetectorIsNotVacuous:118 » IllegalState 路由重复注册：GET /api/v1/trade/order`，与预测逐字一致。
+- **影响**：不阻断当前交付（现态全绿）；但会把「未来接入 TRADE」这一**正确动作**呈现为判据崩溃，易误导维护者**削弱/删除该自测**（反使 `T-157` 失去非空转保证）。
+- **建议修复**：改用**不在 `ApiRoutes` 中**的合成路径（G3b 已实证 `/probe/x` 可行），或在 javadoc 明写「该路径须与 `ApiRoutes` 无交集」。
+
+### 五、观察项（**均不阻断**；含「不立号」理由）
+
+- **`O-T156-1`（低）**：`RouteReachabilityExhaustiveTest.unregisteredPathsAreNotMatched:152` 以 `/api/v1/trade/order` 作「未注册模块」负例；`TRADE` 落地后它成**真路由**（或被同段数占位符吞并）⇒ 该负例**必须随 `TRADE` 一并改**。已被「镜像方向仅手选 4 条、非穷举」（`FullWebAssembly.java:41-43`）部分披露 ⇒ **不立号**。
+- **`O-T156-2`（低）**：`T-157` 的「**不依赖注册序**」（`:39-40`）依赖**未言明不变式「模式第 3 段（`idx2`）恒为字面模块名」**。本席独立穷举 81 条：**`idx2` 为占位者 = 0 条**；可遮蔽有序对 = **5 对，全部同模块**（=`BUG-004` 的 5：4 条 product + 1 条 spot）、**跨模块 = 0 对** ⇒ 「跨模块注册序不影响可达性；模块内序由生产与判据**共享的同一 `*Routes.register`** 固定」**成立**，该边界站得住。残留：若未来某模块注册 `/api/v1/{x}/…`（`Router.validate` 不拦 `idx2` 占位），集合等式 + 判据面实例回查**可能漏**生产序漂移。建议后续补 1 条「`idx2` 字面」不变式断言 ⇒ **不立号**。
+- **`O-T156-3`（低）**：非空转自测**只覆盖比较器**（`symmetricDifference` 路径），**不覆盖生产装配取得路径** —— G5 把反射体换成判据装配后仍 **2/2 绿**。取得路径当前仅靠「字段缺失即抛」（G7）保底，**无「取得的确是生产装配」的正向断言**。建议加一行 `assertNotSame(criteriaRouter, productionRouter)` 式最小守卫 ⇒ **不立号**。
+- **`O-T156-4`（低）**：`PLATFORM_ROUTES` 硬编码恰 2 条；G6 证明**加任何平台路由 ⇒ parity 红**。产出方称此为「正确行为」——本席判：**行为是响亮失败（非假绿），但域义上是假红**（平台路由不属业务漂移）；须与「加平台路由时同步 `PLATFORM_ROUTES`」一并登记，建议在 javadoc 明写该同步点 ⇒ **不立号**（维护耦合，非缺陷）。
+- **`O-T156-5`（低）**：叙述性数字 `83`（`FullWebAssembly.java:40`、`RouteReachabilityProductionParityTest.java:26`）未附一行可复现口径（不似 naive-count 处 `:61-66`）。同处 javadoc 把未注册模块写作 **`ACCOUNT`**（`RouteReachabilityProductionParityTest.java:27-28`），而 `ApiRoutes.byModule()` 实测键为 **`ACCT`**（`ARCHITECTURE.md` 亦用 `ACCT`，22 处）⇒ **命名不实**（低）。二者同类（叙述性口径/命名）**不立号**。
+- **`O-T156-6`（低）**：哨兵不变式只对**判据装配**断言（`:181`），未覆盖生产装配字面段；当前两者相等（由 `T-157` 保）⇒ 无实际缺口 ⇒ **不立号**。
+
+### 六、「不覆盖」清单评估（按派单点名 3 条；另注：产出方「8 项清单」未随提交落盘，**在盘制品仅 `FullWebAssembly` javadoc 两条不覆盖面 + 8 类名单 + 数字口径注**，本席据在盘物评估）
+
+- **①「只断言集合相等、不断言注册序，因注册序由 `T-154` 实例回查守卫」—— 理由成立 ✅**：由 `O-T156-2` 的穷举（5 对全同模块 / 跨模块 0 对）＋「模块内序由**生产与判据共享的同一注册器**固定」⇒ 集合等式 + 判据面实例回查**足以**锁死生产可达性。且 `BUG-004` 形态（静态挪到同段数占位之后）确会使判据面实例回查红（G2 已实证该机制检出「被遮蔽」）。
+- **②「不校验 `ApiRoutes` 声明面 vs 生产注册面；11 vs 5 为计划内已知差」—— 计数核实成立 ✅**：`ApiRoutes.byModule()` 实测 **11** 键（PRODUCT/SPOT/PLAN/TRADE/SETTLE/RISK/AUDIT/**ACCT**/FUND/AUTH/CONFIG）；`Bootstrap.registerBusinessRoutes` 实测注册 **5**（AUTH/CONFIG/PRODUCT/SPOT/PLAN，`Bootstrap.java:247-255`）⇒ 理由站得住（M3/M4 计划内差）。**但**命名 `ACCOUNT` 不实（见 `O-T156-5`）。
+- **③「平台级减项硬编码恰 2 条；未来加平台路由即报漂移（正确行为）」—— 半成立**：G6 证实**必红**；但本席判**域义为假红**（见 `O-T156-4`），「正确行为」宜加限定「响亮但须同步 `PLATFORM_ROUTES`」。
+- **本席补的遗漏不覆盖项**：`O-T156-2`（`idx2` 字面不变式未断言）、`O-T156-3`（取得路径无正向断言）。
+
+### 七、结论与边界
+
+**通过（0 阻断 / 0 高 / 1 低 / 6 观察）。** `T-156` 三项（哨兵不变式 / 数字口径 / 不覆盖面披露）与 `T-157` 主判据（**集合级双向一致性**）**均达成**；核心 `TE-T153-001` 经 **G1「先证静默、再证必红」双向**已闭合。唯一低缺陷 `TE-T157-001` 属**未来触发路径上的自伤**（易改、不阻断本单、建议随 `TRADE` 接入同批修）。
+
+**边界与不变式（本席声明）**：只读 `java/src/**`；7 组变异仅在 `/hg-t156-iso`（`/` 下，`<root>/{docs,java,tools}`）内做并**逐字节复位**（`diff -r` 无异、树锚回 `84acc7af…`/357）；**未改** `java/src/main/**`、未改 `docs/BOARD.md`/`docs/TASKS.md`、未动 `java/target/`。本单：**纯读**（另：实测 `docs/BOARD.md`/`docs/TASKS.md` 于共享树为 `M` 状态 —— 系台账写者并发所为，非本席）。
