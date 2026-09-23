@@ -432,6 +432,11 @@ public final class AuthService implements SubAccountVisibility {
             }
             return null;
         });
+        // FR-AUTH-16「重置后强制修改」须对「已在线的会话」同样生效：立即失效目标用户既有会话。
+        // 门禁（SessionAuthFilter）读的是登录时快照（Session.mustChangePassword），而旧会话不读库真值
+        // ⇒ 若不失效旧会话，管理员重置后在线会话仍被放行（门禁对「在线的那个会话」落空）。
+        // 传 operatorId 使会话留痕（t_login_session.kicked_by）记录重置操作人（FR-AUTH-16「重置须留痕」）。
+        invalidateSessionsImmediately(userId, operatorId);
         // newPassword 到此不再被任何路径引用：不落盘、不入日志、不回传（FR-AUTH-16）。
         LOG.info("已重置口令并要求首次登录修改：targetUserId=" + userId + " operatorId=" + operatorId);
     }
@@ -970,6 +975,10 @@ public final class AuthService implements SubAccountVisibility {
         });
         recordChange(CHANGE_USER_ATTR, userId, userId, null, "启用用户（须强制改口令）",
                 operatorId, reviewerId);
+        // FR-AUTH-16：启用与重置同形——置 must_change_password='Y' 且改写口令后，须使既有会话立即失效，
+        // 否则对「当前处于 ENABLED（在线）」的目标用户，其旧会话不读库真值、门禁落空。合法路径（目标
+        // 本为 DISABLED）下 disableUser 已清会话，此处为纵深防御（同 T-112 口径），命中 0 行无副作用。
+        invalidateSessionsImmediately(userId, operatorId);
         // newPassword 仅用于派生 user.passwordHash，之后即弃：不落盘、不入日志、不回传（FR-AUTH-16）。
     }
 
@@ -1496,6 +1505,26 @@ public final class AuthService implements SubAccountVisibility {
     private void invalidateSessionsImmediately(long userId) {
         tx.inTransaction(connection -> {
             loginSessionDao.invalidateByUser(userId, SESSION_KICKED, null, permissionVersionOf(userId) + 1);
+            return null;
+        });
+        sessionStore.invalidateByUser(userId);
+    }
+
+    /**
+     * 立即失效某用户全部会话（{@code R-AUTH-9}），并<b>留痕操作人</b>（{@code t_login_session.kicked_by}）。
+     *
+     * <p>与 {@link #invalidateSessionsImmediately(long)}（{@code disableUser} 共用、{@code kicked_by=null}）
+     * <b>同形</b>，仅多传 {@code operatorId}，供 {@code FR-AUTH-16}「重置 / 启用须留痕」的口令变更路径复用
+     * （重置/启用口令会连带使目标用户在线会话失效）。不改动无 {@code operatorId} 版本，保持 {@code disableUser}
+     * 既有语义逐字节不变（{@code disableUser} 的操作人留痕由其 {@code writeLoginLog KICKED} 单独承担）。
+     *
+     * @param userId     目标用户
+     * @param operatorId 操作人（写入 {@code kicked_by}）
+     */
+    private void invalidateSessionsImmediately(long userId, Long operatorId) {
+        tx.inTransaction(connection -> {
+            loginSessionDao.invalidateByUser(userId, SESSION_KICKED, operatorId,
+                    permissionVersionOf(userId) + 1);
             return null;
         });
         sessionStore.invalidateByUser(userId);
