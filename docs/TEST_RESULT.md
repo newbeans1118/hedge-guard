@@ -8163,3 +8163,221 @@ surefire 测试类 **65**；`@Test`（`grep -rc`）**526** == surefire **526**�
 **通过（0 缺陷 / 4 观察）** —— 锚点、扫描面(含负控)、三态可区分性、行为保持(逐字节)、M8 承重性、
 最小性、回归、变异、前案不掩盖 **九项全部独立证实**；无漏报、无夹带、无取巧。
 **不自评 `T-140` 为 `DONE`**（留待编排者门禁）。
+
+---
+
+## 第 118 轮独立复核证据章（`T-135`，编排者 `team-lead` 并入登记 · 2026-09-23）
+
+> **并入口径**：以下章由独立复核席 `te-verify-t135`（`test-engineer`，**只读共享树、验证在副本 `/root/verify-t135` 内**）产出，**原文照录**；编排者仅在章首加本登记块。**纯追加已核**（追加前 `docs/TEST_RESULT.md` = `da10e5f6c5e4131638b9ce80989e3c1e` / **8165 行**）。
+>
+> **结论 = 有条件通过 / 0 缺陷 / 5 观察 / 1 条件** ⇒ **条件已由编排者闭合**（见下）⇒ 按本项目判据（**授权 + 独立验证**）**转 `DONE`**。冻结 `6fb809e`；`java/src` 树锚 **`cd0ab556…/343`**（复算吻合）；改动 **20 M + 1 A**（`java/src` 内 **17 M + 1 A**；另 3 M = `docs/BOARD.md`/`docs/TASKS.md`/`java/CONTRACTS.md`）。
+>
+> **★门禁（独立实测，两轮含复位后 clean）**：`mvn -B -o -Punit clean test` = **539/0/0/0**；**surefire 逐类和 == 源码 `@Test` == 539**（0 注释吞并）；`arch-check` 聚合 **rc 0**、**`E1`–`E7` 全 0**。
+>
+> **★(3) 路由/契约四条全部独立证实**：① `ApiRoutes` **未改**（声明 129 路径含 `ping`）；② `PUT` 确在 `ARCHITECTURE §4.1.1:642` 的 CONFIG 方法集 `GET/POST/PUT` 内（且 `:648-650` 明写 `T-097` 前**方法级未冻结**）；③ CONFIG `(方法,路径)` 对 **17 → 18**（逐条枚举 `ConfigRoutes:54-75`）；④ `CONTRACTS §5.1` 追加 1 行，**无路径新增 / 无字段删改类型 / 无错误码增减 ⇒ 未升版（`HGC-1.6`）成立**。
+>
+> **★(4a) `FR-CONFIG-3` = 非缺口 ⇒ 编排者裁定成立，且被复核方加强**：「持久化范围须显式声明」**已由 `t_config_item.persist_scope` 字段承载**（`DmConfigItemDao:27/68/89` → `ConfigItemHandler.persistScope:117/138` → `config.js:220`）—— 即由**字段**而非端点承载。
+> **★(4b) `FR-CONFIG-9` = 无须新增路径 / 无须 `CH` ⇒ 复核方判定与编排者第 116 轮自订正一致**（验收1 已有 `requireLoopbackBind` 经 `/config/item`;2/3 为负向/设计约束;**验收4「鉴权失败拒连 + 告警」是连接层运行时行为、非端点类**）；**残留 = 验收4 承载面**。
+> **★(5) 范围外 4 测改 = 编译强制 ⇒ 解释成立**：`UserSubAccountPermDao` 新增**抽象**方法 ⇒ 实现者必补；且 `grep listUsers` 于该 4 文件 **0 命中** ⇒ 假件方法**从不被调用、无行为变化**（强于编排者的判断）。
+> **★(6) M1 诚实 precheck 属实**：schema 确无 FUND/TRADE/SETTLE 表；`10002` 用法同 `CtpTestHandler` 姿态、措辞非过高。
+> **★注入必红 3 组全杀**：A `AuthService:959` + `&& false` ⇒ 红 2；B `ChangeLogHandler:50` `from = null` ⇒ 红 1；C 删 `ConfigRoutes:60-61` ⇒ 红 1。**另自设探针 `TeT135DisableProbeTest` 3/3 绿**（未接线 / M1 端口 / 完整路径一律 `10002`）。复位后 `diff` 恒等、树锚回落、539/0/0/0。
+>
+> **★编排者对 `O-2` 的否证（2026-09-23）**：复核方称台账「`17 改 + 1 新`」**实为「17 改 + 2 新」**。**该观察不成立** —— 实测 `git show --name-status --format= 6fb809e`：**共 20 M + 1 A**；其中 `java/src` 内 **17 M + 1 A**，另 3 个 M 为 `docs/BOARD.md`/`docs/TASKS.md`/`java/CONTRACTS.md`。⇒ 交付方自报的「17 改 + 1 新」**正确**，**台账不改**。（复核方多半把 `java/CONTRACTS.md` 误计为第二个「新」文件。）
+> **其余观察（均不阻断）**：`O-1` `10002` 规范文案略窄；`O-3` `routes.js` 头注同步已由 `T-143`/`a785485` 闭环；`O-4` 假件风格分歧；`O-5` 头注「60 路径」**不可复算**（既有陈旧）。
+> **★唯一条件 → 编排者处置**：`FR-CONFIG-9` 验收 4 的承载面（连接层）须**单独登记**。**处置 = 登记为 `T-032` 的现状佐证而非新立号**（`T-032` 需求追溯**明列 `FR-CONFIG-9`**、名称为「HGCP 帧编解码与元协议（**鉴权**/心跳/补数）」、`#cpp`、M2，且 `cpp/src/hgcp/src/auth.cc` / `server_loop.cc` 实存）⇒ **条件闭合、无重复立号**（遵 `T-115` 之戒）；并在 `T-032` 行**加注**要求其独立复核**必须覆盖 `FR-CONFIG-9` 验收 4**。
+
+# T-135 独立复核章（`te-verify-t135`）
+
+- **复核人**：测试工程师（`te-verify-t135`，独立于产出方 `be-t135`）
+- **复核时刻**：2026-09-23（采样见各节「取样时刻」）
+- **冻结点**：提交 `6fb809e`（`6fb809e5c81012f921b4860a28a220ee87230c76`，父 `ee72b60`）
+- **隔离副本**：`/root/verify-t135`（`git archive 6fb809e | tar -x`；布局含 `docs/`/`java/`/`tools/`；构建在副本 `java/` 下、`TMPDIR=/root`）
+- **纪律**：共享树只读；全程未使用 `/tmp`；全仓 grep 排除 `.codebuddy/`
+- **结论**：**有条件通过（0 缺陷 / 5 观察 / 1 条件）**
+
+## 0. 冻结点独立实测锚点（先证「我核的是这个提交」）
+
+| 项 | 期望（派单/编目） | 独立实测 | 判定 |
+|----|----|----|----|
+| HEAD | `6fb809e` | `6fb809e5c8…` | ✅ |
+| `java/src` 树锚 | `cd0ab55669683ba89a2ded7a6b8ea9f2` / 343 | `find java/src -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum` = **`cd0ab556…` / 343** | ✅ |
+| 改动面 | 21 文件（19 `java/**` + 2 `docs/**`） | `git diff --numstat 6fb809e^ 6fb809e` = **21 行**（2 docs + 19 java） | ✅ |
+| `BootstrapAssemblyTest` 断言 | `routeCount == 83` | `:145` `assertEquals(83, assembly.routeCount(), …)` | ✅ |
+| 源码 `@Test` 计数 | 539 | `grep -rc @Test java/src/test` = **539** | ✅ |
+
+> 三处树锚/计数均与派单**逐字吻合**，复核对象无误。
+
+## 1. 门禁复算（独立实测，非采信自报）
+
+**命令**（副本内）：`cd /root/verify-t135/java && TMPDIR=/root mvn -B -o -Punit clean test`
+
+| 指标 | 独立实测 | 与自报 |
+|----|----|----|
+| 首次全量（冻结点原样） | `Tests run: 539, Failures: 0, Errors: 0, Skipped: 0`；`BUILD SUCCESS`；`MVN_EXIT=0` | 与自报 `539/0/0/0` **一致** |
+| surefire 逐类求和 | **539**（逐类 65 类） | — |
+| 终局全量（变异复位 + clean 重编译后） | `539/0/0/0`；`BUILD SUCCESS`；`MVN2_EXIT=0` | 复位后仍绿 |
+| `.java` 中注释吞 `@Test` | `grep "//.*@Test\|\*.*@Test"` = **0 命中** | 无「grep 虚高」前科 |
+
+**surefire 求和 == 源码 `@Test` == 终局计数 ⇒ 三条口径一致（539）**，不符先前「注释吞 `@Test` 致虚高」之坑。
+
+**聚合架构判据**：`bash tools/arch-check/arch-check.sh`（副本根）⇒
+`通过(0)=7 命中(1)=0 用法错误(2)=0`；**`E1`~`E7` 退出码全 0**；`arch-check 通过（退出码 0）`；命令退出码 **0**。
+
+## 2. 5 项「已实现」逐条核实（需求原文 → 实现 → 用例 → 承重）
+
+> 需求原文（`docs/REQUIREMENTS/AUTH.md` / `CONFIG.md`）本席逐字回读。
+
+| # | FR / 验收原文 | 实现点（`文件:行号`，共享树 HEAD） | 用例 | 承重（注入必红） |
+|----|----|----|----|----|
+| ① | `FR-AUTH-5` 验收1「按角色筛选结果正确」；输入列（`AUTH.md:159`）含「用户名/姓名关键字、**角色**、状态、是否企业负责人、**子账户**」 | `UserHandler.list:59-74`（`role`/`keyword`/`subAccount` 三参）→ `AuthService.listUsers` 6 参重载 `:939`；关键字 `(username LIKE ? OR real_name LIKE ?)`、角色/子账户 `id IN (…)` 下推 | `AuthAdminServiceTest.listUsersPushesDownRoleKeywordSubAccount`、`userHandlerReadsFilterParams`、`listUsersUnknownFilterShortCircuits` | **注入 A（自设点）**：`AuthService:959` 置 `&& false` ⇒ 2 例必红（见下） |
+| ② | `FR-AUTH-11` 验收3「可按用户与时间范围筛选」；输入列（`AUTH.md:249`）含「用户、**时间范围**、**变更类型**、**操作人**」 | `ChangeLogHandler.handle:43-57`（`from`/`to`/`changeTarget`/`operatorId`）→ `AuthService.listPermissionChangeLogs` 6 参重载 `:1292` | `AuthAdminServiceTest.changeLogPushesDownFilters`、`changeLogHandlerReadsFilterParams` | **注入 B**：`ChangeLogHandler:50` 改 `from=null` ⇒ 1 例必红 |
+| ③ | `FR-AUTH-15` 验收4「管理员强制下线操作留痕」；输入列含「管理员强制下线动作」 | `UserHandler` `case "FORCE_LOGOUT":120-123` → **复用**既有 `AuthService.forceLogout:1349`（`recordChange`+`writeLoginLog("KICKED")`+`invalidateByUser`） | `AuthAdminServiceTest.forceLogoutWiredViaHandler`、`forceLogout` | 走同一 `PUT /auth/user` action 分发，无新路径 |
+| ④ | `FR-CONFIG-7` 验收3「停用条件不满足时停用被拒绝」 | `ConfigRoutes` 补注册 `PUT` `:60` → `SubAccountHandler.disable:87-104` → 既有 `ConfigService.disableSubAccount:443`（四条件 + `configChangeLogDao.insert` 留痕） | `BootstrapAssemblyTest`（路由计数 83） | **注入 C**：删 `ConfigRoutes:60-61` ⇒ `BootstrapAssemblyTest:145` 必红 |
+| ⑥ | `FR-AUTH-1` 输入列「…、**初始角色**」（`AUTH.md:99` 确有） | `UserHandler.CreateRequest.roleCode:153` → `AuthService.createUser` 8 参重载 `:738`（校验先于落库，同事务写 `t_user_role` + `recordChange(CHANGE_USER_ROLE)`） | `createUserWithInitialRole`、`userHandlerCreatePassesRoleCode`、`createUserInitialRoleValidatedBeforeInsert` | 同 ①/⑥ 家族 |
+
+**编号勘误**：派单编号 ①②③④⑥ 与 `TASKS.md` 台账原编号 ① ② ③ ④ ⑥ 一致（缺 ⑤=FR-CONFIG-9，⑦=FR-CONFIG-3，均属「只报不改」列）。
+
+### 2.1 注入实验（先证编译通过再见红；结束复位 + clean 重编译）
+
+| 组 | 注入点（自设） | 编译 | 观测 | 结论 |
+|----|----|----|----|----|
+| **A** | `AuthService.java:959` `if (roleCode != null && !roleCode.isEmpty())` → 追加 `&& false` | ✅ | `AuthAdminServiceTest.listUsersPushesDownRoleKeywordSubAccount:302` ❌ / `userHandlerReadsFilterParams:419` ❌（`Tests run:20, Failures:2`） | **角色筛选承重** |
+| **B** | `ChangeLogHandler.java:50` `from` 赋值 → `null` | ✅ | `AuthAdminServiceTest.changeLogHandlerReadsFilterParams:442` ❌（`Failures:1`） | **时间下界承重** |
+| **C** | `ConfigRoutes.java:60-61` 删 `PUT SubAccountHandler.PATH` 注册 | ✅ | `BootstrapAssemblyTest.configuredDatabaseRegistersAllBusinessRoutes:145` ❌（`expected 83 but was 82`） | **停用端点注册承重** |
+
+**3 组注入全杀（含 2 组自设点，非复用产出方用例）**；复位后 `diff -q` 三文件恒等、树锚回落 `cd0ab556…`/343、终局 `mvn clean test` 539/0/0/0（见 §1）。
+
+### 2.2 自设探针（不依赖产出方用例，独立驱动停用路径）
+
+本席在副本内新建 `com.hedgeguard.verify.TeT135DisableProbeTest`（**3/3 绿，随后删除**）：
+- 探针① `new SubAccountHandler(null)` + `PUT {subAccountId:5}` ⇒ `BizException(COMPONENT_UNAVAILABLE/10002)` —— **未装配端口绝不静默放行**；
+- 探针② `UnavailableSubAccountDisablePrecheck` 四方法逐一 ⇒ 均抛 `10002`；
+- 探针③ 装配后经完整 `ConfigService.disableSubAccount` 路径（假 `SubAccountDao` 返回 `ENABLED` 行）⇒ 仍抛 `10002`。
+
+## 3. 路由计数与契约主张的核实（本单关键）
+
+**(3)① `ApiRoutes` 路径清单是否确未变 ⇒ 确未变。** `git diff --numstat` **不含** `ApiRoutes.java`（19 java 文件中无它）。
+- `ApiRoutes.byModule()` 声明**模块路径 128 条**（PRODUCT9/SPOT13/PLAN16/TRADE12/SETTLE12/RISK10/AUDIT11/ACCT12/FUND12/AUTH10/CONFIG11），另 `PING` ⇒ **声明路径 129 条**（含 `/ping`）。
+- CONFIG 声明路径 **11 条**（`:71-73`），未增删。
+
+**(3)② `PUT` 是否在 §4.1.1 的 CONFIG 方法集声明内 ⇒ 在。** `docs/ARCHITECTURE.md:642` 行 CONFIG 方法列 = **`GET/POST/PUT`**（模块级）。†
+> † §4.1.1`:648-650` 明写：`T-097` 落地前路由核对为**路径级**，**按路径的方法级声明未冻结**。故「既有路径补注册 `PUT`」与模块级方法集相容，且不触冻结条款。
+
+**(3)③ CONFIG 的 `(方法,路径) 对` 是否 17 → 18 ⇒ 是。** 逐条枚举 `ConfigRoutes.register`（`:54-75`）= **18 对**：`GET|PUT /config/item`、`GET|POST|PUT /config/sub-account`、`GET|POST /config/ctp`、`POST /config/ctp/test`、`GET|POST /config/dict`、`GET|POST /config/subject`、`GET|POST /config/report-period`、`GET /config/dispatch/{id}`、`GET /config/change-log`、`POST /config/import`、`GET /config/export`。减去本次新增 `PUT` ⇒ **改前 17**。**`+1` 成立**。
+
+**(3)④ `CONTRACTS.md` §5.1 兼容性主张是否成立 ⇒ 成立。** 该提交在该表**纯追加 1 行**（`:738`），逐条核：
+| 主张 | 证据 | 判定 |
+|----|----|----|
+| 无路径新增 | `ApiRoutes.java` 未改（§3①）；`CONFIG` 路径仍 11 条 | ✅ |
+| 无字段删除或改类型 | 提交只做**字段级新增**（可选查询参 / `CreateRequest.roleCode` / `action` 取值域）——`CONTRACTS §0③`（`:53`）「字段级新增可（向后兼容）；删除/改类型须 `CH-xxx`」 | ✅ |
+| 无错误码增减 | `ErrorCode.java` **未在改动面内**；新用法（`10002`/`10001`/`10005`）全为既有码 | ✅ |
+⇒ **未升版（`HGC-1.6` 不变）** 主张成立。††
+> †† §5 规则 3（`:702`）「新增方法属兼容变更，可直接追加并回写本节」支持 ①④（DAO 新方法 + 服务重载）。CONTRACTS 该行自述「`web/js/core/routes.js` 头注仍写 `82`/`CONFIG17`，须由可写 `web/**` 的实例同步」——`git show 6fb809e:web/js/core/routes.js:14-18` **实测确为 82/CONFIG17**，自述属实；该同步已立 `T-143`（见 §7 观察 O-3）。
+
+## 4. 「编排者两项裁定」的独立判定
+
+### (4a) ⑦ `FR-CONFIG-3` = 非缺口 —— **裁定成立（且理由可加强）**
+
+独立回读 `docs/REQUIREMENTS/CONFIG.md:130-143`（`FR-CONFIG-3` 全文）：
+- 处理规则（`:134`）确含「**持久化范围须显式声明**（哪些项允许落盘）」，但**四条验收标准**（`:140-143`）均关**持久化行为 / 敏感字段排除 / 无开关 / 留痕**，**无一条要求端点**。
+- 关键补充（本席独立取证）：**「显式声明」已有承载面** —— `t_config_item.persist_scope` 列（`DmConfigItemDao:27/68/89`）逐项声明 `LOCAL_ADMIN`/`NEVER`，经 **`GET /config/item`** 暴露（`ConfigItemHandler.ConfigItemView.persistScope:117`、`:138`），前端 `config.js:220` 渲染「持久化」列、`:7/:50` 引用 `R-CONFIG-2`；`ConfigService:223-224/1006-1007/1029` 落默认与更新。
+
+⇒ 裁定**成立**：`FR-CONFIG-3` 非缺口；且「须显式声明」并非仅由文档承载，而是**已由既有 `persist_scope` 字段 + `GET /config/item` 承载**。**不改、不立号**正确。
+
+### (4b) ⑤ `FR-CONFIG-9` = 「须新增 REST 路径 ⇒ 挂起待 CH」 —— **原裁定不成立（过严）**
+
+独立回读 `CONFIG.md:221-234`（`FR-CONFIG-9` 验收 1–4）并逐条定位承载面：
+| 验收 | 原文 | 承载面 | 是否须新 REST 路径 |
+|----|----|----|----|
+| 1 | 配 `0.0.0.0`/非回环被拒 | **既有** `ConfigService.requireLoopbackBind`（`:382`，绑定键含 `hg.tcp.bind` `:103`）经通用 `PUT /config/item`（`ConfigItemHandler`）生效 | **否（已有端点）** |
+| 2 | 系统中不存在关闭鉴权的配置项 | **负向要求** —— 由「缺失」满足，可枚举验证 | 否 |
+| 3 | 凭据 grep 不到 | **设计/`grep` 级**（`R-CONFIG-5` 零落盘） | 否 |
+| 4 | **鉴权失败时拒绝连接并产生告警** | **连接层运行时行为** —— 属组件间通信实现（HGCP，C++/M2），**不是配置端点** | **否（非端点类）** |
+
+⇒ **「FR-CONFIG-9 须新增 REST 路径」不成立**：验收 1 已有端点承载；2/3 为负向/设计约束；**验收 4 根本不是端点类要求**，其承载面是连接层运行时（组件间通信实现），**既非既有端点、亦非新端点**。
+故：**无须新增路径、无须 `CH`**。**「唯一残留 = 验收 4 的承载面（连接层）」须单独登记（归属 M2/组件通信），不并入 `T-135`**——此点本席**认同**编目者第 116 轮的自我订正结论（见 `TASKS.md:179` 括注）。
+
+## 5. 范围外改动核实（`PlanT112VisibilityTest` 等 4 文件）
+
+**变更内容**：`PlanT112VisibilityTest:518`、`SpotT110VisibilityTest:808`、`VarietyT112VisibilityTest:488`、`AuthServiceTest:832` 四处**新增 `findUserIdsBySubAccount` 覆写**（实现真实枚举逻辑）；`WsAuthorizerTest:211` 新增同名方法（`throw new UnsupportedOperationException()`）。
+
+**编排者解释（编译强制后果）⇒ 成立**：
+- `UserSubAccountPermDao`（接口，`:44`）新增**抽象**方法（无 `default`）⇒ 所有实现者（含测试假件）**必须**实现，否则 `javac` 失败。这些假件均 `extends UnsupportedBaseDao … implements UserSubAccountPermDao`（直接实现接口）⇒ **确属编译强制**。
+
+**是否引入行为变化 ⇒ 否**：
+- 新方法唯一调用点是 `AuthService.listUsers`（`:978`），仅当 `subAccountId != null` 时触发；`grep "listUsers"` 于该 5 个测试文件 **0 命中** ⇒ 假件该方法**从不被调用**，不可能影响既有断言。
+- 假件实现在语义上与 `DmUserSubAccountPermDao`（`:112`，按 `sub_account_id` 枚举 + 去重升序）一致，不构成「测试与生产不一致」。
+- `WsAuthorizerTest` 采 `UnsupportedOperationException`（即 `FakeDao` 既定「未实现即失败」姿态），与其同类假件一致；其余 3 处采真实实现，**风格略有分歧但不影响结果**（观察 O-4）。
+
+## 6. `FR-CONFIG-7` 的「M1 诚实 precheck」核实
+
+- **缺源主张属实**：`ls docs/DEPLOY/schema/` = `data-init.sql`/`m1_config_auth`/`m1_plan`/`m1_product`/`m1_spot`/`m3_risk`；`grep CREATE TABLE` 全表名中 **无 `t_fund*` / `t_position*`（持仓）/ `t_settle*` / 交易在途指令表**（`t_position_group`/`t_position_conflict` 系岗位配置，非持仓）⇒ 四条件（资金/持仓/在途/结算）数据源**确不存在于 M1**。
+- **错误码用法**：`UnavailableSubAccountDisablePrecheck` 四方法均抛 `COMPONENT_UNAVAILABLE(10002, 503)`；与先例 `CtpTestHandler`（M1 返 `10002`）**同姿态**。`ErrorCode` **未增改**（§3④）。
+- **措辞是否过高声明 ⇒ 否**：类 javadoc 明写「**为何是不可用实现**」「由 M2 以真实 DAO 替换本实现即可」，并把缺失数据源点名进错误串（`missingSources`）；`Bootstrap:245-249` 注释「M1 未交付 FUND/TRADE/SETTLE ⇒ 诚实失败（10002）」。**未见把「未实现」说成「已实现但受策略限制」**。
+- **观察 O-1（低）**：`ErrorCode.COMPONENT_UNAVAILABLE` 的**规范文案**为「交易组件通信不可用」，而此处载体是 **CONFIG 停用前置校验**（非交易组件通信）—— 抛出处以自定义 message 覆盖，故运行期文案无误；但**码位规范语义略窄于新用途**，属可接受复用。
+
+## 7. 改动面核实（`git diff --numstat 6fb809e^ 6fb809e`）
+
+**共 21 文件 = 19 `java/**` + 2 `docs/**`（台账）**，**无 `web/**`、无 `cpp/**`、无其它 `docs/**`**。逐 hunk 意图：
+
+| 文件 | 类型 | 意图（与 7 项缺口关系） |
+|----|----|----|
+| `docs/BOARD.md`、`docs/TASKS.md` | 台账 | 编排者回写（T-135→待复核、立 T-143）——**非产出方写域** |
+| `java/CONTRACTS.md` | 契约登记 | §5.1 追加兼容性登记 1 行（§3④） |
+| `dao/UserSubAccountPermDao.java`、`dao/impl/DmUserSubAccountPermDao.java` | 主 | ① 反向索引新方法 |
+| `service/AuthService.java` | 主 | ①②⑥ 三个重载 + 校验前置 |
+| `service/ConfigService.java` | 主 | ④ `findSubAccountById` |
+| `service/impl/UnavailableSubAccountDisablePrecheck.java` | **新** | ④ M1 诚实 precheck |
+| `web/Bootstrap.java` | 主 | ④ 装配 precheck |
+| `web/handler/auth/UserHandler.java` | 主 | ①③⑥ handler 面 |
+| `web/handler/auth/ChangeLogHandler.java` | 主 | ② handler 面 |
+| `web/handler/config/ConfigRoutes.java` | 主 | ④ 补注册 `PUT` |
+| `web/handler/config/SubAccountHandler.java` | 主 | ④ `disable` |
+| `test/AuthAdminServiceTest.java` | **新** | ①②③④⑥ 用例 |
+| `test/AuthServiceTest.java`、`ConfigServiceTest.java` | 测 | 配套 |
+| `test/PlanT112/SpotT110/VarietyT112VisibilityTest.java`、`test/ws/WsAuthorizerTest.java` | 测 | §5 编译强制 |
+| `test/BootstrapAssemblyTest.java` | 测 | 计数 82→83 |
+
+**结论：无与 7 项缺口无关的行为改动**；`UserHandler` 对非数字 `subAccount` 由旧 `Long.valueOf` 抛裸异常改为 `10001`（`:90-100`）属**缺陷修复方向**（非退化）。
+
+**观察**：
+- **O-2（低）**：台账自述「**17 改 + 1 新**」与实测**不符** —— 实测 `java/**` + `CONTRACTS` = **17 改 + 2 新**（新 = `UnavailableSubAccountDisablePrecheck.java` + `AuthAdminServiceTest.java`）。计数低估 1 个新文件（不影响实质）。
+- **O-3（低）**：`web/js/core/routes.js` 头注在 `6fb809e` 仍写 82/CONFIG17（`:14-18` 实测）；该同步已立 `T-143`，**并已在复核期间交付提交 `a785485`（T-143→DONE，现头注 83/CONFIG18）** ⇒ **不属 T-135 缺陷**、且**已闭环**。（取样时刻 2026-09-23 复核早期为「工作树已改未提交」，随后被提交。）
+- **O-5（低）**：同头注「**60 个路径**」与权威源不可复算 —— `ApiRoutes` 声明 **129 条**（含 `/ping`）、已注册**路径** ≥39；该数字**先于本提交即存在**、本提交未改，属**既有陈旧口径**。
+
+## 8. 自设扫描面（产出方「已披露」≠ 已排查）
+
+**扫描点 A —— 新 DAO 方法是否被误用为「取数入口」？**（`CONTRACTS §7` 明令取数须用 `AuthService.visibleSubAccountIds`，不得用已删的 `DmUserSubAccountPermDao.scopeOf`）
+- `grep -rn findUserIdsBySubAccount java/src` ⇒ 生产唯一调用点 `AuthService.java:978`（**用户列表筛选下推** `id IN (…)`），**非**数据作用域取数；接口 javadoc 明写「**不是**取数入口（不带 `perm_type` 语义）」。`scopeOf` 全仓仅存于防复活守卫测试（`T099ScopeOfDeprecationTest`），**未被复活**。
+- ⇒ **无同类风险**。
+
+**扫描点 B —— 新增可选入参是否破坏既有调用方的分页/排序语义？**
+- `UserHandler.list:60-61` 与 `ChangeLogHandler:44-45` 仍以 `PageQuery.of(…, "created_time"/"change_time", "desc")` 构造分页（**显式默认倒序**，未受新参影响）；新参仅**追加 WHERE 子句**。
+- 旧 4 参 `listUsers` / 2 参 `listPermissionChangeLogs` **保留委托**（`:714/939`、`:1273/1292`），传 `null` ⇒ WHERE 与改前逐字一致；`grep` 确认生产端各仅 1 个调用方且均已更新 ⇒ **无遗留调用方**。
+- ⇒ **分页/排序语义未破坏**。
+
+## 9. 结论与清单
+
+### 结论：**有条件通过**
+- **0 阻断缺陷**；代码面功能成立、门禁实测全绿、5 项实现均有**行号级落点 + 承重用例（3 组注入全杀 + 3 探针独立绿）**。
+- **1 条件（须闭环，非本单代码缺陷）**：`FR-CONFIG-9` 验收 4 的承载面（**连接层运行时**）须**单独登记**（归属 M2/组件通信），**不得静默丢弃**。（`web/js/core/routes.js` 头注同步走 `T-143`，**已于复核期间提交 `a785485` 闭环**。）
+- **1 裁定订正**：编排者第 115 轮「`FR-CONFIG-9` 须新增 REST 路径 ⇒ 挂起待 `CH`」**不成立**（本席 §4b 独立判定）；编目者第 116 轮自订正结论**正确**。
+- **不自评 `T-135` 为 `DONE`**。
+
+### 缺陷清单
+**无**（0）。
+
+### 观察清单（均不阻断）
+| 编号 | 级别 | 位置 | 说明 |
+|----|----|----|----|
+| O-1 | 低 | `ErrorCode:19` + `UnavailableSubAccountDisablePrecheck` | `10002` 规范文案「交易组件通信不可用」略窄于「停用前置校验不可用」新用途；抛出处以自定义 message 覆盖，运行期无误 |
+| O-2 | 低 | `docs/TASKS.md:179` | 自述「17 改 + 1 新」与实测「17 改 + 2 新」不符（低估 1 新文件） |
+| O-3 | 低 | `web/js/core/routes.js:14-18` | 头注同步未提交（`fe-t143` 工作树已改）——已立 `T-143` |
+| O-4 | 低 | 5 处测试假件 | `WsAuthorizerTest` 抛 `UnsupportedOperationException` 与其余 3 处真实实现风格略分歧（均从不被调用） |
+| O-5 | 低 | `web/js/core/routes.js:14` | 头注「60 个路径」与权威源（129 声明路径）不可复算——**先于本提交的既有陈旧口径** |
+
+### 独立实测锚点汇总
+- 冻结点 `6fb809e`；`java/src` 树锚 **`cd0ab556…`/343**（改前改后一致）
+- 门禁：**`539/0/0/0`**（两轮），surefire==`@Test`==539；`arch-check` 聚合 **rc 0**、**E1–E7 全 0**
+- 路由：`ApiRoutes` 未改（声明 129 路径）；CONFIG `(方法,路径)` **17→18**；`PUT` 在 §4.1.1 CONFIG 方法集 `GET/POST/PUT` 内
+- 注入：**3 组全杀**（A 红 2 / B 红 1 / C 红 1）+ **自设探针 3/3 绿**；复位 `diff` 恒等 + clean 重编译 539/0/0/0
