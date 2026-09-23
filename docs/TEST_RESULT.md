@@ -7749,3 +7749,211 @@ sub-account 停用 / `FR-CONFIG-9` 端点 / `CreateRequest` 初始角色 / 持�
 
 ---
 *本席只读复核；未改共享树任一文件；产物落 `/root/verify-t139/`（`myprobe.mjs`/`mutate.mjs`/`post`/`pre`/`mut`）。*
+
+---
+
+## 第 112 轮独立复核证据章（`T-024`，编排者 `team-lead` 并入登记 · 2026-09-23）
+
+> **并入口径**：以下章由独立复核席 `te-verify-t024`（`test-engineer`，**只读、未动共享树、未用 `/tmp`**）产出，**原文照录**；编排者仅在章首加本登记块。**纯追加已核**（追加前 `docs/TEST_RESULT.md` = `60fae31d28fa245cfb2fc2c0ea53abee` / **7751 行**）。
+>
+> **结论 = 有条件通过 / 0 阻断缺陷 / Low 2 + 观察 5** ⇒ 按本项目判据（**授权 + 独立验证**）**转 `DONE`**。复核对象 = **交付时点 `9d727bf`**（隔离副本 `/root/verify-t024`）。
+>
+> **冻结点（复核方独立重测，与自述逐字吻合）**：`M1EndToEndAcceptanceTest.java` `b215f567…`/638、`M1E2eSeed.java` `9cdd470b…`/96、`M1-report.md` `042ea9e8…`/198、`BUG-003.md` `9d534336…`/128、`java/src` 树锚 `82dd4419…`/342；基线 **526/0/0/0 + SUCCESS**、65 类、`@Test` 526 == surefire 526。
+>
+> **★验收独立判定**：**① ❌ 未达成**（**独立复现** `500/10022`、`uk_hedge_plan_no`，缺陷三要素成立）；**② ✅**；**③ ✅**（等价执行、**DM8 实机未验属实**）；**④ ✅**（`PROJECT.md:561` 原文逐字吻合）。**验收 1 于 `0f225f3` 修复后已翻转**（同用例 9/9 绿、断言反转为「两者皆成且 `plan_no` 互异」；`PlanService:587` `count(null,null)+1` + `retryOnUniqueConflict` 接线，与 `BUG-003` 建议一一对应）。
+>
+> **★注入必红（自建，均隔离副本 + 逐字节复位，`diff -rq` 与原生树比对为空）**：负控**绿**（不空转）；`MUT-A` 读面去 scope ⇒ 红 1；`MUT-B` 写面守卫置空 ⇒ 红 2；`MUT-E` 读映射交换 ⇒ 红 1。**★另有 `MUT-C`（insert 绑定顺序交换）未红** —— 经 `javap` + 插桩定位为 `createPlan` 的 **read-modify-write 使「对称列映射错」自愈** ⇒ 判**非缺陷**，属**夹具敏感性盲区**（**产出方未提及**，由复核方自设面发现）。
+>
+> **两条 Low 缺陷（均针对 `M1-report.md` 的陈述精度）**：`TE-T024-001` §3 行锚 `TASKS.md:710-713` **不实**（实测 `2beae55` 时为 `:707-710`、`9d727bf` 时为 `:743-746`）；`TE-T024-002` §4「均为单表/未使用子查询」**不实** —— e2e 路径调用 `count()`，经 `DmDialect:26` 生成 `SELECT COUNT(*) … FROM (<inner>) hg_cnt` **子查询 + 聚合**，引擎以 `COUNT_WRAPPER(:627)` **忠实支持** ⇒ **非假绿，属披露精度**。两条 ⇒ **已立 `T-142` 收口**。
+> **自设新增检查点**：`N-1` 对称映射错**自愈**（= 上述 `MUT-C`）；`N-2` `count()` 子查询形态与报告「单表」陈述矛盾（= `TE-T024-002`）；`N-3` 夹具**顺序无关 / 可重复**（正面）；`N-4` 时钟推进会话语义设计正确；`N-5` 留痕断言偏弱（`>=1`）；`N-6` 用例名「验收 1」歧义。
+
+# `T-024` 独立复核报告（席 `te-verify-t024`）
+
+> 复核对象：**`T-024` 交付时点 `9d727bf`**（`git archive` 隔离副本 `/root/verify-t024`）。
+> 复核人：test-engineer（独立于产出方 `te-t024`）。**未自评 `DONE`**。
+> 证据栏分「**独立实测**」vs「**产出方自述**」。
+> 复核时刻：2026-09-23T13:31Z ~ 14:10Z（UTC）。
+
+---
+
+## 0. 结论
+
+**有条件通过（0 阻断缺陷；2 项 Low 文档/披露精度缺陷；5 项观察）**。
+
+- `T-024` **对验收 1–4 的判定本身准确**：验收 1 ❌ 未达成（`BUG-003` 已独立复现）、验收 2/3/4 ✅ 均**经独立变异证其断言承重**。
+- 诚实性良好：未把「内存等价执行」写成「DM8 已验」；未自评 `DONE`。
+- 条件（Low，不阻断）：订正 `M1-report.md` 两处**文档/披露精度**问题（`TE-T024-001`/`TE-T024-002`）。
+- **验收 1 结论已随 `T-137` 修复翻转为「达成」**（本席在 `0f225f3` 隔离副本独立实测 9/9 绿，含反转后的 `plan_no` 互异断言）。
+
+---
+
+## 1. 交付件锚点（独立实测）
+
+| 交付件 | 交付时点 `9d727bf`（独立实测） | 产出方自述 | 判定 |
+|--------|------------------------------|-----------|------|
+| `M1EndToEndAcceptanceTest.java` | `b215f5672d3f4b1f2aa280e2ac657fdb` / **638** | `b215f567…` / 638 | ✅ 吻合 |
+| `M1E2eSeed.java` | `9cdd470b5ee6a535494d4a0519ba568c` / **96** | `9cdd470b…` / 96 | ✅ 吻合 |
+| `M1-report.md` | `042ea9e8b47335852cc90fbbdf4987e5` / **198** | `042ea9e8…` / 198 | ✅ 吻合 |
+| `BUG-003.md` | `9d5343361c2b2abbde765f15a888c21e` / **128** | `9d534336…` / 128 | ✅ 吻合 |
+| `java/src` 树锚 | `82dd4419f831e79431cd5f9655eddfd9` / **342** | `82dd4419…` / 342 | ✅ 吻合 |
+| `docs/TEST_PLAN` 文件数 | **15** | 14 → 15（新增本报告） | ✅ 吻合 |
+
+**门禁（独立实测，隔离副本、`TMPDIR=/root`）**：
+`mvn -B -o -Punit clean test` = **`Tests run: 526, Failures: 0, Errors: 0, Skipped: 0` + BUILD SUCCESS**；
+surefire 测试类 **65**；`@Test`（`grep -rc`）**526** == surefire **526**；`M1EndToEndAcceptanceTest` **9** 例全绿。
+
+**改动面（独立实测 `git diff --numstat 9d727bf^ 9d727bf`）**：5 文件
+`BUG-003.md +128/0`、`M1-report.md +198/0`、`M1E2eSeed.java +96/0`、`M1EndToEndAcceptanceTest.java +638/0`、`web/js/app.js +6/-3`。
+`web/js/app.js` 经 `git diff` 核实**为 `T-134` 修复**（`refreshUser` 删去不存在的 `HG.session.roleLabel()`，md5 `ab7163f7…`，与本提交 message 一致）⇒ **非 `T-024` 夹带**；`java/src/main` 在本提交**零改动**（`git diff --numstat … -- java/src/main` 空）。
+
+---
+
+## 2. 验收标准核对（`docs/TASKS.md` §2 `T-024`）
+
+`T-024` 验收标准原文（`9d727bf:docs/TASKS.md:743-746`）：① 创建两子账户→配品种/敞口→各自产出计划全链路无断点；② 子账户数据隔离（A 看不到 B；审计岗可跨账户）；③ 数据在 **DM8** 正确落库（子账户标识/敞口三分量/额度三层）；④ 出具 M1 验收报告逐条对照 `PROJECT.md` §9。
+
+| # | 独立判定 | 依据（独立实测） |
+|---|---------|-----------------|
+| 1 | **❌ 未达成**（交付时点） | 反例 `acceptance1SameDay…` 实测第二子账户 **`500/code=10022`**（见 §4）；本席**独立复现** |
+| 2 | **✅ 达成** | 断言承重（MUT-A 杀 1 / MUT-B 杀 2，见 §3）；双向隔离断言落库表/响应码 |
+| 3 | **✅ 达成（等价执行；DM8 实机未验）** | 断言落库表行/列（MUT-E 杀 1）；未 overclaim DM8（§5 项 2） |
+| 4 | **✅ 达成** | 报告逐条对照 `PROJECT.md:561` 原文；本席核对该行原文**逐字吻合**（§5 项 4） |
+
+无异议项：验收 2/3/4 的达成判定与本席独立实测一致。
+
+---
+
+## 3. ★断言承重性（假绿排查）—— 3 组「注入 ⇒ 必红」+ 负控
+
+**方法**：全部在隔离副本 `/root/verify-t024`（`git archive 9d727bf`）内做；变更前 `cp` 备份至 `/root/t024-verify-bak/`；每次 `mvn -B -o -Punit -Dtest=M1EndToEndAcceptanceTest clean test`；跑毕 **逐字节复位并用 `diff -rq` 与 `9d727bf` 原生树比对，`java/src` 树**完全一致**。
+
+| 编号 | 注入（副本内 `src/main`） | 期望击落 | 独立实测 | 复位 |
+|------|--------------------------|---------|---------|------|
+| **负控** | 无 | 全绿 | **9/0/0/0** | — |
+| **MUT-A** | `PlanService.getPlan` 首行 `if (System.nanoTime()>=0) return hedgePlanDao.findById(planId);`（读面去 scope） | 越权读用例 | **Failures: 1** —— `userACannotReadSubAccountBPlan` | ✅ 逐字节 |
+| **MUT-B** | `AuthService.assertSubAccountWritable` 首行 `if (System.nanoTime()>=0) return;`（写面守卫置空） | 越权写用例 | **Failures: 2** —— `userACannotWriteToSubAccountB`、`crossReadonlyAuditCannotWrite` | ✅ 逐字节 |
+| **MUT-E** | `DmExposureDao.mapRow` 交换 `contract_unexecuted_qty`/`inventory_qty` 读取列 | 落库（验收 3） | **Failures: 1** —— `persistenceCoversSubAccountExposureComponentsAndThreeQuotaLayers` | ✅ 逐字节 |
+
+⇒ **验收 2/3 的断言真承重**（逐处精准击杀，无多杀/漏杀）。**恒真断言排查**：未发现「只断 `!= null`」「只断 `status != 500`」——`dataJson` 用的是 `assertNotNull(data)` 但**其后紧接具体值断言**（`subAccountId`/`binding.exposureId`/`total`），非空断言不是唯一守卫。
+
+### 3.1 ⚠️ 承重性 nuance（产出方未提及）：对称列映射错会被「读改写」自愈
+
+本席首选的验收-3 注入 **MUT-C**（交换 `DmExposureDao.bindBusiness` 的 `contractUnexecutedQty`/`inventoryQty` **绑定顺序**）**未击落**（9/9 全绿）。经 `javap` 确认该变异**确已编译**，进而以「引擎行 dump + `bindBusiness` 探针」定位原因：
+
+- 插桩实测 `[PROBE-BIND]` 出现**两种实体态**：`contractUnexecutedQty=0 inventoryQty=100`（insert 后读回态）与 `contractUnexecutedQty=100 inventoryQty=0`（写回态）。
+- 机理：`createPlan` 绑定敞口时对 `t_exposure` 做 **read-modify-write**（`findById` → 设 `covered_qty/status` → `updateById`）。**对称的列映射错**在「写入错→读出错→再写回」两跳**相互抵消**，末态恢复正确 ⇒ 断言读到的是**愈合后**的值。
+- 对照：**MUT-E**（仅读映射错，非自愈）**必红** ⇒ 断言并非无牙，而是对**对称映射错**在本 world（两敞口均被 `createPlan` 绑定）下不敏感。
+
+**定性**：**非缺陷**（末态正确、断言仍守卫非对称/常量型错），但属**夹具敏感性盲区**，产出方 §11 未提及。建议后续为该断言补一条**不绑定计划**的敞口（跳过 RMW 愈合）。
+
+---
+
+## 4. 验收 1：历史结论成立 + 修复后翻转
+
+**交付时点 `9d727bf`（独立实测，surefire `system-out` 原文）**：
+
+```
+[T-024][BUG-003] plan_no：A=HP202609200001 ; A2=HP202609200002 ; B2 序号同 A2（均应 = HP<日><seq>，无子账户维度）
+[T-024][BUG-003] 第二子账户 B2：status=500 code=10022 body={"code":10022,"message":"内部错误","traceId":"HG-T024"}
+```
+
+- `PlanService.java:573`（`9d727bf` 原文）`: long seq = hedgePlanDao.count("sub_account_id = ?", Arrays.asList(plan.subAccountId)) + 1;` —— **按子账户计数**、编号 `BizNoGenerator.hedgePlan` = `HP<yyyyMMdd><seq(4)>` **不含子账户维度**，`uk_hedge_plan_no` 全局唯一 ⇒ **第二子账户同日必撞**。**`BUG-003` 三要素独立成立**。
+- ⇒ **验收 1「❌ 未达成」结论准确**。
+
+**修复后（`0f225f3`，本席独立实测）**：`git archive 0f225f3` 隔离副本跑同用例 **9/0/0/0 全绿**，其中 `acceptance1SameDay…` 断言**已反转为**「两者皆 `200/code0`、`plan_no` 互异、同日期段、行数 `before+2`」（`:290-320`）。`PlanService` 修复实测 = `:587 count(null, null)+1`（全局取号）+ `:585 retryOnUniqueConflict` 接线，**与 `BUG-003` 修复方向建议一一对应**。
+⇒ **回答：`T-024` 的验收 1 结论在 `T-137` 修复后已转为「达成」**（修复达标性本身归 `T-137` 复核席，非本单）。
+
+---
+
+## 5. 已披露项诚实性核对
+
+产出方 `M1-report.md` §11 列 9 项披露。**本席逐项回读**（「已披露 ≠ 已排查」）：
+
+| 披露项 | 独立判定 |
+|--------|---------|
+| 1 验收 1 未达成 | ✅ 属实（§4 独立复现） |
+| 2 DM8 实机未验（未写成 DM8 验证） | ✅ 属实：全盘 `DmJdbcDriver*.jar` **0 命中**、`java/lib` 不存在（独立实测）；报告 `DM8` 处均为「未验/等价执行」 |
+| 3 UI 级不在范围 | ✅ 属实（层次=REST 装配级） |
+| 4 引擎不覆盖项「本链路不依赖」 | ⚠️ **不精确** ⇒ `TE-T024-002`（见 §6） |
+| 5 B 用「次一业务日」规避 `BUG-003` | ✅ 属实（`:246-249` 实测）；但**未提示测试名歧义** ⇒ `O-3` |
+| 6 范围外观察（`GET /spot/exposure` 无可见性守卫；`retryOnUniqueConflict` 未接线） | ✅ 两项均属实 |
+| 7 会话直注 `SessionStore` | ✅ 属实（`:508-512`） |
+| 8 只读声明（`java/src/main` 等零改动） | ✅ 属实（`git diff` 实测） |
+| 9 未自评 `DONE` | ✅ 属实 |
+
+### 5.1 本席自设扫描面（产出方未提及）—— 新增检查点
+
+- **N-1（harness）**：对称列映射错被 RMW 自愈（§3.1）—— 产出方未覆盖此敏感性面。
+- **N-2（工具链一致性）**：`count()` 经 `DmDialect.countSql` 生成 `SELECT COUNT(*) AS cnt FROM (<inner>) hg_cnt`（**子查询+聚合**），且**在 e2e 路径被调用**（`createPlan` 取号、`createExposure` 取号、`/plan` 列表分页）—— 与报告 §4「均为单表/未使用子查询」**矛盾**。引擎以专用 `COUNT_WRAPPER`（引擎 `:627-634`）支持该形态 ⇒ **末态正确、非假绿**，但报告表述不实。
+- **N-3（用例顺序/幂等）**：每例 `@BeforeEach` 均 `new InMemoryDmEngine()` 全新世界 + `@AfterEach Clocks.reset()` ⇒ **无跨例状态依赖**；`M1E2eSeed` 固定主键（`id=0`、用户 100–103）**在全新引擎上不触发重复插入** ⇒ 夹具**顺序无关、可重复**（正面结论）。
+- **N-4（会话 vs 时钟推进）**：`:510-511` 会话有效期 `Clocks.now().plusDays(365)`（存于 `BASE_DAY` 时点），随后 `:246` 推进到 `BASE_DAY+1` ⇒ 会话仍有效，`SessionAuthFilter` 不误杀；`@AfterEach` 复位 ⇒ 设计正确。
+- **N-5（弱断言）**：`crossReadonlyAuditCannotWrite` 对留痕断言 `t_unauthorized_attempt.rows.size() >= 1`（**下界**），且 `assertSubAccountVisible` **读面**亦写该表 ⇒ 计数非写面专属、区分度弱（不影响该例主判据 `403/10004`）。⇒ `O-5`。
+- **N-6（命名歧义）**：`fullChainProducesTwoHedgePlansWithoutBreak` 的 `@DisplayName` 为「**验收1**：…全链路业务码 0」——该例**恰因 B 用次一业务日而通过**，扫名读者可能误读「验收 1 ✅」。⇒ `O-3`。
+
+---
+
+## 6. 缺陷清单
+
+> 级别：**Low**（文档/披露精度，不阻断功能与门禁）；无 High/Medium/阻断缺陷。
+
+### `TE-T024-001`（Low）`M1-report.md` §3 行锚 `TASKS.md:710-713` 不实
+- **文件**：`docs/TEST_PLAN/M1-report.md:48`（`9d727bf`）。
+- **现象**：该表头引 `TASKS.md:710-713` 承载 `T-024` 验收标准 1–4。
+- **基准/实测**：报告自述版本 `2beae55` 处，验收标准 1–4 实际位于 **`:707-710`**（本席 `git show 2beae55:docs/TASKS.md | grep -n` 实测）；交付提交 `9d727bf` 处位于 **`:743-746`**。**`710-713` 与两者皆不符**。
+- **复现**：`git show 2beae55:docs/TASKS.md | sed -n '706,711p'`。
+- **建议**：改章节锚（如「`TASKS.md` §2 `T-024` 详节」）或订正为实测行号 + 标「时点」。
+
+### `TE-T024-002`（Low）`M1-report.md` §4「均为单表 / 未使用子查询」与实测不符（披露精度）
+- **文件**：`docs/TEST_PLAN/M1-report.md:64-66`。
+- **现象**：§4「诚实边界」称「**全部查询均为单表** …」「**未使用**…子查询 → loud 抛」。
+- **基准/实测**：`DmDialect.java:26` 的 `countSql` = `"SELECT COUNT(*) AS cnt FROM (" + sql + ") hg_cnt"`（**子查询+聚合**）；`AbstractDmDao.count`（`:174-187`）走该路径；而 `count()` **在 e2e 路径被调用**（`PlanService.java:573`、`SpotService.java:714`、`/plan` 列表分页）⇒ 报告中「均为单表」不成立。
+- **复现**：`grep -n "countSql" java/src/main/java/com/hedgeguard/dao/dialect/DmDialect.java`；`grep -n "\.count(" java/src/main/java/com/hedgeguard/service/PlanService.java`。
+- **影响/定性**：**非假绿**——引擎以专用 `COUNT_WRAPPER`（`:627-634`）**忠实支持**该形态，末态正确；但「不覆盖项核对」栏的支撑句**不实**，属**披露精度**问题（建议改述为「使用了引擎**已支持**的 `countSql` 包装形态；不覆盖项中的**其它**子查询形态本链路不依赖」）。
+- **不属于缺陷**：`GROUD`-by/`JOIN` 在 `src/main` **0 命中**（独立实测），故报告对「JOIN/聚合不依赖」的**结论**仍成立。
+
+---
+
+## 7. 观察清单（不阻断）
+
+| 编号 | 内容 | 级别 |
+|------|------|------|
+| `O-1` | 证据栏已分「独立实测 / 产出方自述」；无 §3.1/N-2 之外的方法学问题 | — |
+| `O-3` | `fullChainProducesTwoHedgePlansWithoutBreak` 名为「验收1」但靠 B 次一日回避而通过；建议改名或加注「此非同日场景」以消歧 | 低 |
+| `O-4` | 验收-3 敞口三分量断言对**对称列映射错**本 world 下自愈（§3.1）；建议补一条**未绑定计划**的敞口 | 低 |
+| `O-5` | `crossReadonlyAuditCannotWrite` 留痕断言为下界 `>= 1` 且非写面专属；建议收紧为 `== 1` + 校验 `attempt_type` | 低 |
+| `O-6` | `BUG-003.md` 未登记同形潜在缺陷 `PlanService.createTradePlan:1388`（同类「按父级计数取号」）—— 属范围外，仅提示 | 提示 |
+
+---
+
+## 8. `BUG-003` 缺陷单质量（独立评估）
+
+| 项 | 判定 |
+|----|------|
+| 复现步骤 | ✅ 完备（最小步骤 + 固化用例命令 `-Dtest=M1EndToEndAcceptanceTest#acceptance1SameDay…`） |
+| 期望/实际/证据 | ✅ 期望注明依据（`DATA_MODEL.md:1661/:1687/:4368`、`REQUIREMENTS/PLAN.md:34/35`、`PROJECT.md:561`）；实际附**原始 `system-out` + 根异常**（本席核对原文吻合） |
+| 需求引用 | ✅ 逐条回读**全部命中**（`1661`=`plan_no 全系统唯一`、`1687`=`uk_hedge_plan_no`、`4368`=`HP<yyyyMMdd><seq(4)>`、`PLAN.md:34/35`=唯一/归属子账户、`PROJECT.md:561`=M1 验收方式） |
+| 影响面/复现率 | ✅「必现」属实（纯应用层逻辑 + 表级唯一约束） |
+| 与 `T-137` 修复对应 | ✅ **一一对应**（建议「全局当日序号 + `retryOnUniqueConflict`」↔ 实测修复 `count(null,null)+1` + 接线） |
+| 越界 | ✅「修复记录/复检结论」交付时点**留空**（未代开发填写），HEAD 处「复检结论」仍空 |
+
+---
+
+## 9. 复核边界（本席未覆盖）
+
+- **未验 DM8 实机**（本机不可达，与产出方同）
+- **未复核 `T-137` 修复达标性**（归 `te-verify-t137`）；本席仅确认其**使验收 1 断言翻转且在 `0f225f3` 全绿**
+- **未复核前端 `web/js/app.js`（`T-134`）**——仅核实归属，未验其功能
+- 本报告全部注入均在**隔离副本**内做，**未动共享源树**；副本 `java/src` 与 `9d727bf` 原生树 `diff -rq` **完全一致**
+
+---
+
+## 10. 独立实测锚点汇总
+
+| 项 | 值 |
+|----|----|
+| 隔离副本 | `/root/verify-t024`（= `git archive 9d727bf`）；`0f225f3` 副本 `/root/t024-head` |
+| 基线门禁 | `526/0/0/0` + BUILD SUCCESS；65 类；`@Test` 526 == surefire 526 |
+| M1 e2e | 9 例全绿（交付时点与 `0f225f3` 均绿） |
+| 变异 | 负控绿；MUT-A 红1；MUT-B 红2；MUT-E 红1；MUT-C 绿（自愈，见 §3.1） |
+| 复位核验 | `diff -rq /root/t024-pristine/java/src /root/verify-t024/java/src` = **空** |
+| 备份 | `/root/t024-verify-bak/*.orig` |
