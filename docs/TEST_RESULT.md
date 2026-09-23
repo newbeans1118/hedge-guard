@@ -5576,3 +5576,200 @@ g++ -std=c++11 -Wall -Wextra -Werror -isystem <pb3.21.12/src> -c probe.cpp   # r
 ---
 
 **纯追加证明**：本证据章落笔前 `md5sum docs/TEST_RESULT.md` = `3145e5179eb5c12935e0a853b6510b7a` / **5392 行**；追加后 `head -5392 docs/TEST_RESULT.md | md5sum` = **`3145e5179eb5c12935e0a853b6510b7a`**（⟹ 前 5392 行**逐字节未变**）。追加后章数/md5 **以实时为准**（本章为共享 `docs/TEST_RESULT.md` 的**纯追加**，未删改任何既有行）。
+
+# `T-018` 独立复核证据（2026-09-23）
+
+> 复核席：`te-verify-t018`（**自撰探针 / 自设变异**，未复用产出方 harness）。
+> 共享源树**只读**（`web/**`、`java/**`、`docs/**` 除本章外均未改）；变异/探针仅在隔离副本 `/root/t018v`。
+> 结论：**有条件通过（0 阻断缺陷）** ⇒ 按本项目判据可转 `DONE`；4 观察项 + 3 项立号核对意见（见下）。
+
+## 0. 复核方法与工具
+
+| 手段 | 内容 |
+|------|------|
+| 静态契约核对 | 逐字段把 `product.js` 消费/提交的字段名与**已实现 Handler** 的请求/视图类**逐字比对**（`ProductHandler`/`WhitelistHandler`/`QuotaHandler`/`ProductContractHandler`/`ProductMappingHandler`/`ProductChangeLogHandler`/`ProductImportHandler`/`ProductExportHandler`） |
+| 独立运行探针 | 自撰 `/root/t018v/probe.mjs`：`global.window`/`document`/`fetch` 全桩 + 载入**真实** `web/js/core/{ns,format,errmsg,ui,routes,router,session,api}.js` 与 `web/js/pages/product.js`，真机执行 `renderList`/`renderDetail` 六 Tab/导出/导入错误路径 ⇒ **31 PASS / 0 FAIL** |
+| 自设变异 | 隔离副本内对 `web/js/pages/product.js` 注入 ①`jdbc` ②`127.0.0.1:<port>` ③`package.json`，各跑 `E6`（`check_frontend.sh`） |
+| 接线核查 | 聚合 `tools/arch-check/arch-check.sh`（E1–E7）实跑 |
+| 残留扫描 | `git status --porcelain`、`find -name '*.orig' -o -name '*.bak'`、`grep -rl MUTATION` |
+
+**残留扫描结果**：`*.orig`/`*.bak` = **0**；`MUTATION` 命中仅在 `docs/*.md` 散文与第三方 `cpp/build-fetch/_deps/protobuf-src/**` ⇒ **无我方或产出方遗留变异态**。
+
+## 1. 复核对象与锚点（实测，非转述）
+
+| 对象 | 复核席实测 | 与你（编排者）派单 |
+|------|-----------|------------------|
+| `web/js/pages/product.js` | `b8e66b70927d596ab62ec5cb83e39398` / **999 行** | 吻合 |
+| `web/js/core/api.js` | `db1d4e9dd661cbe097c6c7cd0b7f5c1d` / **172 行** | 吻合 |
+| `web` 树锚 | `f827e00e6687afb092ab933fe0816ce4` / **27 文件**（基线 `81a06bce…`/27） | 吻合 |
+| `git diff --numstat 71e857a 6acead5 -- web/` | `45/1  api.js`、`995/15  product.js` | 吻合（`45/1`） |
+| `web/js/core/routes.js` | **未改**（`:54-62` 已登记 9 条 PRODUCT 路径） | 吻合 |
+| HEAD | `6acead5` | 吻合 |
+| `docs/ARCHITECTURE.md` | `94cedcf5dfa37d9e55f1c4e2ba341599` / 3267 行 | （§4.1.1 `:625`、`G-2` `:1282` 逐字已核） |
+
+**静默取证**（本席落笔前）：`2026-09-23T09:25:40` / `09:25:50` / `09:26:01` 三次取样，`product.js`/`api.js`/`web` 树锚**逐次一致**（`b8e66b70…` / `db1d4e9d…` / `f827e00e…`/27）。
+
+## 2. 验收判据逐条（A/B/C/D/E）
+
+### A. 验收 1 —— 六 Tab 真取数 + 三态 + errmsg 四项（探针实跑 + file:line）
+
+| Tab | 取数调用点（`product.js`） | 渲染 | 三态 |
+|-----|--------------------------|------|------|
+| 概览 `overview` | 复用 `loadHead` 的 `GET /product/{id}`（`:471`）；`:505` 起渲染「已覆盖/接口缺口」诚实登记卡 | `:511-523` | 头卡 `renderLoading:469` / `renderError:477` |
+| 合约关联 `contracts` | `:538` `GET /product/{id}/contracts`；写 `:608` `POST` | `:544` | `renderLoading:536` / `renderEmpty:540` / `renderError:555` |
+| 现货映射 `mapping` | `:636` `GET /product/mapping?productId=`；写 `:688` `POST` | `:642` | `:634`/`:638`/`:650` |
+| 白名单 `whitelist` | 写 `:766` `POST /product/whitelist`；留痕 `:792` `GET /product/change-log?productId=` | `:798`/`:783` | `:790`/`:794`/`:808` |
+| 额度 `quota` | `:837` `GET /product/quota?subAccountId=&productId=`；写 `:900` `POST` | `:928-932` 三层表 | `:835`/`:924`/`:839` |
+| 变更历史 `changelog` | `:966` `GET /product/change-log?productId=` | `:973` | `:964`/`:968`/`:983` |
+
+- **真取数不空壳**：探针实跑确认——`overview`/`contracts`/`mapping`/`whitelist`/`changelog` 五个 Tab 均先 `GET /api/v1/product/7` 再命中各自端点；`quota` Tab 经「查询三层全景」按钮命中 `GET /api/v1/product/quota?subAccountId=3&productId=7`，并消费 `{layer1SubProduct, layer2SubInstrument, layer3AccountProduct, note}` 四键，渲染层①/②/③三表 + `note`。
+- **三态真分支**：上表 6 处数据视图均为 `renderLoading`/`renderEmpty`/`renderError` 三分支（非空壳）。
+- **失败真走 errmsg 四项**：所有 `catch` 经 `ui.renderError`（`:366`/`:477`/`:555`/`:650`/`:808`/`:839`/`:983`）或 `ui.blockedHTML`（`:129`/`:203`/`:261`/`:613`/`:693`/`:771`/`:905`）；二者最终调 `HG.errmsg.render`（`ui.js:176`/`ui.js:66`）。探针注入 `{code:10004,ruleId,current,threshold,nextStep}` ⇒ 渲染出「规则编号/当前值/阈值/下一步」**四项俱在**。
+
+### B. 验收 2 —— 6 端点对接 + ★字段名逐字核对（wire caleCamel，以 Handler 为准）
+
+| 端点 | `product.js` 调用点 | 消费字段（前端） | Handler DTO（后端） | 判定 |
+|------|---------------------|------------------|---------------------|------|
+| `GET /product` | `:360` | `{items,total,page,size}`（`normalizePage:66`） | `PageData<ProductView>`（`ProductHandler:102`） | ✅ 信封真消费（探针 `total=45` ⇒ 「共 45 条」） |
+| `POST /product` | `:254` | `{productCode,productName,category,remark}` | `CreateRequest{productCode,productName,category,remark}`（`:123-136`） | ✅ |
+| `GET /product/{id}` | `:471` | `id,productCode,productName,category,categoryManaged,status,isDomesticExchange,currency,remark,disabledReason` | `ProductView`（`:139-185`）**同 10 字段、无 createdTime** | ✅ |
+| `GET\|POST /product/{id}/contracts` | `:538`/`:608` | `instrumentId,instrumentType,exchangeCode,contractMultiplier,expiryDate,optionType,strikePrice,status` / 请求同 | `ContractView`（`:102-146`）/ `Request`（`:74-99`） | ✅ |
+| `GET\|POST /product/mapping` | `:636`/`:688` | `spotCategoryCode,spotCategoryName,mappingDirection,isPrimary,status` / 请求 `{spotCategoryCode,spotCategoryName?,productId,mappingDirection,isPrimary,changeDesc?}` | `MappingView`（`:100-135`）/ `Request`（`:78-97`） | ✅ |
+| `POST /product/whitelist` | `:766` | `{action,subAccountId,productId,categoryOverride?,reason?}` | `Request`（`:62-78`） | ✅ |
+| `GET\|POST /product/quota` | `:837`/`:900` | 响应键 `layer1SubProduct/layer2SubInstrument/layer3AccountProduct/note`；请求 `{limitLayer,subAccountId,productId,instrumentId?,quotaLimit,quotaUnit,effectiveFrom}` | `quotaPanorama`（`VarietyService:764-773`）/ `Request`（`:117-139`） | ✅（字段名对等；**数值以 number 输出属 `T-132`，见 §4.4**） |
+| `GET /product/change-log` | `:792`/`:966` | `changeTime,changeType,changedField,beforeValue,afterValue,subAccountId,operatorId,changeReason` | `ChangeView`（`:60-102`） | ✅ |
+| `POST /product/import` | `:197` | 请求 `{csvLines}`；响应 `inserted` | `Request{csvLines}` / `ImportResult{inserted}`（`:54-65`） | ✅ |
+| `GET /product/export` | `:118`（经 `HG.api.download`） | `Content-Disposition` filename | `ProductExportHandler`（`:42-43` `attachment; filename="products.csv"`） | ✅ |
+
+- **无字段名不符**（camelCase 逐字对齐；未按 `DATA_MODEL` snake_case 判）。
+- **分页信封**：`normalizePage` 真消费 `{items,total,page,size}`，并兼容旧 bare 数组兜底（`:67`）——非「假定数组」。
+- **★排序方向**：`query(page)`（`:352`）恒发 `sort = sortField + ',' + sortDir`，缺省 `sortDir='desc'`（`:278`）⇒ 实测 URL `…&sort=created_time%2Cdesc`，**显式带方向**。规避了「`PageQuery` 缺省恒 ASC」陷阱；`PRODUCT_SORTS`（`:56-62`）5 项与 `PRODUCT_SORT_FIELDS`（`VarietyService:105-107`）**逐项一致**。
+- **取值域一致性**（前端常量 vs 后端）：`CATEGORIES{COMMODITY,TRADE}`、`LIMIT_LAYERS{SUB_PRODUCT,SUB_INSTRUMENT,ACCOUNT_PRODUCT}`、`QUOTA_UNITS{LOT,TON}`、`INSTRUMENT_TYPES{FUTURES,OPTION}`、`MAPPING_DIRECTIONS{PURCHASE,SALES,BOTH}` 全部吻合（`VarietyService:73-90`）。
+
+### C. 验收 3 —— 导入逐行提示 / 导出 CSV 下载
+
+- **导入**：`:147-160` `importProblemsHTML` 按 `/\n\s*-\s*/` 解析后端 **10019** 的 `message`；后端消息格式实测为 `"导入文件校验失败（共 N 项问题，数据行 M；已全部回滚、未产生部分写入）：\n  - <问题1>\n  - <问题2>"`（`VarietyService:989-993` `importFailed` + `:798` 「缺少必需列：…」）⇒ **解析形态对得上**。探针注入该消息 ⇒ 渲染出「逐行问题清单」且含「缺少必需列：currency」「第 5 行分类越域…」（**逐行定位成立**）。
+- **导出**：`:118` 经 `HG.api.download(R.EXPORT)`（`api.js:142`，**同源 fetch，唯一出网通道**）。探针注入 **`Content-Type: application/json` + 错误信封 `{code:10004,ruleId,…}`** ⇒ `download()` 抛错（`api.js:161`）⇒ 被 `doExport` catch 经 `ui.blockedHTML` 渲染**四项**（**不吞错**）。成功路径（`text/csv` + `Content-Disposition: attachment; filename="products.csv"`）⇒ 触发 `triggerBlobDownload`（`product.js:101-111`）。
+
+### D. `E6` 承重性（自设变异）
+
+- 基线（隔离副本 `product.js` 为原件 `b8e66b70…`）：`bash tools/arch-check/check_frontend.sh --root /root/t018v/web` ⇒ **rc=0**。
+- **M1** 注入 `jdbc:dm://probe` ⇒ **rc=1**（`web/js/pages/product.js:1001` 命中）。
+- **M2** 注入 `fetch("http://127.0.0.1:27402/x")` ⇒ **rc=1**（同上）。
+- **M3** 注入 `web/package.json` ⇒ **rc=1**（`BUILD-CHAIN` 命中）。
+- 复位后：`product.js` md5 回 `b8e66b70…`、`web` 树回 `f827e00e…`/27 ⇒ **逐字节复原**。
+⇒ **`E6` 对该目录承重（三项均变红）**；且 `E6` 已接线（`arch-check.sh:76` 调用、`java/pom.xml:212` 经聚合入口）——非空转。
+
+### E. `api.js` 改动越界 / 能力削弱核查
+
+- `git diff 71e857a 6acead5 -- web/js/core/api.js` **仅**：新增 `filenameFromDisposition()`（`:128`）+ 新增 `download()`（`:142-169`）+ 导出清单追加 `download`（`:171`）。**唯一的 1 处删除行** = 原 `HG.api = {…}` 导出行（追加 `download` 后重写）。
+- **8 个既有函数**（`newIdempotencyKey`/`buildQuery`/`request`/`get`/`post`/`put`/`del`/`list`）定义与调用形态**逐字节未动**（diff 中 `:1-124` 全 context，无 hunk）。
+- **唯一出网通道**：全 `web/**` 仅 2 处 `fetch(`（`api.js:63`、`api.js:146`），**无** `XMLHttpRequest`（实测 `grep -rn`）。`download()` 仍为同源 `fetch`，未新增直连。
+- **不吞错**：`download()` 对 `Content-Type: text/json` 分支按信封抛错（`:161`/`:163`）——见 §2.C 探针实证。
+
+## 3. 独立探针输出（摘录，可复现）
+
+```
+== T-018 独立探针 ==
+PASS 列表页发起 GET /api/v1/product
+PASS 列表页 sort 显式带方向(created_time,desc)：/api/v1/product?page=1&size=20&sort=created_time%2Cdesc
+PASS 列表页 size=20
+PASS 列表渲染出 productCode=CU（camelCase 字段被消费）
+PASS categoryManaged=Y 渲染为「纳入」
+PASS 分页信封 total=45 被消费（共 45 条）
+PASS 详情页 Tab=contracts 取数端点命中 /product/7/contracts
+PASS 详情页 Tab=mapping 取数端点命中 /product/mapping?productId=7
+PASS 详情页 Tab=whitelist 取数端点命中 /product/change-log?productId=7
+PASS 详情页 Tab=changelog 取数端点命中 /product/change-log?productId=7
+PASS quota Tab 渲染三层表（层①/②/③ 表标题）
+PASS quota Tab 消费 pano.note
+PASS quota 数值走 F.decimal 字符串路径（1,000.5）
+PASS quota 取数带 subAccountId=3&productId=7
+PASS 错误走 errmsg 四项（规则编号/当前值/阈值/下一步）
+PASS 导出走 GET /api/v1/product/export（经 HG.api.download）
+PASS 导出遇 JSON 错误信封 ⇒ 抛出并渲染（不吞错）
+PASS 导入错误逐行清单：含「缺少必需列：currency」
+PASS 导入错误逐行清单：含「第 5 行…」（逐行定位）
+== 汇总：31 PASS / 0 FAIL ==
+```
+
+> 说明：探针**自撰**（不复用产出方 harness）。首轮曾因**我的** DOM 桩缺 `.children` / handler 键写错 / 未补 `window.scrollTo` 而假红 11 项，逐项定位为**探针缺陷**（非制品缺陷）后修正，最终 31/31。
+
+## 4. `G` —— 7 项未决逐条复核（含「立号是否正确」）
+
+### 4.1 写面端点缺失 ⇒ `T-131`（**立号正确**）
+**核**：`ProductRoutes.register`（`:36-52`）仅注册 `GET|POST /product`、`GET /product/{id}`、`POST /product/whitelist`、`GET|POST /product/quota`、`GET|POST /product/{id}/contracts`、`GET|POST /product/mapping`、`GET /product/change-log`、`POST /product/import`、`GET /product/export` ⇒ **确无** `PUT /product/{id}`／停用启用动作／计量单位端点（`ApiRoutes:29-31` 9 路径佐证）。服务层确有 `createProduct:242`/`disableProduct:283`/`enableProduct:338`/`putUnit:369`（实测行号吻合）。⇒ **「已实现未接线」成立，`T-131` 正确**。
+
+### 4.2 `GET /product/whitelist` 无读取端点（⇒ 并入 `T-131`）
+**核**：仅 `POST` 注册（`ProductRoutes:39`）；确无 `GET /product/whitelist`。
+**`FR-PRODUCT-12` 是否要求读取**：**不要求**。原文（`PRODUCT.md:247-260`）输入 = 「子账户标识、品种集合（增/减）」；验收 1~4（`:257-260`）无「列出/读取当前白名单」项 ⇒ **就 `FR-PRODUCT-12` 而言，此条不是缺陷**。
+**但**：`FR-PRODUCT-6`（`:161-162`）要求**详情含「所属子账户白名单」** ⇒「无法列出当前白名单」在 **`FR-PRODUCT-6` 面**是要求缺口。`T-131` 验收 3（`TASKS.md:2691`）**只要求核 `FR-PRODUCT-12`** ⇒ 该 FR-PRODUCT-6 缺口**可能逃逸**（见观察 `OBS-T018-4`）。
+
+### 4.3 `GET /product` 无筛选参数 ⇒ `T-116`（**立号正确**）
+**核**：`ProductHandler.list`（`:90-104`）仅读 `sort`/`page`/`size`（`:91`/`:95`）⇒ 无 status/分类/关键字/子账户筛选。`FR-PRODUCT-5` 输入列（`PRODUCT.md:148`）要求「品种编码/名称关键字、状态、分类、子账户」⇒ **要求 > 实现**成立；`T-116` 验收 1/2（`TASKS.md:2460-2461`）明载承载 ⇒ **正确**。
+
+### 4.4 `GET /product/quota` 以 JSON `number` 输出 `BigDecimal` ⇒ `T-132`（**立号正确**）
+**核**：`quotaPanorama`（`VarietyService:756-775`）直出 `List<ProductQuota>`/`List<SubInstrumentQuota>`；两实体 `quotaLimit`/`usedQty`/`frozenQty` 均 `public BigDecimal`（`ProductQuota:27/33/36`、`SubInstrumentQuota:27/33/36`）；`JsonCodec` 用**裸 Gson**（`GsonBuilder().disableHtmlEscaping()`，**无 `BigDecimal` 适配器**，`:25-27`）⇒ Gson 默认把 `BigDecimal` 序列化为 **JSON number**。`ARCHITECTURE.md:625`「金额/数量 → **字符串化十进制**」+ `:1282` `G-2`（额度字段一律 `string`）⇒ **确违约**。`T-132` 含「**全仓穷举同类点**」（`TASKS.md:2709`），与「同类面可能不止 PRODUCT」相称 ⇒ **恰当**。
+
+### 4.5 `GET /product/export` 无数据仍返回仅表头 CSV
+**核**：`exportProducts`（`VarietyService:877-884`）**恒先 add 表头** ⇒ 无可见数据时返回仅表头 CSV。`FR-PRODUCT-8` 验收 3（`PRODUCT.md:199`）：「无数据时导出被拦截并提示，**不生成空文件**」。
+**判定**：前端**已在界面侧拦截**（`product.js:121-125`：仅表头 ⇒ warn 提示、不触发下载）并**诚实标注启发式局限** ⇒ 用户侧「不生成空文件」**已满足**；后端仍生成表头 CSV 属**边界语义差异**，**是否算缺陷取决于「不生成空文件」是界面裁决还是服务端契约**（**建议产品经理澄清**）。
+**立号核对**：`TASKS.md:2696`（`T-131` 备注）称本项「**亦归 `T-116`**」，但 `T-116` 验收（`:2459-2464`）**只列 `FR-PRODUCT-8` 验收 1**，**未含验收 3** ⇒ **承载文本对不上**（见 `OBS-T018-3`）。
+
+### 4.6 `ProductView` 无 `createdTime` ／ `ProductChangeLogHandler` 仅接受 `productId`
+**核**：
+- `ProductView` 确无 `createdTime`（`ProductHandler:139-185` 10 字段）。但 `FR-PRODUCT-5` 输出列（`:149`）要的是「状态、分类、**子账户**、**最近变更时间**」——**不含 `createdTime`** ⇒ 「无 `createdTime`」**本身不是需求缺口**；真缺口 = **子账户 + 最近变更时间**，正是 `T-116` 验收 3（`TASKS.md:2462`）⇒ **该半项承载正确**。
+- `ProductChangeLogHandler` 确仅读 `productId`（`:40-51`），**不支持时间范围/变更类型筛选**。`FR-PRODUCT-14` 输入（`PRODUCT.md:279`）=「品种标识、**时间范围**、**变更类型筛选**」⇒ **要求 > 实现**成立。但该缺口**不在 `T-116` 验收内**（`T-116` 追溯 `FR-PRODUCT-5`/`FR-PRODUCT-8`，**不含 `FR-PRODUCT-14`**）⇒ **承载不成立**（见 `OBS-T018-2`）。**另注**：`T-105` 备注（`TASKS.md:2206`）已登记 `FR-PRODUCT-14` 的**隔离**待确认项——那是**隔离**、非**筛选输入**，二者不同。
+
+### 4.7 层③授权 = 已知 `CH-012`（**处置正确**）
+**核**：层③写面授权口径确载于 `CH-012`（`PRODUCT.md:235` 处理规则 + 新增验收 5 `:245`；`INDEX.md` §10 `:666`）。交付方**仅做界面**（`product.js:848` 明示「本页仅提供界面，不做授权判定，越权由后端拒绝」）⇒ 符合「前端不做业务/授权判定」纪律，**未当缺陷报正确**。
+**⚠️ 附带发现（文档一致性，非 T-018 缺陷）**：`INDEX.md` **文件头 `:3`** 写 `CH-012 … **待用户确认**`，而 **§10 `:666`** 写 `**✅ 已由用户确认（2026-09-21）**`；`BOARD.md:392`（第 30 轮）又记「用户**暂缓确认** `CH-012`」⇒ **两/三处状态不一致**（见 `OBS-T018-1`）。
+
+### 4.8 立号总评
+| 项 | 去向 | 本席核 |
+|----|------|--------|
+| (1) 写面端点 | `T-131` | ✅ 正确 |
+| (2) 白名单读 | 并入 `T-131` | ⚠️ `FR-PRODUCT-12` **不要求**（就 12 而言非缺陷）；真依据在 `FR-PRODUCT-6`，`T-131` 验收 3 未涵盖 ⇒ 建议补 |
+| (3) 列表筛选 | `T-116` | ✅ 正确 |
+| (4) number/BigDecimal | `T-132` | ✅ 正确、穷举要求恰当 |
+| (5) 导出空数据 | `T-116` | ⚠️ `T-116` 验收**未含** `FR-PRODUCT-8` 验收 3；且「是否缺陷」待产品澄清 |
+| (6) createdTime/变更日志筛选 | `T-116` | ⚠️ 前半（最近变更时间）✅；后半（`FR-PRODUCT-14` 筛选输入）**无承载** |
+| (7) 层③授权 | `CH-012` | ✅ 正确 |
+
+## 5. `F` —— 证据充分性判定（单独结论）
+
+**产出方证据形态**：无头 DOM + `fetch` 桩（Node 22）自测 **23/23 PASS**，并**如实标注「非真实浏览器验证」**。**该 23/23 harness 未入库/未提交** ⇒ 本席**无法在仓库内复现其具体断言**（仅能自撰等价探针）。
+
+**本席采信口径 = 部分采信（对「契约 / 逻辑面」充分；对「浏览器 / 真机面」不足）**：
+
+| 结论面 | 采信 | 理由 |
+|--------|------|------|
+| 6 端点调用点、camelCase 字段名、分页信封消费、排序**显式方向** | **可采信** | 静态逐字核对 + **本席独立探针**双向证实 |
+| 三态分支存在、errmsg 四项渲染、导入逐行解析、导出不吞错 | **可采信** | 本席探针实跑（31/31） |
+| 页面在**真实浏览器**可加载/渲染/交互（ES module 加载、真实 CSS 布局、`Blob`/`Content-Disposition` 真实下载、`FileReader` 选文件） | **不可采信** | 环境无浏览器/jsdom/puppeteer；无头桩**不覆盖**真实渲染与真实网络/会话 |
+| 与**真实 Java 后端**端到端（真实信封/`HGSESSION`/真实 DTO 序列化） | **不可采信** | 探针为 `fetch` 桩，未打通真实服务 |
+
+**因此不能成立的具体结论**：①「页面在浏览器中可用」**只能**降级为「页面**逻辑**可用」；②「导出**真实**触发浏览器下载」未验；③「导入**真实**选文件→`FileReader`→提交」未验；④真实 `BigDecimal→number` 的**界面观感**未验（但契约违规已由静态确证）。
+
+**要更强证据需要什么**：① 若环境可得，引入无头浏览器（Playwright/Puppeteer）跑「加载 `index.html` → 导航 `#/product` → 断言 DOM 含列/触发导出下载」；② 或对**已装配的 Java 服务**做端到端冒烟（真实 Cookie 会话 + 真实 DTO）。**当前环境两者皆不可得** ⇒ 记录为本任务**残余验证风险**，建议并入 M-里程碑的**前端浏览器冒烟**（不阻断 T-018 的逻辑级验收）。
+
+## 6. 缺陷清单 / 观察项 / 结论
+
+**缺陷单：0（无 `TE-T018-00x`）** —— 未在 `product.js`/`api.js` 发现可复现的**实现缺陷**（前述所有缺口均属**后端/需求面**并由 `T-116`/`T-131`/`T-132` 或 `CH-012` 承载，**非本单产出面**）。
+
+**观察项（均不阻断）**：
+
+| 编号 | 级别 | 内容 | 去向建议 |
+|------|------|------|---------|
+| `OBS-T018-1` | 低·文档 | `REQUIREMENTS/INDEX.md` `:3`（待确认）vs `:666`（已确认 2026-09-21）vs `BOARD.md:392`（暂缓确认）三处 `CH-012` 状态不一致 | 产品席/编排者厘清（非 T-018） |
+| `OBS-T018-2` | 中·承载 | (6) 的「变更日志**筛选输入**（`FR-PRODUCT-14`）」**无任务承载**（`T-116` 追溯不含 `FR-PRODUCT-14`） | 补入 `T-116` 或另立号 |
+| `OBS-T018-3` | 中·承载 | (5)「导出空数据」`T-131` 备注称归 `T-116`，但 `T-116` 验收未含 `FR-PRODUCT-8` 验收 3 ⇒ 承载文本对不上；且「是否缺陷」待产品澄清 | 补 `T-116` 验收 或 澄清语义 |
+| `OBS-T018-4` | 低·承载 | (2) 白名单读：`FR-PRODUCT-12` 不要求，但 `FR-PRODUCT-6` 要求「详情含所属子账户白名单」⇒ `T-131` 验收 3 若只核 12 会漏 | `T-131` 验收 3 扩为同时核 `FR-PRODUCT-6` |
+
+**结论：`T-018` = 有条件通过（0 阻断缺陷）** ⇒ 按本项目判据**可转 `DONE`**（授权 + 独立验证）。**条件/残留**：真实浏览器端到端证据缺位（环境限制，见 §5），登记为残余验证风险；4 观察项建议由编排者处置（不影响 T-018 达标）。
+
+## 7. 纯追加证明
+
+- 落笔**前**（提交态冻结）：`docs/TEST_RESULT.md` = `6988ede839c95a13916793350296b28a` / **5578 行**。
+- 落笔**后**：`head -5578 docs/TEST_RESULT.md | md5sum` = `6988ede839c95a13916793350296b28a`（**与落笔前整档逐字节相同**）⇒ **本章为纯追加**、未触碰既有内容。
+- 共享源树 `web/**`/`java/**` 本章落笔期间**未改**（`product.js` 仍 `b8e66b70…`、`web` 树仍 `f827e00e…`/27）。
