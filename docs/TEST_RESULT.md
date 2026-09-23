@@ -7595,3 +7595,157 @@ sub-account 停用 / `FR-CONFIG-9` 端点 / `CreateRequest` 初始角色 / 持�
 - **建议**：**满足转 `DONE` 的实质条件**（最终由编排者/用户裁量）。
 - **残余**：O-1（页面加载耦合，宜另立任务）、O-2（文档漂移）、O-3（**非真实浏览器**——浏览器级验证仍为空白）。
 - **产出物**：本报告 `/root/te-verify-t134-chapter.md`；探针与工具 `/root/review-t134/{driver,reconcile,negctl,login-driver,toplevel,standalone-page}.mjs` + `{prefix,postfix,negctl}` 隔离树。**未改共享树任何文件**。
+
+---
+
+## 第 110 轮独立复核证据章（`T-139`，编排者 `team-lead` 并入登记 · 2026-09-23）
+
+> **并入口径**：以下章由独立复核席 `te-verify-t139`（`test-engineer`，**只读、未改共享树**）产出，**原文照录**；编排者仅在章首加本登记块。**纯追加已核**（追加前 `docs/TEST_RESULT.md` = `868a95f5672c43371f251776e4846db4` / **7597 行**）。
+>
+> **结论 = 有条件通过 / 0 阻断 / 0 缺陷 / 4 观察** ⇒ 按本项目判据（**授权 + 独立验证**）**转 `DONE`**。冻结点（复核方独立取样 2026-09-23T21:35:19，21:41 复测不变，与冻结值逐字一致）：`spot.js` `e05fea1ec6eb22c57a27ff48a5666581` / 1389、`plan.js` `989165bf2e12d82ac7cfd8d3c344ad83` / 1282。
+>
+> **★(1c) 终局判定：编排者的撤回正确、复核方 `te-verify-t019` 的原措辞正确。** 复核方以**真实 DOM 桩**实测：**修复前**连续两次 `doQuery` 后 `body.children` = **`LOADING, DIV, TABLE, P`**（**表格数恒为 1 ⇒ 不存在「两张结果表叠加」**，残留的**只是加载圈**）；**修复后** = `DIV, TABLE, P`。机制：`web/js/core/ui.js:45` `renderLoading` **首行即 `clear(container)`**。⇒ **编排者第 107 轮自撰的「每次重查把新表叠加于旧表之上」不成立，已撤回**（落痕见 `docs/TASKS.md` `T-019`/`T-139` 行、`docs/BOARD.md` §5 第 107 轮行与第 109 轮行、本章前一段）。
+> **★(2) 订阅计数实测（修复前 / 后）**：进入该路由 **3** 次 ⇒ 修复前**活跃订阅 3**、一次子账户切换触发 `/spot/exposure` **3 次**；修复后 3 次进入 ⇒ **活跃订阅 1**、切换触发 **1 次**；且**切换后列表仍刷新**（功能未删、**无功能回归**）。遗留「离开敞口页后订阅仍存活」经判定为**有界（≤1 次多余请求）、不报错、不污染状态** ⇒ **观察级（P3），非缺陷、非本修复引入**。
+> **★(4) 自建扫描面复核「域外 0」**：复核方独立重扫三类（无 `clear` 的渲染写容器 / 渲染入口内注册长生命周期订阅 / 声称跳详情实跳列表），并覆盖全仓 **29 处 `renderLoading` 站点**与全部订阅与链接 ⇒ **未发现产出方漏报的第 4 处**；三类命中各 1（`spot.js:581`、`spot.js:1359`、`plan.js:942`），均已在域内修复。
+> **★(5) 变异复核**：复核方**自跑** `r1/r2/r3a/r3b` **全红且局部化**（10/9/9/8 of 11）；并核产出方 `build_mutants.py:21` **确有 `assert count==1`**（排除「未命中即静默 no-op ⇒ 后读到全绿是假绿」）。E6 rc0、`node --check` 通过。
+> **★(6) 提交面**：`f11ca03` 实含 **5 文件** —— **产品面恰 2 个 web 文件**（`+17/−3`、`+2/−1`，**未碰 `core/`、`java/`**）✔；另 3 个 `docs/**` 系**编排者第 109 轮台账**，**非产出方夹带**。
+> **观察 4 条均不阻断**（含上述遗留订阅一项）。
+
+# T-139 独立复核章（席 `te-verify-t139`，独立于产出方 `fe-t139`）
+
+- 工作目录 `/root/myspace/hedge-guard`（只读）；临时产物 `/root/verify-t139/`（未用 `/tmp`）
+- 冻结点 **`f11ca03`**；`git rev-parse --short HEAD` = `f11ca03`
+- 独立实测锚点（取样时刻 **2026-09-23T21:35:19+08:00** 首测，**21:41:43** 复测不变）：
+  - `web/js/pages/spot.js` = `e05fea1ec6eb22c57a27ff48a5666581` / **1389 行**（≈冻结点一致）
+  - `web/js/pages/plan.js` = `989165bf2e12d82ac7cfd8d3c344ad83` / **1282 行**（一致）
+  - 改前基线（`f11ca03^`）实测：`spot.js` `886ee496…`/1375、`plan.js` `f58357a0…`/1281 —— 与 `T-019`/`T-020` 交付锚点吻合
+  - `git diff --numstat f11ca03^ f11ca03 -- web/` = `spot.js 17/3`、`plan.js 2/1` —— 与派单一致
+
+> 证据分列：**[独立实测]** = 本席在隔离副本上跑出；**[产出方自述]** = 仅转述 `fe-t139` 交付记录，未采信。
+
+---
+
+## 结论
+
+**有条件通过 / 0 阻断缺陷 / 0 低缺陷 / 4 观察**。三条修复均**独立复现有效、且经自建变异证明承重**；派单点名 6 项复核**全部完成**，其中 (6) 发现一处**表述性出入**（见 §6，非缺陷）。**本席不自评 `T-139` 为 `DONE`。**
+
+---
+
+## §1 修复① `spot.js:581` `renderSeries` 入口补 `ui.clear(body)` —— 通过
+
+### (a) 三态函数是否各自先 `clear` **[独立实测]**
+| 函数 | 文件:行号 | 首句 |
+|---|---|---|
+| `renderLoading` | `web/js/core/ui.js:44-45` | `clear(container);` ✅ |
+| `renderEmpty` | `web/js/core/ui.js:53-54` | `clear(container);` ✅ |
+| `renderError` | `web/js/core/ui.js:62-63` | `clear(container);` ✅ |
+
+**三者均首行 `clear(container)`**（`ui.js:41` 的 `clear` = `while (node.firstChild) node.removeChild(...)`）。
+
+### (b) 修复前驱动 `doQuery` 两次的 `body` 子节点序列 **[独立实测]**
+自建 DOM 桩 + 真实 import（`/root/verify-t139/myprobe.mjs`），点击真实「查询序列」按钮两次：
+
+| 版本 | 1 次查询后 `children` | 2 次查询后 `children` | 表格数 | 加载态残留 |
+|---|---|---|---|---|
+| **修复前**（`886ee496…`） | `LOADING,DIV,TABLE,P` | `LOADING,DIV,TABLE,P` | **1** | **true** |
+| **修复后**（`e05fea1e…`） | `DIV,TABLE,P` | `DIV,TABLE,P` | 1 | false |
+
+`LOADING` = `<div class="hg-state">` 加载圈。**结论：修复前加载圈常驻、旧结果表从未叠加（表格数恒为 1）**；修复后加载圈被清。
+
+### (c) 终局判定：编排者撤回**正确**，复核方原措辞**正确** **[独立实测]**
+- 机制：`doQuery`（`spot.js:566-568`）每次先 `ui.clear(alertBox)` + `ui.renderLoading(body,…)`；而 `ui.js:45` 内 `renderLoading` **首行即 `clear(container)`** ⇒ 每次重查前 `body` 已被清空，故 `renderSeries` 里的 append 只会追加到**空容器**。
+- 实证：两次重查后 `body.children` 中**只有一个 `TABLE`**，无「两张表并存」。
+- ⇒ **编排者原称「每次重查把新表叠加于旧表之上 / 新旧两张表并存」为误；其撤回正确。复核方原措辞「加载圈未清、与结果表并列常驻」正确。** 级别（低）与修复形态（`renderSeries` 补 `ui.clear(body)`）均不变。
+- 旁证（同页姊妹路径）：敞口列表 `load():1196`→`renderRows():1267 ui.clear(body)` 才是正确三态；`renderSeries` 系同页唯一异常点，修复后对齐。
+
+## §2 修复② `spot.js:68` + `:1358-1359` 至多 1 活跃订阅 —— 通过
+
+**[独立实测]** 包装 `HG.session.onChange` 计数活跃订阅；`/spot/exposure` 请求以 `HG.api.get` 打点计数：
+
+| 指标 | 修复前 | 修复后 |
+|---|---|---|
+| 连续进入敞口页 **3 次**后活跃订阅数 | **3** | **1** |
+| 进入 3 次后**子账户切换 1 次**触发的 `/spot/exposure` 请求数 | **3** | **1** |
+| 切换后列表是否仍刷新（功能保留） | 是 | **是**（请求 ≥1 且非退化） |
+
+- `session.onChange` 返回退订句柄（`core/session.js:32`）；`spot.js:1358` 重入先 `off()` 再 `onChange()`。**「先退订再订阅」成立，且未删除刷新语义（功能无回归）**。
+- **产出方 `probe.mjs` 自述 17/17** ⇒ **[独立实测]** 于修复后副本跑其探针 = **17/17（rc0）**；于修复前副本 = **8/17（rc1）**，失败项与其自述一致。
+
+### 产出方「遗留」评估：离开敞口页后订阅存活至下次进入 **[独立实测 + 判定]**
+- 机制：`exposureSessionOff` 为模块级，**仅在下次进入 `renderExposure` 时**才被 `off()`；`router` 无 `onLeave` 钩子（`core/router.js` 仅有 `start/hashchange`），且派单禁止改 `core/`。
+- 实测后效（在**脱离 DOM** 的敞口视图上触发子账户切换）：`load()` 会走 `fetchRows()` → **多发 1 次 `GET /spot/exposure`**；写入目标均为已脱离 DOM 的节点 ⇒ **不报错、不污染任何共享状态、无用户可见错误**。
+- **有界性**：模块级句柄保证**至多 1 个**陈旧订阅（重入即替换）⇒ 每次切换最多 1 次多余请求，**不累积**。
+- **非本修复引入**：修复前该订阅同样在离开后存活（且更差——每个历史闭包各 1 个，累积 N 个）。修复**改善**了此行为。
+- **判定：观察级（建议 P3），非缺陷、非回归。** 建议后续硬化（`router` 增 `onLeave` 或在页面卸载时退订），但不属 `T-139` 三条缺陷范围。**未因去重而删除功能** ⇒ 无需报缺陷。
+
+## §3 修复③ 深链 `#/spot/exposure?id=` —— 通过
+
+① **`router.js` 确传 `ctx.query`** **[独立实测]**：`core/router.js:37-45` 解析 `path.split('?')[1]`，逐对 `decodeURIComponent`，`:57` 组装 `ctx = { path, params, query }`，`:59` `hit.route.render(containerEl, ctx)`。✅
+② **无竞态（可控时序实证）** **[独立实测]**：`spot.js:1363` 为 `load().then(() => loadDetail(initialId))`。`load()`（`:1193-1203`）的 `detailCard.classList.add('hg-hidden')`（`:1196`）位于**首个 `await` 之前**、且 `loadDetail` 排在 `load()` **resolve 之后** ⇒ 结构上不可能晚于 `loadDetail`。实测两向时序（列表慢 30ms/详情快 5ms；列表快/详情慢 30ms）**均得「详情卡最终可见且内容为 `敞口明细 #77`」**。
+③ **转义** **[独立实测]**：`plan.js:943` 用 `encodeURIComponent(r.exposureId)` ✅（与 `product.js:395/403` 同构）。
+④ **`FR-PLAN-5` 验收 2 字面达成** **[独立实测]**：`docs/REQUIREMENTS/PLAN.md:166` 验收 2 明写「**详情页可从计划跳转到所绑定的实货敞口详情**（为追溯链提供连接点）」——**要求「详情」而非「列表」**。修复前链接为裸 `#/spot/exposure`（列表）⇒ 按字面不达成；修复后跳详情卡 ⇒ **达成**。✅
+
+## §4 穷举同类点复核（自建扫描面）—— 未发现漏报第 4 处
+
+> 口径：**产出方「已披露」≠ 已排查**。本席对**全部 `web/js/pages/*.js`（14 文件）**独立重扫三类（全仓 grep 排除 `.codebuddy/`）。
+
+**(a) 渲染函数写容器前未 `ui.clear` 且容器由外部先写**
+- 逐点核对**全部 29 处 `ui.renderLoading(<C>,…)`** 站点（`grep` 实测），检查其后写入路径是否清 `C`：`auth.js`×7、`config.js`×9、`product.js`×8、`plan.js`×3、`spot.js`×3、`_dashboard.js`×1 —— **除 `renderSeries` 外，其余每处**均于 append 前 `ui.clear(<C>)` 或经 `renderEmpty`/`renderError`（内含 clear）/**等价清空**（`spot.js loadDetail:1290 detailCard.innerHTML=''`、`config.js renderItems:225 ui.clear`、`product.js renderPanorama:ui.clear`）。
+- **命中 = 1（`spot.js renderSeries`，已修）**；不适用清单与产出方一致（`plan.js renderPrecheck/renderActions` 每次新建 card、路由 render 由 `router.renderCurrent:54 HG.ui.clear(containerEl)` 兜底）。
+- ⇒ **与产出方「本域 1 / 域外 0」口径逐条吻合，未发现漏报。**
+
+**(b) 渲染入口/路由 render 内注册无退订的长生命周期订阅**
+- 全仓 `onChange` 命中 = 3 处：`spot.js:1359`（已修）、`app.js:87`、`app.js:98`。后者两处位于 `buildTopbar()`（`app.js:57`），由 `main()` **`:126` 仅调用一次** ⇒ 不适用 ✅。
+- 其它长生命周期订阅：`core/router.js:86`（`start()` 一次）、`core/ui.js:145`（`confirm` 的 `keydown`，`close():140` 内 `document.removeEventListener` 退订 ✅）、`core/ws.js`（`HG.ws.connect` 在 `pages/*.js` 与 `app.js` **0 调用** ✅）。
+- **命中 = 1（`spot.js renderExposure`，已修）/ 域外 0。与产出方一致。**
+
+**(c) 声称跳「详情」实跳「列表」**
+- 穷举所有 `href="#/…"` 与 `HG.router.navigate(…)`：`plan.js:307/:317`→`#/plan/{id}`（`renderDetail:690` 读 `ctx.params.id` ✅）；`plan.js:943`→已修 ✅；`product.js:395/:403`→`#/product/{id}`（`renderDetail:429` 读 `ctx.params.id` ✅）；`spot.js:1166`→`#/spot?tab=docSub`（tab，非详情）；`_dashboard.js:24-26`→`#/spot`/`#/spot/exposure`/`#/plan`（入口 CTA，未声称详情）；`plan.js:180`→`/trade?…`（下单预填）；`spot.js:312/1128`、`config.js:1116`、`product.js:461`→tab 项。
+- **命中 = 1（`plan.js:942`，已修）/ 域外 0。与产出方一致。→ 未发现漏报第 4 处。**
+
+## §5 探针与变异复核 —— 通过
+
+- **探针真驱动？** **[独立实测]** 审查 `/root/fe-t139/probe.mjs`：真实 `import` `core/*.js`+`pages/{plan,spot}.js`，**点击真实按钮**、**调用真实 `renderExposure`/`renderDetail`**，断言落在「容器子节点 / 活跃订阅数 / `/spot/exposure` 请求数 / 详情卡可见态与内容」——**非「引用可解析」式静态证据**。✅
+- **负控有效？** 4 组负控为**判据探针**级（注入坏样本断言判据能报出），形式弱于端到端变异，但**确能让判据失效时报错**（如 `hasLoadingResidue` 恒 false 则 NEG-CTRL ① 必红）。其中「`NEG-CTRL ③-plan`」实为**对被审制品的判别式断言**（非负控），属命名偏宽，不阻断。
+- **变异脚本 `assert count==1`？** **[独立实测]** `/root/fe-t139/build_mutants.py:21` `assert n == 1, '预期恰好 1 处命中'` ⇒ 未命中即 `AssertionError` 中止，**无「静默 no-op」前科**。✅
+- **本席自行重跑全部变异**（隔离副本 `/root/verify-t139/mut`，`mutate.mjs` 同样 `count==1` 断言）：
+
+| 变异 | 撤销 | 本席探针结果 | 命中点 |
+|---|---|---|---|
+| `r1` | ① | **10/11 rc1** | 仅 T1（加载态残留） |
+| `r2` | ② | **9/11 rc1** | 仅 T2（订阅数/请求数） |
+| `r3a` | ③plan | **9/11 rc1** | 仅 T3-plan |
+| `r3b` | ③spot | **8/11 rc1** | 仅 T3-spot |
+
+- 交叉：产出方探针对本席 `r1` 副本 = **15/17 rc1**（与其自报一致）。**「移除修复 ⇒ 必红」且红点局部化到对应修复** ⇒ 三条修复均**承重**。✅
+
+## §6 改动面 / 外围件 —— 表述性出入（非缺陷）
+
+**[独立实测]** `git diff --stat f11ca03^ f11ca03` = **5 文件**：`web/js/pages/{spot,plan}.js` **+ 3 个 docs**（`BOARD.md` 9 行、`TASKS.md` 4 行、`TEST_RESULT.md` 2 行）。
+- **产品代码面 = 恰 2 个 web 文件**：`spot.js +17/−3`、`plan.js +2/−1`，**未碰 `core/` / `java/`** ✅（无夹带产品代码）。
+- **3 个 docs** 系**编排者第 109 轮台账**（含对 `TE-T019-001` 错误订正的**撤回留痕**），非产出方改动：产出方自述「`git status --porcelain` 仅两文件、**未提交 git**」——**属实**（其工作树仅 2 web 文件）。派单「是否**仅** 2 个 web 文件」的字面答案 = **否（提交含 3 docs）**，但**非本期产出方夹带**。**记 1 观察，不记缺陷。**
+- **[独立实测]** E6 `tools/arch-check/check_frontend.sh --root web` = **rc 0**（零构建链、无直连字样）；`node --check` 两文件**通过**。✅
+- 复核期间共享树出现 2 个 `java/**/dao/**` 修改（`UserSubAccountPermDao`/`DmUserSubAccountPermDao`）——系**在飞实例 `be-t135`** 的 `java/**` 写面，**与本席只读 web 复核无关**；本席两 web 文件 md5 与冻结点**逐字节不变**。
+
+## §7 与派单 6 项对照
+
+| 派单点 | 状态 | 证据 |
+|---|---|---|
+| (1) ① + (1c) 终局裁定 | ✅ | §1（撤回正确／复核方正确） |
+| (2) ② 请求计数 + 功能保留 + 遗留评估 | ✅ | §2（3→1；保留；观察级 P3） |
+| (3) ③ 深链（ctx/竞态/编码/FR 字面） | ✅ | §3 |
+| (4) 穷举同类点重扫（三类） | ✅ | §4（未发现漏报） |
+| (5) 探针/负控/变异复核 + 自跑变异 | ✅ | §5（4 变异全红） |
+| (6) 改动面 / E6 | ✅ | §6（5 文件、产品面 2、E6 rc0） |
+
+## §8 观察清单（均不阻断）
+
+| 编号 | 级别 | 内容 |
+|---|---|---|
+| O-1 | 低/P3 | 离开敞口页后陈旧订阅存活至下次进入 ⇒ 每次子账户切换多发 **1** 次 `GET /spot/exposure`（有界、不报错、不污染状态；**非本修复引入，且修复已使其由 N→1 改善**）。建议后续硬化。 |
+| O-2 | 提示 | `f11ca03` 提交含 3 个 docs 台账文件（非「仅 2 web 文件」）；系编排者第 109 轮回写，**非产出方夹带**。 |
+| O-3 | 提示 | 产出方探针 `NEG-CTRL ③-plan` 实为「对被审制品的判别式断言」，非真负控；命名偏宽，不阻断。 |
+| O-4 | 提示 | 修复③对「详情卡是否被后续 `load()` 关闭」仅锚「顺序保证」；建议后续补一条「切换子账户后详情卡应关闭」的显式断言以防回归（当前无缺陷）。 |
+
+---
+*本席只读复核；未改共享树任一文件；产物落 `/root/verify-t139/`（`myprobe.mjs`/`mutate.mjs`/`post`/`pre`/`mut`）。*
