@@ -5390,3 +5390,189 @@ g++ -std=c++11 -Wall -Wextra -Werror -isystem <pb3.21.12/src> -c probe.cpp   # r
 ---
 
 **纯追加证明**：追加前 `md5sum docs/TEST_RESULT.md` = `a4b04ab89132e152cb4b73dff18fa4b9` / **5217 行**（写入前 **3 次 ×10s 取样不变** @ `07:54:07`/`:17`/`:27`）；追加后 `head -5217 docs/TEST_RESULT.md | md5sum` = **`a4b04ab89132e152cb4b73dff18fa4b9`**（⇒ 前 5217 行**逐字节未变**）。追加后行数/md5 **以实时为准**（写死会因追加本身而失效）。
+
+# `T-130` 独立复核证据（2026-09-23）
+
+> 复核者 = **独立复核席 `te-verify-t130`**（**自撰探针 / 自设变异**，**不复用产出方 `be-t130` 声明的变异**）。
+> **共享源树只读**：`cpp/**`、`tools/**`、`docs/**` 一行未改（本证据章为**纯追加**）；**变异/构建一律在隔离副本** `/root/t130v`、`/root/t130v-mut`（排除构建目录；`TMPDIR=/`、`PARITY_TMPDIR=/` 以避本机 `/tmp` 804M tmpfs）。
+> **开局残留扫描**：`git status --porcelain` **空**；`find`（排 build/.git）`*.orig`/`*.bak`/`*.rej` = **0**；源码树 `grep MUTATION` = **0**（仅 `docs/**` 既有散文 + 第三方 `_deps/protobuf-src` 自带宏）⇒ **无人在共享树就地变异**。
+> **结论：有条件通过 / 0 阻断缺陷**（判据「有条件通过 + 0 阻断 = 可转 `DONE`」）。
+
+---
+
+## `T130.0` 复核对象、冻结点与独立复算
+
+- **任务** `T-130`（`check_ctp_found_parity.sh` 接线 + 外围件补齐 + 诊断质量收口）；源码检查点 **`4adac20`**（HEAD）；台账 **`6d23524`**（第 86 轮）。
+- **环境**：官方 CTP **v6.7.13（分离式）** = `<repo>/sdk/v6.7.13_20260225_api`；CMake **4.2.3**；GCC **15.2.0**；`nproc=2`。
+
+**五件产出物逐一实测（均与产出方自述吻合）**：
+
+| 文件 | 行数 | md5（实测） | 与自述 |
+|---|---|---|---|
+| `cpp/CMakeLists.txt` | 109 | `3431e7c4f9553d03bf849d5cba5bda81` | ✅ |
+| `cpp/cmake/HgDependencies.cmake` | 299 | `2baf596f2a37c56782935968f2eea891` | ✅ |
+| `cpp/ctp_smoke/ci/check_ctp_found_parity.sh` | 124 | `6bc8fab23c85b0e64e89dfaa95a39e45` | ✅ |
+| `tools/arch-check/README.md` | 363 | `e8a68ae95718cea0c8ccdc8fb8ba85ed` | ✅ |
+| **新增** `cpp/ctp_smoke/README.md` | 127 | `dc6adb94625e36cf8613a1b1fe23824f` | ✅ |
+
+**冻结点（排除构建目录，`LC_ALL=C sort`；连续 3×10s 取样一致 @ `2026-09-23T08:54:27+0800`）**：
+`cpp/src` = `327118d860c1618ecc9609f7d95b1d0e` / **115**（**未变**，`T-130` 未触碰 `cpp/src`）；`cpp/cmake` = `1e08aef44c9739b721a0f6dc5b7dd688` / **3**；**交付域**（`cpp/cmake`+`cpp/ctp_smoke`，`-not -path '*/build/*' -not -path '*/build-*/*'`）= **`288b3b33c80a13b3e07c684881030799` / 10**（9→10，+README）。**与编排者预复测逐字节吻合**。
+
+---
+
+## `T130.1`（A）接线**真实生效**且**非空转** —— 通过
+
+- **`ctest -N`（以 `ctest -N` 为准）**：`ctp` **39** · `stub` **35** · `fetch` **39**（自述 `38/34/38 → 39/35/39`，**各 +1 吻合**）。`ctp_found_parity` 在**三轨均注册**（`Test #2`）。
+- **三轨实跑**：`ctest --test-dir <轨> -R '^ctp_found_parity$'` ⇒ **三轨 `Passed`**（`ctp` 1.12s / `stub` 1.01s / `fetch` 1.03s）。
+- **注册命令（`CTestTestfile.cmake` 原文）**：
+  `"cmake" "-E" "env" "TMPDIR=…/build-ctp" "PARITY_TMPDIR=…/build-ctp" "bash" "…/check_ctp_found_parity.sh" "--sdk-root" "…/sdk/v6.7.13_20260225_api" "--style" "CLASSIC" "--expect" "on" "--build-dir" "…/build-ctp/ctp_found_parity_build"`，`TIMEOUT 300`（`CMakeLists.txt:108`）。
+  ⇒ **临时目录确落构建树内**：实跑后 `cpp/build-ctp/ctp_found_parity_build/` 存在，**`/tmp/hg-ctp-parity-*` = 0**（未污染 `/tmp`）。`stub` 轨 `--expect auto`（无 SDK ⇒ 两端一致 `OFF`）。
+- **自设变异 M5（证明「是接线让它执行」）**：删去 `cpp/CMakeLists.txt` 的 `if(UNIX) … endif()` 接线块 ⇒ 重配后 `ctest -N` **39→38**、`ctp_found_parity` **消失**（`grep` 仅余 `:84` 的注释行）⇒ **接线前该用例不执行**。
+- **自设变异 M6a（参数写死是否被发现）**：把接线参数 `--style "${HG_CTP_HEADER_STYLE}"` 改成**写死 `--style MERGED`**（构建仍 `CLASSIC`）⇒ 该用例 **FAILED**（`[FAIL] 判定行不完整 … 未披露侧=main`）⇒ **错写死的参数会被判据抓出**。
+- **自设变异 M6b（`--expect on|auto` 分支合理性）**：无 SDK 构建目录下，把 `_hg_parity_expect` 写死 `on`（正确逻辑应为 `auto`）⇒ **FAILED**（`[FAIL] 期望 found=ON，实测 OFF`）；正确逻辑（`auto`）⇒ **PASSED**。⇒ 现行 `if(CTP_SDK_ROOT AND CTP_FOUND) expect=on else auto` **两分支均被实跑覆盖且行为合理**。
+
+**⇔ 判据**：接线**真实生效**（`ctest` 实扫、非空转），且**对错误接线/写死参数敏感**。
+
+---
+
+## `T130.2`（B）★判据承重 —— 消除「该红而退 `3`」盲区 —— 通过
+
+**核心对照（同一输入：官方 SDK + `--style MERGED`；新旧脚本同相对落点，排除 `CPP_DIR` 解析偏差）**：
+
+| 脚本 | 结果 | 输出关键行 |
+|---|---|---|
+| **旧（`68f4bcf`，md5 `2efe5ede5c2c9daa0060e20566ec3082`）** | **`rc=3`** | `== [不可判定] 判定行不完整（smoke='OFF' main=''）—— 一侧在打印前即中止` |
+| **新（`T-130`，`6bc8fab2…`）** | **`rc=1`** | `== [FAIL] 判定行不完整（smoke='OFF' main=''）—— 一侧未及披露判定即中止，parity 无法建立（未披露侧=main）` |
+
+> 机制：`add_subdirectory(ctp_smoke)`（`CMakeLists.txt:56`）**先于** `include(HgDependencies.cmake)`（`:63`）⇒ `MERGED` 下**探路件先打印 `found=OFF` 再 `FATAL`**（`ctp_smoke/CMakeLists.txt:139` 打印、`:148` FATAL），主工程**未及披露** ⇒ 仅 1 行。旧码把「仅一侧」归入 `rc=3`（不可判定），新码归 `rc=1`（FAIL）。**两侧一视同仁**：由 `aborted="main"; [[ -z "${smoke}" ]] && aborted="smoke"`（`:91`）判未披露侧。
+
+**自设变异（均自撰、非产出方 M1/M2）**：
+
+| # | 构造 | 结果（`rc` / 两行是否俱在） |
+|---|---|---|
+| **M1** | 强制 `role=smoke found=ON`（无 SDK ⇒ 主=OFF） | **`rc=1`**；两行**俱在** ⇒ `[FAIL] 判定分歧：smoke=ON main=OFF` |
+| **M2** | 主工程**披露前**注入 `FATAL`（`CLASSIC`+SDK） | **`rc=1`**；仅 smoke 一行 ⇒ `未披露侧=main` |
+| **M3** | 顶层 `project()` 后**任何一侧披露前**即 `FATAL` | **`rc=3`**；**无任何判定行** ⇒ 与「仅一侧」明确区分 |
+| **M4** | 用已配 `build-ctest` 跑接线用例，制造 M3 条件 | **`ctest` 报 `Failed`**（`0% tests passed, 1 tests failed`）⇒ **`rc=3` 不静默通过** |
+
+**★对「盲区」定性的据实更正（不夸大、不缩小）**：`rc=3` **本就是非 0**，故在 `ctest` 下 `1` 与 `3` **均为失败**（M4 实证）⇒ 就 `ctest` 而言**并非「假绿/静默放行」**，而是**退码语义误分类**（把「该红」记为「不可判定」）+ 头注**漏文档化** `rc=2`。新码令「仅一侧中止」**语义正确归 FAIL(1) 并点名未披露侧**，且头注 `:36` 明写「**1/2/3 均非 0 ⇒ 一律视为失败**」⇒ **盲区（误分类）已消除**；「该红而退 3」若被**外部消费者**当作「不可判定 = 环境问题、可跳过」才有风险 —— 本次未在任何 CI/消费者中发现把 `3` 映射为 SKIP 的接法（接线仅设 `TIMEOUT`、未设 `SKIP_RETURN_CODE`）。
+
+**⇔ 判据**：两侧分歧**均判红**（M1/M2 + 真实 `MERGED` 场景）；`rc=3` 仅剩「**无任何判定行**」一种语义（M3），且该语义**确被 `ctest` 视为失败**（M4）。
+
+---
+
+## `T130.3`（C）退码语义完整性 —— 通过（一处**范围限制**见观察 `OBS-T130-3`）
+
+**实现内 `exit` 点穷举（行号）↔ 头注 `:25`–`:36` 四码定义逐一对齐**：
+
+| 行 | 分支 | 码 | 头注定义 |
+|---|---|---|---|
+| `:54` | `--help` | `0` | 一致/正常退出 |
+| `:55` | 未知参数 | `2` | 用法错误（未知参数） |
+| `:82` | 无任何 `[HG-CTP-FOUND]` 行 | `3` | 不可判定（未及披露即终止） |
+| `:95` | **仅一侧**有判定行 | `1` | 失败②（`T-130` 修复点） |
+| `:124` | `exit "${STATUS}"` | `0`/`1` | 一致 / 分歧或字段不一致 |
+
+- **`rc=2` 仅来自未知参数**：实跑 `bash … --bogus` ⇒ `未知参数：--bogus` / **`rc=2`**；实现中 `exit 2` **仅 `:55` 一处** ⇒ 无第二来源。**头注补 `rc=2`** 与实现一致。
+- **`--help` 脆弱性已修复且实测有效**：旧形 `sed -n '2,26p'` 因 `T-130` 头注增行后**会截断**（实测对增行后副本仅打 25 行）；新形 `awk '/^# =====/{c++; if(c==2)exit; …}'` **按 `# ====` 围栏取范围** ⇒ 头注增行后**仍打全 36 行**（末行 = 「…一律视为失败；仅 0 为通过。」）。**残留（低）**：若在头注**正文内**再插一行 `# =====` 会提前截断（现无此形；围栏契约合理）。
+- **`--help` 不误报 PATH**：输出自 `# =====`（不含 shebang）。
+
+**⇔ 判据**：四码定义与实现**逐点对齐**；`rc=2` **唯一来源**正确；`--help` 由**脆弱硬编码行号**改为**围栏取范围**（实测抗增行）。
+
+---
+
+## `T130.4`（D）验收 4 · 诊断质量 —— 通过（附一处范围说明）
+
+- **主工程 `-DHG_CTP_HEADER_STYLE=MERGED` ⇒ `FATAL` 且点名风格**（无 SDK 根时，主工程可达该检查）：
+  `CMake Error at cmake/HgDependencies.cmake:71 (message):`
+  `[CTP] 主工程不支持 HG_CTP_HEADER_STYLE=MERGED（实测传入 'MERGED'）。` … `Call Stack: CMakeLists.txt:63 (include)`。**点名 `MERGED` + 说明根因（`ctp_adapter/**` 直引分离式头、`CH-015`）+ 给处理建议** ✓。
+- **探路件 `MERGED` 仍可用**（证明「只加在主工程、不动共用 `HgCtpStyle.cmake`」未削弱探路件）：以 **CTP Mini SDK**（`/home/ctpmini/ctpmini_admin/ctp_sdk`，含 `ThostFtdcUserApi.h`）**standalone** 配置 `cpp/ctp_smoke` + `-DHG_CTP_HEADER_STYLE=MERGED` ⇒ `rc=0`，`[HG-CTP-FOUND] role=smoke found=ON style=MERGED trader_header=ThostFtdcUserApi.h` ✓。
+- **范围说明（低·非缺陷）**：若**同时**给 `MERGED` **与显式 SDK 根**，则**探路件先 `FATAL`**（`ctp_smoke/CMakeLists.txt:148`），主工程的 `:71` 检查**被遮蔽**、未及执行 —— 其报错点名了缺失的合并版头 `ThostFtdcUserApi.h` 但**未点名风格**。此为 `OBS-T128-4` 修复的**边界**（修复在主工程侧、且因求值序被探路件侧先中断），现行文本已自披露「仅加在主工程」，**不阻断**。
+
+**⇔ 判据**：验收 4 **达成**（主工程 `MERGED` 显式 `FATAL` 且点名风格；探路件 `MERGED` 能力保留）。
+
+---
+
+## `T130.5`（E）验收 6 · README 回写 + ★`:299` 裁定复核 —— 通过；**裁定成立**
+
+- **历史块相对 `68f4bcf` 逐字节未变**：`git diff --numstat 68f4bcf 4adac20 -- tools/arch-check/README.md` = **`38  0`**（**插入 38 / 删除 0**）⇒ 「`2026-09-21` 的『`ctest` 前置接线』整块」（含 `:299`）**无任何改写**；新增仅为 `:313`–`:314` 的**指针行**（`>` 前缀）与文末 §6。
+- **§6 现行值正确且无歧义**（实测吻合）：`build-ctp` = `<repo>/sdk/v6.7.13_20260225_api` / `CLASSIC` / **39**；`build-stub` = **空** / `CLASSIC` / **35**；`build-fetch` = `<repo>/sdk/v6.7.13_20260225_api` / `ON` / **39**；指针行 `:314` 指向 **§6（`:331`）** ⇒ **可达**。
+- **★对编排者裁定的独立复核（`:299` 应『只加不改』）⇒ 本席判**：**裁定成立**。依据：(1) `:299` 位于 **`2026-09-21` 整块**内，而该块**已被 `2026-09-22` 的「历史时点口径…只加不改」注解**（`:310`–`:312`）声明「**原句保留以留痕**」「**不作为官方基线下的结论**」；(2) 该注解**已显式点名 `:299` 的陈旧值** `CTP_SDK_ROOT=/home/ctpmini/ctpmini_admin/ctp_sdk` 属 `CTP Mini` 时代 ⇒ 陈旧值**已被就地标注**，再加改写**既破坏留痕、又与块自身声明冲突**；(3) 与本项目既有纪律一致（历史/自指块**只加标注不替换**，区别于 **live 指针**方可改锚点）。**新指针行 `:314` + §6** 已使「现行三轨值」**无歧义可得** ⇒ 合格形态成立。**未见相反先例**（本 README 内无「历史块内直接改写」的既有做法）。
+
+**⇔ 判据**：验收 6 **达成**；`:299`「只加不改」**裁定正确**。
+
+---
+
+## `T130.6`（F）验收 7 · 统一 SYSTEM 形态 —— 通过
+
+- **只剩一条路径**：`cpp/cmake/HgDependencies.cmake:259`–`:275` 已**删除**「`CMAKE_VERSION ≥ 3.25` 走 `set_target_properties(libprotobuf PROPERTIES SYSTEM TRUE)` / 否则走供给目标」的**版本二分**（diff 实证：`-12` 行旧形态），现行**唯一**形态 = `:273` `target_include_directories(hg_deps_protobuf SYSTEM INTERFACE ${_hg_pb_inc_dirs})`。全文件 `SYSTEM TRUE` / `VERSION_GREATER_EQUAL "3.25"` **仅存于注释**（`:262`/`:265`），**无第二处代码路径**。
+- **编译命令行独立验证**（`fetch` 轨，`gh_hgcp` 目标，含 `payload_codec.cc`）：
+  `CXX_INCLUDES = -I…/cpp/src/hgcp/include -I…/build-fetch/src/hgcp/generated -isystem …/_deps/protobuf-src/src`；
+  `CXX_FLAGS = -O2 -g -DNDEBUG -std=c++11 -Wall -Wextra -Werror`。
+  `compile_commands.json` 中 `payload_codec.cc` 同形（**`-isystem …/protobuf-src/src` 在、`-Wall -Wextra -Werror` 在、无任何 `-Wno-`**）。**共享树 `cpp/build-fetch` 亦同形**（独立比对一致）。
+- **「作用面等价」独立复核**：全仓（`cpp/`+`tools/`，排 build）grep `hg_deps::protobuf` ⇒ **唯一消费方 = `cpp/src/hgcp/CMakeLists.txt:84`（`hg_hgcp`）**；`tools/` **无 CMake**；`proto_smoke` 用**自身的** `find_package(Protobuf)`/FetchContent 供给（`protobuf::libprotobuf`，**非** `hg_deps::protobuf`）⇒ **不存在第二个消费方** ⇒ 「作用面等价」**成立**。
+- **约束登记充分性**：`:268`–`:269` **已登记**「若将来出现**绕过 `hg_deps::protobuf` 直连 `libprotobuf`** 的新消费方，本形态不再覆盖它 ⇒ 届时须改用 `libprotobuf` 的 `SYSTEM` 目标属性（需 CMake ≥ 3.25）」。按本项目惯例（登记于代码注释）**足够**；残留为**无自动守卫**（见 `OBS-T130-4`）。
+
+**⇔ 判据**：验收 7 **达成**；形态统一为供给目标、命令行 `-isystem` **实测生效**、消费者**唯一**、约束**已登记**。
+
+---
+
+## `T130.7`（G）不回归 —— 通过
+
+- **三轨 `ctest`（副本 `/root/t130v`，全量）**：`ctp` **39/39** · `stub` **35/35** · `fetch` **39/39**，**均 `rc=0`**。
+- **三轨 build**：`ctp`/`stub`/`fetch` **均 `rc=0`**，**项目代码 0 告警**（`ctp`/`stub` `grep -icE 'warning:'` = **0**）。**`fetch` 轨自建（from-scratch 编译 protobuf）另有 2 条第三方告警**（见 `OBS-T130-1`，**非本工程代码、不失败构建**）。
+- **`fetch` 轨确可构建**（`T-129` 修复生效，**未再坏**）：`cmake --build cpp/build-fetch` **`rc=0` / 0 error**。
+- **聚合 `arch-check`**：`bash tools/arch-check/arch-check.sh` **`rc=0`**；汇总 `通过(0)=7 命中(1)=0 错误(2)=0`。
+- **`E4` 扫描数**：**47 文件 / 命中 0 / WARN 3（`new`）**、退出 `0`（扫描根 = `cpp/src/{order_engine,risk_engine,risk_state}`）⇒ **与自述一致、未恶化**（`T-130` 未触碰 `cpp/src`）。
+
+**⇔ 判据**：三轨 `ctest` 全绿、build 无**项目代码**告警、聚合 `rc=0`、`E4` 未恶化。
+
+---
+
+## `T130.8`（H）同类扫描复核（穷举 + 判定标准）—— 通过（**计数一处偏差**见 `OBS-T130-2`）
+
+- **独立穷举**（`find . \( -name '*.sh' -o -name '*.py' \) -not -path '*/build*' -not -path './.git/*' -not -path '*/.codebuddy/*'`）= **11 个**（`*.sh` **10** + `*.py` **1**）：`check_ctp_found_parity.sh`、`run_probe.sh`、`run_smoke.sh`、`arch-check.sh`、`check_frontend.sh`、`check_no_db_links.sh`、`scan_cpp11.sh`、`scan_cpp_sql.sh`、`scan_java_sql.sh`、`scan_lock_free.sh`、`scan_hgcp_schema.py`。
+  ⇒ **产出方自述「全仓 `*.sh`/`*.py`…= 10 个」实测为 11**（差 1，见 `OBS-T130-2`）。
+- **接线核对**：`E1`–`E7` 经**聚合入口** `arch-check.sh`（`:71`–`:77` 表 + `:107` 按扩展名分派 `python3`/`bash`）接线 ✅；`arch-check.sh` **自身**经 `ctest` fixture `arch_check`（`cpp/CMakeLists.txt:77`）与 `mvn validate` 接线 ✅；`check_ctp_found_parity.sh` **本单经 `ctest` 接线** ✅。
+- **判定标准（本席提出，用于区分「判据」与「探路复现」）**：
+  - **判据脚本**（`gate`）：断言**当前仓库**须恒成立的性质；**环境无关**（或可优雅 `SKIP`/降级）；**非 0 即应阻断**；应**接线**。
+  - **探路复现脚本**（`recon`）：复现**一次性**探查（`RSK-*`）结论；**依赖外部资源**（真实 SDK / 网络下载）**在通用 CI 不保证可得**；结论**已冻结**（改动须走对应任务重冻结）；**不接线**合理。
+- **按上述标准判**：`run_probe.sh`（**须显式 `CTP_SDK_ROOT`**，`T-027` 探路件，冻结）、`run_smoke.sh`（**须网络拉 3.19.6 fallback**，`T-026`，冻结）⇒ **不适用项分类成立**。**补充加固**：二者中**环境无关**的断言（`B7`/`A7` 无 DB 客户端库、`B8` C++11 边界、`A8` 无前端构建链产物）**已被接线的 `E1`（`check_no_db_links.sh`）/`E3`（`scan_cpp11.sh`）/`E6`（`check_frontend.sh`）覆盖** ⇒ **未接线的恰是「依赖 SDK/网络」的那部分**。
+- **结论**：**无第三处「已交付未接线」的判据**。（唯一数量偏差 = `OBS-T130-2`，**不改变该结论**。）
+
+---
+
+## `T130.9` 观察项清单（均**不阻断**）
+
+| 编号 | 级 | 观察 | 证据 |
+|---|---|---|---|
+| `OBS-T130-1` | 低 | 台账「三轨 build **0 告警**（`grep -icE 'warning:'` = 0）」对 **`fetch` 轨 from-scratch 构建不精确**：自建 fetch 轨另有 **2 条第三方告警**（`protobuf-src/…/message_lite.cc` 经 `stl` 头触发 `-Wstringop-overflow=`），**非本工程代码、不失败构建**（protobuf 自身未加 `-Werror`）。**项目代码 0 告警**属实。系与 `OBS-T128-3` 同类（增量构建下不复现）。 | `/root/t130v-build-fetch.log`（2 命中，源均在 `_deps/`） |
+| `OBS-T130-2` | 低 | 同类扫描**计数偏差**：自述「全仓 `*.sh`/`*.py`…= **10 个**」，**实测 = 11**（`*.sh` 10 + `*.py` 1）。疑因**漏计聚合入口 `arch-check.sh` 或 `.py`（`scan_hgcp_schema.py`，E7）未计入总数**。**结论（无第三处未接线判据）不受影响**。 | `find` 穷举（11 行） |
+| `OBS-T130-3` | 低·范围 | **判据只断言「parity」、不断言「configure 成败」**：若配置在**两侧均已披露**判定行**之后**才失败，判据返 **`rc=0`（PASS）**（实测注入主工程披露后 `FATAL` ⇒ `[PASS] 判定一致…`/`rc=0`）。**属判据既定契约内**（头注 `0 = 两侧均产出判定行且全字段相同`）；且此类失败会由**外层构建本身**（同一源树重配）另有拦截，风险低。 | 变异实跑（mut `/root/t130v-mut/pt-both`） |
+| `OBS-T130-4` | 低·建议 | **F** 的「作用面等价」**无自动守卫**：仅靠 `:268`–`:269` 注释登记「新消费方须回退 `SYSTEM TRUE`」。若将来新增直连 `libprotobuf` 的消费方，**无判据会变红**。现消费方唯一 ⇒ 无实际风险；可考虑后续加判据。 | `grep` 全仓唯一消费方；注释登记 |
+| `OBS-T130-5` | 低 | **`MERGED` + 显式 SDK 根**时，探路件侧 `FATAL`（`:148`）**遮蔽**主工程 `:71` 的风格点名（见 `T130.4`）。主工程检查本身正确，仅**求值序**致其不可达。 | `cmake -S cpp -DHG_CTP_HEADER_STYLE=MERGED -DCTP_SDK_ROOT=…` ⇒ 报 `ctp_smoke/CMakeLists.txt:148` |
+| `OBS-T130-6` | 极低 | `--help` 若在**头注正文内**再插一行 `# =====`，`awk` 围栏会提前截断（现无此形）。 | 机制分析 + 增行自测（仍 36 行） |
+
+---
+
+## `T130.10` 对编排者两项裁定的复核结论
+
+1. **`:299` 应「只加不改」** ⇒ **成立**（依据见 `T130.5`：`:299` 在 `2026-09-21` 整块内、该块已有「只加不改」注解并**已点名该陈旧值**、`git diff` 删除数 = 0、新指针 + §6 使现行值无歧义；无相反先例）。**本席未主张直接改写 `:299`**。
+2. **「三轨计数 +1 予以认可、驳回『改挂 `run_probe.sh` 以保持计数不变』」** ⇒ **驳回正确**。依据：`OBS-T128-1` 的要害是**判据无真实调用点 ⇒ 永不生效**；若把判据**藏进 `run_probe.sh`**（探路复现脚本，**须显式 SDK、CI 无 SDK 环境不跑**）⇒ 判据在 CI **仍不执行**，**违背验收 1「实扫」**。而**新增独立 ctest 用例**使判据在**三轨（含无 SDK 的 `stub`）均执行**（`stub` 轨实测 `Passed`、两端一致 `OFF`）⇒ **+1 是「实扫」的正当代价**，非「为避免计数变化而妥协」。
+
+---
+
+## `T130.11` 独立复算锚点（取样 @ `2026-09-23T08:54:27+0800`；连续 3×10s 一致）
+
+| 锚点 | 值 | 文件数 |
+|---|---|---|
+| `cpp/src`（`LC_ALL=C sort`） | `327118d860c1618ecc9609f7d95b1d0e` | **115** |
+| `cpp/cmake` | `1e08aef44c9739b721a0f6dc5b7dd688` | **3** |
+| **交付域**（`cpp/cmake`+`cpp/ctp_smoke`，**排除构建目录**） | **`288b3b33c80a13b3e07c684881030799`** | **10** |
+| 旧判据脚本（`68f4bcf`）参考值 | `2efe5ede5c2c9daa0060e20566ec3082` | — |
+
+**共享树零污染**：复核全程 `git status --porcelain` **空**；`*.orig`/`*.bak`/`*.rej` = **0**；源码树 `MUTATION` = **0**。所有变异均在 `/root/t130v-mut` 内、**逐例复位**（`HgDependencies.cmake`→`2baf596f…`、`ctp_smoke/CMakeLists.txt`→`daf53783…`、`CMakeLists.txt`→`3431e7c4…`，均逐字节回原）。
+
+---
+
+**纯追加证明**：本证据章落笔前 `md5sum docs/TEST_RESULT.md` = `3145e5179eb5c12935e0a853b6510b7a` / **5392 行**；追加后 `head -5392 docs/TEST_RESULT.md | md5sum` = **`3145e5179eb5c12935e0a853b6510b7a`**（⟹ 前 5392 行**逐字节未变**）。追加后章数/md5 **以实时为准**（本章为共享 `docs/TEST_RESULT.md` 的**纯追加**，未删改任何既有行）。
