@@ -40,6 +40,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -422,15 +423,17 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("管理员重置：返回一次性口令、要求首次登录修改；日志不含口令")
-    void resetPasswordReturnsOneTimeSecret() {
+    @DisplayName("T-136 管理员重置：不返回明文新口令（FR-AUTH-16）；哈希改写 + 旧口令失效 + 强制首次登录修改")
+    void resetPasswordDoesNotReturnPlaintext() {
         addUser(1L, "trader01", "ENABLED");
-        String oneTime = service.resetPassword(1L, 9L);
-        assertEquals(AuthService.PASSWORD_MIN_LENGTH + 4, oneTime.length());
-        assertTrue(PasswordHasher.verify(oneTime, userDao.users.get(1L).passwordHash),
-                "一次性口令须可校验");
+        String beforeHash = userDao.users.get(1L).passwordHash;
+        // 改前（锁定违规形状）：resetPassword 返回一次性明文（String），用例据其 verify + login 断言「可校验/可登录」。
+        // 改后（合规）：返回 void —— 明文不落盘、不入日志、不回传；改以「哈希已改写 + 旧口令失效 + 强制改口令」证明重置生效。
+        service.resetPassword(1L, 9L);
+        String afterHash = userDao.users.get(1L).passwordHash;
+        assertNotEquals(beforeHash, afterHash, "重置须改写加盐哈希（改前=" + beforeHash + "）");
+        assertFalse(PasswordHasher.verify("Hg#2026Trading01", afterHash), "重置后旧口令须失效");
         assertEquals("Y", userDao.users.get(1L).mustChangePassword, "须要求首次登录修改");
-        assertNotNull(service.login("trader01", oneTime, "127.0.0.1", "JUnit"), "一次性口令可登录一次");
     }
 
     // ------------------------------------------------------------ 桩与数据

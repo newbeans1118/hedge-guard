@@ -10,7 +10,7 @@
  *                  lastLoginTime, roleCodes[], subAccountScope[]}（**无任何口令字段**）
  *   POST /auth/user  {username, realName, naturalPersonKey, department, isEnterpriseLeader, initialPassword} → id
  *   PUT  /auth/user  {action:UPDATE|DISABLE|ENABLE, userId, realName?, department?,
- *                     isEnterpriseLeader?, reason?, reviewerId?} → null（ENABLE → {oneTimePassword}）
+ *                     isEnterpriseLeader?, reason?, reviewerId?} → null（ENABLE 亦回 null；口令重置不回传明文，T-136/FR-AUTH-16）
  *   GET  /auth/role?page&size&sort                     → PageData<Role>
  *        Role {id, roleCode, roleName, positionGroupId, isPreset, isBusinessRole, hasTradingOperation, status}
  *   POST /auth/role  {action:DEFINE|GRANT, roleCode?, roleName?, positionGroupId?, hasTradingOperation?,
@@ -31,7 +31,7 @@
  *   GET  /auth/change-log?page&size&sort&userId        → PageData<PermissionChangeLog>
  *   GET  /auth/unauthorized-attempt?page&size&sort&operatorId → PageData<UnauthorizedAttempt>
  *   POST /auth/password {oldPassword, newPassword}     → null（本人改口令）
- *   PUT  /auth/password {userId}                       → {oneTimePassword}（管理员重置）
+ *   PUT  /auth/password {userId}                       → null（管理员重置；不回传明文口令，T-136/FR-AUTH-16）
  *   POST /auth/login、POST /auth/logout 见 login.js / app.js。
  *
  * ## 端点的 (方法,路径) 对来源（`ROUTES` 对象只含路径不含方法，方法取自 Java `router.register`）
@@ -170,25 +170,6 @@ function subAccountControl(id, opts) {
     list.forEach((s) => control.appendChild(ui.el('option', { value: String(s.id), text: (s.code ? s.code + ' ' : '') + (s.name || ('#' + s.id)) })));
   }
   return control;
-}
-
-/** 渲染「一次性口令」结果卡（遮蔽展示；不提供显示明文入口；不写任何浏览器存储）。 */
-function oneTimePasswordCard(res) {
-  const card = ui.el('div', { class: 'hg-card' });
-  card.appendChild(ui.el('h3', { class: 'hg-card__title', text: '一次性口令（仅返回一次）' }));
-  const val = res && res.oneTimePassword ? String(res.oneTimePassword) : '';
-  const inp = ui.el('input', {
-    id: 'au-otp', type: 'password', readonly: true, value: val,
-    autocomplete: 'off', 'aria-label': '一次性口令（遮蔽）'
-  });
-  card.appendChild(ui.field({ id: 'au-otp', label: '新口令（遮蔽，不提供明文显示）', required: false, control: inp }));
-  card.appendChild(ui.el('p', {
-    class: 'hg-muted',
-    text: '按 FR-AUTH-16 / NFR-SEC-2：一次性口令不落库、不入日志，界面不以明文展示，且本页不提供'
-      + '"显示明文 / 保存凭证"入口、不写入 localStorage / sessionStorage / URL。请通过受控渠道交付本人，'
-      + '并要求其首次登录强制修改。'
-  }));
-  return card;
 }
 
 /* ------------------------------------------------------------------ *
@@ -389,14 +370,10 @@ function usersTab(container) {
       }
       submit.disabled = true; const orig = submit.textContent; submit.textContent = '提交中…';
       try {
-        const res = await HG.api.put(R.USER, payload, { idempotencyKey: HG.api.newIdempotencyKey() });
-        if (a === 'ENABLE' && res && res.oneTimePassword) {
-          ui.clear(actCard);
-          actCard.appendChild(oneTimePasswordCard(res));
-        } else {
-          ui.toast('用户变更已提交（action=' + a + '）', 'ok');
-          ui.clear(actCard);
-        }
+        await HG.api.put(R.USER, payload, { idempotencyKey: HG.api.newIdempotencyKey() });
+        // T-136 / FR-AUTH-16：后端不再回传一次性口令；ENABLE 触发的口令重置只提交，界面不展示明文。
+        ui.toast('用户变更已提交（action=' + a + '）', 'ok');
+        ui.clear(actCard);
         alertBox.appendChild(ui.banner('变更已提交：' + a + '。变更留痕见「变更留痕」Tab。', 'ok'));
         load(state.page);
       } catch (err) {
@@ -418,12 +395,14 @@ function usersTab(container) {
   }
 
   async function doResetPassword(u) {
-    const yes = await ui.confirm('确认重置用户 <strong>' + F.esc(u.username) + '</strong> 的口令？系统将生成一次性口令（仅回一次）。', { title: '重置口令', okText: '确认重置', danger: true });
+    const yes = await ui.confirm('确认重置用户 <strong>' + F.esc(u.username) + '</strong> 的口令？新口令不会以明文展示或回传（FR-AUTH-16）；该用户首次登录须强制修改。', { title: '重置口令', okText: '确认重置', danger: true });
     if (!yes) return;
     try {
-      const res = await HG.api.put(R.PASSWORD, { userId: Number(u.id) }, { idempotencyKey: HG.api.newIdempotencyKey() });
+      await HG.api.put(R.PASSWORD, { userId: Number(u.id) }, { idempotencyKey: HG.api.newIdempotencyKey() });
       ui.clear(actCard);
-      actCard.appendChild(oneTimePasswordCard(res));
+      // T-136 / FR-AUTH-16：后端不以明文回传新口令，界面不展示；仅提示已达成的合规状态。
+      ui.toast('口令已重置（新口令不以明文展示或回传）', 'ok');
+      alertBox.appendChild(ui.banner('口令已重置：系统未以明文展示或回传新口令（FR-AUTH-16 / R-AUTH-6）。该用户首次登录须强制修改口令。', 'ok'));
     } catch (err) {
       alertBox.innerHTML = ui.blockedHTML(err);
     }

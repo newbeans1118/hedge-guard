@@ -37,6 +37,7 @@ import com.hedgeguard.web.RequestContext;
 import com.hedgeguard.web.Session;
 import com.hedgeguard.web.SessionStore;
 import com.hedgeguard.web.handler.auth.ChangeLogHandler;
+import com.hedgeguard.web.handler.auth.PasswordHandler;
 import com.hedgeguard.web.handler.auth.UserHandler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,6 +56,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -160,7 +162,7 @@ class AuthAdminServiceTest {
     // ------------------------------------------------------------ FR-AUTH-3/4/5
 
     @Test
-    @DisplayName("FR-AUTH-3：停用须填原因、立即失效会话；FR-AUTH-4：无角色启用被拒、有角色启用返回一次性口令")
+    @DisplayName("FR-AUTH-3：停用须填原因、立即失效会话；FR-AUTH-4：无角色启用被拒、有角色启用（重置口令但不回传明文，T-136）")
     void disableAndEnable() {
         service.createUser("lisi", "李四", "NP-001", "财务部", "N", "Hg#2026Trading01", 9L);
         assertEquals(ErrorCode.PARAM_INVALID,
@@ -176,9 +178,15 @@ class AuthAdminServiceTest {
 
         roleDao.put(role(10L, AuthService.ROLE_TRADER, 1, "Y"));
         userRoleDao.put(userRole(1L, 10L));
-        String oneTime = service.enableUser(1L, 9L, 8L);
+        String beforeHash = userDao.byId.get(1L).passwordHash;
+        // 改前（锁定违规形状）：enableUser 返回一次性明文，用例据其 verify 断言「可校验」。
+        // 改后（合规，T-136 / FR-AUTH-16）：返回 void，明文不回传；改以「哈希改写 + 旧口令失效 + 强制改口令」证明重置生效。
+        service.enableUser(1L, 9L, 8L);
         assertEquals("ENABLED", userDao.byId.get(1L).status);
-        assertTrue(PasswordHasher.verify(oneTime, userDao.byId.get(1L).passwordHash));
+        assertNotEquals(beforeHash, userDao.byId.get(1L).passwordHash, "启用须重置口令（哈希改写）");
+        assertFalse(PasswordHasher.verify("Hg#2026Trading01", userDao.byId.get(1L).passwordHash),
+                "重置后旧口令须失效");
+        assertEquals("Y", userDao.byId.get(1L).mustChangePassword, "启用须强制首次登录改口令");
     }
 
     @Test
@@ -399,6 +407,45 @@ class AuthAdminServiceTest {
         assertEquals(200, result.status);
         assertTrue(sessionDao.invalidateCalls >= 1, "强制下线须作废会话");
         assertTrue(loginLogDao.rows.stream().anyMatch(l -> "KICKED".equals(l.eventType)), "须留痕");
+    }
+
+    // ------------------------------------------------------------ FR-AUTH-16（T-136）
+
+    @Test
+    @DisplayName("T-136 FR-AUTH-16 验收①：PUT /auth/password（管理员重置）响应体不含任何口令字段")
+    void resetPasswordResponseHasNoPlaintext() {
+        service.createUser("lisi", "李四", "NP-001", "财务部", "N", "Hg#2026Trading01", 9L);
+        HttpResult result = new PasswordHandler(service).handle(new RequestContext("PUT", PasswordHandler.PATH,
+                null, java.util.Collections.emptyMap(), "{\"userId\":1}", "HGT136", "127.0.0.1"));
+        assertEquals(200, result.status, "重置应成功");
+        String body = new String(result.body, java.nio.charset.StandardCharsets.UTF_8);
+        assertTrue(body.contains("\"code\":0"), "成功信封应保留：" + body);
+        assertFalse(body.toLowerCase(java.util.Locale.ROOT).contains("password"),
+                "响应体不得含任何口令字段（FR-AUTH-16：不得以明文方式传递新口令）：" + body);
+        assertFalse(body.contains("\"data\""),
+                "成功响应不得携带业务 data 载荷（防止把口令塞进 data 回传）：" + body);
+        assertEquals("Y", userDao.byId.get(1L).mustChangePassword, "重置后须强制首次登录改口令");
+    }
+
+    @Test
+    @DisplayName("T-136 FR-AUTH-16 验收①：PUT /auth/user action=ENABLE 响应体不含任何口令字段")
+    void enableResponseHasNoPlaintext() {
+        service.createUser("lisi", "李四", "NP-001", "财务部", "N", "Hg#2026Trading01", 9L);
+        service.disableUser(1L, "离职", 9L);
+        roleDao.put(role(10L, AuthService.ROLE_TRADER, 1, "Y"));
+        userRoleDao.put(userRole(1L, 10L));
+        HttpResult result = new UserHandler(service).handle(new RequestContext("PUT", UserHandler.PATH,
+                null, java.util.Collections.emptyMap(),
+                "{\"action\":\"ENABLE\",\"userId\":1,\"reviewerId\":8}", "HGT136", "127.0.0.1"));
+        assertEquals(200, result.status, "启用应成功");
+        String body = new String(result.body, java.nio.charset.StandardCharsets.UTF_8);
+        assertTrue(body.contains("\"code\":0"), "成功信封应保留：" + body);
+        assertFalse(body.toLowerCase(java.util.Locale.ROOT).contains("password"),
+                "响应体不得含任何口令字段（FR-AUTH-16）：" + body);
+        assertFalse(body.contains("\"data\""),
+                "成功响应不得携带业务 data 载荷（防止把口令塞进 data 回传）：" + body);
+        assertEquals("ENABLED", userDao.byId.get(1L).status, "启用须生效");
+        assertEquals("Y", userDao.byId.get(1L).mustChangePassword, "启用须强制首次登录改口令");
     }
 
     @Test

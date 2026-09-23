@@ -25,7 +25,8 @@ import java.util.List;
  *       {@code keyword}/{@code subAccount}；<b>绝不回任何口令字段</b>，{@code FR-AUTH-5} 验收 3）；</li>
  *   <li>{@code POST} 新增用户（{@code FR-AUTH-1}；可选 {@code roleCode} 授初始角色）；</li>
  *   <li>{@code PUT} 变更：{@code action=UPDATE|DISABLE|ENABLE|FORCE_LOGOUT}
- *       （{@code FR-AUTH-2/3/4/15④}；{@code FORCE_LOGOUT} 由 {@code T-135} 接线）。</li>
+ *       （{@code FR-AUTH-2/3/4/15④}；{@code FORCE_LOGOUT} 由 {@code T-135} 接线；
+ *       {@code ENABLE} 会重置口令但<b>不回传新口令</b>，{@code FR-AUTH-16}）。</li>
  * </ul>
  */
 public final class UserHandler implements RouteHandler {
@@ -115,8 +116,9 @@ public final class UserHandler implements RouteHandler {
                 authService.disableUser(request.userId, request.reason, operatorId);
                 return HttpResult.json(200, ApiResponse.ok(null, ctx.traceId()));
             case "ENABLE":
-                String oneTime = authService.enableUser(request.userId, operatorId, request.reviewerId);
-                return HttpResult.json(200, ApiResponse.ok(new ResetView(oneTime), ctx.traceId()));
+                // FR-AUTH-16：启用会重置口令，但不得以明文方式展示或传递新口令（服务层内部生成 + 加盐哈希落库，明文即弃）。
+                authService.enableUser(request.userId, operatorId, request.reviewerId);
+                return HttpResult.json(200, ApiResponse.ok(null, ctx.traceId()));
             case "FORCE_LOGOUT":
                 // FR-AUTH-15 验收 4：管理员强制下线指定用户（须留痕）——T-135 接线（服务层已实现）
                 int kicked = authService.forceLogout(request.userId, operatorId);
@@ -176,17 +178,6 @@ public final class UserHandler implements RouteHandler {
 
         /** 复核人（UPDATE 标记变更 / ENABLE 必填）。 */
         public Long reviewerId;
-    }
-
-    /** 一次性口令视图（仅回一次，不落盘不入日志）。 */
-    public static final class ResetView {
-
-        /** 一次性口令。 */
-        public String oneTimePassword;
-
-        ResetView(String oneTimePassword) {
-            this.oneTimePassword = oneTimePassword;
-        }
     }
 
     /** 用户视图（<b>无任何口令字段</b>）。 */

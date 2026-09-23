@@ -395,15 +395,16 @@ public final class AuthService implements SubAccountVisibility {
     }
 
     /**
-     * 管理员重置口令：生成一次性随机口令并标记"首次登录须修改"。
+     * 管理员重置口令：生成随机临时口令、加盐哈希落库，并标记"首次登录须修改"。
      *
-     * <p>返回的一次性口令<b>只返回一次</b>、不入日志、不入库（{@code NFR-SEC-2}：重置不以明文展示）。
+     * <p><b>不返回新口令</b>（{@code FR-AUTH-16} / {@code R-AUTH-6}：管理员重置**不得以明文方式
+     * 展示或传递新口令**）：随机明文仅在方法内用于派生加盐哈希，派生后即弃——不入日志、不入库、
+     * 不回传调用方。
      *
      * @param userId    目标用户
      * @param operatorId 操作人
-     * @return 一次性随机口令（调用方负责展示一次后丢弃）
      */
-    public String resetPassword(long userId, long operatorId) {
+    public void resetPassword(long userId, long operatorId) {
         UserAccount user = userAccountDao.findById(userId);
         if (user == null) {
             throw BizException.of(ErrorCode.PARAM_INVALID,
@@ -417,8 +418,8 @@ public final class AuthService implements SubAccountVisibility {
             userAccountDao.updateById(user, operatorId);
             return null;
         });
+        // oneTime 到此不再被任何路径引用：不落盘、不入日志、不回传（FR-AUTH-16）。
         LOG.info("已重置口令并要求首次登录修改：targetUserId=" + userId + " operatorId=" + operatorId);
-        return oneTime;
     }
 
     // ------------------------------------------------------------ 岗位分离与权限
@@ -871,12 +872,14 @@ public final class AuthService implements SubAccountVisibility {
     /**
      * 启用用户（{@code FR-AUTH-4}）：须<b>重新确认角色</b>（未配置角色时提示），启用后<b>强制重置口令</b>。
      *
+     * <p><b>不返回新口令</b>（{@code FR-AUTH-16}：重置后不得以明文方式展示或传递新口令）：随机明文仅在
+     * 方法内用于派生加盐哈希，派生后即弃——不入日志、不入库、不回传调用方；账号标记"首次登录须修改"。
+     *
      * @param userId     目标用户
      * @param operatorId 操作人
      * @param reviewerId 复核人（必填且 != 操作人）
-     * @return 一次性口令（仅返回一次；{@code NFR-SEC-2}）
      */
-    public String enableUser(long userId, long operatorId, Long reviewerId) {
+    public void enableUser(long userId, long operatorId, Long reviewerId) {
         if (reviewerId == null || reviewerId == operatorId) {
             throw BizException.of(ErrorCode.POSITION_SEPARATION_CONFLICT,
                     "启用用户须双人复核：reviewer_id 必填且 != operator_id；复现=换复核人（R-AUTH-2）");
@@ -902,7 +905,7 @@ public final class AuthService implements SubAccountVisibility {
         }
         recordChange(CHANGE_USER_ATTR, userId, userId, null, "启用用户（须强制改口令）",
                 operatorId, reviewerId);
-        return oneTime;
+        // oneTime 仅用于派生 user.passwordHash，之后即弃：不落盘、不入日志、不回传（FR-AUTH-16）。
     }
 
     /**

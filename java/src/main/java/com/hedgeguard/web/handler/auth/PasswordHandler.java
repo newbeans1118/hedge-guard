@@ -15,7 +15,8 @@ import com.hedgeguard.web.RouteHandler;
  *
  * <ul>
  *   <li>{@code POST} 用户改口令（{@code oldPassword} + {@code newPassword}；强度策略 + 近 5 次禁重用）；</li>
- *   <li>{@code PUT} 管理员重置（返回一次性口令，<b>仅回一次</b>，不落盘不入日志；{@code NFR-SEC-2}）。</li>
+ *   <li>{@code PUT} 管理员重置（<b>不回传新口令</b>；新口令仅以加盐哈希落库，明文不展示、不传递、
+ *       不入日志；{@code FR-AUTH-16} / {@code NFR-SEC-2}）。</li>
  * </ul>
  */
 public final class PasswordHandler implements RouteHandler {
@@ -42,8 +43,9 @@ public final class PasswordHandler implements RouteHandler {
                 throw BizException.of(ErrorCode.PARAM_INVALID,
                         "重置须提交 {userId}；复现=按 §4.1.1 提交 application/json");
             }
-            String oneTime = authService.resetPassword(reset.userId, ctx.currentUserId());
-            return HttpResult.json(200, ApiResponse.ok(new ResetView(oneTime), ctx.traceId()));
+            // FR-AUTH-16：重置后不得以明文方式展示或传递新口令（服务层内部生成 + 加盐哈希落库，明文即弃）。
+            authService.resetPassword(reset.userId, ctx.currentUserId());
+            return HttpResult.json(200, ApiResponse.ok(null, ctx.traceId()));
         }
         ChangeRequest request = JsonCodec.fromJson(ctx.body(), ChangeRequest.class);
         if (request == null) {
@@ -69,16 +71,5 @@ public final class PasswordHandler implements RouteHandler {
 
         /** 目标用户 ID。 */
         public long userId;
-    }
-
-    /** 一次性口令视图。 */
-    public static final class ResetView {
-
-        /** 一次性口令（仅回一次）。 */
-        public String oneTimePassword;
-
-        ResetView(String oneTimePassword) {
-            this.oneTimePassword = oneTimePassword;
-        }
     }
 }
