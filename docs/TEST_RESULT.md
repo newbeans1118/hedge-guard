@@ -9595,3 +9595,96 @@ user.mustChangePassword = "N"; // 单条 UPDATE，仍是单写，但值写错
 3. **（对应 §5.2）** 登记 `Clocks.clock()` / `ApiResponse.fail(...)` 两个无消费者公共方法，择机清理（`T-144` 的 `O-1` 范围仅 `randomPassword`）。
 
 > **本席不自评 `T-144` 为 `DONE`**；是否转 `DONE` 由编排者裁定。
+
+---
+
+## T-146 独立复核（席 `test-engineer` / 实例 `te-verify-t146`）
+
+> 追加时间：2026-09-24（CST）｜冻结点 `HEAD=934e497`（`git status --short` 空）。
+> 树锚（末次改动后取样）：`java/src` = `2a74492e800706d13f48f8a0121a0945` / 349；`web` = `275318eb310b7316ce49c696c2d27b52` / 27（口径 `find <dir> -type f | LC_ALL=C sort | xargs md5sum | md5sum`）。
+> **本席只追加证据，未改写既有内容**（既有部分 md5 追加前 `c35493c95a4b77bad362d3e4351ac34b`/9597 行）。
+
+### A. 结论
+
+**有条件通过**（阻断缺陷 **1** 项：`java/CONTRACTS.md` §5.1 编辑登记表被**替换**、丢失既有 `T-107` 登记行 —— 须退回补正后方可转 `DONE`）。
+- 服务端门禁**功能正确性**独立证实：`588/0/0/0`、7 组自设变异全部承重、无漏面、无死锁。
+- 三条待复核线索：①**成立**（低）、②**成立但交付方"须 CH"结论被高估**（低）、③**成立**（观察，死值）。
+
+### B. 独立实测 vs 交付方自述（分两列）
+
+| 项 | 交付方自述 | 本席独立实测 | 判定 |
+|----|-----------|-------------|------|
+| 冻结点 | 未 commit、树锚 `2a74492e…/349`、`web 275318eb…/27` | `HEAD=934e497`（已由编排者提交）、`java/src 2a74492e800706d13f48f8a0121a0945/349`、`web 275318eb310b7316ce49c696c2d27b52/27`（连测 3 次恒定） | **一致** |
+| 门禁形态 | 过滤器层 `SessionAuthFilter.authenticate` 统一强制，覆盖 HTTP+WS；仅放行改密/登出 | 源码 3 处证实：`SessionAuthFilter.java:100-106`、`RequestDispatcher.java:80-82`、`WsServer.java:338`；全局仅此 2 个 `authenticate(` 调用点 | **一致** |
+| 错误码 | 复用 `10003`、未新增；`errmsg.js` 未改 | `ErrorCode.java:21 FUNCTION_PERMISSION_DENIED(10003,403…)`；枚举 **23** 项；`git diff` 未含 `ErrorCode.java`/`ApiRoutes.java`/`errmsg.js` | **一致** |
+| 污染前端 3 文件 | `session.js`/`login.js`/`auth.js` | `git diff --stat` 恰含此 3 文件；`errmsg.js` 不在 diff | **一致** |
+| 用例 5 组 | 拒/改密放行/未置位/三置位/承重 | 逐条读源码 + 变异证实（见 D） | **一致** |
+| 门禁 | `588/0/0/0`、`@Test==surefire==588`、71 类；E1–E7 rc0 | `TMPDIR=/root mvn -B -o -Punit clean test` = **588/0/0/0**；surefire txt=**588**、xml=**588**、`grep -c @Test`=**588**、报告 **71** 类；基线父提交 `@Test`=**577**（+11 = 新 9 + 既有 2） | **一致** |
+| 变异 3 组 | 门禁假 5 红 / login 不置位 2 红 / 不清标记 1 红 | 独立复现：MUT-A **5 红**、MUT-B **2 红**、MUT-C（本席变体：服务方法体置空）**2 红** | **一致（C 变体多 1 红）** |
+| 契约判定 | 未升版、免 CH | 见 H：`Session` 属 §3.1、§0③ 载明"字段级新增可（向后兼容）" ⇒ 免 CH **成立** | **一致** |
+| 交付自列待裁定 | 新标签页误报"后端不可达"，"彻底消除须 CH" | **现象成立**（见 E-②）；但"须 CH"**被高估** | **部分不一致** |
+| **交付未披露（本席发现）** | §4 自述"`java/CONTRACTS.md`（§5.1 登记 **+1 行**）" | **实为替换**：父 `c39d36b1…/828` → 现 `b2d65432…/828`，净 **0** 行；`T-107/be-t107` 行被 `T-146/be-t146` 行覆盖，`be-t107` 在 CONTRACTS 中 **0 命中** | **不一致（缺陷 001）** |
+
+### C. 自设扫描面 a–i 逐项结论
+
+- **(a) 门禁完整性（无漏面）**：`RequestDispatcher.route` 对 `/api/v1/**`（非公开）一律先 `authenticate`；公开仅 `PUBLIC_EXACT` = `POST /api/v1/auth/login` + `GET|HEAD /api/v1/ping`；`/web/**` 交 `StaticHandler`（无数据）；非 `/api/v1` 且非 `/web` ⇒ 404（不泄露）。**全部** `*Handler.PATH`/注册路径经核验**均由 `ApiRoutes.full(...)` 派生**（`grep 'PATH.*= "/'` 非 `full` 者 **0** 条）⇒ 无 `/api/v1` 之外的业务入口。**结论：无漏面。**
+- **(b) 放行面宽/窄**：`POST /auth/password` 需 `oldPassword`；T-136 形态 B 下管理员**设定**初始口令（管理员知情），用户持有该口令 ⇒ **无死锁**。前端引导落点 `#/auth?tab=password` 可达（`router.js:39-45` 解析 query；`auth.js:1186` 读 `ctx.query.tab`；`TABS` 含 `key:'password'`）⇒ **独立复算成立**。
+- **(c) 无守卫检验**：见 D（7 组，全承重；"放宽放行面"与"收窄放行面"均红 ⇒ **存在放行面断言**）。
+- **(d) WS 覆盖**：中和 `WsServer:338` 鉴权 ⇒ **15 红**（`WsServerTest` 10 err + `WsAcceptanceTest` 4 err + `e1…` 1 fail）⇒ WS 鉴权**有守卫**。但**"置位会话 × 真实 WS 握手"无集成用例**（`wsHandshakeBlockedWhileFlagged` 只调 `filter.authenticate`）⇒ 记**观察 005**（非阻断；置位逻辑本身由 MUT-A 承重）。
+- **(e) 计数**：surefire 名单=**588** == `@Test`=**588**（并列一致，未受注释吞并影响）。
+- **(f) 引擎忠实性**：`MustChangePasswordRealDaoTest` 走**真实 `DmUserAccountDao` + `InMemoryDmEngine`**，断言落**引擎原始行** `t_user.must_change_password`（`rawFlag()`）；写侧承重由 MUT-G 证实（改 `"N"→"Y"` ⇒ 1 红）。**非假 DAO** ⇒ 有守卫。（登录→会话贯通仅假 DAO 覆盖，已披露。）
+- **(g) 回归面**：`Session` 5 参构造委托 6 参（`mustChangePassword=false`）；`main` 中现存 2 处 `new Session(` 均用 6 参；`touchSession` 续期保留标记（`AuthService.java:344-346` 传 `session.mustChangePassword`）＋ `AuthServiceTest` 断言。改密成功后前端清标记 + 跳转在**服务端清库/清会话之后**（`PasswordHandler` 先调 `changePassword`+`markPasswordChanged` 再响应）⇒ **无"前端已放行、服务端仍拒"窗口**。
+- **(h) 契约面**：见 H。
+- **(i) git**：`HEAD=934e497` ✓、`git status --short` 空 ✓。
+
+### D. 变异台账（自设 7 组；隔离副本 `/root/t146v-iso`，`TMPDIR=/root`；每组先证 `compile rc=0` 再看 test）
+
+| # | 变异点 | 改前 → 改后 | 编译 | 红点（file:line / 用例） | 复位证据 |
+|---|--------|-----------|------|------------------------|---------|
+| MUT-A | `SessionAuthFilter.java:100` 门禁条件恒假 | `if (session.mustChangePassword && !isForceChangeAllowed(ctx))` → `if (false && !isForceChangeAllowed(ctx))` | rc0 | **5 红**：`MustChangePasswordGateTest.{flaggedBusinessEndpointRejected(403→200), wsHandshakeBlockedWhileFlagged(未抛), adminResetRejectedWhileFlagged(403→200), renewerPathStillGated(403→200)}` + `MustChangePasswordRealDaoTest.①(403→200)` | 复位 md5 `0b297c0c9f828e52ab0b41cf98af50f9` |
+| MUT-B | `AuthService.java:273` login 不置位 | `"Y".equals(user.mustChangePassword), expire)` → `false, expire)` | rc0 | **2 红**：`AuthServiceTest.mustChangePasswordFlagPropagation(true→false)`、`AuthAdminServiceTest.threeSettingPathsLeadToGatedLogin(true→false)` | 复位 md5 `4433928c63a6de8adc4687cf8adebcaa` |
+| MUT-C | `AuthService.java:393-397` `markPasswordChanged` 体置空 | `sessionStore.save(...withMustChangePassword(false))` → 不可达分支 | rc0 | **2 红**：`AuthServiceTest.mustChangePasswordFlagPropagation(false→true)`、`MustChangePasswordRealDaoTest.③(200→403)` | 同上复位 |
+| MUT-D | `SessionAuthFilter.java:46-49` 放行面**放宽** | `+ "GET " + ApiRoutes.full("/auth/user")` | rc0 | **3 红**：`flaggedBusinessEndpointRejected`、`renewerPathStillGated`、`RealDao①`（均 403→200） | 复位 md5 `0b297c0c…` |
+| MUT-E | `SessionAuthFilter.java:46-49` 放行面**收窄** | `− "POST " + ApiRoutes.full("/auth/logout")` | rc0 | **1 红**：`MustChangePasswordGateTest.logoutAllowedWhileFlagged(200→403)` ⇒ **放行面断言存在** | 复位 md5 `0b297c0c…` |
+| MUT-F | `WsServer.java:338` 中和 WS 握手鉴权 | `authFilter.authenticate(ctx);` → `if (false) { authFilter.authenticate(ctx); }` | rc0 | **15 红**：`WsServerTest` 10 err + `WsAcceptanceTest` 4 err + `e1RealSocketUpgradeCarriesOfficialAccept` fail | 复位 md5 `480862879811d27607a244ba0d81ee48` |
+| MUT-G | `DmUserAccountDao.java:152` 改密不清 DB 标记 | `passwordUpdatedTime), "N",` → `"Y",` | rc0 | **1 红**：`MustChangePasswordRealDaoTest.④(库中标记 'N'→'Y')` | 复位 md5 `5a33a849624acf43383d211737033f08` |
+
+复位后整树锚复测 = `2a74492e800706d13f48f8a0121a0945`/349，`grep MUT-` 残留 **0**；**共享树全程只读**（复核期间 `java/src`+`web` 树锚恒定、`git status` 空）。
+
+### E. 三条线索独立判定
+
+- **① `resetPassword` 不使目标用户已活会话受门禁/失效 —— 成立（定级：低；非阻断）。**
+  自设真机探针 `TeVerifyT146ProbeTest`（真实 DAO+引擎）实测：置 `must_change_password='N'` 用户已登录 → 管理员 `AuthService.resetPassword(UID,NEW,9L)` → **库标记 'Y'、会话仍在、内存会话标记仍 false** → 用**同一旧会话**访问 `GET /api/v1/auth/user` = **200（放行）**；对照：置位新会话 = **403**；另证"库='Y' + 会话未置位 ⇒ 200"（过滤器**只读登录快照、不读库真值**）。⇒ `FR-AUTH-16`「重置后强制修改」对**已登录会话**不生效。**定级说明**：需求**未明文**要求"重置即使现存会话受门禁"（仅 `FR-AUTH-4`/`FR-AUTH-16` 的"首次登录强制修改"），且项目另有 `FR-AUTH-15` 强制下线/`SessionStore.invalidateByUser` 机制；然项目**先例**（`disableUser`/`enableUser`/权限变更均 `invalidateByUser`）支持"宜补"。**建议归属**：技术/产品席裁定是否纳入 `FR-AUTH-16` 口径或另立会话失效要求（`AuthService.resetPassword` 加 `sessionStore.invalidateByUser` 或改过滤器读库）。
+- **② 新标签页"后端不可达"误报 —— 现象成立，但交付方"须 CH"结论被高估（定级：低；非阻断）。**
+  Node 无头探针（真实加载 `web/js/{core/ns,routes,errmsg,session}.js`，`window.sessionStorage` 空）：`bootstrap()` 返回 `{degraded:true,error:{code:10003}}` ⇒ `app.js:142` **渲染"后端不可达"横幅**；对照（摘要含 `mustChangePassword=true`）= `{degraded:false,mustChangePassword:true}` 无横幅；`errmsg.isUnauthenticated({code:10003})`=**false**、`({code:10006})`=**true**。
+  **对交付方结论的独立判定**：① `10003` **不能**安全区分"须改口令"与"真·功能权限不足"（同一码），故"仅凭 `10003` 引导改密"会**误判**——此点半对。② 但**能不改契约面消除该误报**：更小代价形态存在，如 (i) 将登录摘要（或仅 gating 标志）落 `localStorage`（跨标签页共享，新标签页即可短路；服务端门禁仍是权威，前端标志被篡改仅影响 UX）；(ii) 对 `10003` **不置 `degraded`**、改用中立态（如"会话受限：请修改口令或重新登录"）以消除**不实**的"后端不可达/未接线"文案。⇒ 交付方"彻底消除需可区分错误码＝契约冻结面（须 CH）"**部分不成立**。
+- **③ `bootstrap()` 返回字段 `mustChangePassword` 无消费点 —— 成立（定级：观察）。**
+  `session.js:100` 返回 `mustChangePassword:true`；`grep '.bootstrap(' web/js` ⇒ 仅 `app.js:137`；`app.js` 仅消费 `res.unauthenticated`(:138)/`res.degraded`(:142)⇒ 该字段为**死值**。无功能影响（置位态的正常路径由 `login.js:51-56` 跳转处理）。
+
+### F. 缺陷 / 观察（编号 `te-verify-t146-00N`）
+
+| 编号 | 现象 | file:line | 失败场景 | 定级 | 归属建议 |
+|------|------|-----------|---------|------|---------|
+| **te-verify-t146-001** | 提交 `934e497` 用 `T-146` 登记行**覆盖** `java/CONTRACTS.md` §5.1 既有 `T-107 交付/be-t107` 行；净行数 **0**、`be-t107` 在 CONTRACTS **0 命中**；交付报告自述"§5.1 登记 **+1 行**"与实际不符 | `java/CONTRACTS.md:758`（`T-107`→`T-146`） | §5.1「编辑登记表」留痕断裂：`T-107`（含"删除 `findPendingHedge`"等变更）审计行丢失；违反 §5「唯一写者 + 登记」追加纪律 | **中（阻断转 DONE）** | `backend-engineer#java2`（`be-t146`）退回补正：**恢复 `T-107` 行**并在其后**追加** `T-146` 行 |
+| te-verify-t146-002 | 管理员 `resetPassword` 不使目标用户**已活会话**受门禁/失效 | `AuthService.java:413-437` | 用户已登录时被重置口令 ⇒ 现存会话仍可访问业务端点（实测 200；对照新登录 403） | 低 | 技术/产品席裁定（见 E-①） |
+| te-verify-t146-003 | 被门禁用户新标签页直访 `index.html` ⇒ "后端不可达"误报横幅；交付方"须 CH"结论被高估 | `web/js/core/session.js:93-121`、`web/js/app.js:142` | 新标签页（无 `sessionStorage` 摘要）⇒ 探针 10003 ⇒ `degraded=true` ⇒ 不实文案 | 低 | 前端（可免 CH：见 E-②） |
+| te-verify-t146-004 | `bootstrap()` 返回 `mustChangePassword` 无消费点（死值） | `web/js/core/session.js:100`、`web/js/app.js:137-142` | — | 观察 | 前端（择机） |
+| te-verify-t146-005 | WS 侧"置位会话 × 真实握手"无集成用例 | `MustChangePasswordGateTest.java:126-141`、`WsServer.java:338` | 真实 WS 握手置位态未被集成覆盖（置位逻辑另由 MUT-A 承重；WS 鉴权由 MUT-F 承重） | 观察 | 测试（择机） |
+| te-verify-t146-006 | `LoginHandler.LoginResponse.mustChangePassword` 无测试断言 | `LoginHandler.java:72,105` | 登录 HTTP 响应字段未直接验证 | 观察 | 测试（择机） |
+| te-verify-t146-007 | `MustChangePasswordRealDaoTest` 的"登录→会话"贯通仅假 DAO 覆盖（真实 DAO 用例直接播种会话，已披露） | `MustChangePasswordRealDaoTest.java:56-67,124-125` | — （写侧真 DAO 且承重，见 MUT-G） | 观察 | 测试（择机） |
+
+### H. 契约面独立判定（复核面 h）
+
+- `Session` **是** `CONTRACTS.md §3.1` 列举的共享 DTO（`:360`）；`§0③` 明文「共享 DTO **字段级新增可（向后兼容）**；删除/改类型须 `CH`」⇒ 新增 `boolean mustChangePassword` 属**兼容增量**。
+- 6 参构造 + `withMustChangePassword(boolean)` 为**方法/构造新增**，非 `§2.2` 冻结签名、非 `§0①` 之 `ApiRoutes/ErrorInfo/…` 冻结对象。
+- `LoginHandler.LoginResponse` 为 **handler 响应 DTO**，不在 `§3.1` 明确列举内（同 `T-136` 登记判定）。
+- **未新增 REST 路径/方法/错误码**：`ApiRoutes.java`/`ErrorCode`（23 项）**未在 diff 内**（`git diff --name-only` 证实）。
+- ⇒ **未升版（`HGC-1.6` 不变）、免 `CH` 成立**（唯 §5.1 登记行**误删**，见缺陷 001）。
+
+### I. 取样纪律与树锚
+
+- **取样时刻（末次改动后）**：2026-09-24T02:36+08:00（T-146 交付至此未再改动）。
+- 连测 **3 次**（间隔 ≥1s）：`java/src` 均 `2a74492e800706d13f48f8a0121a0945`/349；`web` 均 `275318eb310b7316ce49c696c2d27b52`/27。
+- **与编排者/交付方所述不符项**：**无**（三者逐字一致）；唯交付报告 §4 之「CONTRACTS §5.1 **+1 行**」与实际（**替换、净 0**）不符，见缺陷 001。
+
+> **本席不自评 `T-146` 为 `DONE`**；补正 `te-verify-t146-001` 后即可转 `DONE`（其余为低/观察，不阻断）。是否转 `DONE` 由编排者裁定。
