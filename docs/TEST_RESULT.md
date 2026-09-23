@@ -9116,3 +9116,219 @@ cd /root/verify-t141/java && TMPDIR=/root mvn -B -o -Punit clean test
 - 建议：**O-2 应补真实 DAO 回归守卫**；O-3/O-4/O-5 登记为观察/待裁定，**均不阻断**。
 
 > 本席**不自评 `T-136` 为 `DONE`**；转 `DONE` 与否由编排者裁定。
+
+---
+
+## 第 127 轮独立复核证据章（`T-107`，编排者 `team-lead` 并入登记 · 2026-09-23）
+
+> **并入口径**：以下章由独立复核席 `te-verify-t107`（`test-engineer`，**只读共享树**）产出，**原文照录**；编排者仅在章首加本登记块。**纯追加已核**（追加前 `docs/TEST_RESULT.md` = `e039855edf5fda78c1aa139ce36a1665` / **9118 行**）。
+>
+> **结论 = 有条件通过 / 0 缺陷（0/0/0/0） / 1 条件 `C-1` + 5 观察** ⇒ 按本项目判据（**授权 + 独立验证**）**转 `DONE`**（**`C-1` 已由编排者闭合**，见下）。冻结 `b192011`。
+>
+> **★锚点口径（本会话第二次裁定）**：复核方在 `git archive b192011` 上**确定性复现**「`java/src` **`74d4c8d3df1cdb2c7dcddb0bc97de03b`/346**、`web` **`df610703ffc80a40f8e8929fe12fcc54`/27**」，共享树两次取样同值且 `git status` 净 ⇒ **判 `be-t107` 自报 `dd1569c3…`/346 与 `77b839d8…`/27 为错**；成因 = **内容级中间态取样**（6 种命令变体均不命中自报值；java 最新 mtime 00:34:36 / `spot.js` 00:36:11，均**早于提交 00:47:25**）。
+> **★`C-1`（唯一条件）与闭合**：更正产出方自报树锚 ⇒ **编排者台账自始即以「其值不可复现、以我实测替身为准」记录**（`TASKS`/`BOARD` 均已如此），**故 `C-1` 闭合**。
+>
+> **★门禁（独立实测，复位后复跑同值）**：`mvn -B -o -Punit clean test` = **577/0/0/0**；`@Test` == surefire == **577**（0 注释虚高）；`arch-check` `E1`–`E7` rc0（**`E5`：SQL 只允许落 `dao/**`** ⇒ 0；**`E6` rc0**）；`node --check spot.js` rc0。
+>
+> **★(3) 三条反例（证明「`subAccountId` 只能收窄、不能放宽」，编排者点名加压项）—— 逐条成立**：复核方**自写**探针 `T107CounterexampleProbeTest` **7/7**，**双证据线**（真实 DAO SQL 形状 + 语义求值）：**① 传他人 id(8)** ⇒ SQL「`=8 AND IN(7)`」自相矛盾 ⇒ **空**；**② 不传** ⇒ `IN(7,8)` **可见集并集**；**③ 空集/哨兵 0** ⇒ `IN(-1)` **恒假 ⇒ fail-closed**。
+> **★(4) 详情隔离**：`findByIdScoped` 同 `SubAccountScope` 语义（`WHERE id=? AND sub_account_id IN(?)`）；跨子账户 ⇒ `null` ⇒ **`10001`(400)**，**与"不存在"同响应 ⇒ 不泄露存在性**。
+> **★(5) 自设变异（不复用产出方 `M1/2/3`）**：去列表隔离 ⇒ **13 红**；去详情隔离 ⇒ **5 红**；去 `,desc` ⇒ **1 红**；**去 tie-break ⇒ SQL 用例 2 红**；**负控（仅改注释）⇒ 0 红（26 绿）**。三处文件 md5 复原、残留标记 0、复位后 577 绿、树锚回 `74d4c8d3`。
+> **★(6) 分页全序：无缺陷**（编排者点名加压项）—— `orderByEnsuringUnique` **自动补 `id ASC`** ⇒「`ORDER BY exposure_qty DESC, id ASC`」，SQL 用例断言且被 `MY-MUT-D` **承重**。
+> **★(8) 删除 `findPendingHedge` 三点判定全过**：① **无代码引用**（仅 `ExposureDao.java:20` javadoc + `CONTRACTS`/`TASKS` 文档）；② **不在冻结面**（`§2.2` 冻结签名清单无 `ExposureDao`；`§2.2.1` 系增量登记且仅登记 scoped 方法；`ARCHITECTURE` 0 命中）；③ `§2.2.1` 登记与实际**逐项一致** ⇒ **免 `CH` 成立**。
+> **★(9) 消费方穷举：无漏报** —— 列表端点**唯一 API 调用点 = `spot.js:1219`**；`plan.js:946` **仅链接**；导出为**另一端点** ⇒ 编排者所加的「原子耦合」要求覆盖完整。
+> **★(11) 新增检查点**：`sort` **无列白名单**（仅标识符语法；**与 `T-105` 同构 ⇒ 项目级**，观察 `O-2`）；详情不可见返 `10001` **不泄露**（`O-3`）；空集 SQL = `sub_account_id IN (-1)`（**合法 fail-closed**，非 `IN ()`）；`E5` 确认新增 SQL **未外泄出 `dao/**`**。
+> **观察 5 条**：**`O-4`** 产出方自述「列表 8 红」，复核方独立变异实测**更宽 = 13 红**（**守卫面比自述更宽**，属正向）；**`O-5`** 3 个既有测试文件**仅适配新接口**（`unsupported` 桩）、**未削弱断言**；**`O-1` `spot.js:1218` 分页硬上限 5000 行 ⇒ 静默截断**（⇒ **编排者立 `T-145`**）；`O-2` 见上；`O-3` 见上。
+
+# T-107 独立复核章节（席 `te-verify-t107`）
+
+- **复核对象**：`T-107`（P0）SPOT 读取面口径收口 —— `GET /spot/exposure` 补 `PageData` 分页 / 缺省 `exposure_qty,desc` / 服务端子账户隔离；`GET /spot/exposure/{id}` 同隔离。
+- **冻结点**：提交 **`b192011`**（`2026-09-24 00:47:25 +0800`）。工作目录 `/root/myspace/hedge-guard`（只读）；隔离副本 `/root/verify-t107`（`git archive b192011`）。
+- **产出方自评一律不采信**；本文所有结论分「独立实测」与「产出方自述」两栏。
+- **构建纪律**：`TMPDIR=/root`（`/tmp` 为 ~800MB tmpfs）；全仓 `grep` 已排除 `.codebuddy/`。
+- **结论**：**有条件通过**（0 阻断 / 0 产品缺陷 / 1 条件 / 5 观察）。**不自评 `DONE`**。
+
+---
+
+## 0. 独立实测锚点
+
+| 项 | 独立实测值 | 取样时刻（UTC） | 手法 |
+|----|-----------|----------------|------|
+| `java/src` 树锚 | **`74d4c8d3df1cdb2c7dcddb0bc97de03b` / 346** | 2026-09-23 16:47:55 | `find java/src -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum`；冻结点副本（`git archive b192011`）与共享树**逐字节同** |
+| `web` 树锚 | **`df610703ffc80a40f8e8929fe12fcc54` / 27** | 同上 | 同上 |
+| 静默复核 | 两锚在 17:04:53 与 17:05:02 两次取样**不变**；`git status --porcelain` **空**（树洁净） | — | — |
+| `@Test`（源码） | **577**（`grep -rn "@Test" java/src/test`；注释型命中 **0**） | — | 与 surefire **逐类一致** |
+| surefire | **577** run / **0** Fail / **0** Err / **0** Skip（68 个 report 文件） | — | 聚合 `*.txt` 尾行 |
+| 门禁 | `mvn -B -o -Punit clean test` = **577/0/0/0**（首跑 + **复位后复跑**各一次） | 16:50:45 / 17:04:48 | BUILD SUCCESS |
+| arch-check 聚合 | **rc=0**；`E1`–`E7` 全 `0`；`E5`（SQL 只允许落 `**/dao/**`）`0`；`E6` `rc=0` | — | `bash tools/arch-check/arch-check.sh` |
+| `node --check` | `web/js/pages/spot.js` **rc=0** | — | — |
+
+---
+
+## 1. 门禁复算（复核面 1）
+
+- **独立实测**：`-Punit` 全量 **577/0/0/0**；`@Test` 源码计数 **577** == surefire **577**（无注释吞并虚高，符合 `feedback_test_count_source`）。3 个新测试文件 `@Test` = **11 + 6 + 2 = 19**（与「基线 558 → 577」+19 自洽）。
+- **arch-check**：聚合 `rc=0`；`E1`(C++ 链接) `0`、`E2`(C++ SQL) `0`、`E3`(C++11) `0`、`E4`(交易路径无锁) `0`、`E5`(Java SQL 仅 `dao`) `0`、`E6`(前端零构建链) `0`、`E7`(HGCP schema) `0`。
+  - `E5` 扫描 161 文件、排除 `**/dao/**`；本单新增/改动的 SQL 全部落在 `dao/impl/**`（`DmExposureDao`）与 `dao/**`（测试）内 ⇒ 未越界。
+  - `E6` 扫描根 `web`，rc=0（`spot.js` 改动未引入直连字样）。
+- **结论**：门禁独立复现，与产出方自述**一致**。
+
+---
+
+## 2. 验收 1/2（复核面 2）
+
+- **验收 1（PageData 信封）**：
+  - `SpotExposureHandler.list()` `:163-164`：`PageData<ExposureView> data = new PageData<>(items, page.total(), page.page(), page.size()); ApiResponse.ok(data, ...)`。
+  - 信封字段名 `items/total/page/size` 与既有端点（`ProductHandler:102`、T-105）**逐字一致**，且与 `java/CONTRACTS.md §1.1`（`响应 data.items/total/page/size`）一致。
+  - `handlerThreadsSessionIdentityAndEmitsPageEnvelope`（`SpotExposureIsolationTest:201-231`）断言 `data` 为 Map 且含四键；**独立实测通过**。
+- **验收 2（缺省方向 desc）**：
+  - `DEFAULT_SORT_FIELD="exposure_qty"`；`DEFAULT_SORT = "exposure_qty,desc"`（`:48/:57`）。
+  - 语义正确性依据：`PageQuery.of(4 参)` 缺省方向**恒 ASC**（`PageQuery.java:63`）⇒ 只传裸字段名会得升序（`BUG-001` 同源坑）；故必须显式 `,desc`。
+  - 排序字段与 `FR-SPOT-15`（`docs/REQUIREMENTS/SPOT.md:316`「默认按**敞口金额或数量**倒序」）相符（取**数量** `exposure_qty`，合理 — 金额在缺价时为 `NULL`）。
+  - **独立实测**：`SpotExposureListDefaultSortTest` 断言 `sortField()=="exposure_qty" && direction()=="DESC" && !ascending()`；显式 `sort=exposure_qty,asc` 被尊重。
+- **白名单核查**（复核面 2 末）：
+  - `size`：**有白名单**（`PageQuery.ALLOWED_SIZES={10,20,50,100}`，越界抛错，`PageQuery.java:100`）。
+  - `sort` 字段名：**仅标识符语法校验** `[A-Za-z_][A-Za-z0-9_]*`（`PageQuery.validateField:148`），**无列白名单** ⇒ 可指向任意语法合法列。**该行为与 T-105 `ProductHandler` 逐字同构**（同项目级 `PageQuery` 契约）⇒ 非 T-107 引入，记为**观察 O-2**（非本单缺陷）。
+
+---
+
+## 3. 验收 3「禁由调用方传 `subAccountId` 决定可见集」（本单核心，复核面 3）
+
+**产出方自述**：`subAccountId` 降为「收窄过滤」。**独立实测**：我自写探针 `T107CounterexampleProbeTest`（**未复用**产出方 `M1/M2/M3`），双证据线（真实 `DmExposureDao` + 记录型假 JDBC 的 **SQL 形状**；我自写 SQL 语义求值假 DAO 的**结果集**），**7/7 绿**。
+
+| 反例 | 独立实测证据（SQL 形状 + 语义） | 判定 |
+|------|-------------------------------|------|
+| **① 传他人子账户 id**（可见 `[7]`，传 `subAccountId=8`） | SQL 谓词 `(status=? AND sub_account_id=?) AND sub_account_id IN (?)`，COUNT 绑定 `[PENDING_HEDGE, 8, 7]` ⇒ **自相矛盾**（=`8` 与 `IN(7)` 交集空）；语义求值 **0 行** | ✅ **什么都拿不到**（非"返回该子账户数据"） |
+| **② 不传**（可见 `[7,8]`） | `sub_account_id IN (?,?)`，绑定 `[PENDING_HEDGE, 7, 8]`；语义求值 **2 行（并集）** | ✅ 返回**可见集并集** |
+| **③a 可见集空** | `sub_account_id IN (-1)`（**恒假**），COUNT 仅绑 `[PENDING_HEDGE]`；**不出现** `IN (?)` | ✅ **fail-closed**（非"不过滤"） |
+| **③b 传哨兵 0**（可见 `[7]`，传 `subAccountId=0`） | `sub_account_id = ?`(0) **且** `sub_account_id IN (?)`(7) ⇒ 仍过滤 | ✅ 不因 `0` 而"不过滤" |
+
+- **身份来源**：`SpotExposureHandler` 以 `ctx.currentUserId()` 取**会话身份**（`:86` 详情 / `:158` 列表），**不**接受请求参数。`subAccountId` 仅供**收窄**（`SpotService.java:678-681` 追加 `sub_account_id = ?`，与 scope **取交集**）。
+- **结论**：三条反例**逐条独立成立**；核心越权面已闭合。
+
+---
+
+## 4. 验收 4（详情同一过滤，复核面 4）
+
+- `SpotService.getExposure(long, long)` `:648-654`：`visibleSubAccountIds(operatorId)` →（含哨兵 0 ⇒ `findById` 不加过滤）否则 `exposureDao.findByIdScoped(id, SubAccountScope.of("sub_account_id", visible))` —— **与列表同一 `SubAccountScope` 语义、同一列 `sub_account_id`**。
+- **独立实测**：`findByIdScoped` 生成 `SELECT ... WHERE id = ? AND sub_account_id IN (?)`，绑定 `[9L, 7]`；假 JDBC 无行 ⇒ `null`；语义求值：可见 `[7]` 取子账户 8 的 id=2 ⇒ **null**，取自己的 id=1 ⇒ 命中。
+- **跨子账户 id ⇒ 详情不可见**：✅（同一 `null` ⇒ 与"不存在"同返回，不泄露存在性）。
+- **端点行为（复核面 11②）**：`null` 经 `ExposureView.of(null)`（`:324-328`）抛 `PARAM_INVALID`（`10001`/HTTP 400），**与"不存在"完全同响应**，无存在性泄露。属既有形态（非本单引入），记为**观察 O-3**。
+
+---
+
+## 5. 验收 5 承重性（复核面 5）
+
+### 5.1 用例是否真断言到关键点（独立阅读）
+
+- `SpotExposureIsolationTest` **11 例**：四类隔离（有权限 / 空集 / 哨兵 0 / 跨子账户）+ 防误拒 + 收窄不可放宽 + 详情面 3 例 + fail-closed + 端点接线（断 `PageData` 四键与「过滤集合来自会话身份」）。断言落在**可见集合与走哪条路径**上（`lastListScoped`/`lastScope`），**非**"返回了列表"。
+- `DmExposureDaoScopedSqlTest` **6 例**：以**真实 `DmExposureDao` + 记录型假 JDBC** 断言 **COUNT 与 SELECT 两条 SQL** 的 WHERE 均带 scope（空集 `IN (-1)` / 非空 `IN (?,?)`）、绑定顺序、`ORDER BY exposure_qty DESC, id ASC`、`LIMIT ? OFFSET ?`。**这正是"假 DAO 忠实模拟 SQL"这一前提的独立承重**。
+- `SpotExposureListDefaultSortTest` **2 例**：缺省 `exposure_qty/DESC` + 信封；显式 `asc` 被尊重。
+
+### 5.2 「移除过滤 ⇒ 必红」——**我自设变异**（不复用 `M1/M2/M3`）
+
+| 变异（我自设） | 目标 | 编译 | 结果（独立实测） |
+|---------------|------|------|-----------------|
+| **MY-MUT-A**：`listPendingHedge` 两分支均走 `findPage`（去列表隔离） | 列表隔离 | ✅ SUCCESS | **13 红**：`SpotExposureIsolationTest` 6 + `DmExposureDaoScopedSqlTest` 2 + 我探针 5 |
+| **MY-MUT-B**：`getExposure` 两分支均走 `findById`（去详情隔离） | 详情隔离 | ✅ SUCCESS | **5 红**：`SpotExposureIsolationTest` 3 + 我探针 2 |
+| **MY-MUT-C**：`DEFAULT_SORT` 去 `,desc`（方向退回 ASC） | 缺省方向 | ✅ SUCCESS | **1 红**：`SpotExposureListDefaultSortTest` |
+| **MY-MUT-D**：`orderByEnsuringUnique` 去唯一列 tie-break | 分页全序（见 §6） | ✅ SUCCESS | **2 红**：`DmExposureDaoScopedSqlTest`（证明 SQL 用例**确实**锚定 tie-break） |
+| **负控 NEG-CTRL**：仅追加注释行（无行为变化） | 夹具有效性 | ✅ SUCCESS | **0 红**（26 绿）⇒ 变异流程本身不产生假红 |
+
+- **复位核验**：三处被改文件 md5 复原（`SpotService` `26d25085…`、`SpotExposureHandler` `af99a07c…`、`PageQuery` `1c1d2b8d…`）；`grep -rn "MY-MUT\|NEG-CTRL" java/src` = **0**；树锚回 **`74d4c8d3…/346`**；探针文件已删；**复位后 `clean test` 复跑 577/0/0/0**。
+- **结论**：隔离与方向**均承重**；产出方自述「列表 8 红 / 详情 3 红 / 方向 1 红」方向正确（我的更宽面变异得更多红）。
+
+---
+
+## 6. 分页全序 / tie-break（本项目已知坑，复核面 6）
+
+- **判定：无缺陷。** `exposure_qty,desc` **不是**唯一全序，但**装配层已自动补 tie-break**：
+  - `AbstractDmDao.findPage:163` 用 `query.orderByEnsuringUnique(idColumn())`；`idColumn()=="id"`（`DmExposureDao:53`）。
+  - `PageQuery.orderByEnsuringUnique:251-257`：排序键不含唯一列时追加 `, <unique> ASC`。
+  - **独立实测 SQL**：`ORDER BY exposure_qty DESC, id ASC`（`DmExposureDaoScopedSqlTest` 6 例均断言；**MY-MUT-D** 去掉 tie-break ⇒ 该用例 **2 红**，证明确被守卫）。
+- 即 `T-096`/`T-103` 的失败模式（同值跨页重复 / 漏行）在本端点**已由项目级兜底消除**，非本单引入缺口。
+
+---
+
+## 7. 锚点争议裁定与成因（复核面 7）
+
+- **裁定**：**编排者正确**。冻结点副本（`git archive b192011`）**确定性**复现 `java/src` = **`74d4c8d3…/346`**、`web` = **`df610703…/27`**；共享树两次取样（17:04:53 / 17:05:02）**同值**且树洁净。产出方自报 `dd1569c3…/346`、`77b839d8…/27` **不可复现 ⇒ 判错**。
+- **第三种值**：无（我未得第三值）。
+- **成因（排除法，独立实测）**：文件数**一致**（346）⇒ 差异在**内容级**，非增删。试 6 种命令变体均**不命中** `dd1569c3…`：
+  `默认 locale sort`→`102e4dd4…`；`绝对路径`→`fde87a0b…`；`-print0/-z`→`102e4dd4…`；`不 sort`→`bd067949…`；`./ 前缀`→`b1ca8465…`；`LC_ALL=C`→`74d4c8d3…`（正确值）。
+  ⇒ **非命令形式差异**。结合 mtime：`java/src` 最新写 **`00:34:36`**（`DmExposureDaoScopedSqlTest.java`）、`spot.js` **`00:36:11`**，而提交 **`00:47:25`** ⇒ 产出方**在最后一次内容落笔之前取样、且未在落笔后重取** ⇒ **中间态取样**（与编排者判定同）。
+- **替身**：`java/src`=`74d4c8d3df1cdb2c7dcddb0bc97de03b`/346；`web`=`df610703ffc80a40f8e8929fe12fcc54`/27。
+- **条件 C-1**：更正产出方自报树锚（`dd1569c3…`→`74d4c8d3…`；`77b839d8…`→`df610703…`），并同步**记忆索引**（该值已写入 `MEMORY.md` 的 T-107 行，属会长期误导的**不实登记**）。
+
+---
+
+## 8. 删除 DAO 方法（`ExposureDao.findPendingHedge`）独立判定（复核面 8）
+
+① **确无代码引用** —— **独立实测成立**：全仓 `grep -rn findPendingHedge`（排除 `.codebuddy/`、`target/`）命中 **3 类**：`java/src/main/.../ExposureDao.java:20`（**javadoc 说明注释**）、`java/CONTRACTS.md:318/325/758`（**登记**）、`docs/TASKS.md`/`docs/BOARD.md`（**看板**）。**无任何 `.java` 代码引用**（无接口实现/调用点）。编排者「余 1 处为 javadoc」判定**复核通过**（更精确口径：`src` 内 1 处注释 + `docs`/`CONTRACTS` 若干文档引用，**均非代码**）。
+
+② **是否在冻结面内** —— **独立判定：不在**。`java/CONTRACTS.md §2.2`「冻结的公共接口（签名）」列举的是 `BaseDao/DeletableDao/TxTemplate/DataSourcePool/Dialect/AuditFields/BizNoGenerator/SubAccountScope`，**不含 `ExposureDao`**。`§2.2.1` 为「模块 DAO 的『§8.2 子账户隔离』契约面（**增量登记**）」——**只登记 scoped 方法**；`findPendingHedge` **从未登记入 §2.2.1**（T-107 前该子节仅 HedgePlan×2 / TradePlan×2）。`docs/ARCHITECTURE.md` 全文 **0 处** `ExposureDao`/`findPendingHedge`。⇒ `findPendingHedge` **不在任何冻结签名面内**，属未登记 DAO 方法的接口面收缩。**原裁定（非破坏性、免 `CH`）成立**。
+> 镜像方向核对：既有纪律仅写明「**新增**方法属兼容变更（`§5.3`）」，**删除**是其镜像；本单已把「新增 2 + 删除 1」一并登记 `§2.2.1`，留痕充分。
+
+③ **`§2.2.1` 登记与实际逐项一致** —— **独立实测一致**：`ExposureDao.java` 实际仅有 `findPageScoped` + `findByIdScoped`（与登记 `:314/:317` 同签名），且无 `findPendingHedge`；登记文本 `:318` 明写「T-107 删除：findPendingHedge(int)」。**逐项吻合**。
+
+---
+
+## 9. 前端 (B) 消费方穷举（复核面 9）
+
+**独立穷举**（`web/**`、排除 `.codebuddy/`、`node_modules`）—— `GET /spot/exposure`（**列表**）消费方：
+- **唯一** API 调用点：`web/js/pages/spot.js:1219` `HG.api.get(R.EXPOSURE, {page,size,subAccountId?})`。
+- 其余命中**均非列表 API 消费**：`app.js:40`（导航 href）、`_dashboard.js:26`（快捷卡 href）、`plan.js:946`（`#/spot/exposure?id=…` **超链接**）、`spot.js:316`（路由跳转）、`routes.js:98-102`（常量定义）。
+- **详情端点** `R.exposureDetail(id)` 消费点：`spot.js:1295`（同文件）。
+- **导出** `R.EXPOSURE_EXPORT`（`/spot/exposure/export`，`spot.js:1345`）为**另一端点**，形状未变。
+
+⇒ **产出方"仅 `spot.js` 受影响"成立，未发现漏报消费方**。`plan.js` 仅生成链接（其 `?id=` 交由 `spot.js` 的 `renderExposure` 处理），定性无损。
+- `spot.js` 消费正确性：`normalizeRows`（`:1229-1232`）取 `data.items`，**兼容**裸数组；`fetchRows`（`:1210-1227`）按 `size=100` 逐页拼接、以 `data.total` 收敛；聚合视图不传 `subAccountId`（取服务端可见并集）、单账户视图传 `currentId()`（收窄）。**用法正确**。
+
+---
+
+## 10. 契约主张（复核面 10）
+
+- 「向 `§1.1` 冻结『分页信封』对齐 ⇒ 不需 `CH`」 —— **独立裁定成立**。`java/CONTRACTS.md §1.1`（`:70`）已冻结「分页：`?page…`；响应 `data.items/total/page/size`」；裸数组本属**违背**该冻结口径；改为 `PageData` 是**回归冻结口径**（同 `T-103` 先例）。未新增/改路径、未改字段类型、未增减错误码 ⇒ `HGC-1.6` 不升版。
+- `§2.2.1` 登记（`:758`）与实现逐项一致（见 §8③）。
+
+---
+
+## 11. 自设扫描面（复核面 11，产出方未提及）
+
+1. **`sort` 可指向非白名单列**：**能**（仅标识符语法校验）。但 `ORDER BY` 由**参数化列名**拼装（非值拼接）⇒ **无 SQL 注入**；风险仅为"按非预期列排序"的弱信息侧信道。**与 T-105 同构、项目级** ⇒ **观察 O-2**（非本单缺陷；若要收口应作为项目级议题）。
+2. **详情跨子账户返回码**：`null` → `ExposureView.of(null)` → `PARAM_INVALID`(10001/HTTP 400)，**与"不存在"同响应** ⇒ **不泄露存在性**；非 403/404（本仓无 NOT_FOUND 码）。**观察 O-3**（既有形态，非本单引入）。
+3. **可见集空集的 SQL 合法性**：`SubAccountScope.sql()` 空集返回 **`sub_account_id IN (-1)`（恒假）**，**非** `IN ()`（`IN ()` 语法非法）⇒ **合法且 fail-closed**。**独立实测**（我探针反例③a 断言 `IN (-1)` 出现且无 `IN (?`）。✅
+4. **补充（我自设）**：`E5` 复算确认新增 SQL 未外泄出 `dao/**`（见 §1）。✅
+
+---
+
+## 12. 缺陷 / 观察清单
+
+### 缺陷
+- **无**（0 阻断 / 0 产品缺陷）。
+
+### 条件
+| 编号 | 级别 | 内容 | 依据 |
+|------|------|------|------|
+| **C-1** | 条件（证据卫生） | 更正产出方自报树锚（`dd1569c3…`→`74d4c8d3…`；`77b839d8…`→`df610703…`）并同步 `MEMORY.md` T-107 行登记 | §7；不实指纹会长期误导下游 |
+
+### 观察（不阻断）
+| 编号 | 级别 | 内容 | 位置 |
+|------|------|------|------|
+| **O-1** | 低 | 前端分页硬上限 `guard<50 × size=100` ⇒ 超 5000 行**静默截断**（注释称"避免截断"） | `web/js/pages/spot.js:1218` |
+| **O-2** | 低（项目级） | `sort` 无**列白名单**（仅标识符语法）；与 `T-105 ProductHandler` 同构 | `PageQuery.java:148`；`SpotExposureHandler.java:150-155` |
+| **O-3** | 低（既有） | 详情不可见/不存在返回 `10001`(400) 而非 404；与"不存在"同响应、不泄露存在性 | `SpotExposureHandler.java:85-86`、`:324-328` |
+| **O-4** | 信息 | 产出方自述"列表移除过滤 8 红"；我独立自设变异（更宽）实测 **13 红** ⇒ 实际守卫面比自述**更宽** | §5.2 |
+| **O-5** | 信息 | 3 个被改既有测试文件（`SpotServiceTest` 等）仅为**适配新接口**（把 `findPendingHedge` 实现替换为 `findPageScoped`/`findByIdScoped` 的 `unsupported` 桩），**未削弱任何断言** | `git show b192011` diff |
+
+---
+
+## 13. 结论
+
+**有条件通过**：
+- **6 条验收标准全部独立复现**（PageData 信封 / 缺省 `desc` / 列表隔离 / 详情同隔离 / 承重测试 / 门禁全绿）。
+- **门禁独立实测**：`577/0/0/0`（复位后复跑同值）、`@Test`==surefire==577、arch-check `E1–E7` rc0、`node --check` rc0。
+- **核心越权面（验收 3）三条反例逐条成立**；隔离与方向**承重**（5 组我自设变异 + 1 负控）。
+- **删除 `findPendingHedge` 三点独立判定全过**（无代码引用；不在冻结面；`§2.2.1` 登记一致）⇒ **免 `CH` 成立**。
+- **无产品缺陷**；**1 条件 C-1**（更正产出方树锚自报与记忆登记）；**5 观察**（均不阻断）。
+
+> **不**由复核席判定 `T-107` 为 `DONE`；是否转 `DONE` 由编排者结合 C-1 处置裁定。
