@@ -20,6 +20,7 @@
 | 本模块 FR 清单 | `FR-PRODUCT-1` … `FR-PRODUCT-14`（14 条，来自 `REQUIREMENTS/PRODUCT.md`） |
 | 测试重点 | ① **品种编码唯一且一经使用不得修改**（`R-PRODUCT-3`）；② **分类与红线联动**（商品类 90% / 贸易类 80%，`R-PRODUCT-4`）；③ **白名单/额度变更须经控制指令下发 C++**（`R-PRODUCT-9`，下发失败不得视为生效）；④ 停用前前置校验（有未平仓持仓/未结束计划不得停用）；⑤ 计量单位换算缺失不得启用 |
 | 特殊要求 | 需构造"存在未结束套保计划/持仓"的品种以验证停用阻断；需能观测控制指令下发回执 |
+| 里程碑 | M1 |
 
 **JUnit 既有覆盖（追溯锚点）**：`java/src/test/java/com/hedgeguard/service/VarietyServiceTest.java`（13 个 `@Test`）、
 `java/src/test/java/com/hedgeguard/dao/M1ProductSpotPlanSchemaTest.java#subAccountCarriageMatchesSpec`。

@@ -60,11 +60,11 @@
 | # | 模块代号 | 模块名 | 用例文件 | 用例数 | 状态 |
 |---|---------|--------|---------|-------|------|
 | 1 | `PRODUCT` | 品种管理 | `docs/TEST_PLAN/PRODUCT.md` | 16 | 已写 |
-| 2 | `SPOT` | 现货管理 | `docs/TEST_PLAN/SPOT.md` | 20 | 已写 |
+| 2 | `SPOT` | 现货管理 | `docs/TEST_PLAN/SPOT.md` | 23 | 已写 |
 | 3 | `PLAN` | 套保计划 | `docs/TEST_PLAN/PLAN.md` | 24 | 已写 |
 | 4 | `TRADE` | 交易执行 | `docs/TEST_PLAN/TRADE.md` | 25 | 已写 |
 | 5 | `SETTLE` | 结算 | `docs/TEST_PLAN/SETTLE.md` | 22 | 已写 |
-| 6 | `RISK` | 风险控制 | `docs/TEST_PLAN/RISK.md` | 30 | 已写 |
+| 6 | `RISK` | 风险控制 | `docs/TEST_PLAN/RISK.md` | 31 | 已写 |
 | 7 | `AUDIT` | 审计 | `docs/TEST_PLAN/AUDIT.md` | 16 | 已写 |
 | 8 | `ACCT` | 套保会计 | `docs/TEST_PLAN/ACCT.md` | 16 | 已写 |
 | 9 | `FUND` | 资金管理 | `docs/TEST_PLAN/FUND.md` | 20 | 已写 |
@@ -72,39 +72,40 @@
 | 11 | `CONFIG` | 系统配置 | `docs/TEST_PLAN/CONFIG.md` | 18 | 已写 |
 | — | — | **边界与异常** | `docs/TEST_PLAN/BOUNDARY.md` | 28（`TC-BOUND`16 + `TC-EXC`12） | 已写 |
 | — | — | **非功能** | `docs/TEST_PLAN/NONFUNCTIONAL.md` | 50 | 已写 |
-| **—** | **—** | **合计** | — | **307** | — |
+| **—** | **—** | **合计** | — | **311** | — |
 
 > **不是每个需求模块都必须有用例文件**——本期 11 个模块**均有独立用例文件**（每个模块都有被测 FR）。
 > **每个 `FR` / `NFR` 都必须被某条用例覆盖**（见 §6 追溯矩阵）。
+> **里程碑视图（M1）**：M1 相关用例索引、数据模型约束→用例映射、子账户隔离 / 敞口三分量 / 限额三层 / 假 DAO 档，见 **§16**。
 
 ### 2.1 用例拆分规则核对
 
 | 情形 | 判定 | 处理 |
 |------|------|------|
-| 单模块用例 ≤ 20 条 | `PRODUCT`(16) `SPOT`(20) `AUDIT`(16) `ACCT`(16) `FUND`(20) `CONFIG`(18) | 单文件，未触发拆分 |
-| 单模块用例 > 20 条 | `PLAN`(24) `TRADE`(25) `SETTLE`(22) `RISK`(30) `AUTH`(22) | **未拆模块**——原因为**模块代号不可自造**（§4.2 红线），且各模块 **FR 均 ≤20**（`INDEX.md` §2.3）。这些模块用例多，是同类 FR 的**多场景覆盖**（如 `RISK` 三层限额 6 条），非模块边界过粗。**结论：无需拆模块、无需二级文件** |
+| 单模块用例 ≤ 20 条 | `PRODUCT`(16) `AUDIT`(16) `ACCT`(16) `FUND`(20) `CONFIG`(18) | 单文件，未触发拆分 |
+| 单模块用例 > 20 条 | `SPOT`(23) `PLAN`(24) `TRADE`(25) `SETTLE`(22) `RISK`(31) `AUTH`(22) | **未拆模块**——原因为**模块代号不可自造**（§4.2 红线），且各模块 **FR 均 ≤20**（`INDEX.md` §2.3）。这些模块用例多，是同类 FR 的**多场景覆盖**（如 `RISK` 三层限额 7 条），非模块边界过粗。**结论：无需拆模块、无需二级文件** |
 | `BOUNDARY.md` > 12 条 | 28 条 | **文件不变**，内部按「边界值 / 异常路径」分节 |
 | `NONFUNCTIONAL.md` > 12 条 | 50 条 | **文件不变**，内部按 8 类 NFR 分节 |
 
-> ⚠️ **说明**：`RISK`(30) 等超 20 条的模块，本可"拆模块"，但**模块代号是需求侧登记的锚点**，测试侧**不得自造子模块代号**（§4.2）。该情形下**保持单文件**是正确处置——顺序号在本模块内连续递增即可自证归属。已在各模块文件 §1 说明。
+> ⚠️ **说明**：`SPOT`(23)、`RISK`(31) 等超 20 条的模块，本可"拆模块"，但**模块代号是需求侧登记的锚点**，测试侧**不得自造子模块代号**（§4.2）。该情形下**保持单文件**是正确处置——顺序号在本模块内连续递增即可自证归属。已在各模块文件 §1 说明。
 
 **量化依据（M/N = 用例数 / 模块 FR 数）**——供后来者无需重新推导：
 
 | 模块 | FR 数（N） | TC 数（M） | **M/N** | 触发"拆模块"线？ |
 |------|-----------|-----------|---------|----------------|
 | `PRODUCT` | 14 | 16 | 1.14 | 否 |
-| `SPOT` | 18 | 20 | 1.11 | 否 |
+| `SPOT` | 18 | 23 | 1.28 | 否 |
 | `PLAN` | 20 | 24 | 1.20 | 否 |
 | `TRADE` | 18 | 25 | 1.39 | 否 |
 | `SETTLE` | 17 | 22 | 1.29 | 否 |
-| `RISK` | 19 | 30 | **1.58** | 否 |
+| `RISK` | 19 | 31 | **1.63** | 否 |
 | `AUDIT` | 13 | 16 | 1.23 | 否 |
 | `ACCT` | 14 | 16 | 1.14 | 否 |
 | `FUND` | 17 | 20 | 1.18 | 否 |
 | `AUTH` | 18 | 22 | 1.22 | 否 |
 | `CONFIG` | 15 | 18 | 1.20 | 否 |
 
-> **判读**：① **触发"拆模块"的是模块 FR 数**（`INDEX.md` §2.3：单模块 FR > 20 才拆），**本期最大 FR 数 = `PLAN` 20，全部 ≤20 ⇒ 均未触发**；② `M/N` 反映**用例密度**（多为多场景/正反/边界覆盖），**与模块粒度无关**——`RISK` 的 M/N=1.58 最高，因三层限额（6 条）、价格偏离（3 条）等合规红线需**逐层级 / 逐边界**建例，属**必要的覆盖深度**，非模块边界过粗；③ 因此 `M > 20` 是"M 高"而非"N 高"，**不构成拆模块理由**。
+> **判读**：① **触发"拆模块"的是模块 FR 数**（`INDEX.md` §2.3：单模块 FR > 20 才拆），**本期最大 FR 数 = `PLAN` 20，全部 ≤20 ⇒ 均未触发**；② `M/N` 反映**用例密度**（多为多场景/正反/边界覆盖），**与模块粒度无关**——`RISK` 的 M/N=1.63 最高，因三层限额（7 条）、价格偏离（3 条）等合规红线需**逐层级 / 逐边界**建例，属**必要的覆盖深度**，非模块边界过粗；③ 因此 `M > 20` 是"M 高"而非"N 高"，**不构成拆模块理由**。
 
 ### 2.2 既有 JUnit 用例 → TC 编号 映射覆盖率
 
@@ -121,6 +122,7 @@
 > **映射覆盖率**：174 / 272 = **64.0%** 可追到具体模块 FR 的 `TC-` 编号；其余 98 / 272 = **36.0%** 为基础设施/契约层，已归入 NFR 类别与架构判据。
 > **0 个无法追溯**——每个 JUnit 都有归属（要么 FR TC，要么 NFR/判据 TC）。
 > 复核命令：`grep -rn '@Test' java/src/test --include=*.java | wc -l`（应得 272）。
+> ⚠️ **时点边界（`T-022` 补注，2026-09-23）**：本表为 **2026-09-20 冻结点快照**；自 **2026-09-23** 起 `T-023` 正在新增 `java/src/test/**` 用例（本席当日实测 `@Test` 总数已 **> 272**）⇒ 上述「应得 272」**仅对该时点成立**，**现行值须以实时复算为准**；本表映射分析**未随新用例重算**（待 `T-023` 闭锁后统一刷新）。本注**只加不改**——`272` / `174` / `98` 等数字**均未改动**。
 
 ### 2.3 接口面覆盖的分母口径（⚠️ 专题：断言清单 ≠ 全量清单）
 
@@ -281,7 +283,7 @@ tools/smoke/run.sh                  # 录敞口→计划→审批→下单→成
 | `FR-SPOT-11 @ REQUIREMENTS/SPOT.md` | 批量粘贴录入现货价 | `TC-SPOT-11`；`TC-EXC-12` | ✅ |
 | `FR-SPOT-12 @ REQUIREMENTS/SPOT.md` | CSV 导入现货价 | `TC-SPOT-12`；`TC-EXC-12` | ✅ |
 | `FR-SPOT-13 @ REQUIREMENTS/SPOT.md` | 查询现货价序列 | `TC-SPOT-13` | ✅ |
-| `FR-SPOT-14 @ REQUIREMENTS/SPOT.md` | 计算实货敞口 | `TC-SPOT-14, TC-SPOT-15, TC-SPOT-20`；`TC-BOUND-9` | ✅ |
+| `FR-SPOT-14 @ REQUIREMENTS/SPOT.md` | 计算实货敞口 | `TC-SPOT-14, TC-SPOT-15, TC-SPOT-20, TC-SPOT-21, TC-SPOT-22, TC-SPOT-23`；`TC-BOUND-9` | ✅ |
 | `FR-SPOT-15 @ REQUIREMENTS/SPOT.md` | 查询实货敞口列表与详情 | `TC-SPOT-16` | ✅ |
 | `FR-SPOT-16 @ REQUIREMENTS/SPOT.md` | 指定实货敞口子账户归属 | `TC-SPOT-17` | ✅ |
 | `FR-SPOT-17 @ REQUIREMENTS/SPOT.md` | 维护现货价来源标注 | `TC-SPOT-18` | ✅ |
@@ -364,7 +366,7 @@ tools/smoke/run.sh                  # 录敞口→计划→审批→下单→成
 | 需求编号 | 需求描述 | 对应用例 | 覆盖状态 |
 |---------|---------|---------|---------|
 | `FR-RISK-1` | 品种白名单校验 | `TC-RISK-1 @ TEST_PLAN/RISK.md` | ✅ |
-| `FR-RISK-2` | 额度校验（三层限额） | `TC-RISK-2, TC-RISK-3, TC-RISK-4, TC-RISK-5, TC-RISK-6, TC-RISK-7` | ✅ |
+| `FR-RISK-2` | 额度校验（三层限额） | `TC-RISK-2, TC-RISK-3, TC-RISK-4, TC-RISK-5, TC-RISK-6, TC-RISK-7, TC-RISK-31` | ✅ |
 | `FR-RISK-3` | 持仓上限校验 | `TC-RISK-8, TC-RISK-9` | ✅ |
 | `FR-RISK-4` | 规模红线校验 | `TC-RISK-10, TC-RISK-11`；`TC-BOUND-2` | ✅ |
 | `FR-RISK-5` | 时点净持仓校验 | `TC-RISK-12, TC-RISK-13` | ✅ |
@@ -610,7 +612,7 @@ tools/smoke/run.sh                  # 录敞口→计划→审批→下单→成
 
 ## 8. 准出标准
 
-- [ ] 计划用例执行率 = 100%（307 条）
+- [ ] 计划用例执行率 = 100%（311 条）
 - [ ] P0 用例通过率 = 100%
 - [ ] P1 用例通过率 ≥ 95%
 - [ ] 无未闭环的 P0/P1 缺陷
@@ -645,7 +647,7 @@ NEW → ASSIGNED → FIXED → VERIFYING → CLOSED
 
 | 指标 | 计算方式 | 目标值 |
 |------|---------|--------|
-| 用例执行率 | 已执行 / 计划（307） | 100% |
+| 用例执行率 | 已执行 / 计划（311） | 100% |
 | 用例通过率 | 通过 / 已执行 | P0 = 100%；P1 ≥ 95% |
 | FR 覆盖率 | 已覆盖 FR / 183 | 100% |
 | NFR 覆盖率 | 已覆盖 NFR / 50 | 100% |
@@ -697,11 +699,11 @@ NEW → ASSIGNED → FIXED → VERIFYING → CLOSED
 |------|------|------|
 | `docs/TEST_PLAN/INDEX.md` | 本文件（索引 + 全局） | ☑ |
 | `docs/TEST_PLAN/PRODUCT.md` | 品种管理用例（16） | ☑ |
-| `docs/TEST_PLAN/SPOT.md` | 现货管理用例（20） | ☑ |
+| `docs/TEST_PLAN/SPOT.md` | 现货管理用例（23） | ☑ |
 | `docs/TEST_PLAN/PLAN.md` | 套保计划用例（24） | ☑ |
 | `docs/TEST_PLAN/TRADE.md` | 交易执行用例（25） | ☑ |
 | `docs/TEST_PLAN/SETTLE.md` | 结算用例（22） | ☑ |
-| `docs/TEST_PLAN/RISK.md` | 风险控制用例（30） | ☑ |
+| `docs/TEST_PLAN/RISK.md` | 风险控制用例（31） | ☑ |
 | `docs/TEST_PLAN/AUDIT.md` | 审计用例（16） | ☑ |
 | `docs/TEST_PLAN/ACCT.md` | 套保会计用例（16） | ☑ |
 | `docs/TEST_PLAN/FUND.md` | 资金管理用例（20） | ☑ |
@@ -734,3 +736,127 @@ NEW → ASSIGNED → FIXED → VERIFYING → CLOSED
 | Q2 | `E5` 判据误报（`scan_java_sql.sh` 段②）：**实测 5 处**（`ParamDispatchServiceImpl.java:63` javadoc + `BootstrapAssemblyTest.java:103` + `SensitiveLoggingAndConfigTest.java:160/167/174` 的 `jdbc:dm://` URL），**均非真缺陷** | `tech-lead` | ✅ **已闭环（2026-09-20）**——技术负责人**判据侧修复**（预处理剔 Java 注释 + 段②拆 `②a/②a2/②b/②c`）；**判据未削弱、有反例**；基线 `scan_java_sql.sh` → **108 文件 / 0 命中 / 退出码 0**；`java/**` 一行未改、**用例震动面 0**。口径见 `ARCHITECTURE.md` §3.0.2（**引用时点 v1.5.6**；以实时 `md5sum` 为准） |
 
 > ⚠️ **复核纪律（本席，2026-09-20 重申，源于 `Q1` 的教训）**：凡转出「上游制品有缺陷」类结论（**尤其是沿用的历史清单** `G-*` / `B-*` / 待办项）前，**必须在当前版本上实跑复验，并附命令 + 输出**——历史结论只说明「**当时**存在」，不说明「现在存在」；**无行号的章节级引用多半是转述而非实测**。本表与 §7.1 的所有条目已按此在**复核时点**的文件上复验；`G-3` 即因**未复验历史清单**而被误转，现已在现行版本实测闭合（本条为其实例注记）。
+
+---
+
+## 16. 里程碑视图（M1）
+
+> **本章性质**：**索引与映射章**——把 M1 相关用例与**数据模型约束**集中索引；**本表不写用例正文**（`T-022` 授权补齐的用例正文落各模块文件，见 §16.4 / §16.5）。
+> **M1 门禁**＝`docs/DATA_MODEL.md` 三方会签（`PROJECT.md` §9），**已达成**——`docs/gates/M1-data-model-signoff/SIGN-OFF.md` §1 载「**M1 数据模型门禁 —— 达成（三方全部通过）**」（产品经理 / 技术负责人 / 测试经理）。
+> 本章供 `T-023`（单测 / 集成执行）与 `T-024`（端到端验收）取用。
+
+> **锚点（本章编写时点，⚠️ 一律以实时 `md5sum` 为准）**：
+> - `docs/DATA_MODEL.md` = **v1.3.5** `d17bce0c37e513a0a236304b9cb3f25d` / **5252 行**；
+> - 约束抽取源 = `docs/gates/M1-data-model-signoff/test-manager.md` **§4「约束 / 索引作为测试设计输入 —— 逐类抽取与可构造性确认」**（该文件 md5 `59090a6a090470174bd6d41f3eac268d` / 1215 行）；
+> - `docs/gates/M1-data-model-signoff/SIGN-OFF.md` **§1 = 门禁达成**。
+
+### 16.1 M1 范围与验收点 → 用例落点
+
+M1 = 模块 ①②③⑩⑪ + **子账户体系**（`REQUIREMENTS/INDEX.md` §2「里程碑」列；`PROJECT.md` §9）。
+本计划中 `里程碑 = M1` 的模块：`PRODUCT`(16) / `SPOT`(23) / `PLAN`(24) / `AUTH`(22) / `CONFIG`(18)，**合计 103 条**。
+
+| M1 验收点（`PROJECT.md` §9 验收方式） | 用例落点（含文件归属） |
+|---|---|
+| 创建两个子账户并配置 | `TC-CONFIG-8`（创建 / 启用 / 停用）、`TC-CONFIG-9`（停用前置）、`TC-CONFIG-10`（子账户参数）@ `TEST_PLAN/CONFIG.md` |
+| 分别配置品种 | `TC-PRODUCT-11`（额度指标 / 分类标记）、`TC-PRODUCT-12`（按子账户白名单）@ `TEST_PLAN/PRODUCT.md` |
+| 录入实货敞口 | `TC-SPOT-1`～`TC-SPOT-9`、`TC-SPOT-14`（敞口计算）@ `TEST_PLAN/SPOT.md` |
+| 产出套保计划 | `TC-PLAN-1`、`TC-PLAN-6`～`TC-PLAN-8`（比率三档）、`TC-PLAN-9`～`TC-PLAN-11`（书面文件 / 审批）@ `TEST_PLAN/PLAN.md` |
+| **验证子账户数据隔离** | 见 **§16.3** |
+| **数据在 DM8 中正确落库** | 见 **§16.2**（约束映射）+ **§16.6**（假 DAO 档） |
+
+### 16.2 数据模型约束 → 用例映射（逐类，源＝会签 §4）
+
+> **判据来源**：测试席会签意见 §4 逐类确认「§4.3 的约束体系**足以支撑四类派生用例**（唯一→重复插入、非空→空值、外键→孤儿数据、`CHECK`→取值域边界），**无缺口**」。
+> **两栏口径**：**应用层**用例＝`TEST_PLAN/*` 的 `TC-*`（经 API / 服务调用触发）；**DB 层**用例＝`T-023` 交付的**假 JDBC 等价引擎**集成测试（直接执行 `INSERT` 并按 DDL 语义强制约束，见 §16.6）。
+
+| 约束类别（会签 §4） | 模型实例（示例） | 派生用例形态（会签 §4） | 应用层用例（含文件归属） | DB 层用例（§16.6） |
+|---|---|---|---|---|
+| 唯一约束（业务编号） | `uk_product_code` / `uk_hedge_plan_no` / `uk_voucher_no` | 重复插入同编号 → 拒绝 | `TC-PRODUCT-15 @ TEST_PLAN/PRODUCT.md`（品种编码，`code=10010`） | `M1Dm8EquivalentIntegrationTest#duplicateInsertOnUniqueColumnIsRejected` |
+| 唯一约束（不可代签 / 快照重签） | `uk_check_signature_task_role` | 同任务同角色二次签署 → 拒绝 | `TC-SETTLE-19, TC-SETTLE-20 @ TEST_PLAN/SETTLE.md` | —（M2 模块） |
+| 唯一约束（幂等键） | `uk_command_flow_idem` / `t_capital_receipt` 幂等键 | 重复投递同一事件 → 仅一条生效 | `TC-EXC-4 @ TEST_PLAN/BOUNDARY.md`；`TC-FUND-9 @ TEST_PLAN/FUND.md`；`TC-REL-5 @ TEST_PLAN/NONFUNCTIONAL.md` | —（M2 模块） |
+| 条件唯一索引 | `uk_product_spot_primary(is_primary='Y')` | 插入第二条 `is_primary='Y'` → 拒绝 | `TC-PRODUCT-10 @ TEST_PLAN/PRODUCT.md`（主映射唯一，`code=10010`） | 引擎**登记**条件唯一索引（`WHERE` 谓词**不求值**，见 §16.6 披露） |
+| 非空约束 | 五类表 `sub_account_id` / 三必填列 | 空值插入 → 拒绝 | `TC-BOUND-6 @ TEST_PLAN/BOUNDARY.md`（计划 ID / 子账户 / 关联对象空值） | `M1Dm8EquivalentIntegrationTest#nullOnNotNullColumnIsRejected` |
+| 外键 `RESTRICT` | 追溯链外键 / `sub_account_id`→`t_sub_account` | 孤儿数据插入 → 拒绝 | **无独立 TC**（见 §16.8-Q1） | `M1Dm8EquivalentIntegrationTest#orphanForeignKeyIsRejected` |
+| `CHECK`（枚举） | §3.1 全部枚举列 | 取值域外插入 → 拒绝 | **无独立 TC**（见 §16.8-Q1） | `M1Dm8EquivalentIntegrationTest#checkConstraintRejectsOutOfRangeValue` |
+| `CHECK`（业务不变量） | `available_qty<=position_qty` / 敞口三分量恒等式 | 违反不变量 → 拒绝 | `TC-SPOT-14, TC-BOUND-9 @ TEST_PLAN/SPOT.md, BOUNDARY.md`（三分量恒等式，应用层） | 复杂 `CHECK` **仅登记不求值**（引擎显式披露，见 §16.6） |
+| `CHECK`（数值） | `position_qty>=0` / `amount>0` | 边界 ±1 / 负值 / 0 → 拒绝 | `TC-BOUND-5, TC-BOUND-11 @ TEST_PLAN/BOUNDARY.md` | 单列 `IN (...)` / `= '字面量'` 形态可求值 |
+
+> **M1 侧覆盖判定**：约束体系**九类均有落点**——其中「外键→孤儿」「`CHECK`→取值域」的 **DB 层派生用例**由 `T-023` 集成测试承载（§16.6）；`TEST_PLAN/*` 本身**未设对应独立 TC**（见 §16.8-Q1）。
+
+### 16.3 子账户隔离（M1 验收点「验证子账户数据隔离」）
+
+| 隔离面 | 用例（含文件归属） | 唯一预期值 |
+|---|---|---|
+| 安全默认＝空集 | `TC-AUTH-22 @ TEST_PLAN/AUTH.md` | 仅见 `SUB-A`；查 `SUB-B` → `code=10004` |
+| 跨子账户查看（仅管理层 / 审计岗，只读） | `TC-AUTH-13 @ TEST_PLAN/AUTH.md` | 越权 → 拒绝 |
+| 子账户数据权限配置 | `TC-AUTH-12 @ TEST_PLAN/AUTH.md` | 按 `t_user_sub_account_perm` 生效 |
+| 子账户数据软隔离（NFR） | `TC-SEC-7 @ TEST_PLAN/NONFUNCTIONAL.md` | 无授权默认空集；WS 越权 `10004` |
+| 白名单按子账户 | `TC-PRODUCT-12 @ TEST_PLAN/PRODUCT.md` | 未列入品种被拒 |
+| 敞口子账户归属 | `TC-SPOT-17 @ TEST_PLAN/SPOT.md` | 归属显式、可加总 |
+
+### 16.4 敞口三分量一致性（`#17` —— `DATA_MODEL.md` §4.4 必测用例 ①–⑤）
+
+> 判据源：`DATA_MODEL.md:4503`（**已写死**：写入侧拒绝 / 展示侧重算 + 告警 + `COMPONENT_RECALC` 留痕 / 改落库须新快照）。
+
+| `#17` 用例（`DATA_MODEL.md:4503`） | 用例落点（含文件归属） |
+|---|---|
+| ① 改分量使 `Σ ≠ 合计` → 写入被拒 | `TC-SPOT-14 @ TEST_PLAN/SPOT.md`（步 2）、`TC-BOUND-9 @ TEST_PLAN/BOUNDARY.md`（步 2） |
+| ② 展示重算 → 告警 + `COMPONENT_RECALC` 留痕、**未回写** | `TC-BOUND-9 @ TEST_PLAN/BOUNDARY.md`（备注）、`TC-SPOT-14`（备注） |
+| ③ 改落库值 → 生成新 `snapshot_id`、旧快照仍可查 | `TC-SPOT-21 @ TEST_PLAN/SPOT.md`（`T-022` 补） |
+| ④ 缺分量做比率 → 报错 | `TC-SPOT-22 @ TEST_PLAN/SPOT.md`（`T-022` 补；`TC-SPOT-20` 系**现货价缺口** `Q-12`，非分量缺口，不可替代） |
+| ⑤ 缺分量 + 敞口变动 >20% → 无生效触发、仅告警 | `TC-SPOT-23 @ TEST_PLAN/SPOT.md`（`T-022` 补） |
+
+### 16.5 限额三层全序（`#13` —— `DATA_MODEL.md` §4.4 必测用例 ①–⑦）
+
+> 判据源：`DATA_MODEL.md:4498`（**已写死全序**：层②`SUB_INSTRUMENT` > 层①`SUB_PRODUCT` > 层③`ACCOUNT_PRODUCT`；同层并列取**占用率最高者**、再并列取 `id` 升序）。
+> ⚠️ `RISK` 模块里程碑 = **M3**（事前风控 C++），但**限额三层的表结构在 M1 建立**，故 `#13` 判据在本视图登记。
+
+| `#13` 用例（`DATA_MODEL.md:4498`） | 用例落点（`TEST_PLAN/RISK.md`） |
+|---|---|
+| ① 仅层① → `SUB_PRODUCT`（`0x1004`） | `TC-RISK-2` |
+| ② 仅层② → `SUB_INSTRUMENT`（`0x1017`） | `TC-RISK-3` |
+| ③ 仅层③ → `ACCOUNT_PRODUCT`（`0x1005`） | `TC-RISK-4` |
+| ④ 三层同时超 → 必回 `SUB_INSTRUMENT` | `TC-RISK-5` |
+| ⑤ 层① + 层③ 同时超 → 回 `SUB_PRODUCT` | `TC-RISK-31 @ TEST_PLAN/RISK.md`（`T-022` 补） |
+| ⑥ 同层两条同时命中 → 占用率高者（并列取 `id` 小者） | `TC-RISK-6` |
+| ⑦ 错误码与层级一致 | `TC-RISK-2` / `TC-RISK-3` / `TC-RISK-4`（各含错误码断言） |
+
+> **构造纪律**：`#13` ⑥⑦ 依赖 **C++ 内存占用率权威值**，`TC-RISK-2` 备注载「**必须经协议 / 内存构造**（`0x0113`），不得 DB 直插（`S-9`）」。
+
+### 16.6 M1 不依赖 DM8 的「假 DAO」单测档（`RSK-03` 应对）
+
+> `RSK-03`＝DM JDBC 驱动版本不匹配（`INDEX.md` §11）。本机**无 DM8 实例 / 驱动**（`T-023` 实测：`DmJdbcDriver*.jar` 全盘 0 命中、`java/lib` 不存在、5236 无监听、无 `dmserver` 进程）。
+
+| 档 | 载体 | 说明 |
+|---|---|---|
+| `unit` 档（无外部依赖） | `mvn -q test`（`INDEX.md` §5） | 含既有 272 JUnit；**无需 DM8** |
+| **M1 假 DAO 等价档** | `java/src/test/java/com/hedgeguard/dao/testsupport/InMemoryDmEngine.java` | 「**按 SQL 语义求值**」的内存假 JDBC 引擎：把 M1 建表脚本的 `CREATE TABLE` 真喂入，再由**真实 DAO** 生成 `INSERT` / `SELECT` / `UPDATE` 并真正执行、按语义求值返回行（比"仅断言 SQL 字符串"更强） |
+| M1 等价集成用例 | `java/src/test/java/com/hedgeguard/dao/M1Dm8EquivalentIntegrationTest.java` | 建表（4 脚本 46 表）→ 读写 → 查询；**四类约束路径**（唯一 / 非空 / 外键 / 取值域）+ 敞口三分量读写 |
+| 依赖版本核对 | `TC-DEPLOY-5 @ TEST_PLAN/NONFUNCTIONAL.md` | `RSK-03` 应对；`INDEX.md` §11 |
+
+> ⚠️ **口径边界（诚实披露）**：上述等价档**不构成 DM8 实机验证**——`M1Dm8EquivalentIntegrationTest` 类注释明载「本用例**不构成** DM8 实机验证」、「**DM8 实机**仍待部署方在可达实例上复跑（`T-024` 承接）」。引擎**明确不覆盖**：条件唯一索引 `WHERE` 谓词、子查询、JOIN、聚合（除 `count`）、多列外键、DM 专有函数、事务隔离 / 回滚。
+> ⚠️ **并发交付**：本节所引 `java/src/test/**` 两类系 `T-023` **并发交付**（非本席写入）；类名 / 方法名**以实时为准**。
+
+### 16.7 M1 用例索引（按文件）
+
+| 文件 | M1 用例数 | 备注 |
+|---|---|---|
+| `TEST_PLAN/PRODUCT.md` | 16 | 里程碑 = M1 |
+| `TEST_PLAN/SPOT.md` | 23 | 里程碑 = M1 |
+| `TEST_PLAN/PLAN.md` | 24 | 里程碑 = M1 |
+| `TEST_PLAN/AUTH.md` | 22 | 里程碑 = M1 |
+| `TEST_PLAN/CONFIG.md` | 18 | 里程碑 = M1 |
+| `TEST_PLAN/BOUNDARY.md` | 见 §16.2 / §16.4 | `TC-BOUND-1` / `-6` / `-7` / `-9` / `-10` / `-12` / `-13` + `TC-EXC-12` 涉 M1 模块 |
+| `TEST_PLAN/NONFUNCTIONAL.md` | 见 §16.3 / §16.6 | `TC-SEC-7`、`TC-DEPLOY-5` |
+| `TEST_PLAN/RISK.md` | 见 §16.5 | `#13` 三层全序 7 用例（模块属 M3） |
+
+### 16.8 M1 缺口清单（逐条点名，**不得概括为"已覆盖"**）
+
+| # | 缺口 | 证据 | 未覆盖 → 建议承载 |
+|---|---|---|---|
+| Q1 | 「外键→孤儿」「`CHECK`→取值域」在 `TEST_PLAN/*` **无独立 TC**（仅 `INDEX.md` §1.2 第 5 行作"设计输入"提及） | `grep -rn '孤儿\|引用完整' docs/TEST_PLAN/*.md` → 命中仅 `INDEX.md`（§1.2）；`grep -cE '^### TC-'` 无对应条目 | **已由 `T-023` 集成测试承载**（§16.6 两方法）；若要求 `TC-` 级追溯，建议 `T-023` / `T-024` 执行时补登映射 |
+| Q2 | `#17` 用例 **③（新快照保留）、④（缺分量做比率报错）、⑤（缺分量 + >20% 暂缓判定）** 未单列 TC（**原缺口；已于 2026-09-23 闭环，见右**） | `DATA_MODEL.md:4503` 列 5 用例；`TC-SPOT-14` / `TC-BOUND-9` 覆盖 ①② | ✅ **已闭环（`T-022` 授权补齐，2026-09-23）**——原建议「补 `TC-SPOT-21`～`-23`」**已执行**；落点 `TC-SPOT-21` / `TC-SPOT-22` / `TC-SPOT-23 @ TEST_PLAN/SPOT.md`（见 §16.4） |
+| Q3 | `#13` 用例 **⑤（层① + 层③ → 层①）** 未单列 TC（**原缺口；已于 2026-09-23 闭环，见右**） | `DATA_MODEL.md:4498` 列 7 用例；`TC-RISK-2`～`-7` 覆盖 ①②③④⑥⑦ | ✅ **已闭环（`T-022` 授权补齐，2026-09-23）**——落点 `TC-RISK-31 @ TEST_PLAN/RISK.md`（见 §16.5） |
+| Q4 | `PRODUCT.md` / `SPOT.md` §1 **缺 `里程碑` 行**（其余 9 个模块文件均含） | `grep -n '里程碑' docs/TEST_PLAN/PRODUCT.md docs/TEST_PLAN/SPOT.md` → **0 命中** | 一致性小项，建议补 `\| 里程碑 \| M1 \|`（**未授权前不改**） |
+
+> **§16 初次落盘未新增用例**；`Q2` / `Q3` 已由 `T-022` **授权补齐**（2026-09-23；用例正文落 `SPOT.md` / `RISK.md`，见 §16.4 / §16.5）⇒ **已闭环**；`Q1` 仍为**映射缺口**（判据在 `DATA_MODEL.md` 已写死、`TC-` 级承载由 `T-023` 集成测试承担），**非**"需求未覆盖"；`Q4` 为**表述一致性**小项。
