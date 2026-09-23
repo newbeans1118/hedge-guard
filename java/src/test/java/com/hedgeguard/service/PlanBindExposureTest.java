@@ -382,6 +382,18 @@ class PlanBindExposureTest {
         private final List<HedgePlan> rows = new ArrayList<>();
 
         @Override
+        public String findMaxPlanNoByPrefix(String planNoPrefix) {
+            String max = null;
+            for (HedgePlan row : rows) {
+                if (row.planNo != null && row.planNo.startsWith(planNoPrefix)
+                        && (max == null || row.planNo.compareTo(max) > 0)) {
+                    max = row.planNo;
+                }
+            }
+            return max;
+        }
+
+        @Override
         public HedgePlan findById(Long id) {
             for (HedgePlan row : rows) {
                 if (row.id == id) {

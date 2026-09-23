@@ -320,6 +320,34 @@ class M1EndToEndAcceptanceTest {
                 "两子账户同日的计划均应落库");
     }
 
+    // ------------------------------------------------------------ 取号语义（§3.5）：按业务日重置
+
+    /**
+     * <b>{@code §3.5} 取号核心语义</b>：{@code seq = 当日最大序号 + 1}，<b>按业务日重置</b>。
+     *
+     * <p>夹具天然跨两日：{@code planA} 落在基准日、{@code planB} 落在次一业务日 ⇒ 若 seq 为
+     * 「全局累计」（或按子账户计数），次日的 {@code planB} 会取到 {@code …0002}；正确实现下
+     * 次日为该日首号 {@code …0001}。<b>承重</b>：把取号改回全局累计/计数，本方法必红。
+     */
+    @Test
+    @DisplayName("取号按业务日重置（§3.5）：planA/planB 各为当日首号 0001；同日第二个 = 0002")
+    void planNoSeqResetsPerBusinessDay() {
+        String dayA = BASE_DAY.toString().replace("-", "");
+        String dayB = BASE_DAY.plusDays(1).toString().replace("-", "");
+        assertEquals("HP" + dayA + "0001", strCol("t_hedge_plan", planA, "plan_no"),
+                "基准日首个计划当日序号应为 0001");
+        assertEquals("HP" + dayB + "0001", strCol("t_hedge_plan", planB, "plan_no"),
+                "次日首个计划应【重置】为当日 0001（非累计前一日序号）——改回全局累计计数本断言即红");
+
+        // 回到基准日：同日第二个计划 = 当日最大序号 + 1
+        Clocks.set(Clock.fixed(BASE_DAY.atStartOfDay(Clocks.ZONE).toInstant(), Clocks.ZONE));
+        HttpResult a2 = call("POST", ApiRoutes.full("/plan"), null, S_A,
+                planBody(subA, "10", exposureA, "10"));
+        assertEquals(200, a2.status, body(a2));
+        assertEquals("HP" + dayA + "0002", strCol("t_hedge_plan", dataLong(a2), "plan_no"),
+                "同日第二个计划 = 当日最大序号 + 1（不跨日）");
+    }
+
     // ------------------------------------------------------------ 验收 1：全链路无断点
 
     @Test

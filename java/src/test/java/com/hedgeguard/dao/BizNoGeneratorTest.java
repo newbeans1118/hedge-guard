@@ -36,6 +36,49 @@ class BizNoGeneratorTest {
     }
 
     @Test
+    @DisplayName("§3.5 当日序号：前缀形如 HP<yyyyMMdd>；按业务日重置（次日/无既有编号 ⇒ 从 1 起）")
+    void hedgePlanDailySeqResetsPerBusinessDay() {
+        LocalDate day1 = LocalDate.of(2026, 9, 20);
+        LocalDate day2 = day1.plusDays(1);
+        assertEquals("HP20260920", BizNoGenerator.hedgePlanDayPrefix(day1));
+
+        assertEquals(1L, BizNoGenerator.hedgePlanNextSeq(day1, null), "当日无既有编号 ⇒ 从 1 起");
+        assertEquals(4L, BizNoGenerator.hedgePlanNextSeq(day1, "HP202609200003"), "当日最大序号 + 1");
+        assertEquals(1L, BizNoGenerator.hedgePlanNextSeq(day2, "HP202609200003"),
+                "既有编号属上一业务日 ⇒ 前缀不匹配 ⇒ 当日重置为 1（非 4）");
+        assertEquals(1L, BizNoGenerator.hedgePlanNextSeq(day1, "HP202609210001"));
+        assertEquals("HP202609200002", BizNoGenerator.hedgePlan(day1,
+                BizNoGenerator.hedgePlanNextSeq(day1, "HP202609200001")));
+        assertThrows(IllegalArgumentException.class, () -> BizNoGenerator.hedgePlanDayPrefix(null));
+    }
+
+    @Test
+    @DisplayName("次日计数不受前一日影响：连续两日各取号 ⇒ 均从 0001 起")
+    void seqResetsAcrossConsecutiveDays() {
+        LocalDate day1 = LocalDate.of(2026, 9, 20);
+        LocalDate day2 = day1.plusDays(1);
+        String no1 = BizNoGenerator.hedgePlan(day1, BizNoGenerator.hedgePlanNextSeq(day1, null));
+        String no2 = BizNoGenerator.hedgePlan(day2, BizNoGenerator.hedgePlanNextSeq(day2, no1));
+        assertEquals("HP202609200001", no1);
+        assertEquals("HP202609210001", no2, "次日首个计划不累计前一日序号");
+    }
+
+    @Test
+    @DisplayName("重试：首次 SQLState=23000 冲突后重试至成功（attempts 计数）")
+    void retriesAfterSqlState23000() {
+        AtomicInteger attempts = new AtomicInteger();
+        boolean ok = BizNoGenerator.retryOnUniqueConflict(3, () -> {
+            int n = attempts.incrementAndGet();
+            if (n < 3) {
+                throw new SQLException("唯一约束冲突", "23000", 1);
+            }
+            return true;
+        });
+        assertTrue(ok);
+        assertEquals(3, attempts.get(), "23000 形态须重试至成功");
+    }
+
+    @Test
     @DisplayName("序号溢出位数即明确报错（不静默截断）")
     void rejectsSeqOverflow() {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,

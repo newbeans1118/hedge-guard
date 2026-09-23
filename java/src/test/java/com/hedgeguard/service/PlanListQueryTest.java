@@ -162,6 +162,11 @@ class PlanListQueryTest {
         private int calls;
 
         @Override
+        public String findMaxPlanNoByPrefix(String planNoPrefix) {
+            throw FakeDao.unsupported("findMaxPlanNoByPrefix");
+        }
+
+        @Override
         public PageResult<HedgePlan> findPage(PageQuery query, String where, List<Object> whereArgs) {
             this.where = where;
             this.args = whereArgs == null ? Collections.emptyList() : new ArrayList<>(whereArgs);

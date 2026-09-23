@@ -250,6 +250,47 @@ class PlanServiceTest {
     }
 
     @Test
+    @DisplayName("取号重试：plan_no 唯一冲突重试至成功（§3.5 最多 3 次；缩短/关掉重试必红）")
+    void retriesPlanNoConflictUpToThreeAttempts() {
+        exposureDao.rows.add(exposure(1L, "SELL", "100"));
+        planDao.failInsertsLeft = 2;             // 前两次 insert 抛 SqlState=23000
+        planDao.planNoConflictOnFailure = true;  // 判为 plan_no 冲突 ⇒ 重试
+        long id = service.createPlan(plan("BUY_HEDGE"),
+                Arrays.asList(new PlanService.BindSpec(1L, new BigDecimal("80"))), 1L);
+        assertTrue(id > 0, "重试后应成功落库");
+        assertEquals(3, planDao.insertAttempts,
+                "应取号重试至第 3 次成功（RETRY_MAX_ATTEMPTS=3）——把该常量改小本断言即红");
+    }
+
+    @Test
+    @DisplayName("重试谓词收窄（O-2）：非 plan_no 唯一冲突不得重试（避免无谓重试与误报）")
+    void doesNotRetryNonPlanNoConflict() {
+        exposureDao.rows.add(exposure(1L, "SELL", "100"));
+        planDao.failInsertsLeft = 1;
+        planDao.planNoConflictOnFailure = false;  // 候选 plan_no 未被占用 ⇒ 其他唯一约束冲突
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> service.createPlan(plan("BUY_HEDGE"),
+                        Arrays.asList(new PlanService.BindSpec(1L, new BigDecimal("80"))), 1L));
+        assertTrue(e.getMessage().contains("非计划编号"), e.getMessage());
+        assertEquals(1, planDao.insertAttempts, "非 plan_no 唯一冲突只尝试 1 次（不重试）");
+    }
+
+    @Test
+    @DisplayName("唯一冲突解包：23000 形态出 SQLException；null / 非 23xx 不误判重试")
+    void unwrapsUniqueViolationCause() {
+        assertNotNull(PlanService.uniqueViolationCause(
+                        new IllegalStateException("包装", new java.sql.SQLException("dup", "23000"))),
+                "23000 形态须解包出 SQLException（触发重试）");
+        assertNull(PlanService.uniqueViolationCause(
+                        new IllegalStateException("包装", new java.sql.SQLException("down", "08006"))),
+                "非 23xx 不得判为唯一冲突");
+        assertNull(PlanService.uniqueViolationCause(
+                        new IllegalStateException("包装", new java.sql.SQLException("x", (String) null))),
+                "SQLState=null（本环境引擎形态）不得判为唯一冲突 ⇒ 不重试");
+        assertNull(PlanService.uniqueViolationCause(new IllegalStateException("无 cause")));
+    }
+
+    @Test
     @DisplayName("书面文件门禁：三要素缺任一 → 10012（四项齐备）；生成后可提交审批")
     void hedgeDocGate() {
         HedgePlan plan = draftPlanWithBind();
@@ -516,8 +557,22 @@ class PlanServiceTest {
         private final List<HedgePlan> rows = new ArrayList<>();
         private long nextId = 1;
 
+        /** T-137 取号重试守卫：前 {@code failInsertsLeft} 次 {@code insert} 抛「唯一约束冲突」。 */
+        int failInsertsLeft;
+        /** 模拟冲突是否属 plan_no（true ⇒ {@code findByPlanNo} 命中 ⇒ 判为 plan_no 冲突 ⇒ 重试）。 */
+        boolean planNoConflictOnFailure = true;
+        /** {@code insert} 实际调用次数（断言重试次数；关掉/缩短重试必红）。 */
+        int insertAttempts;
+
         @Override
         public int insert(HedgePlan entity, long operatorId) {
+            insertAttempts++;
+            if (failInsertsLeft > 0) {
+                failInsertsLeft--;
+                // 模拟 TxTemplate 包装：IllegalStateException(cause = SQLException(SQLState=23000))
+                throw new IllegalStateException("唯一约束冲突（模拟）",
+                        new java.sql.SQLException("dup", "23000"));
+            }
             entity.id = nextId++;
             rows.add(entity);
             return 1;
@@ -563,7 +618,31 @@ class PlanServiceTest {
 
         @Override
         public HedgePlan findByPlanNo(String planNo) {
-            throw com.hedgeguard.testsupport.FakeDao.unsupported("findByPlanNo");
+            // T-137 取号重试的 O-2 判别依赖此方法：候选 plan_no 是否已被占用。
+            for (HedgePlan row : rows) {
+                if (planNo.equals(row.planNo)) {
+                    return row;
+                }
+            }
+            // 模拟并发：冲突由「他笔事务已占用同名 plan_no」造成 ⇒ 视为命中一条同号行（仅用于判别）。
+            if (planNoConflictOnFailure) {
+                HedgePlan occupied = new HedgePlan();
+                occupied.planNo = planNo;
+                return occupied;
+            }
+            return null;
+        }
+
+        @Override
+        public String findMaxPlanNoByPrefix(String planNoPrefix) {
+            String max = null;
+            for (HedgePlan row : rows) {
+                if (row.planNo != null && row.planNo.startsWith(planNoPrefix)
+                        && (max == null || row.planNo.compareTo(max) > 0)) {
+                    max = row.planNo;
+                }
+            }
+            return max;
         }
 
         @Override

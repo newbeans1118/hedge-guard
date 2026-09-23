@@ -39,6 +39,47 @@ public final class BizNoGenerator {
     }
 
     /**
+     * 套保计划编号的<b>日期段前缀</b>（{@code HP<yyyyMMdd>}）——「当日最大序号 + 1」的取数键
+     * （{@code DATA_MODEL.md} §3.5）。
+     *
+     * <p>{@code t_hedge_plan} 无独立业务日列，业务日仅隐含于 {@code plan_no} 前缀；本方法提供
+     * 唯一的前缀拼装入口，供 DAO 以前缀区间取当日最大编号（禁止调用方各自拼串）。
+     *
+     * @param bizDate 业务日期
+     * @return 前缀（如 {@code HP20260920}）
+     */
+    public static String hedgePlanDayPrefix(LocalDate bizDate) {
+        if (bizDate == null) {
+            throw new IllegalArgumentException("业务日期不得为空；复现=检查取号调用点");
+        }
+        return "HP" + bizDate.format(YYYYMMDD);
+    }
+
+    /**
+     * 套保计划「当日下一个序号」= <b>当日最大序号 + 1</b>（{@code DATA_MODEL.md} §3.5）。
+     *
+     * <p><b>按业务日重置</b>：当日无既有编号（{@code existingMaxPlanNo == null} 或前缀非当日）
+     * ⇒ 返回 {@code 1}；否则取当日最大编号末段 + 1。序号零填充定长 ⇒ 字典序最大即序号最大。
+     *
+     * @param bizDate           业务日期
+     * @param existingMaxPlanNo 当日字典序最大的既有编号（可为 {@code null}）
+     * @return 当日下一个序号（从 1 起）
+     */
+    public static long hedgePlanNextSeq(LocalDate bizDate, String existingMaxPlanNo) {
+        String prefix = hedgePlanDayPrefix(bizDate);
+        if (existingMaxPlanNo == null || !existingMaxPlanNo.startsWith(prefix)) {
+            return 1L;
+        }
+        String seqText = existingMaxPlanNo.substring(prefix.length());
+        try {
+            return Long.parseLong(seqText) + 1L;
+        } catch (NumberFormatException e) {
+            throw new IllegalStateException("套保计划编号当日序号段非数字：" + existingMaxPlanNo
+                    + "；复现=检查 plan_no 形态（HP<yyyyMMdd><seq(4)>，DATA_MODEL.md §3.5）", e);
+        }
+    }
+
+    /**
      * 套期关系文件编号：{@code HD<计划编号>-V<版本>}。
      *
      * @param planNo  计划编号

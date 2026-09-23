@@ -14,6 +14,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -157,6 +158,31 @@ public final class DmHedgePlanDao extends AbstractDmDao<HedgePlan, Long> impleme
         args.add(id);
         args.addAll(scope.params());
         return queryOne(sql, args, this::mapRow);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>直查专属 SQL：{@code SELECT plan_no FROM t_hedge_plan WHERE plan_no LIKE ?}（前缀区间，
+     * 走 {@code uk_hedge_plan_no} 唯一索引）。{@code t_hedge_plan} 无业务日列 ⇒ 只能以编号前缀定位
+     * 当日行；通用 WHERE 原子表达不了前缀匹配，故在本方法内承载（{@code ARCHITECTURE.md} §3.9：
+     * 该表 SQL 的唯一出现位置）。序号零填充定长 ⇒ 前缀内字典序最大即序号最大。返回前在应用侧取最大，
+     * 避免依赖行序。
+     *
+     * <p><b>不使用</b> {@code SELECT MAX(...) FOR UPDATE}（{@code §3.5} 明令禁止）。
+     */
+    @Override
+    public String findMaxPlanNoByPrefix(String planNoPrefix) {
+        String sql = "SELECT plan_no FROM " + tableName() + " WHERE plan_no LIKE ?";
+        List<String> planNos = queryList(sql, Collections.singletonList(planNoPrefix + "%"),
+                rs -> rs.getString("plan_no"));
+        String max = null;
+        for (String planNo : planNos) {
+            if (planNo != null && (max == null || planNo.compareTo(max) > 0)) {
+                max = planNo;
+            }
+        }
+        return max;
     }
 
     /**

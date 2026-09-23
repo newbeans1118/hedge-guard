@@ -81,6 +81,11 @@ class PlanListDefaultSortTest {
         private PageQuery lastQuery;
 
         @Override
+        public String findMaxPlanNoByPrefix(String planNoPrefix) {
+            throw FakeDao.unsupported("findMaxPlanNoByPrefix");
+        }
+
+        @Override
         public PageResult<HedgePlan> findPage(PageQuery query, String where, List<Object> whereArgs) {
             this.lastQuery = query;
             return new PageResult<>(new ArrayList<>(), 0L, query.page(), query.size());

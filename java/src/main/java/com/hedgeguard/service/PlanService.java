@@ -575,22 +575,27 @@ public final class PlanService {
         plan.currentDocVersion = 0;
         plan.applicantId = operatorId;
         // 计划编号全局唯一（uk_hedge_plan_no；DATA_MODEL.md:1687「计划编号全局唯一」）：编号形态
-        // HP<yyyyMMdd><seq(4)>（§3.5，不含子账户维度），故 seq 必须取【全局】序号 —— count 不得带
-        // sub_account_id 过滤。原「按子账户计数」使两个子账户在同一业务日各建计划时取到同一 seq，
-        // 撞 uk_hedge_plan_no（BUG-003 / T-137）。
-        // 全局计数随行数单调递增 ⇒ 任一既有 plan_no 的 seq 均 ≤ 全局计数 < 全局计数 + 1 ⇒ 新号必不撞既有行。
-        // 并发窗口：两笔并发读到同一全局计数 ⇒ 取到同一 seq ⇒ 其中一笔撞唯一约束；经
-        // BizNoGenerator.retryOnUniqueConflict（§3.5「最多 3 次」）重新取号并重试整笔事务。冲突发生在
-        // 首条 plan 插入处，其后绑定 / 敞口乐观锁尚未执行 ⇒ 重试无副作用（幂等）。
+        // HP<yyyyMMdd><seq(4)>（§3.5，不含子账户维度）。seq = 【当日】最大序号 + 1（按业务日重置）——
+        // 原「按子账户计数」使两个子账户在同一业务日各建计划时取到同一 seq，撞 uk_hedge_plan_no
+        // （BUG-003）；「全时段累计计数」又违背 §3.5「当日最大序号 + 1」语义（T-137 复核 O-1）⇒ 以
+        // plan_no 前缀区间取当日最大编号：t_hedge_plan 无业务日列，业务日隐含于 plan_no 前缀；
+        // 序号零填充定长 ⇒ 前缀内字典序最大即序号最大。
+        // 取数与插入在【同一事务内】（§3.5）；并发窗口下两笔读到同一当日最大编号 ⇒ 其中一笔撞
+        // uk_hedge_plan_no ⇒ 经 BizNoGenerator.retryOnUniqueConflict（§3.5「最多 3 次」）重新取号并
+        // 重试整笔事务。冲突发生在首条 plan 插入处，其后绑定 / 敞口乐观锁尚未执行 ⇒ 重试无副作用（幂等）。
+        // 明确不使用 SELECT MAX(...) FOR UPDATE（§3.5 明令禁止：热点表锁竞争）。
         BizNoGenerator.retryOnUniqueConflict(RETRY_MAX_ATTEMPTS, () -> {
             try {
-                long seq = hedgePlanDao.count(null, null) + 1;
-                plan.planNo = BizNoGenerator.hedgePlan(Clocks.today(), seq);
                 tx.inTransaction(connection -> {
+                    LocalDate bizDate = Clocks.today();
+                    String maxPlanNo = hedgePlanDao.findMaxPlanNoByPrefix(
+                            BizNoGenerator.hedgePlanDayPrefix(bizDate));
+                    plan.planNo = BizNoGenerator.hedgePlan(bizDate,
+                            BizNoGenerator.hedgePlanNextSeq(bizDate, maxPlanNo));
                     if (hedgePlanDao.insert(plan, operatorId) != 1) {
                         throw BizException.of(ErrorCode.UNIQUE_CONFLICT,
                                 "计划编号冲突（uk_hedge_plan_no）：planNo=" + plan.planNo
-                                        + "；复现=重试（编号由应用层按全局序号生成）");
+                                        + "；复现=重试（编号由应用层按当日最大序号生成）");
                     }
                     for (int i = 0; i < binds.size(); i++) {
                         BindSpec bind = binds.get(i);
@@ -624,10 +629,19 @@ public final class PlanService {
                 // 仅当根因为唯一约束冲突（SQLState 23xx，DM 与主流库遵循）时解包为 SQLException 交重试器
                 // 重试；其余原样抛出（不吞异常、不误重试）。
                 SQLException unique = uniqueViolationCause(e);
-                if (unique != null) {
-                    throw unique;
+                if (unique == null) {
+                    throw e;
                 }
-                throw e;
+                // O-2 收窄重试谓词：整笔事务内的唯一约束不止 plan_no 一处（如 t_hedge_plan_exposure 的
+                // uk_plan_exposure）。仅 plan_no 冲突可经「重新取号 + 重试」自愈；其他唯一冲突重试必然
+                // 再现（输入未变）。判别：候选 plan_no 已被占用 ⇒ plan_no 冲突（重试）；未占用 ⇒ 其他
+                // 约束冲突（原样抛出，不误报为「编号冲突」、不做无谓重试）。
+                if (hedgePlanDao.findByPlanNo(plan.planNo) == null) {
+                    throw new IllegalStateException(
+                            "唯一约束冲突非计划编号（uk_hedge_plan_no），不重试：planNo=" + plan.planNo
+                                    + "；复现=核对该事务其余唯一约束（如 uk_plan_exposure）", e);
+                }
+                throw unique;
             }
         });
         return plan.id;
@@ -1968,10 +1982,13 @@ public final class PlanService {
      * （{@code TxTemplate.java:147} 附近）；本方法沿因果链查找唯一约束冲突（{@code SQLState 23xx}）的
      * 原始 {@link SQLException}，供 {@link BizNoGenerator#retryOnUniqueConflict} 判定并重试。
      *
+     * <p>包内可见（{@code static}）：供 {@code PlanServiceTest} 直接断言解包语义（{@code 23000} 形态
+     * 返回非 {@code null}、{@code null}/非 23xx 形态返回 {@code null}），保证"不误重试"。
+     *
      * @param error 异常（通常为包装后的 {@link IllegalStateException}）
      * @return 唯一约束冲突的 SQL 异常；非唯一冲突（或不可判定）返回 {@code null}
      */
-    private static SQLException uniqueViolationCause(Throwable error) {
+    static SQLException uniqueViolationCause(Throwable error) {
         for (Throwable cause = error; cause != null; cause = cause.getCause()) {
             if (cause instanceof SQLException
                     && BizNoGenerator.isUniqueViolation((SQLException) cause)) {

@@ -197,6 +197,18 @@ class PlanSubAccountIsolationTest {
         private SubAccountScope lastScope;
 
         @Override
+        public String findMaxPlanNoByPrefix(String planNoPrefix) {
+            String max = null;
+            for (HedgePlan row : rows) {
+                if (row.planNo != null && row.planNo.startsWith(planNoPrefix)
+                        && (max == null || row.planNo.compareTo(max) > 0)) {
+                    max = row.planNo;
+                }
+            }
+            return max;
+        }
+
+        @Override
         public PageResult<HedgePlan> findPage(PageQuery query, String where, List<Object> whereArgs) {
             this.lastListScoped = false;
             this.lastScope = null;

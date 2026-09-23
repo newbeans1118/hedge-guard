@@ -39,6 +39,22 @@ public interface HedgePlanDao extends DeletableDao<HedgePlan, Long> {
                                          String extraWhere, List<Object> extraArgs);
 
     /**
+     * 取指定编号前缀下<b>字典序最大</b>的计划编号（{@code DATA_MODEL.md} §3.5「当日最大序号 + 1」取数）。
+     *
+     * <p><b>为何需要专用方法</b>：{@code t_hedge_plan} 无独立业务日列，业务日仅隐含于 {@code plan_no}
+     * 前缀（{@code HP<yyyyMMdd>}）；通用 WHERE 原子（{@code =}/{@code IN}/{@code IS NULL}）表达不了
+     * 前缀匹配，故在本方法内以 {@code plan_no LIKE ?}（前缀区间）直查 —— 走 {@code uk_hedge_plan_no}
+     * 唯一索引区间扫描。序号<b>零填充定长</b> ⇒ 前缀内字典序最大即序号最大。
+     *
+     * <p><b>不使用</b> {@code SELECT MAX(...) FOR UPDATE}（{@code §3.5} 明令禁止：热点表锁竞争）。
+     *
+     * @param planNoPrefix 编号前缀（须为 {@code HP<yyyyMMdd>}，由 {@code BizNoGenerator.hedgePlanDayPrefix}
+     *                     拼装；本层按占位符绑定，禁止拼接取值）
+     * @return 命中的最大编号；当日无计划返回 {@code null}
+     */
+    String findMaxPlanNoByPrefix(String planNoPrefix);
+
+    /**
      * 按主键 + 子账户权限过滤读取计划（{@code FR-PLAN-5}：无权限或不存在返回统一结果）。
      *
      * @param id    主键

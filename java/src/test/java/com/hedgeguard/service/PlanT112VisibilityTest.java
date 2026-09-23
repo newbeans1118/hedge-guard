@@ -360,6 +360,18 @@ class PlanT112VisibilityTest {
         private long nextId = 1;
 
         @Override
+        public String findMaxPlanNoByPrefix(String planNoPrefix) {
+            String max = null;
+            for (HedgePlan row : rows) {
+                if (row.planNo != null && row.planNo.startsWith(planNoPrefix)
+                        && (max == null || row.planNo.compareTo(max) > 0)) {
+                    max = row.planNo;
+                }
+            }
+            return max;
+        }
+
+        @Override
         public int insert(HedgePlan entity, long operatorId) {
             entity.id = nextId++;
             rows.add(entity);

@@ -47,9 +47,12 @@ import java.util.regex.Pattern;
  *   <li>约束强制：<b>NOT NULL</b>、<b>主键 / 唯一</b>（表级 + 唯一索引）、<b>外键</b>、
  *       <b>单列 {@code IN (...)} / {@code = '字面量'} 形态的 CHECK</b>；其余复杂 {@code CHECK}
  *       仅登记不求值（见 {@link #uncheckedCheckCount()}，测试显式披露）。</li>
- *   <li>查询：{@code SELECT <cols|*> FROM <t> [WHERE <col = ? | col IN (?,..) | col IS NULL>]
- *       [ORDER BY ...] [LIMIT ? OFFSET ?]}，以及 {@code SELECT COUNT(*) AS cnt FROM (<inner>) hg_cnt}
- *       （{@code DmDialect.countSql} 形态）。</li>
+ *   <li>查询：{@code SELECT <cols|*> FROM <t> [WHERE <col = ? | col IN (?,..) | col IS NULL |
+ *       col LIKE ?>] [ORDER BY ...] [LIMIT ? OFFSET ?]}，以及
+ *       {@code SELECT COUNT(*) AS cnt FROM (<inner>) hg_cnt}（{@code DmDialect.countSql} 形态）。</li>
+ *   <li>{@code LIKE ?}：绑定值为模式串，支持 {@code %}（任意长度）与 {@code _}（单字符）通配；
+ *       仅支持**整原子**形态 {@code <col> LIKE ?}（不解析 {@code OR}/{@code NOT} 组合）——
+ *       {@code (a LIKE ? OR b LIKE ?)} 等复合形态仍抛"无法求值的 WHERE 原子"（见不覆盖项）。</li>
  * </ul>
  *
  * <p><b>明确不覆盖</b>（诚实披露）：条件唯一索引的 {@code WHERE} 谓词、JOIN、聚合（除 count 包裹）、
@@ -729,6 +732,7 @@ public final class InMemoryDmEngine implements ConnectionFactory {
             Matcher in = Pattern.compile("(?is)^(\\w+)\\s+IN\\s*\\((.*)\\)$").matcher(atom);
             Matcher eq = Pattern.compile("(?is)^(\\w+)\\s*=\\s*\\?$").matcher(atom);
             Matcher isNull = Pattern.compile("(?is)^(\\w+)\\s+IS\\s+NULL$").matcher(atom);
+            Matcher like = Pattern.compile("(?is)^(\\w+)\\s+LIKE\\s+\\?$").matcher(atom);
             if (eq.matches()) {
                 String col = eq.group(1);
                 Object value = args.get(argIndex[0]++);
@@ -743,6 +747,11 @@ public final class InMemoryDmEngine implements ConnectionFactory {
             } else if (isNull.matches()) {
                 String col = isNull.group(1);
                 predicates.add(row -> row.get(col) == null);
+            } else if (like.matches()) {
+                String col = like.group(1);
+                Object value = args.get(argIndex[0]++);
+                String pattern = value == null ? null : String.valueOf(value);
+                predicates.add(row -> matchesLike(row.get(col), pattern));
             } else {
                 throw new UnsupportedOperationException("无法求值的 WHERE 原子：" + atom);
             }
@@ -1081,6 +1090,38 @@ public final class InMemoryDmEngine implements ConnectionFactory {
             return new BigDecimal(a.toString()).compareTo(new BigDecimal(b.toString())) == 0;
         }
         return a.equals(b) || String.valueOf(a).equals(String.valueOf(b));
+    }
+
+    /**
+     * SQL {@code LIKE} 求值（{@code %} = 任意长度；{@code _} = 单字符；其余为字面量，大小写敏感）。
+     *
+     * <p>SQL 语义：任一侧为 {@code NULL} ⇒ 结果为 {@code UNKNOWN} ⇒ {@code WHERE} 不命中。
+     *
+     * @param value   列值
+     * @param pattern 模式串（绑定参数；可为 {@code null}）
+     * @return 命中返回 {@code true}
+     */
+    private static boolean matchesLike(Object value, String pattern) {
+        if (value == null || pattern == null) {
+            return false;
+        }
+        return likeToRegex(pattern).matcher(String.valueOf(value)).matches();
+    }
+
+    private static Pattern likeToRegex(String like) {
+        StringBuilder re = new StringBuilder("^");
+        for (int i = 0; i < like.length(); i++) {
+            char c = like.charAt(i);
+            if (c == '%') {
+                re.append(".*");
+            } else if (c == '_') {
+                re.append('.');
+            } else {
+                re.append(Pattern.quote(String.valueOf(c)));
+            }
+        }
+        re.append('$');
+        return Pattern.compile(re.toString(), Pattern.DOTALL);
     }
 
     private static int intArg(Object value) {
