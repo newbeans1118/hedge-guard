@@ -9332,3 +9332,266 @@ cd /root/verify-t141/java && TMPDIR=/root mvn -B -o -Punit clean test
 - **无产品缺陷**；**1 条件 C-1**（更正产出方树锚自报与记忆登记）；**5 观察**（均不阻断）。
 
 > **不**由复核席判定 `T-107` 为 `DONE`；是否转 `DONE` 由编排者结合 C-1 处置裁定。
+
+---
+
+## 第 129 轮独立复核证据章（`T-144`，编排者 `team-lead` 并入登记 · 2026-09-24）
+
+> **并入口径**：以下章由独立复核席 `te-verify-t144`（`test-engineer`，**只读共享树、副本内验证**）产出，**原文照录**；编排者仅在章首加本登记块。**纯追加已核**（追加前 `docs/TEST_RESULT.md` = `2cc9947d48473399cdf749bb05b8c387` / **9334 行**）。
+>
+> **结论 = 通过 / 0 缺陷 / 0 阻断 / 7 观察** ⇒ 按本项目判据（**授权 + 独立验证**）**转 `DONE`**。冻结 `63ea815`；`java/src` `d6bbe600…`/347、`@Test` = **577**；门禁 **577/0/0/0**。
+>
+> **★(2) 守卫「真」且「承重」（本单核心）**：复核方独立确认新用例走**真实 `DmUserAccountDao` + 引擎原始行**；并**自设变异**（**不复用**产出方 `M1/M2/M3`）：**改回两步写 ⇒ 红在 `:125`**、另一组同红、**负控（仅改注释）绿** ⇒ **确实覆盖「乐观锁 0 行吞掉置位」**。
+> **★(6) 取样纪律复核 = 属实**（本会话**首次**合规）：取样 `01:31:01` **晚于**最后一次落笔 `01:28:37`；冻结点副本重测锚点与 `d6bbe600…`/347 一致。
+>
+> **★编排者的裁定与立号（依复核方的独立判定）**：
+> - **`O-7`（中）⇒ 判「真缺口」并立 `T-146`**：`must_change_password` 在 `src/main` **只被写入**（`AuthService:409`/`:815`/`:941`）、**从未被读取**；`login()`（`:229-291`）构造 `Session`（`:271`）**不含该标志、不判** `Y` ⇒ **`FR-AUTH-16` 处理规则明文要求的「首次登录与重置后强制修改」在服务端完全没有生效端**（现仅「置位」端有守卫）。**注意这不属「验收未点名」那类口径问题，而是处理规则落空** ⇒ 须实现**登录侧门禁**（服务端强制，不得以客户端约定替代）。
+> - **`O-3`＋`O-4` ⇒ 立 `T-147`**：复核方**同意**「服务层转显式 `BizException`」的方向，但**纠正落点** —— **不可**让 `PasswordHasher` 抛 `BizException`（`BizException` 在 `com.hedgeguard.web`、`PasswordHasher` 在 `com.hedgeguard.service` ⇒ **分层倒置**），正确形态 = 在 **服务边界**（`AuthService:431`/`:790`）包 `try/catch` 转换；并**不推荐**现在全局收窄 `ErrorMapper` 的 IAE 分支（多 handler 依赖 `IAE→10001` 承接**用户入参解析错**）。**O-4（中低）** 给出判据：全局 `instanceof IAE → 10001` **吞子类**（`NumberFormatException`/`PatternSyntaxException`/`InvalidParameterException`）、**回显 `getMessage()`**、**不记 SEVERE** ⇒ **潜伏**掩盖编程错误（现网 16 处 `parseLong/parseInt` 多为用户入参、10001 属正确语义 ⇒ **未显形**）。
+> - **`O-6`（局限，须登记）**：该守卫的**有效性依赖 `InMemoryDmEngine` 忠实求值 `WHERE row_version = ?`** —— 注入 A 变红**同时**即引擎保真度的探针 ⇒ **夹具级前提**；若引擎被替换/简化须**重验**。
+> - **不立号（登记观察）**：`O-1`（`iterationsOf` 无生产调用但为断言依据 ⇒ 保留**合理**）、`O-2`（产出方「`hash(String,int)` 无生产调用」表述**不精确**，经 `hash(String)` 传递可达）、`O-5`（`IllegalArgumentException` 理论上仍纳子类，但**全仓 `extends IllegalArgumentException` = 0 处** ⇒ 未实体化）；另 **`Clocks.clock()`（0 调用）** 与 **`ApiResponse.fail(ErrorCode,String,String)`（0 调用）** 两个**同类死码候选**（`O-1` 声明范围仅 `randomPassword`）⇒ 登记、择机清理。
+> - **`O-4` 断言紧度 = 足够紧**（类型 + 报文 + 不回显明文三者齐备）；**`O-1` 死码清理干净**；**(8)③ 强度用例未被削弱**。
+
+# `T-144` 独立复核报告（席 `te-verify-t144`，test-engineer）
+
+- **对象**：`T-144`「`T-136` 收尾三项」——① `O-2` 单条 UPDATE 修复补**真实 DAO 守卫** ② `O-4` 收紧偏松断言 ③ `O-1` 清 `randomPassword` 死代码
+- **冻结点**：提交 `63ea815`（交付提交 = `47d81aa`；`63ea815` = 其上的台账 `docs/BOARD.md` 一笔）
+- **隔离副本**：`git archive 63ea815 | tar -x -C /root/verify-t144`；构建在 `/root/verify-t144/java`、`TMPDIR=/root`（**未用 `/tmp`**）
+- **只读**共享树：全程未写 `/root/myspace/hedge-guard`（复核结束 `git status --porcelain` 空，见 §1）
+- **结论**：**通过**（0 缺陷 / 0 阻断 / 7 观察）（**不自评 `DONE`**）
+
+---
+
+## 0. 复核方法
+
+| 手段 | 说明 |
+|------|------|
+| 独立实测 | 隔离副本、自跑门禁、自设变异 + 负控、自设扫描面 |
+| 证据分栏 | 全文区分「**独立实测**」与「**产出方自述**」 |
+| 纪律 | 全仓 grep 排除 `.codebuddy/`；否定性结论附取样时刻/负控；变异先证编译通过再看测试；结束复位 + `clean` 重编译 |
+| 产物 | 本报告 `/root/te-verify-t144-chapter.md`（**不写 `docs/**`**） |
+
+---
+
+## 1. 门禁复算（复核面 1）
+
+### 1.1 独立实测
+- **树锚**（隔离副本、`find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum`）：
+  - `java/src` = **`d6bbe600d6f31ee2ddd8309b167d077d` / 347 文件** ✓ 与编排者/产出方一致
+  - `web` = **`df610703ffc80a40f8e8929fe12fcc54` / 27 文件** ✓
+- **`@Test` 源码计数**：`grep -rn "@Test" java/src --include=*.java | wc -l` = **577** ✓
+- **门禁**：`TMPDIR=/root mvn -B -o -Punit clean test` ⇒ **`Tests run: 577, Failures: 0, Errors: 0, Skipped: 0` / `BUILD SUCCESS`**（`Total time 01:50`）
+- **surefire 逐类和** = `577`（`grep " -- in " | wc -l` = **69 类**）⇒ **源码 `@Test` == surefire 逐类和 == 577，类数 69** ✓（与产出方自述一致）
+- **`arch-check` 聚合**：`bash tools/arch-check/arch-check.sh` ⇒ **rc=0**，`E1`–`E7` **全 0**（通过 7 / 命中 0 / 用法错 0）
+  - **`E5`（SQL 只允许落 `**/dao/**`）**：扫描根 = `java/**/*.java`、排除 `**/dao/**`，待扫 **162 文件**，判据 ①/②a/②a2/②b/②c/③ **全部无命中**，`E5 通过 rc=0` ✓
+- **残留扫描**（`.orig`/`.bak`/`.rej`/`MUTATION*`，排除 `.codebuddy`、`target`）：隔离副本与共享树**均 0** ✓
+- **共享树洁净**：`git status --porcelain`（剔 `.codebuddy`）= 空 ✓（复核全程只读）
+
+### 1.2 判定
+门禁全部复现。产出方自述「577/0/0/0、`@Test`==surefire==577、69 类、E1–E7 全 0 rc0」**逐项吻合**。
+
+---
+
+## 2. ★★① 真实 DAO 守卫的真伪与承重（复核面 2，本单核心）
+
+### 2.1 (a) 用例确实走**真实 `DmUserAccountDao` + `InMemoryDmEngine`**（独立实测）
+
+`AuthResetPasswordRealDaoTest.java`（新文件，212 行）：
+- 类 :69；`setUp` :81–99
+  - `engine = new InMemoryDmEngine();`（:84）→ 真建表脚本 `docs/DEPLOY/schema/m1_config_auth.sql`（:75/:87）
+  - `TxTemplate tx = new TxTemplate(new DataSourcePool(engine, …));`（:89）
+  - **`userDao = new DmUserAccountDao(tx);`（:90）** ← **生产 DAO 类，非假 DAO**
+  - `service = new AuthService(tx, userDao, new DmRoleDao(tx), …)`（:91–96）——**除 `FakeHistoryDao` 外全部真实 `Dm*Dao`**
+- `seedUser()`（:148–160）经**真实 `userDao.insert`** 落 1 行（`row_version=1`、`must_change_password='N'` 判别值）
+- **唯一假件** = `FakeHistoryDao`（:169–199，仅口令历史）。类注释 :63–67 诚实披露：引擎 `WHERE` 不求值 `>`，而 `DmPasswordHistoryDao.deleteBeyond` 含 `seq_no > ?` ⇒ 该 DAO 用内存假件；**被守卫的写入（`userAccountDao.updateById`）是真实 DAO**。
+
+**独立证实**：源码复核 + 用例实跑（下 §2.3）均表明断言红/绿由真实 `DmUserAccountDao.updateById` 的乐观锁语义决定 ⇒ (a) **成立**。
+
+### 2.2 (b) 断言读的是**库中真值**（独立实测）
+
+- 主判据 :124–127：`rawFlag()` = **引擎原始行**列值
+  `rawFlag()`（:142–145）= `engine.table("t_user").rows.get(0).get("must_change_password")` → 引擎列级真值，**非内存对象推断**
+- 次判据 :130–138：`userDao.findById(1L)`（真实 DAO 读回）+ 哈希可校验 + 旧口令失效 + `row_version` 1→2
+- 已核 `t_user` 在 schema 脚本内 **0 条 INSERT**（`grep -c "insert into" m1_config_auth.sql` = 0）⇒ `rows.get(0)` 即种子用户，索引无歧义 ✓
+
+### 2.3 (c) ★自证承重（**我自己做，不复用产出方 `M1/M2/M3`**）
+
+基线（未变异）：`AuthService.java` md5 = `552e036b86ccfe470e8f473dabeab12f`。
+变异流程：备份 → 改 → **先 `mvn -o -Punit compile`（证编译通过）** → 跑 `-Dtest=AuthResetPasswordRealDaoTest` → 复位 → `clean` 重编译。
+
+**注入 A（自设，形态 = 恢复 T-136 前两步写）**：
+```java
+userAccountDao.updatePasswordHash(userId, encoded, now); // 步1：写哈希 + must_change_password='N' + row_version+1
+user.mustChangePassword = "Y";
+userAccountDao.updateById(user, operatorId);            // 步2：携带陈旧 row_version
+```
+- `compile RC = 0`（**证编译通过**）
+- 测试：**`Tests run: 1, Failures: 1` / `TEST_RC=1`**，**红点 = `AuthResetPasswordRealDaoTest.java:125`**
+  - 断言前后值：`before=N after=N`，**`expected: <Y> but was: <N>`**
+- 机制独立核实：`AbstractDmDao.updateById`（:129–148）SQL = `… WHERE id = ? AND row_version = ?`（`buildUpdateSql` :288–295 追加 `row_version = row_version + 1`）；`AuditFields.applyUpdate`（:44–52）**只校验 rowVersion>0、不改版本** ⇒ 步1 把库中版本推到 2，步2 仍以内存 `rowVersion=1` 匹配 ⇒ **0 行**；旧形态**未检查** `updateById` 返回 ⇒ **静默吞掉置位**。
+
+**注入 B（自设，形态 = 单条 UPDATE 但置位写作 `'N'`）**：
+```java
+user.mustChangePassword = "N"; // 单条 UPDATE，仍是单写，但值写错
+```
+- `compile RC = 0`；测试 **`Failures: 1` / `TEST_RC=1`**，红点亦 **`:125`**，`before=N after=N`、`expected: <Y> but was: <N>`
+
+**负控（仅改注释）**：改 :406–407 注释文本 ⇒ **`Tests run: 1, Failures: 0` / `NEG_RC=0`（不红）** ⇒ 变异判据非恒红 ✓
+
+**复位**：`cp` 还原 → md5 复归 `552e036b…` → 最终 `clean test` = **577/0/0/0 BUILD SUCCESS**；隔离副本 `java/src` 树锚复测仍 = **`d6bbe600…`/347**；`git diff 63ea815 -- java/src` **空**（逐字节复原）✓
+
+### 2.4 (d) 是否**真正覆盖**「乐观锁 0 行吞掉置位」
+
+**成立**。注入 A 精确复现该失败模式：步1 `updatePasswordHash` 归零 `must_change_password` 并推进版本，步2 整实体 `updateById` 以陈旧版本命中 0 行而被静默吞掉 ⇒ 判定落在 :125「置位须为 `'Y'`」。注入 B 进一步证「不管何种实现，只要最终列值非 `'Y'` 即红」。**该守卫既承重、又覆盖了目标失败模式，而非只覆盖别的路径**。
+
+> 产出方自述「红在 :125，`before=N after=N`，`expected:<Y> but was:<N>`」——**独立复现一致**（其变异编号未复用；我用自设 A/B）。
+
+---
+
+## 3. ★★② 异常类型的一致性（复核面 3，独立判定，含反驳权）
+
+### 3.1 事实核对（独立实测）
+- `AuthAdminServiceTest`：同端点兄弟断言
+  - :445（缺 `newPassword`）→ `BizException` + `ErrorCode.PARAM_INVALID`
+  - :457（新口令=当前口令）→ `BizException` + `ErrorCode.PARAM_INVALID`
+  - :473（口令强度不足）→ **`IllegalArgumentException`**（本单收紧后）
+- 根因：`PasswordHasher.assertStrength`（:167–188）抛**裸 `IllegalArgumentException`**（:185）；在 HTTP 层由 `ErrorMapper` 映射为 `10001`。
+
+### 3.2 ① 该类型不一致是否构成缺陷
+**不构成功能缺陷**（判为**一致性/可维护性观察 O-3**）。理由：线上行为正确——`RequestDispatcher.errorResult`（:94–96）对任意异常走 `ErrorMapper.map`/`httpStatus`，IAE ⇒ `HTTP 400 / code 10001`，与兄弟的 `PARAM_INVALID` **同码同状态**；语义无损失，仅**异常类型层**不统一（服务工具抛裸 JDK 异常 vs 业务层抛 `BizException`）。
+
+### 3.3 ② 依赖全局 `IAE → 10001` 宽映射是否掩盖编程错误
+**有真实之虞，但当前为潜伏（观察 O-4）**。独立读 `ErrorMapper.map`（:33–65）给出判据：
+- 该分支是 **按类型全局**（`throwable instanceof IllegalArgumentException`，:49），**非按调用点**；命中后 `code=10001` 且**直接回显 `throwable.getMessage()`**（:51–53），**不记录 SEVERE**（对比 generic `Throwable` 分支 :58–63 记 SEVERE + 只回 `10022` 默认语）。
+- **子类一并吞入**（独立实测 JDK 层级）：
+  - `java.lang.NumberFormatException extends IllegalArgumentException` ✓
+  - `java.util.regex.PatternSyntaxException extends IllegalArgumentException` ✓
+  - `java.security.InvalidParameterException extends IllegalArgumentException` ✓
+- 后果：若**内部**发生 `NumberFormatException`/`PatternSyntaxException`（编程/数据错），会被**伪装成参数错误 10001（400）**并把内部消息回显给客户端、**跳过 SEVERE 留痕**。
+- 现网扫描：`src/main` 存在 16 处 `Long/Integer.parseLong/parseInt`（`grep`，多为 handler 的**用户入参**解析，此时 10001 属**正确**语义），`Pattern.compile` 仅 1 处常量（安全）。**未发现**当前由内部源触发 IAE 子类的站点 ⇒ 风险**尚未显形**。
+
+### 3.4 ③ 处置建议（独立判断）
+- **不建议**改 `PasswordHasher` 抛 `BizException`：`BizException` 在 `com.hedgeguard.web`、`PasswordHasher` 在 `com.hedgeguard.service` ⇒ 会造成**服务层工具依赖 web 层**的分层倒置。
+- **若收紧，正确形态** = 在 **服务边界转换**：`AuthService:431` / `:790` 两处 `assertStrength` 调用点外包 `try{…}catch(IllegalArgumentException e){ throw BizException.of(PARAM_INVALID, e.getMessage()); }`（`PasswordHasher` 保持纯工具）。收益 = 端点内兄弟一致；代价 = 改**生产码** + `AuthAdminServiceTest:473` 须改回 `BizException`。
+- **本单立场**：此变更**超出 `T-144` 声明范围**（守卫/断言/死代码）且**非功能缺陷** ⇒ **不作为 `T-144` 阻断项**；建议另立**跟进任务**（低优先，P2/P3）。全局收窄 `ErrorMapper` 的 IAE 分支风险更高（多 handler 依赖 IAE→10001 承接用户入参解析错）⇒ **不推荐现在做**。
+- 与编排者倾向对照：**同意**「服务层转显式 `BizException` + 保持 `PasswordHasher` 纯工具」的方向（且须落在服务层而非工具层），但**不同意**把它并入 `T-144` 验收——应独立立项。
+
+---
+
+## 4. ② `O-4` 断言是否「足够紧」（复核面 4）
+
+改后断言（`AuthAdminServiceTest:467–485`）三件齐备（独立实测）：
+1. **异常类型**：`assertThrows(IllegalArgumentException.class, …)`（:473）——原为 `assertThrows(RuntimeException.class)`（过宽，任何 NPE 也能过）
+2. **报文含策略语**：`assertTrue(e.getMessage().contains("口令强度不足"), …)`（:479）
+3. **不回显明文**：`assertFalse(e.getMessage().contains("short"), …)`（:481）
+4. 追加 **线上错误码**：`assertEquals(ErrorCode.PARAM_INVALID.code(), ErrorMapper.map(e,"HGT136").code, …)`（:482–484）⇒ 断言 `10001`
+
+**判定 = 足够紧（O-4 达成）**。附残余观察 **O-5**：
+- `IllegalArgumentException` 仍**接纳任意子类**（若将来引入 `XxxPasswordException extends IllegalArgumentException` 且报文同形，仍会过）。但——**独立扫描全仓 `extends IllegalArgumentException` = 0 处**（仅 `BizException`/`PoolExhaustedException`/`WsProtocolException` 三个 `extends RuntimeException`），故该理论弱点**当前未实体化**；且②③两条子串/常量断言已提供实质约束。
+- 该断言经 `ErrorMapper.map(e,…)` **直接单测**（非 HTTP 往返）；`/auth/password` 弱口令路径**无** e2e HTTP 用例（`AUTHEndpointRegistrationTest` 仅为注册面）。此为**既有的测试风格**，非本单引入。
+
+---
+
+## 5. ③ `O-1` 死代码清理（复核面 5）
+
+### 5.1 独立实测
+- `PasswordHasher.randomPassword`（原 `:146` 后，33 行）**已从 `src/main` 移除** ✓（`git diff` 显示纯删除 `0/33`）
+- 全仓引用残留：`grep -rn "randomPassword"`（排 `.codebuddy`）= **1 处 = `PasswordHasherTest.java:20`**，位于类 javadoc（`* {@code PasswordHasher.randomPassword} 一并删除——…`）⇒ **注释而非代码** ✓
+- 保留项理由核验：
+  - `hash(String,int)`：**生产可达** —— `hash(String)`（:61–63）**委托** `hash(password, DEFAULT_ITERATIONS)`（:62）⇒ 非死码。「无生产调用」表述**不精确**（无**直接**调用，但有**传递**调用）。
+  - `iterationsOf`（:138–147）：**无生产调用**（`src/main` 0 处），仅 `PasswordHasherTest:55/:59` 用作断言访问器 ⇒ 产出方「为断言依据、非『生成即弃』」**部分成立**（它确是断言依据，且未产生被丢弃的敏感物）⇒ 判**保留合理**，列观察 **O-1（边界）**。
+- `RANDOM` 字段（:50）**非死码**（`hash` 内 `RANDOM.nextBytes(salt)` :82 使用）✓（未误删）
+
+### 5.2 自设同类扫描（无生产调用且无断言价值者）
+扫描法：提取 `src/main` 全部 `public static` 方法名 → 全仓计引用数。**新发现 3 处候选**（列观察，**非本单缺陷**，因 `O-1` 声明范围仅 `randomPassword`）：
+1. **`Clocks.clock()`**（`common/Clocks.java:23`）：全仓（含 test）`grep "\.clock()"` = **0 调用**。`Clocks.now()/today()/epochMilli()` 直接读 `current` 字段 ⇒ `clock()` 无消费者。**同类死码候选**。
+2. **`ApiResponse.fail(ErrorCode,String,String)`**（`web/ApiResponse.java:57`）：全仓 `fail(` 仅**定义**一行，**0 调用**。错误响应实际由 `RequestDispatcher.errorResult` 经 `ErrorMapper` 直接序列化 `ErrorInfo`（:95）⇒ 该工厂方法**已无消费者**。**同类死码候选**。
+3. `Bootstrap.main`（:264）：JVM 入口，非死码（误报，排除）。
+
+---
+
+## 6. ★取样纪律复核（复核面 6）
+
+产出方声明：取样时刻 **2026-09-24T01:31:01+08:00**、最后一次落笔 **01:28:37**。
+
+**独立核（`stat` + `git show`）**：
+- 4 改动文件 mtime：`PasswordHasher.java` **01:14:06**、`AuthResetPasswordRealDaoTest.java` **01:18:10**、`PasswordHasherTest.java` **01:14:13**、`AuthAdminServiceTest.java` **01:28:37**（**最晚**）
+- ⇒ **「最后一次落笔 01:28:37」属实**（恰为 `AuthAdminServiceTest.java` mtime）
+- `find java/src -type f -newermt "2026-09-24 01:31:01"` = **0 文件** ⇒ 取样时刻（01:31:01）**晚于**全部 `java/src` 落笔 ⇒ **在静止树上取样，属实** ✓
+- 提交时间交叉核：交付提交 `47d81aa` = **01:33:00**、台账 `63ea815` = **01:33:28**（**皆为 01:31:01 之后，但不改文件内容**）；最晚 `java/src` mtime = 01:28:37
+- **锚可复现性终判**：我在冻结点副本独立复测 = **`d6bbe600…`/347**，与产出方自报**一致** ⇒ 锚**可复现** ✓
+
+**判定**：本会话**首次**「取样晚于最后落笔」的合规声明——**属实**（此前两次「中间态取样致锚不可复现」的反例未重现）。
+
+---
+
+## 7. 改动面（复核面 7）
+
+`git diff --numstat 47d81aa^ 47d81aa`（= `T-144` 交付）**恰 5 文件**：
+
+| 文件 | +/− | 性质 |
+|------|-----|------|
+| `java/src/main/.../service/PasswordHasher.java` | 0 / 33 | 纯删 `randomPassword` |
+| `java/src/test/.../service/AuthResetPasswordRealDaoTest.java` | 212 / 0 | 新增守卫 |
+| `java/src/test/.../service/AuthAdminServiceTest.java` | 15 / 4 | **唯一 hunk**：弱口令用例收紧 |
+| `java/src/test/.../service/PasswordHasherTest.java` | 6 / 24 | 删 `oneTimePassword…` 用例 + 2 import + 改头注 |
+| `docs/TASKS.md` | 1 / 1 | 台账（T-144 状态） |
+
+`git diff --numstat 63ea815^ 63ea815` = `docs/BOARD.md` 5/3（**台账**，非代码）。
+
+- **仅 `java/**`（4 文件）+ 台账** ✓；**未动 `web/**`/`cpp/**`/`proto/**`**
+- **既有断言是否放宽**：`AuthAdminServiceTest` 仅 1 hunk 且为**收紧**；`PasswordHasherTest` 删的是已死码的专属用例（非削弱强度覆盖，见 §8③）。**无任何既有断言被放宽** ✓
+
+---
+
+## 8. 自设扫描面（复核面 8，≥2 项，产出方未提及）
+
+### 8.1 ① 该守卫是否**只在「单条 UPDATE」形态下有效**
+**否——守卫是「结果面」断言，与实现形态解耦**。注入 A（两步写）与注入 B（值写错）**均红**，证明它断言的是**可观察终态**（列真值 + 版本 + 哈希），任何导致终态错的实现变更都会红。
+**局限（观察 O-6）**：守卫强度**依赖 `InMemoryDmEngine` 忠实求值 `WHERE row_version = ?`**——注入 A 之红**同时**即该引擎保真度的探针（若引擎忽略 `row_version`，A 会绿）。即：守卫有效 ⟺ 引擎乐观锁语义保真。当前成立，但属**夹具级前提**，若将来引擎被替换/简化，须重验。
+
+### 8.2 ② `must_change_password` 的**读取路径**是否有守卫
+**无（观察 O-7，范围外，需裁定）**。独立实测：`must_change_password` 在 `src/main` **仅被写入**（`AuthService:409` resetPassword / `:815` createUser / `:941` enableUser），**从未被读取**以门禁登录；`login()`（:229–291）构造 `Session`（:271）**不含**该标志，**不判** `must_change_password='Y'`。
+⇒ **「置位（写）」端有守卫，「读取生效（登录强制改口令）」端在服务端无任何实现/守卫**。`FR-AUTH-16` 处理规则含「首次登录与重置后强制修改」，但其验收 1–4 未点名登录门禁 ⇒ **是否要求服务端门禁须由产品/测试经理裁定**；**非 `T-144` 引入、非其范围**，列观察并建议另立任务核实。
+
+### 8.3 ③ 删 `randomPassword` 用例后**强度校验本身**是否仍有用例
+**是，未被削弱（独立实测）**。`PasswordHasherTest.strengthPolicy`（:62–80）仍在：**1 正例 + 5 反例**（过短/缺大写/缺小写/缺数字/缺符号）+ 「不回显明文」断言（:79）。删除的是 `oneTimePasswordIsStrongAndUnique`（:原 80–99）——**其唯一被测对象 `randomPassword` 已死**，故删除未降低强度覆盖 ✓
+
+---
+
+## 9. 注入与负控汇总（自设，不复用产出方编号）
+
+| 编号 | 注入 | 编译 | 测试 | 红点/前后值 |
+|------|------|------|------|-------------|
+| 自设 A | `resetPassword` 恢复两步写 | rc*0* | **红**（1 fail） | `:125`，`before=N after=N`，`expected:<Y> but was:<N>` |
+| 自设 B | 单条 UPDATE 但置位写 `'N'` | rc*0* | **红**（1 fail） | `:125`，`before=N after=N`，`expected:<Y> but was:<N>` |
+| 负控 | 仅改 :406–407 注释 | rc*0* | **绿**（0 fail） | — |
+
+复位后：`AuthService` md5 复归 `552e036b…`、隔离副本树锚复归 `d6bbe600…/347`、`clean test` = **577/0/0/0**。
+
+---
+
+## 10. 结论
+
+### 判定：**通过**（0 缺陷 / 0 阻断 / 7 观察）
+
+- 门禁（§1）、守卫真伪与承重（§2）、断言紧度（§4）、死代码清理（§5）、取样纪律（§6）、改动面（§7）**全部独立复现且成立**。
+- **无阻断项、无缺陷**。
+
+### 观察清单（均不阻断；`T-144` 之外或范围边界）
+
+| 编号 | 级别 | 位置 | 说明 |
+|------|------|------|------|
+| O-1 | 低 | `PasswordHasher.iterationsOf:138` | 无生产调用、仅断言依据 ⇒ 保留合理（边界） |
+| O-2 | 低 | `PasswordHasher:62` | `hash(String,int)` 之「无生产调用」表述**不精确**（经 `hash(String)` **传递可达**） ⇒ 措辞宜订正 |
+| O-3 | 低 | `AuthAdminServiceTest:473` vs `:445/:457` | 同端点兄弟断言**异常类型不一致**（IAE vs BizException）；线上行为正确（400/10001）⇒ 一致性/可维护性 |
+| O-4 | 中低 | `ErrorMapper:49–53` | **全局** `instanceof IAE → 10001`：吞子类（`NumberFormatException`/`PatternSyntaxException`/`InvalidParameterException`）、回显 `getMessage()`、**不记 SEVERE** ⇒ **潜伏**掩盖编程错误之虞（当前未显形） |
+| O-5 | 低 | `AuthAdminServiceTest:473` | `IllegalArgumentException` 仍接纳子类（当前全仓 **0** 个 IAE 子类 ⇒ 未实体化） |
+| O-6 | 低 | `AuthResetPasswordRealDaoTest:142` | 守卫强度**依赖 `InMemoryDmEngine` 保真求值 `row_version = ?`**（夹具级前提） |
+| O-7 | 中 | `AuthService.login:229` | `must_change_password` **只写不读**：登录侧无「强制改口令」门禁/守卫；`FR-AUTH-16` 处理规则「首次登录与重置后强制修改」是否要求服务端门禁**需裁定**；**非本单引入** |
+
+### 建议后续（不属 `T-144`，供编排者裁定）
+1. **（对应 O-3/O-4）** 在**服务边界**（`AuthService:431`/`:790`）把 `assertStrength` 的 IAE 转为显式 `BizException(PARAM_INVALID)`，令同端点兄弟一致；`PasswordHasher` 保持纯工具。**独立立项**，勿并入 `T-144`。
+2. **（对应 O-7）** 核实 `FR-AUTH-16`「重置后强制修改」是否要求**服务端登录门禁**；若是，则「读取生效」端亦须实现 + 守卫。
+3. **（对应 §5.2）** 登记 `Clocks.clock()` / `ApiResponse.fail(...)` 两个无消费者公共方法，择机清理（`T-144` 的 `O-1` 范围仅 `randomPassword`）。
+
+> **本席不自评 `T-144` 为 `DONE`**；是否转 `DONE` 由编排者裁定。
