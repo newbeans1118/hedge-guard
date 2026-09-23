@@ -11,10 +11,10 @@
  *
  * ## 口径（**勿用任何总数核对** —— 本项目已因口径不一浪费排查轮次）
  * 接口面的**唯一权威是 `java/src/main/java/com/hedgeguard/web/ApiRoutes.java`**（`byModule()` 逐模块列出的路径）。
- * 铺页面只按**逐条路径**，不按总数。若确须引用规模，统一写：**「82 个 (方法, 路径) 对 / 60 个路径」**并标明口径：
- *   判据 = `java/src/test/java/com/hedgeguard/web/BootstrapAssemblyTest.java:140`
- *     `assertEquals(82, assembly.routeCount(), "业务路由必须全部注册：80（AUTH17/CONFIG17/PRODUCT13/SPOT15/PLAN18）+ ping 2")`
- *   分模块（按"对"）：AUTH 17 / CONFIG 17 / PRODUCT 13 / SPOT 15 / PLAN 18 = 80，另加 `ping` 的 `GET`+`HEAD` 2 对 ⇒ 82。
+ * 铺页面只按**逐条路径**，不按总数。若确须引用规模，统一写：**「83 个 (方法, 路径) 对 / 60 个路径」**并标明口径：
+ *   判据 = `java/src/test/java/com/hedgeguard/web/BootstrapAssemblyTest.java:145`
+ *     `assertEquals(83, assembly.routeCount(), "业务路由必须全部注册：81（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18）+ ping 2")`
+ *   分模块（按"对"）：AUTH 17 / CONFIG 18 / PRODUCT 13 / SPOT 15 / PLAN 18 = 81，另加 `ping` 的 `GET`+`HEAD` 2 对 ⇒ 83。
  *   （`PLAN` 的 18 对含 2 处循环注册：`PlanActionHandler.Action.values()` 8 条 + `PlanRatioHandler.Method.values()` 3 条。）
  * ⚠️ **PRODUCT 的路径数为 9、按"对"为 13**（旧口径"6"是 `ModuleRoutesConsistencyTest` 的**覆盖下限清单**，非全量，勿用）。
  * ⚠️ **不要写 47 / 38 / 29**（均已作废；47 系 `T-109` 补齐「已声明未注册」端点之前的旧值）。
@@ -23,7 +23,7 @@
  *   AUTH    POST /auth/login、POST /auth/logout、GET|POST|PUT /auth/user、GET|POST /auth/role、
  *           GET|POST /auth/position-group、GET|POST /auth/authorization、GET|POST /auth/sub-account-perm、
  *           GET /auth/change-log、GET /auth/unauthorized-attempt、POST|PUT /auth/password
- *   CONFIG  GET|PUT /config/item、GET|POST /config/sub-account、GET|POST /config/ctp、POST /config/ctp/test、
+ *   CONFIG  GET|PUT /config/item、GET|POST|PUT /config/sub-account、GET|POST /config/ctp、POST /config/ctp/test、
  *           GET|POST /config/dict、GET|POST /config/subject、GET|POST /config/report-period、
  *           GET /config/dispatch/{id}、GET /config/change-log、POST /config/import、GET /config/export
  *   PRODUCT GET|POST /product、GET /product/{id}、POST /product/whitelist、GET|POST /product/quota、
