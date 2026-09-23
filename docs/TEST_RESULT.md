@@ -8381,3 +8381,198 @@ surefire 测试类 **65**；`@Test`（`grep -rc`）**526** == surefire **526**�
 - 门禁：**`539/0/0/0`**（两轮），surefire==`@Test`==539；`arch-check` 聚合 **rc 0**、**E1–E7 全 0**
 - 路由：`ApiRoutes` 未改（声明 129 路径）；CONFIG `(方法,路径)` **17→18**；`PUT` 在 §4.1.1 CONFIG 方法集 `GET/POST/PUT` 内
 - 注入：**3 组全杀**（A 红 2 / B 红 1 / C 红 1）+ **自设探针 3/3 绿**；复位 `diff` 恒等 + clean 重编译 539/0/0/0
+
+---
+
+## 第 120 轮独立复核证据章（`T-137` 退回修复轮，编排者 `team-lead` 并入登记 · 2026-09-23）
+
+> **并入口径**：以下章由独立复核席 `te-verify-t137b`（`test-engineer`，**只读共享树、验证在副本 `/root/verify-t137b`**）产出，**原文照录**；编排者仅在章首加本登记块。**纯追加已核**（追加前 `docs/TEST_RESULT.md` = `bc980e560e5e631a682baaf27bd6c319` / **8383 行**）。
+>
+> **结论 = 有条件通过 / 0 阻断缺陷 / 0 中·高级缺陷 / 5 观察 / 1 建议（**复核方明标「非必需、不退回」**）** ⇒ 按本项目判据（**授权 + 独立验证**）**转 `DONE`**（**该「条件」经判定不构成阻断**；可选加固已登记为观察，见下）。冻结 `8cb101f`；`java/src` 树锚 **`e5a86785…/343`**、`@Test` = **546**（复核方独立实测吻合）。
+>
+> **★门禁（隔离副本，两轮含变异复位后 clean）**：`mvn -B -o -Punit clean test` = **546/0/0/0**；**surefire 逐类和 == 546 == 总数**；`arch-check` `E1`–`E7` rc0。
+>
+> **★(2) 口径符合 `DATA_MODEL §3.5`（本轮核心）**：取号已为**同一事务内「当日最大序号 + 1」**（`PlanService:589-599`，`:590-594`）、**按业务日重置**、**未使用 `FOR UPDATE`**（`DmHedgePlanDao:176`）、**保留** `retryOnUniqueConflict`/3 次。**★字典序进位：域内无反例** —— `pad()` 对 **> 4 位抛异常** ⇒ **5 位 `plan_no` 不可产生**，定长下**字典序 ≡ 数值序**（探针实证）。**（即：`seq` 溢出 9999 是 *loud* 失败，不会静默错序。）**
+> **★(3) 并发不变式成立**：重试重读**确实推进**（探针 A/B 同取 `0002` → B 先提交 → A 撞 → **重试取 `0003`**）。
+> **★(5) `O-2` 终局判定 = 保留收窄、不退回**：其可见性前提与 `findMaxPlanNoByPrefix` **同源**，**未引入新失败模式**（仅报错文案与次数差异）。复核方另给**可选对冲**「判不中时仍重试一次」（成本极低、可自愈），**明标非必需**。
+> **★(6) 引擎 `LIKE` 增量 = 非放宽**：撤掉该分支后**仅 `M1EndToEndAcceptanceTest` 10 例红**、**其余 0 类受影响** ⇒ 增量只作用于确实需要的路径，**未使既有用例由红转绿**。
+> **★(7) 改动面**：`java/**` **17 文件**（**4 main + `java/CONTRACTS.md` + 12 test**）⇒ **必需修正 17 / 放宽可疑 0**。**三项新用例经复核方自设变异 `M1`/`M2`/`M3` 全杀**（**未复用**产出方的 `A/B/C/D`）。
+>
+> **★编排者口径勘误（2026-09-23）**：我在派单中写「**15 个** plan 相关测试文件要改」，**实测为 12 个 test 文件**（`git show --name-status --format= 8cb101f | grep java/src/test | wc -l` = **12**；总 19 文件 = 4 main + 12 test + 1 `CONTRACTS.md` + 2 `docs/`）。该数字系我**凭 `git status` 列表目测**所得，未逐类核对 ⇒ **据实订正**（复核方判定不受影响）。
+
+# T-137「退回修复」轮 独立复核章节 — 席 `te-verify-t137b`
+
+> 独立于产出方 `be-t137b`。工作目录（只读）= `/root/myspace/hedge-guard`；复核副本 = `/root/verify-t137b`
+> （`git archive 8cb101f | tar -x`），构建 `TMPDIR=/root`，**未在共享树 `java/` 下跑任何 `mvn`**（并发约束：`T-141` 正在写 `PlanService.createTradePlan`）。
+> 取样时刻（独立实测）：**2026-09-23 22:5x–23:06**（本机）。全仓 grep 已排除 `.codebuddy/`。
+
+## 0. 结论
+
+**有条件通过 / 0 阻断缺陷 / 0 中·高级缺陷 / 5 观察 / 1 建议（不退回）。**
+
+- 上一轮被退回的核心问题（`O-1`：seq 口径违背 `DATA_MODEL §3.5`）**已改正**：取号已为**同一事务内「当日最大序号 + 1」**（按业务日重置），且**未使用 `FOR UPDATE`**。
+- **机制未被削弱**：`retryOnUniqueConflict` + **≤3 次** 保留；三项新增用例**经自设变异证实承重**（非假绿）。
+- **不判 `T-137` 为 `DONE`**（本席仅出事实与判定；发布/转态由编排器裁定）。
+
+---
+
+## 1. 冻结点核验（独立实测）
+
+| 项 | 产出方/编排者自述 | 独立实测 | 判定 |
+|----|------------------|----------|------|
+| 提交 | `8cb101f` | `git rev-parse HEAD` = `8cb101f2fa4e773d89079277594c7b0c8ce7646e6` | ✅ |
+| `java/src` 树锚 | `e5a86785…`/343 | `find java/src -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum` = **`e5a86785f8c864415c6e0ac5cf91ab54`**，文件 **343** | ✅ 吻合 |
+| `@Test` 计数 | 546 | `grep -rn @Test java/src/test \| wc -l` = **546** | ✅ |
+| 改动面 | 17 文件 | `git diff --name-only 8cb101f^ 8cb101f \| wc -l` = **19**；其中 **`java/**` 恰 17**（4 main + `java/CONTRACTS.md` + 12 test）+ 2 `docs/`（`BOARD.md`/`TASKS.md`） | ✅（"17" = java 内文件数） |
+
+> 注：编排者口径「15 个 plan 相关测试文件」与实测不符 —— **实为 12 个 test 文件**（详见 §7）；该差异不影响结论。
+
+### 门禁（隔离副本，`mvn -B -o -Punit clean test`）
+
+| 轮次 | 结果 | 证据 |
+|------|------|------|
+| 冻结点首次 | **546 / 0 / 0 / 0**，BUILD SUCCESS，EXIT=0 | `/root/verify-t137b-build.log` |
+| surefire 逐类和 | **546** | `grep -oE "Tests run: N…$" \| awk 求和` = 546 |
+| `@Test` | **546** == surefire 逐类和 == 总数（三数一致，无注释吞并） | ✅ |
+| `arch-check` 聚合 | rc **0**；`E1`–`E7` **全 0**（7 通过 / 0 命中 / 0 前置错） | `/root/verify-t137b-build.log` |
+| 变异复位后 clean 重编译 | **546 / 0 / 0 / 0**，BUILD SUCCESS | `/root/verify-t137b-restore.log` |
+
+**判据（写「冻结点上全绿」）**：`8cb101f` 冻结点、隔离副本 `mvn -B -o -Punit clean test` **546/0/0/0 全绿**，`arch-check` `E1`–`E7` 全 0 rc0。✅
+
+---
+
+## 2. 口径是否符合 `DATA_MODEL §3.5`（本轮核心）
+
+**§3.5 原文**（`docs/DATA_MODEL.md:4380`，节头 `:4356`）要求：`<日期段 + 当日序号>` 由应用层在**同一事务内**用「**当日最大序号 + 1**」生成，靠表上 `UNIQUE` 兜底（并发冲突时重试），**不使用** `SELECT MAX(...) FOR UPDATE`，采用 `UNIQUE` 冲突 + **最多 3 次重试**。
+
+| 子项 | 独立实测（文件:行号） | 判定 |
+|------|----------------------|------|
+| ① 取号为「当日最大序号 + 1」 | `PlanService.java:590-594`：`bizDate = Clocks.today()` → `findMaxPlanNoByPrefix(hedgePlanDayPrefix(bizDate))` → `hedgePlan(bizDate, hedgePlanNextSeq(bizDate, maxPlanNo))`；`BizNoGenerator.hedgePlanNextSeq:68-80` = `parseLong(末段)+1`，前缀不符/`null` ⇒ 返回 **1**（按业务日重置） | ✅ |
+| ② **同一事务内** | 取数 + `insert` 同在 `tx.inTransaction(connection -> {…})`（`PlanService.java:589-599`） | ✅ |
+| ③ **未用 `FOR UPDATE`** | `DmHedgePlanDao.java:176`：`"SELECT plan_no FROM " + tableName() + " WHERE plan_no LIKE ?"`，参数 `prefix+"%"`（`:177-178`）；全仓 `grep FOR UPDATE` 于该方法 **0 命中** | ✅ |
+| ④ 按**当日前缀**取 MAX | 前缀 = `BizNoGenerator.hedgePlanDayPrefix` = `"HP"+yyyyMMdd`（`BizNoGenerator.java:51-56`，唯一拼装入口）；DAO 以该前缀 `LIKE ?` 定位当日行 | ✅ |
+| ⑤ 保留 `retryOnUniqueConflict` + **≤3 次** | `PlanService.java:587` 接线；`RETRY_MAX_ATTEMPTS = 3`（`:94`）；`BizNoGenerator.retryOnUniqueConflict:214-238` 循环 `i=1..maxAttempts` | ✅ |
+
+### ★位数进位（字典序 vs 数值序）—— 判定：**域内无反例**
+
+- 探针（`jshell --class-path …/target/classes`，独立实测，23:06）：
+  - `hedgePlanNextSeq(day, "HP202609209999")` = **10000**；
+  - `hedgePlan(day, 10000)` ⇒ **抛** `IllegalArgumentException：「套保计划编号序号超出 4 位：值=10000…（DATA_MODEL.md §3.5 位数约定）」`；
+  - `"HP2026092010000".compareTo("HP202609209999") = -8`（5 位串**确实**字典序更小）—— **但该形态不可产生**；
+  - 域内样例：`hedgePlan(999)="HP202609200999"`、`hedgePlan(1000)="HP202609201000"`（均 4 位）。
+- 机制依据：`BizNoGenerator.pad:256-267` **要求** `s.length() ≤ width`，超宽即**抛**（不静默截断/不产生 5 位）。
+- **判定**：`plan_no` 当日序号恒为**定长 4 位**（≤9999），故「前缀内字典序最大 ≡ 数值最大」**成立**；`seq=10000` 时**响亮失败**（容量上限 9999/日、非静默错误）。**无域内反例**。⚠️ 仅当库内出现「非 4 位 `plan_no`」（本设计不产生）时字典序才可能失真 ⇒ 属不可达形态。
+
+---
+
+## 3. ★并发不变式：重试后重新取号**一定前进**？—— 判定：**成立（附前提）**
+
+**机制论证**：`retryOnUniqueConflict` 的每一次尝试都**重跑整个 lambda**（`PlanService.java:587-646`）⇒ 新 `tx.inTransaction` ⇒ **重读** `findMaxPlanNoByPrefix` ⇒ 重算 seq。设两事务 T1/T2 并发读到同一 max=N：
+
+1. 两者候选均为 `N+1`（同 seq）；
+2. T1 先提交 `N+1`；T2 的 `insert` 撞 `uk_hedge_plan_no`（标准唯一索引**阻塞至 T1 提交/回滚**后才判冲突 ⇒ 冲突发生时 T1 的已提交行**可见**）；
+3. T2 回滚 → 重试：新事务重读 max = `N+1` → 候选 `N+2` → **前进** → 成功。
+
+**探针演示**（独立实测，同上）：
+```
+[conc] 两事务并发读到同一 max -> A候选=HP202609200002 ; B候选=HP202609200002 (相同=true)
+[conc] A 提交撞唯一约束? true
+[conc] A 重试重取号 -> HP202609200003 ; 前进=true ; 仍冲突=false
+[conc] 终态 rows=[HP202609200001, HP202609200002, HP202609200003]
+```
+**前提**：重读须**看得到**并发已提交的插入 —— 即 `READ COMMITTED` 语义（与 `findMaxPlanNoByPrefix` 同一前提，见 §5(b)）。在此前提下不变式成立；上界＝`§3.5` 的 3 次（≥4 笔同刻并发时，超出者按规范失败）。
+
+---
+
+## 4. ★三项新增用例是否真承重（自设变异，**未复用产出方 A/B/C/D**）
+
+| 用例 | 位置 | 自设变异（本席） | 目标用例结果 | 判定 |
+|------|------|------------------|--------------|------|
+| ① 跨日重置 `planNoSeqResetsPerBusinessDay` | `M1EndToEndAcceptanceTest.java:334` | **M3**：取号改回「全局累计」`count(null,null)+1`（`PlanService:590-593`） | **必红**：`expected <HP202609210001> but was <HP202609210002>`（`:339`） | ✅ 承重 |
+| ② 重试守卫 `retriesPlanNoConflictUpToThreeAttempts` | `PlanServiceTest.java:254` | **M1**：`retryOnUniqueConflict` 循环界 `i<=maxAttempts` → `i<maxAttempts`（`BizNoGenerator:220`） | **必红**：`IllegalState 编号生成…3 次尝试内仍未成功`（`:258`） | ✅ 承重 |
+| ③ 非 `plan_no` 冲突不重试 `doesNotRetryNonPlanNoConflict` | `PlanServiceTest.java:266` | **M2**：收窄谓词反转 `findByPlanNo(...) == null` → `!= null`（`PlanService:639`） | **必红**：`Expected IllegalStateException … but nothing was thrown`（`:271`） | ✅ 承重 |
+
+- 每个变异均：**先证 `mvn` 编译通过**（否则测试根本未跑）→ 再看目标用例见红 → **复位 + `diff -q` 逐字节校验 + clean 重编译回 546/0/0/0**。
+- **② 名副其实**：`FakeHedgePlanDao`（`PlanServiceTest.java:560-575`）计数 `insertAttempts`，`failInsertsLeft=2` 使**前两次 insert 真抛** `IllegalStateException(cause=SQLException("23000"))`，用例断言 `insertAttempts==3` ⇒ **确走重试路径**（观测到 3 次调用），非纯构造断言。
+- **③ 名副其实**：走的是 `O-2` 收窄分支本身（`findByPlanNo` 未占用 ⇒ 直接抛「非计划编号」），`insertAttempts==1` 证实**未重试**。
+
+---
+
+## 5. ★`O-2` 更深一层独立判定
+
+**收窄内容**（`PlanService.java:635-644`）：唯一冲突时，仅当候选 `plan_no` **已被占用**（`findByPlanNo(plan.planNo) != null`）才重试；否则抛「非计划编号…不重试」。
+`findByPlanNo` 于 `tx.inTransaction` **之外**调用（回滚并归还连接后，`TxTemplate.java:73-83`）⇒ 独立自动提交查询，取最新已提交快照。
+
+**(a) 是否必要？** 非「正确性」必需。原「任何唯一冲突皆重试」的代价：非 `plan_no` 冲突（如 `uk_plan_exposure`）以**同输入**重跑 ⇒ 必再现 ⇒ 徒耗 ≤3 次尝试 + 误报为「编号冲突」。**重试本身无害且幂等**：`TxTemplate.inTransaction` 任一异常即 `rollback`（`:70-79`）⇒ 每次尝试原子、无半成品落库、无累积副作用。故收窄的收益＝**错误归因正确 + 免无谓重试**。
+
+**(b) 收窄引入的新失败模式？** 若重读**看不到**该并发插入（隔离级别/未提交）⇒ `findByPlanNo==null` ⇒ **不重试、直接抛**。**这是可用性损失，非正确性损失**（不写错数据、不静默放过——失败方向为「响亮抛原始冲突」）。
+**关键判定**：该收窄依赖的可见性 = **与 `findMaxPlanNoByPrefix`（事务内重读）完全同一个** `READ COMMITTED` 前提。若可见性不成立，**基础设计本身也会失败**（重读到旧 max ⇒ 重算同 seq ⇒ 再撞 ⇒ 3 次耗尽仍失败）。⇒ 凡 `findByPlanNo` 判不中的场景，基础重试**也不可能前进**；故**收窄未引入任何新的失败模式**，仅改变**报错文案与尝试次数**。
+
+**(c) 一阶判定：保留收窄。** 理由：① 边际可用性代价 ≈ 0（与基础设计共享同一可见性前提）；② 诊断价值为正；③ 契合 `§3.5`「`UNIQUE` 冲突 + 重试」意图；④ 失败方向为「响亮抛原始冲突」，无静默放过。
+可选对冲（**非必需**）：「判不中时仍重试一次」—— 成本极低、可在误判时自愈；但非本席放行/退回的条件。**本席不因 (c) 判退回。**（编排者「若判应收紧则退回」—— 本席**未判需进一步收紧/放宽**，维持现状。）
+
+---
+
+## 6. `InMemoryDmEngine` 的 `LIKE ?` 增量复核
+
+| 子项 | 独立实测（`InMemoryDmEngine.java`） | 判定 |
+|------|-------------------------------------|------|
+| ① 仅整原子、复合仍抛（loud 保留） | 新增正则 `^(\\w+)\\s+LIKE\\s+\\?$`（`:735`）；未能匹配者落入 `else` 抛 `UnsupportedOperationException("无法求值的 WHERE 原子…")`（`:756`）。`(username LIKE ? OR real_name LIKE ?)` 因括号/`OR`/双 `LIKE` **不匹配** ⇒ 仍抛 | ✅ |
+| ② LIKE 语义忠实 | `likeToRegex:1108-1125`：`%`→`.*`、`_`→`.`、其余 `Pattern.quote`（含元字符转义）；`Pattern.DOTALL` + `.matches()` ⇒ 全串匹配；未设 `CASE_INSENSITIVE` ⇒ **大小写敏感**（与 `plan_no` 大写一致）；`matchesLike:1107` 中**任一侧 `null` 直接 `false`**（= SQL 三值 `UNKNOWN` ⇒ WHERE 不命中） | ✅ |
+| ③ 是否**放宽引擎**（由红转绿） | **M4**：`else if (like.matches())` 置 `false &&`（撤掉分支）→ 全量 **546 run / 10 failures**，**全部**落在 `M1EndToEndAcceptanceTest`（经夹具 `buildWorldAndRunMainChain:240` → `createPlan` 得 `10022` 连锁），**其余 0 类新增红**。全仓 `grep`：无任何测试断言「引擎对 LIKE 抛错」；`AuthAdminServiceTest` 的 `LIKE` 仅为**假 DAO 的 `lastWhere` 字符串断言**（不经引擎）；`M1Dm8EquivalentIntegrationTest:117` 的 `uncheckedCheckCount` 只关 CHECK、与 WHERE 原子无关。提交前（`8cb101f^`）**无任何引擎 LIKE 消费者** | ✅ **非「放宽凑测试」**，作用面**封闭于本特性** |
+
+M4 复位后 clean 重编译 **546/0/0/0**（`/root/verify-t137b-restore.log`）。
+
+---
+
+## 7. 改动面核对（逐 hunk 归纳；「必需修正 / 放宽可疑」分类）
+
+`git diff --numstat 8cb101f^ 8cb101f`：**19 文件 = `java/**` 17 + `docs/` 2**，与「仅 java/** + 2 docs」吻合。
+
+**`java/**` 17 文件构成**：4 main + `java/CONTRACTS.md` + **12 test**。
+
+| 文件 | 性质 | 分类 |
+|------|------|------|
+| `dao/BizNoGenerator.java` +41/−0 | 新增 `hedgePlanDayPrefix` / `hedgePlanNextSeq`（纯增量） | **必需** |
+| `dao/HedgePlanDao.java` +16/−0 | **接口新增** `findMaxPlanNoByPrefix` | **必需** |
+| `dao/impl/DmHedgePlanDao.java` +26/−0 | 该方法实现（专用 SQL，前缀 `LIKE ?`，无 `FOR UPDATE`） | **必需** |
+| `service/PlanService.java` +31/−14 | 取号改当日 max+1；`O-2` 收窄；`uniqueViolationCause` `private`→包可见（供测试直接断言） | **必需**（可见性放宽为可测性，无行为变化） |
+| `java/CONTRACTS.md` +4/−1 | §2.2.1 追加登记 + 变更记录（**未升版 `HGC-1.6`**） | **必需** |
+| 9 个 test 文件（`PlanBindExposureTest`/`PlanCompliancePrecheckTest`/`PlanListQueryTest`/`PlanSubAccountIsolationTest`/`PlanT112VisibilityTest`/`PlanWritePathPermissionTest`/`BindExposureHandlerTest`/`PlanListDefaultSortTest`/`PlanServiceTest`） | **仅追加** `findMaxPlanNoByPrefix` 假件实现（7 个实现真逻辑、2 个 `throw FakeDao.unsupported`） | **必需（编译强制）** |
+| `dao/BizNoGeneratorTest.java` +43/−0 | 新增 3 用例（`hedgePlanDailySeqResetsPerBusinessDay`/`seqResetsAcrossConsecutiveDays`/`retriesAfterSqlState23000`） | **必需** |
+| `service/PlanServiceTest.java` +80/−1 | 新增 3 用例 + 假件增强（`failInsertsLeft`/`planNoConflictOnFailure`/`insertAttempts`/`findMaxPlanNoByPrefix`/`findByPlanNo` 由 `throw unsupported` 改为**真实现**——供 `O-2` 判别） | **必需** |
+| `web/M1EndToEndAcceptanceTest.java` +28/−0 | 新增 `planNoSeqResetsPerBusinessDay`（e2e） | **必需** |
+| `dao/testsupport/InMemoryDmEngine.java` +44/−3 | 补 `LIKE ?` 整原子求值（3 删＝javadoc 改写） | **必需** |
+
+**删除行审计**（非注释）：旧取号 `count(null,null)+1` / 旧 `hedgePlan(Clocks.today(),seq)` / 旧 catch 块 `if(unique!=null)throw unique; throw e;` / `uniqueViolationCause` 修饰符 / 假件 `findByPlanNo` 的 `throw unsupported` —— **全部为本轮语义变更的直接结果**，**无一处是「放宽旧断言」**。⇒ **逐类判定：全部「必需修正」，「放宽可疑」= 0**。
+
+> 注：`docs/BOARD.md`(+3/−2)、`docs/TASKS.md`(+1/−1) 为**台账**，`T-137` 行据实由「IN_PROGRESS（退回修复）」改为「已完成，待独立复核（不自评 DONE）」，与实测吻合。
+
+---
+
+## 8. 自设扫描面（「产出方已披露」≠ 已排查）
+
+- **S1 — `Clocks.today()` 与 `plan_no` 前缀是否同源？** **同源**。`PlanService.java:590` 单次 `bizDate = Clocks.today()`，`:591-594` 同一 `bizDate` 既派生前缀（`hedgePlanDayPrefix`）又生成编号（`hedgePlan`）；`BizNoGenerator.today()` 亦委托 `Clocks.today()`。**无「业务日 vs 前缀」分叉隐患**。✅
+- **S2 — `findMaxPlanNoByPrefix` 空表返回？** `DmHedgePlanDao.java:177-186`：`max` 初值 `null`，`queryList` 空 ⇒ 返回 **`null`** ⇒ `hedgePlanNextSeq(…, null)` = **1**。**已由 e2e 用例实证**（`planA` = 当日首号 `…0001`）。✅
+- **S3 — LIKE 模式串含特殊字符？** 前缀恒为 `"HP"+yyyyMMdd`（**纯数字**），`%`/`_` **不出现**；DAO 以占位符绑定 `planNoPrefix+"%"`（**无拼接注入口**）。⚠️ **但 DAO 未对前缀做 LIKE 转义** —— 若未来有调用方传入含 `%`/`_` 的前缀，引擎 `likeToRegex` 会将其当通配符 ⇒ 可能取到错的 max。**观察（低）·当前不可触发**。
+- **S4 — 引擎 LIKE 大小写**：大小写敏感；`plan_no` 与前缀均大写 ⇒ 一致。✅
+
+---
+
+## 9. 观察清单（均不阻断）
+
+| 编号 | 级别 | 内容 | 依据 |
+|------|------|------|------|
+| O-A | 低 | 当日容量硬上限 **9999** 单；`seq=10000` 由 `pad()` **抛异常**（响亮失败，非静默）。`§3.5` 位数约定使然，建议在文档标注日容量上限。 | `BizNoGenerator.pad:256-267`；探针 |
+| O-B | 低 | `findMaxPlanNoByPrefix` 对 `planNoPrefix` **未做 LIKE 元字符转义**；当前前缀纯数字不可触发，属**潜在耦合**。 | `DmHedgePlanDao.java:176-178` |
+| O-C | 低 | `O-2` 收窄的 **`READ COMMITTED` 前提**未在源码/javadoc 显式写明（仅台账与注释提及）；建议在 `PlanService.java:635-644` 就近注明前提与失败方向。 | 编排者裁定 (b)「须显式文档化」 |
+| O-D | 低 | 本环境 `InMemoryDmEngine` 唯一冲突 `SQLState=null` ⇒ `isUniqueViolation=false` ⇒ **重试路径在 e2e 下不触发**（`M1EndToEndAcceptanceTest` 无法覆盖），须由**假 DAO 单测**（`PlanServiceTest`）承载。产出方**已如实披露**，本席确认属实。 | `BizNoGenerator.isUniqueViolation:246-254` |
+| O-E | 低 | `findMaxPlanNoByPrefix` 取回**全部**当日行后在应用侧求 max ⇒ 单次取号 O(N)、当日建 N 单累计 O(N²)。可用 `ORDER BY plan_no DESC LIMIT 1`（引擎已支持）降为 O(log N)。**效率观察，非正确性缺陷**。 | `DmHedgePlanDao.java:177-186` |
+
+---
+
+## 10. 遗留 / 未覆盖声明
+
+- **不覆盖**：真实 **DM8** 的行级唯一索引阻塞/可见性语义（本机不可达）；真实高并发下的 3 次上界实证。上述属**环境不可达**，已标注。
+- **未执行**：无（本轮无因环境跳过的用例；门禁全绿为一手实测）。
+- 本报告**未写入** `docs/**`（按纪律落 `/root/te-verify-t137b-chapter.md`）。
