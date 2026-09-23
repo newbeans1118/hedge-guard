@@ -1,5 +1,7 @@
 package com.hedgeguard.web.handler.spot;
 
+import com.hedgeguard.dao.PageQuery;
+import com.hedgeguard.dao.PageResult;
 import com.hedgeguard.dao.entity.Exposure;
 import com.hedgeguard.dao.entity.ExposureDetail;
 import com.hedgeguard.service.SpotService;
@@ -9,6 +11,7 @@ import com.hedgeguard.web.BizException;
 import com.hedgeguard.web.ErrorCode;
 import com.hedgeguard.web.HttpResult;
 import com.hedgeguard.web.JsonCodec;
+import com.hedgeguard.web.PageData;
 import com.hedgeguard.web.RequestContext;
 import com.hedgeguard.web.RouteHandler;
 
@@ -21,8 +24,8 @@ import java.util.Map;
  *
  * <pre>
  *   POST /spot/exposure              计算并落库敞口快照（三分量与合计**同事务**校验，Σ≠合计拒写）
- *   GET  /spot/exposure?subAccountId= 取待套保敞口（计划编制入口）
- *   GET  /spot/exposure/{id}         取单条敞口
+ *   GET  /spot/exposure              待套保敞口列表（计划编制入口；**PageData 分页信封** + 子账户隔离）
+ *   GET  /spot/exposure/{id}         取单条敞口（**按调用者可见子账户范围过滤**）
  *   POST /spot/exposure/recalc       展示侧重算（只告警 + 留痕，**不回写**落库值，Q-17 ④）
  * </pre>
  *
@@ -40,6 +43,18 @@ public final class SpotExposureHandler implements RouteHandler {
 
     /** 展示侧重算路径。 */
     public static final String PATH_RECALC = ApiRoutes.full("/spot/exposure/recalc");
+
+    /** 列表缺省排序字段（{@code FR-SPOT-15}「默认按敞口金额或数量倒序」）。 */
+    private static final String DEFAULT_SORT_FIELD = "exposure_qty";
+
+    /**
+     * 列表<b>缺省</b>排序：{@code exposure_qty} <b>倒序</b>（{@code FR-SPOT-15} 处理规则
+     * 「默认按敞口金额或数量倒序」；取数量而非金额，因金额在缺价时为 {@code NULL}）。
+     *
+     * <p><b>为何必须带方向</b>：{@code PageQuery.of(..., defaultSortField)} 在 {@code sort} 缺省时
+     * 方向<b>恒为 {@code ASC}</b>，故只传裸字段名会得到<b>升序</b>（见 {@code BUG-001}）。
+     */
+    private static final String DEFAULT_SORT = DEFAULT_SORT_FIELD + ",desc";
 
     private final SpotService spotService;
 
@@ -67,22 +82,10 @@ public final class SpotExposureHandler implements RouteHandler {
         if ("GET".equalsIgnoreCase(ctx.method())) {
             String id = ctx.pathParam("id");
             if (id != null && !id.isEmpty()) {
-                return HttpResult.json(200, ApiResponse.ok(
-                        ExposureView.of(spotService.getExposure(parseId(id))), ctx.traceId()));
+                return HttpResult.json(200, ApiResponse.ok(ExposureView.of(
+                        spotService.getExposure(parseId(id), ctx.currentUserId())), ctx.traceId()));
             }
-            String rawSub = ctx.queryParam("subAccountId");
-            int subAccountId;
-            try {
-                subAccountId = Integer.parseInt(rawSub == null ? "" : rawSub);
-            } catch (NumberFormatException e) {
-                throw BizException.of(ErrorCode.PARAM_INVALID,
-                        "subAccountId 须为十进制整数：" + rawSub + "；复现=补 ?subAccountId=", e);
-            }
-            List<ExposureView> views = new ArrayList<>();
-            for (Exposure exposure : spotService.listPendingHedge(subAccountId)) {
-                views.add(ExposureView.of(exposure));
-            }
-            return HttpResult.json(200, ApiResponse.ok(views, ctx.traceId()));
+            return list(ctx);
         }
         ComputeRequest request = JsonCodec.fromJson(ctx.body(), ComputeRequest.class);
         if (request == null) {
@@ -131,6 +134,47 @@ public final class SpotExposureHandler implements RouteHandler {
         }
         Exposure stored = spotService.computeExposure(exposure, details, ctx.currentUserId());
         return HttpResult.json(200, ApiResponse.ok(ExposureView.of(stored), ctx.traceId()));
+    }
+
+    /**
+     * 敞口列表（{@code GET /spot/exposure}，{@code FR-SPOT-15}）：分页 + 排序 + 子账户隔离。
+     *
+     * <p>分页 / 排序按 {@code §4.1.1}（{@code page/size/sort}；{@code size ∈ {10,20,50,100}}，默认 20），
+     * 缺省排序 {@code exposure_qty} <b>倒序</b>（{@code FR-SPOT-15}；{@code PageQuery} 缺省方向恒
+     * {@code ASC}，故缺省时须显式补 {@code ,desc}，见 {@code BUG-001}）。响应 {@code data} 为
+     * {@code {items,total,page,size}} 分页信封（{@code §4.1.1} 冻结）。隔离身份取自会话
+     * （{@code ctx.currentUserId()}），<b>不可</b>由 {@code subAccountId} 查询参数伪造——该参数仅作
+     * <b>收窄过滤</b>（与服务端可见集取交集），省略即返回全部可见子账户敞口。
+     */
+    private HttpResult list(RequestContext ctx) {
+        String sort = ctx.queryParam("sort");
+        if (sort == null || sort.isEmpty()) {
+            sort = DEFAULT_SORT;
+        }
+        PageQuery query = PageQuery.of(ctx.queryParam("page"), ctx.queryParam("size"), sort,
+                DEFAULT_SORT_FIELD);
+        Integer subAccountId = optionalSubAccountId(ctx.queryParam("subAccountId"));
+        PageResult<Exposure> page =
+                spotService.listPendingHedge(ctx.currentUserId(), query, subAccountId);
+        List<ExposureView> items = new ArrayList<>();
+        for (Exposure exposure : page.items()) {
+            items.add(ExposureView.of(exposure));
+        }
+        PageData<ExposureView> data = new PageData<>(items, page.total(), page.page(), page.size());
+        return HttpResult.json(200, ApiResponse.ok(data, ctx.traceId()));
+    }
+
+    /** 解析可选 {@code subAccountId} 查询参数（空 ⇒ {@code null}；非整数 ⇒ 10001）。 */
+    private static Integer optionalSubAccountId(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(raw.trim());
+        } catch (NumberFormatException e) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "subAccountId 须为十进制整数：" + raw + "；复现=补 ?subAccountId=<子账户ID> 或省略该参数", e);
+        }
     }
 
     private static long parseId(String raw) {

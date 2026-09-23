@@ -1,6 +1,9 @@
 package com.hedgeguard.dao.impl;
 
 import com.hedgeguard.dao.ExposureDao;
+import com.hedgeguard.dao.PageQuery;
+import com.hedgeguard.dao.PageResult;
+import com.hedgeguard.dao.SubAccountScope;
 import com.hedgeguard.dao.entity.Exposure;
 import com.hedgeguard.dao.tx.TxTemplate;
 
@@ -10,7 +13,7 @@ import java.sql.SQLException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -129,9 +132,32 @@ public final class DmExposureDao extends AbstractDmDao<Exposure, Long> implement
         entity.id = generated;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>scope 直接落在本表 {@code sub_account_id} 列（{@code t_exposure} 携带该列，敞口类红线），
+     * 复用 {@link AbstractDmDao#findPageScoped}：{@code (extraWhere) AND sub_account_id IN (...)}；
+     * 空 scope ⇒ {@code sub_account_id IN (-1)} 恒假（返回空）。
+     */
     @Override
-    public List<Exposure> findPendingHedge(int subAccountId) {
-        String sql = "SELECT " + selectList() + " FROM " + tableName() + " WHERE sub_account_id = ? AND status = ?" + " ORDER BY product_id ASC, direction ASC";
-        return queryList(sql, Arrays.asList(subAccountId, "PENDING_HEDGE"), this::mapRow);
+    public PageResult<Exposure> findPageScoped(PageQuery query, SubAccountScope scope,
+                                               String extraWhere, List<Object> extraArgs) {
+        return super.findPageScoped(query, scope, extraWhere, extraArgs);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>条件形态 {@code WHERE id = ? AND <scope.sql()>}；主键条件与 scope 并列后，
+     * 不可见（scope 不含该行子账户）与不存在同样无命中 ⇒ 同一返回（不泄露存在性）。
+     */
+    @Override
+    public Exposure findByIdScoped(long id, SubAccountScope scope) {
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE " + idColumn() + " = ? AND " + scope.sql();
+        List<Object> args = new ArrayList<>();
+        args.add(id);
+        args.addAll(scope.params());
+        return queryOne(sql, args, this::mapRow);
     }
 }

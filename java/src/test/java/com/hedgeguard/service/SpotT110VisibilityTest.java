@@ -12,6 +12,7 @@ import com.hedgeguard.dao.PurchaseContractDao;
 import com.hedgeguard.dao.SalesContractDao;
 import com.hedgeguard.dao.SpotChangeLogDao;
 import com.hedgeguard.dao.SpotPriceDao;
+import com.hedgeguard.dao.SubAccountScope;
 import com.hedgeguard.dao.UnauthorizedAttemptDao;
 import com.hedgeguard.dao.UserSubAccountPermDao;
 import com.hedgeguard.dao.WipRecordDao;
@@ -690,14 +691,14 @@ class SpotT110VisibilityTest {
         }
 
         @Override
-        public List<Exposure> findPendingHedge(int subAccountId) {
-            List<Exposure> out = new ArrayList<>();
-            for (Exposure row : rows) {
-                if (row.subAccountId != null && row.subAccountId == subAccountId) {
-                    out.add(row);
-                }
-            }
-            return out;
+        public PageResult<Exposure> findPageScoped(PageQuery query, SubAccountScope scope,
+                                                   String extraWhere, List<Object> extraArgs) {
+            throw com.hedgeguard.testsupport.FakeDao.unsupported("findPageScoped");
+        }
+
+        @Override
+        public Exposure findByIdScoped(long id, SubAccountScope scope) {
+            throw com.hedgeguard.testsupport.FakeDao.unsupported("findByIdScoped");
         }
     }
 

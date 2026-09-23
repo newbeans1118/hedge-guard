@@ -20,8 +20,9 @@
  *   POST /spot/price/import   → SpotPriceImportHandler.Request {sourceType, subAccountId, importFileName?,
  *                               overwriteConfirmed?, lines:[String]} → 汇总 {inserted, updated, total, sourceType}
  *   GET  /spot/price/export?productId=&from=&to= → text/csv（FR-SPOT-13 同源序列 / FR-SPOT-19 导出）
- *   GET  /spot/exposure?subAccountId= → **bare 数组** of ExposureView（camelCase；**要求具体子账户**）
- *   GET  /spot/exposure/{id}          → ExposureView（**不含构成明细**）
+ *   GET  /spot/exposure?page=&size=&sort= → **PageData 分页信封** of ExposureView（camelCase；
+ *                                          可见集由服务端按会话身份强制；subAccountId 仅作收窄过滤）
+ *   GET  /spot/exposure/{id}          → ExposureView（**不含构成明细**；按调用者可见子账户范围过滤）
  *   POST /spot/exposure/recalc        → {exposureId}（展示侧重算，只告警+留痕，不回写）
  *   GET  /spot/exposure/export?subAccountId=&asOfDate= → text/csv（FR-SPOT-18）
  *   POST /spot/doc/sub-account        → SpotDocSubAccountHandler.Request {docType, docId, targetSubAccountId}（FR-SPOT-16）
@@ -1147,8 +1148,9 @@ function renderExposure(root, ctx) {
 
   root.appendChild(ui.banner(
     '<strong>数据来源与口径</strong>：组合口径 = 已签合同未执行量 + 库存持有量 + 生产计划需求量。' +
-    '三分量与合计同时展示；买卖方向不抵销。后端 `GET /spot/exposure` **要求具体子账户**且返回**未分页列表**；' +
-    '「汇总」视图由前端按已授权子账户**逐账户拉取后拼接展示**（只拼接、不做任何计算）。'
+    '三分量与合计同时展示；买卖方向不抵销。后端 `GET /spot/exposure` 返回**分页信封**，' +
+    '并**按会话身份强制子账户可见范围**（`subAccountId` 仅作收窄过滤，不能扩大可见集）；' +
+    '「汇总」视图即服务端按可见子账户范围合并后的结果。'
   ));
 
   root.appendChild(ui.banner(
@@ -1189,7 +1191,7 @@ function renderExposure(root, ctx) {
 
   function updateViewLabel() {
     viewLabel.textContent = HG.session.isAggregate()
-      ? '汇总（' + HG.session.state.subAccounts.length + ' 个已授权子账户，逐账户拼接）'
+      ? '汇总（服务端按可见子账户范围合并，共 ' + HG.session.state.subAccounts.length + ' 个已授权子账户）'
       : (subAccountLabel(HG.session.currentId()));
   }
 
@@ -1207,38 +1209,34 @@ function renderExposure(root, ctx) {
 
   async function fetchRows() {
     const cur = HG.session.currentId();
-    if (cur !== null) return normalizeRows(await HG.api.get(R.EXPOSURE, { subAccountId: cur }));
-    const subs = HG.session.state.subAccounts;
-    if (!subs.length) return [];
+    // 可见集由服务端按会话身份强制（NFR-SEC-7）；cur 仅作收窄过滤，不能扩大可见集。
+    // 响应为 PageData 分页信封：按 size=100 逐页拼接，避免截断（不参与业务判定）。
+    const base = { size: 100 };
+    if (cur !== null) base.subAccountId = cur;
     const out = [];
-    for (let i = 0; i < subs.length; i++) {
-      try {
-        const part = normalizeRows(await HG.api.get(R.EXPOSURE, { subAccountId: subs[i].id }));
-        out.push.apply(out, part);
-      } catch (e) {
-        if (HG.errmsg.isUnauthenticated(e)) throw e;
-        // 单账户失败不影响其余（如未授权 10004）：记录为占位行
-        out.push({ _error: true, subAccountId: subs[i].id, _err: e });
-      }
+    let page = 1;
+    for (let guard = 0; guard < 50; guard++) {
+      const data = await HG.api.get(R.EXPOSURE, Object.assign({ page: page }, base));
+      const items = normalizeRows(data);
+      out.push.apply(out, items);
+      const total = data && typeof data.total === 'number' ? data.total : out.length;
+      if (!items.length || out.length >= total) break;
+      page += 1;
     }
     return out;
   }
 
   function normalizeRows(data) {
-    const items = Array.isArray(data) ? data : (data && data.items) || [];
-    return items;
+    if (Array.isArray(data)) return data;
+    return (data && data.items) || [];
   }
 
   function renderRows(rows) {
     if (!rows.length) { ui.renderEmpty(body, '当前视图下没有敞口快照。请由现货数据计算后查询（见上方说明）。'); return; }
-    const mapped = rows.filter((r) => !r._error && Number(r.productId) > 0);
-    const unmapped = rows.filter((r) => !r._error && Number(r.productId) === 0);
-    const errored = rows.filter((r) => r._error);
+    const mapped = rows.filter((r) => Number(r.productId) > 0);
+    const unmapped = rows.filter((r) => Number(r.productId) === 0);
 
     let html = '';
-    errored.forEach((r) => {
-      html += `<div class="hg-banner hg-banner--warn">子账户 ${F.esc(subAccountLabel(r.subAccountId))} 读取失败：${F.esc(HG.errmsg.summary(r._err))}</div>`;
-    });
     const cols = [
       { title: '子账户', render: (r) => F.esc(subAccountLabel(r.subAccountId)) },
       { title: '品种', render: (r) => F.esc(productName(r.productId)) },
@@ -1256,7 +1254,7 @@ function renderExposure(root, ctx) {
         `<button class="hg-btn hg-btn--ghost hg-btn--sm" type="button" data-recalc="${F.esc(r.id)}">重算</button>` }
     ];
     if (mapped.length) html += ui.tableHTML(cols, mapped);
-    else if (!errored.length) html += '<p class="hg-muted">（本页无已映射敞口行）</p>';
+    else html += '<p class="hg-muted">（本页无已映射敞口行）</p>';
 
     if (unmapped.length) {
       html += '<h4 style="margin:16px 0 6px">未映射清单（按现货品类分别留行，不参与敞口计算与计划绑定）</h4>';

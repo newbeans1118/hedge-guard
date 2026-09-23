@@ -18,6 +18,7 @@ import com.hedgeguard.dao.SalesContractDao;
 import com.hedgeguard.dao.SpotChangeLogDao;
 import com.hedgeguard.dao.SpotPriceDao;
 import com.hedgeguard.dao.SubAccountDao;
+import com.hedgeguard.dao.SubAccountScope;
 import com.hedgeguard.dao.WipRecordDao;
 import com.hedgeguard.dao.entity.Exposure;
 import com.hedgeguard.dao.entity.ExposureDetail;
@@ -632,23 +633,73 @@ public final class SpotService {
     // ------------------------------------------------------------ T-014 实货敞口
 
     /**
-     * 按主键取敞口（详情/追溯下钻用）。
+     * 按主键取敞口（详情/追溯下钻用），<b>并按调用者可见子账户范围过滤</b>
+     * （{@code FR-SPOT-15} 处理规则「仅返回有权限的子账户范围」/ 验收 3 / {@code NFR-SEC-7}）。
+     *
+     * <p>可见集来自<b>会话身份</b>（{@link #visibleSubAccountIds}），不由请求参数决定：
+     * 含哨兵 {@link SubAccountScope#ALL_ACCOUNT_SENTINEL}（跨账户只读）⇒ 不构造 scope（不加过滤，只读面放行）；
+     * 否则经 {@link ExposureDao#findByIdScoped} 注入 {@code sub_account_id IN (...)}（空集 ⇒ 恒假）。
+     * <b>不可见 ≡ 不存在</b>（同一返回 {@code null}，不泄露存在性，{@code T-100} 口径）。
      *
      * @param exposureId 敞口
-     * @return 敞口；不存在返回 {@code null}
+     * @param operatorId 调用者（由会话决定，不接受请求参数传入）
+     * @return 敞口；不存在或不可见均返回 {@code null}
      */
-    public Exposure getExposure(long exposureId) {
-        return exposureDao.findById(exposureId);
+    public Exposure getExposure(long exposureId, long operatorId) {
+        List<Integer> visible = visibleSubAccountIds(operatorId);
+        if (visible.contains(SubAccountScope.ALL_ACCOUNT_SENTINEL)) {
+            return exposureDao.findById(exposureId);
+        }
+        return exposureDao.findByIdScoped(exposureId, SubAccountScope.of("sub_account_id", visible));
     }
 
     /**
-     * 取待套保敞口（计划编制入口，{@code FR-SPOT-15}）。
+     * 取待套保敞口列表（计划编制入口，{@code FR-SPOT-15}），<b>分页 + 子账户隔离</b>。
      *
-     * @param subAccountId 子账户
-     * @return 列表（{@code product_id} 升序、{@code direction} 升序）
+     * <p>可见集来自<b>会话身份</b>（{@link #visibleSubAccountIds}），<b>不由</b>调用方传入的
+     * {@code subAccountId} 决定：含哨兵 {@link SubAccountScope#ALL_ACCOUNT_SENTINEL}（跨账户只读）
+     * ⇒ 不构造 scope（读面放行）；否则经 {@link ExposureDao#findPageScoped} 注入
+     * {@code sub_account_id IN (...)}（空集 ⇒ 恒假）。可选 {@code subAccountId} 仅作<b>收窄过滤</b>
+     * （与 scope 取交集，越权取值自然落空），<b>不能</b>用它扩大可见集。
+     *
+     * <p>排序方向由调用方（handler）显式声明（缺省 {@code exposure_qty,desc}）；
+     * 本层固定附加 {@code status = 'PENDING_HEDGE'} 谓词。
+     *
+     * @param operatorId    调用者（由会话决定，不接受请求参数传入）
+     * @param query         分页 / 排序
+     * @param subAccountId  可选收窄过滤（{@code null} = 不按子账户收窄）
+     * @return 分页结果（{@code total} 为叠加可见集与过滤后的总行数）
      */
-    public List<Exposure> listPendingHedge(int subAccountId) {
-        return exposureDao.findPendingHedge(subAccountId);
+    public PageResult<Exposure> listPendingHedge(long operatorId, PageQuery query,
+                                                 Integer subAccountId) {
+        StringBuilder where = new StringBuilder("status = ?");
+        List<Object> args = new ArrayList<>();
+        args.add("PENDING_HEDGE");
+        if (subAccountId != null) {
+            where.append(" AND sub_account_id = ?");
+            args.add(subAccountId);
+        }
+        List<Integer> visible = visibleSubAccountIds(operatorId);
+        if (visible.contains(SubAccountScope.ALL_ACCOUNT_SENTINEL)) {
+            return exposureDao.findPage(query, where.toString(), args);
+        }
+        return exposureDao.findPageScoped(query, SubAccountScope.of("sub_account_id", visible),
+                where.toString(), args);
+    }
+
+    /**
+     * 取调用者可见子账户集合（{@code NFR-SEC-7} 取数侧）。
+     *
+     * <p>入口缺位（{@code null}）或返回 {@code null} ⇒ 空集（fail-closed，谁都不见），
+     * 绝不退化为"不过滤 = 全可见"（{@code SubAccountScope} 安全默认）。
+     *
+     * @param operatorId 调用者
+     * @return 可见子账户集合（含哨兵 0 = 跨账户只读；可能为空）
+     */
+    private List<Integer> visibleSubAccountIds(long operatorId) {
+        List<Integer> ids = subAccountVisibility == null
+                ? null : subAccountVisibility.visibleSubAccountIds(operatorId);
+        return ids == null ? Collections.emptyList() : ids;
     }
 
     /**

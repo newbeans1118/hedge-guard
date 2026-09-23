@@ -315,8 +315,14 @@ class BindExposureHandlerTest {
         }
 
         @Override
-        public List<Exposure> findPendingHedge(int subAccountId) {
-            throw com.hedgeguard.testsupport.FakeDao.unsupported("findPendingHedge");
+        public PageResult<Exposure> findPageScoped(PageQuery query, SubAccountScope scope,
+                                                   String extraWhere, List<Object> extraArgs) {
+            throw com.hedgeguard.testsupport.FakeDao.unsupported("findPageScoped");
+        }
+
+        @Override
+        public Exposure findByIdScoped(long id, SubAccountScope scope) {
+            throw com.hedgeguard.testsupport.FakeDao.unsupported("findByIdScoped");
         }
     }
 
