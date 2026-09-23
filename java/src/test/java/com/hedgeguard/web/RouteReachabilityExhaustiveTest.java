@@ -52,11 +52,32 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * （idx3 为静态 {@code change-log}，但两边**段数相同而段位不同**的那类）**不会**误报——
  * 这正是它优于「人工枚举路由对」之处：不依赖人判断「哪两条构成候选冲突」。
  *
+ * <p><b>健全性前提（哨兵不得与字面段碰撞，{@code T-156} 显式化）</b>：实例路径把每个占位段替换为
+ * 哨兵 {@link #INSTANCE_SEGMENT}（{@code 1}）。若某静态路由的某**字面段恰为哨兵**且注册在同段数占位符
+ * **之前**，则该占位符路由的实例路径会命中**那个静态路由**（其 {@code pattern} ≠ 占位符模式）⇒
+ * 判据**误报「被遮蔽」**（假阳性）。故判据的健全性依赖不变式「**字面段 ∌ 哨兵**」，该不变式由
+ * {@link #sentinelDoesNotCollideWithLiteralSegments()} **机械断言**（违反即红，并提示更换哨兵）。
+ *
+ * <p><b>数字口径（{@code T-156} 据 {@code T-154} 复核观察 {@code O-1} 收口）</b>：本文件**不写**
+ * 「朴素（naive）规则会产出 N 组 near-miss」这类**具体数字** —— 该数字随「naive 规则」的定义而变
+ * （复核席对「同方法+同段数+早占位/晚字面」/「任一含占位」/「早含占位且晚全静态」三种口径分别得
+ * 46 / 115 / 42，原自报的 47 无唯一可复现口径）。此处只保留**定性表述**：朴素「有占位符 + 同段数即
+ * 报错」的规则确会产出**数十组假阳性**（而实例回查证实**真遮蔽 = 0**），这正是本判据采用
+ * 「实例路径回查 + 逐段对齐」而非朴素规则的理由。
+ *
  * <p>本文件**不重写** {@code RouteReachabilityBug004Test} 的 5 条自有断言（该文件保留为
  * {@code BUG-004} 的**回归留痕**）；本文件是其**全量穷举**升级，二者共用
  * {@link FullWebAssembly} 的同一份生产装配。
  */
 class RouteReachabilityExhaustiveTest {
+
+    /**
+     * 实例回查中占位段的**取值**（哨兵段）。取 {@code 1}：确定性、可复现。
+     *
+     * <p><b>前提</b>：该哨兵**不得等于任何字面段**（否则会误报遮蔽，见类 javadoc）；由
+     * {@link #sentinelDoesNotCollideWithLiteralSegments()} 断言。更换哨兵时须同步本常量。
+     */
+    static final String INSTANCE_SEGMENT = "1";
 
     @Test
     @DisplayName("装配规模：五模块生产装配已注册路由条数 == " + FullWebAssembly.ROUTE_COUNT
@@ -154,11 +175,23 @@ class RouteReachabilityExhaustiveTest {
                 "遮蔽方应为先注册的占位符路由");
     }
 
+    @Test
+    @DisplayName("健全性：实例回查哨兵不得与任何字面段碰撞（否则误报「被遮蔽」⇒ 须更换哨兵）")
+    void sentinelDoesNotCollideWithLiteralSegments() {
+        List<String> routes = FullWebAssembly.assemble().routes();
+        Set<String> literals = literalSegments(routes);
+        assertFalse(literals.contains(INSTANCE_SEGMENT),
+                "哨兵与字面段碰撞 ⇒ 请更换哨兵：哨兵=\"" + INSTANCE_SEGMENT + "\" 出现在字面段集合中；"
+                        + "后果=某静态路由若注册在同段数占位符之前，该占位符的实例路径会命中它 ⇒ "
+                        + "判据误报「被遮蔽」（假阳性，而非真缺陷）。全部字面段=" + literals);
+    }
+
     /**
-     * 由模式构造**实例路径**：每个 {@code {...}} 占位段替换为确定非空段 {@code 1}，其余段逐字保留。
+     * 由模式构造**实例路径**：每个 {@code {...}} 占位段替换为哨兵段 {@link #INSTANCE_SEGMENT}，
+     * 其余段逐字保留。
      *
-     * <p>取 {@code 1} 而非随机值：确定性可复现；且 {@code 1} 不等于任何被测模块的字面段，
-     * 不会与静态段巧合相等而掩盖遮蔽。
+     * <p>取固定值而非随机值：确定性可复现。其健全性前提（哨兵 ∌ 字面段）由
+     * {@link #sentinelDoesNotCollideWithLiteralSegments()} 机械断言。
      */
     private static String instantiate(String pattern) {
         String[] segments = pattern.split("/", -1);
@@ -166,12 +199,27 @@ class RouteReachabilityExhaustiveTest {
         for (int i = 1; i < segments.length; i++) {  // segments[0] == ""（前导 /）
             out.append('/');
             String seg = segments[i];
-            if (seg.length() >= 2 && seg.startsWith("{") && seg.endsWith("}")) {
-                out.append('1');
-            } else {
-                out.append(seg);
-            }
+            out.append(isPlaceholder(seg) ? INSTANCE_SEGMENT : seg);
         }
         return out.toString();
+    }
+
+    /** 提取全部**字面段**（非 {@code {...}} 占位段；忽略前导/空段），用于哨兵碰撞断言。 */
+    private static Set<String> literalSegments(List<String> entries) {
+        Set<String> out = new LinkedHashSet<>();
+        for (String entry : entries) {
+            String pattern = entry.substring(entry.indexOf(' ') + 1);
+            for (String seg : pattern.split("/", -1)) {
+                if (!seg.isEmpty() && !isPlaceholder(seg)) {
+                    out.add(seg);
+                }
+            }
+        }
+        return out;
+    }
+
+    /** 是否为占位段（形如 {@code {name}}，须独占整段）。与 {@code Router.matchSegments} 同判据。 */
+    private static boolean isPlaceholder(String seg) {
+        return seg.length() >= 2 && seg.startsWith("{") && seg.endsWith("}");
     }
 }
