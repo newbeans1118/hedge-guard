@@ -10542,3 +10542,150 @@ GET /api/v1/spot/exposure/export → 实际命中 /api/v1/spot/exposure/{id}
 **通过（0 阻断 / 0 高 / 1 低 / 6 观察）。** `T-156` 三项（哨兵不变式 / 数字口径 / 不覆盖面披露）与 `T-157` 主判据（**集合级双向一致性**）**均达成**；核心 `TE-T153-001` 经 **G1「先证静默、再证必红」双向**已闭合。唯一低缺陷 `TE-T157-001` 属**未来触发路径上的自伤**（易改、不阻断本单、建议随 `TRADE` 接入同批修）。
 
 **边界与不变式（本席声明）**：只读 `java/src/**`；7 组变异仅在 `/hg-t156-iso`（`/` 下，`<root>/{docs,java,tools}`）内做并**逐字节复位**（`diff -r` 无异、树锚回 `84acc7af…`/357）；**未改** `java/src/main/**`、未改 `docs/BOARD.md`/`docs/TASKS.md`、未动 `java/target/`。本单：**纯读**（另：实测 `docs/BOARD.md`/`docs/TASKS.md` 于共享树为 `M` 状态 —— 系台账写者并发所为，非本席）。
+
+---
+
+# T-152 交付报告：白名单子查询形态的「语义级」守卫 + `InMemoryDmEngine` javadoc 订正
+
+- **承接席**：测试工程师 `te-t152`；**日期**：2026-09-23
+- **仓库根**：`/root/myspace/hedge-guard`；**开工基线 HEAD**：`0002f03`（开工后编排者提交 docs-only `5e65c8a`，未改 `java/src`）
+- **写域**：仅 `java/src/test/**`；**未改 `java/src/main/**`**、未改 `docs/TASKS.md`/`docs/BOARD.md`
+- **状态**：**已完成，待独立复核**（不自评 DONE）
+
+## 一、改动文件清单（3 文件，全 `java/src/test/**`）
+
+| # | 文件 | 类型 | 行数 | md5 | `git diff --numstat` |
+|---|------|------|------|-----|----------------------|
+| 1 | `java/src/test/java/com/hedgeguard/dao/testsupport/ScopedPredicateGuard.java` | **新增** | 112 | `d4d6240d40f6f0c627d4fb33e2d011bf` | 新增（untracked） |
+| 2 | `java/src/test/java/com/hedgeguard/dao/impl/ScopedSqlPredicateEffectTest.java` | **新增** | 347 | `843df9b9f57c9219617e1c1bf6422670` | 新增（untracked） |
+| 3 | `java/src/test/java/com/hedgeguard/dao/testsupport/InMemoryDmEngine.java` | **改（仅 javadoc）** | 1322 → **1334** | `6c33e86f0228b111ce191ecf4ff09ddf` | **+17 / −5** |
+
+> ★『**不得改写/削弱 `T-151` 已交付的 2 条守卫与其 5 条断言，只增**』：本单**未触及** `DmProductDaoScopedSqlTest.java`（`git status` 该文件为干净）⇒ `T-151` 的 2 条守卫与全部断言**逐字节未动**。
+
+## 二、树锚
+
+```
+cd /root/myspace/hedge-guard && find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum
+⇒ 0e81c83090dcf5408944f84fc368322b   （文件数 359；2026-09-23 22:47 起 3 次一致）
+```
+- 改前基线（HEAD `0002f03`）：`84acc7af94558bf2ee317df93ad38378` / **357** 文件 ⇒ 本单 **+2 新文件**（`java/src` 文件数 357→359）。
+- ⚠️ 该值随文件集变化，**须带时点**；此为交付时点值。
+
+## 三、门禁（`mvn -B -o -Punit clean test`）
+
+```
+[INFO] Tests run: 650, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS
+EXIT=0
+```
+- 基线 `0002f03` = **640/0/0/0** ⇒ 本单 **+10**（`ScopedSqlPredicateEffectTest` 10 用例）。
+- `@Test` 计数（`java/src/test/**`）= **650** == surefire 总数 **650**（**两数一致**；未用 `grep -c @Test` 单文件口径作准，而以 surefire 名单为准）。
+
+## 四、`arch-check`（`mvn validate`，本次随 `test` 阶段执行）
+
+```
+arch-check 通过：七个判据脚本全部通过（退出码 0）
+E1..E7 退出码：0 / 0 / 0 / 0 / 0 / 0 / 0
+```
+
+## 五、穷举表
+
+### 表 A：scoped SQL 落点 × 谓词生效守卫 × 注入是否击落
+
+| 落点 | 方法 | SQL 生成位置（`src/main`） | scope 位置 | 既有「谓词生效」守卫 | 本单新增守卫 | INJ-1（OR 中和）是否击落 |
+|------|------|---------------------------|-----------|----------------------|--------------|--------------------------|
+| S1 | `AbstractDmDao.findPageScoped` | `AbstractDmDao.java:252-262` | 顶层 | 无（protected；仅经 S1a/S1b/S1c 使用） | 无独立用例（**经 3 覆写点覆盖**） | — |
+| S1a | `DmExposureDao.findPageScoped` | 委托 super（`DmExposureDao.java:143-146`） | 顶层 | **形状 only**（`DmExposureDaoScopedSqlTest`） | ✅ `exposureFindPageScopedPredicateEffective` | **红** |
+| S1b | `DmTradePlanDao.findPageScoped` | 委托 super（`DmTradePlanDao.java:178-180`） | 顶层 | **形状 only** | ✅ `tradePlanFindPageScopedPredicateEffective` | **红** |
+| S1c | `DmHedgePlanDao.findPageScoped` | 委托 super（`DmHedgePlanDao.java:142-144`） | 顶层 | **无任何真实 DAO 用例** | ✅ `hedgePlanFindPageScopedPredicateEffective` | **红** |
+| S2 | `DmProductDao.findPageScoped` | `DmProductDao.java:131-142`（`scopedProductIdsPredicate:197`） | **子查询内** | **形状 only** | ✅ `productFindPageScopedPredicateEffective` | **红** |
+| S3 | `DmProductDao.findAllScoped` | `DmProductDao.java:151-156` | **子查询内** | **无任何真实 DAO 用例** | ✅ `productFindAllScopedPredicateEffective` | **红** |
+| S4 | `DmProductDao.findByIdScoped` | `DmProductDao.java:179-186` | **子查询内** | **`T-151` 语义（2 断言）** + 形状 | ✅ `productFindByIdScopedPredicateEffective`（**并存、不削弱**） | **红** |
+| S5 | `DmExposureDao.findByIdScoped` | `DmExposureDao.java:155-161` | 顶层 | **形状 only** | ✅ `exposureFindByIdScopedPredicateEffective` | **红** |
+| S6 | `DmTradePlanDao.findByHedgePlanScoped` | `DmTradePlanDao.java:159-166` | 顶层（`appendTo`） | **无任何真实 DAO 用例** | ✅ `tradePlanFindByHedgePlanScopedPredicateEffective` | **红** |
+| S7 | `DmHedgePlanDao.findByIdScoped` | `DmHedgePlanDao.java:154-160` | 顶层 | **无任何真实 DAO 用例** | ✅ `hedgePlanFindByIdScopedPredicateEffective` | **红** |
+
+> 落点穷举口径：`grep -rn "Scoped(" java/src/main` ∪ `grep -rn "IN (SELECT" java/src/main` ∪ `grep -rn "scope\.sql()\|appendTo(" java/src/main`。`DmUserSubAccountPermDao` 仅在 javadoc 引 `SubAccountScope`（零 scoped SQL）⇒ 非落点。
+
+### 表 B：既有 scoped 形状断言点**穷举重列**（受影响面 = 可被「谓词中和」旁路）
+
+| 文件 | 覆盖落点 | `contains` 断言数 | 其中**语义守卫** | 其中**形状 only** |
+|------|---------|------------------|-----------------|------------------|
+| `DmProductDaoScopedSqlTest.java` | S2 + S4 | 18 | **2**（`T-151`，S4；`:244`/`:264`） | **16**（S2:9 + S4:7） |
+| `DmExposureDaoScopedSqlTest.java` | S1a + S5 | 11 | 0 | **11**（S1a:10 + S5:1） |
+| `DmTradePlanDaoScopedSqlTest.java` | S1b | 11 | 0 | **11** |
+| `DmTradePlanStableOrderTest.java` | S1b（排序） | 0（2 处 `contains` 均在假引擎里） | 0 | 0 |
+| **合计** | | **40** | **2** | **38** |
+
+> ★**订正编排者口径**：原「**16 处** `contains(`」**仅**指 `DmProductDaoScopedSqlTest` 单文件、且把语义/形状**混算**；**全量穷举**后：3 个 scoped 测试文件共 **40** 条 scoped `contains` 断言，其中**形状 only = 38**、语义 = 2（且**仅覆盖 S4**）。**不得再用「16」。**
+
+## 六、注入对照 + 逐字节复位（md5 前后相等）
+
+判据（`ScopedPredicateGuard` + `assertPredicateEffective`）为三点：**①** 剔注释/字面量后无 ` OR ` 记号（**任意括号深度**）；**②** `?` 占位符数 == 绑定参数数；**③** scope 谓词片段仍在。逐点做「一类守卫一注入」。
+
+**INJ-1（谓词中和：`SubAccountScope.sql()` 尾附 ` OR 1=1`）**
+- 目标：`java/src/main/java/com/hedgeguard/dao/SubAccountScope.java`（注入前 md5 `04d64808ec70cdebb52c6eb4e7a4232f`）
+- 命令：`mvn -B -o -Punit test -Dtest=ScopedSqlPredicateEffectTest,DmProductDaoScopedSqlTest,DmExposureDaoScopedSqlTest,DmTradePlanDaoScopedSqlTest,DmTradePlanStableOrderTest`
+- 结果：**33 run / 11 failures** ①`ScopedSqlPredicateEffectTest` **10 / 9 红**（9 个落点**全红**；唯一绿为自测 `guardDetectorIsNotVacuous`——其测判据本体，**正确地**不随 DAO 红）②`DmProductDaoScopedSqlTest` 9 / **2 红**（= `T-151` 语义守卫）③`DmExposureDaoScopedSqlTest` 6 / **0 红**（形状 only ⇒ **被旁路**）④`DmTradePlanDaoScopedSqlTest` 4 / **0 红**（⇒ **被旁路**）⑤`DmTradePlanStableOrderTest` 4 / 0 红
+- 复位：`git checkout -- <file>` ⇒ md5 **`04d64808ec70cdebb52c6eb4e7a4232f`**（== 注入前）
+
+**INJ-2（占位符 ≠ 绑定参数：`DmExposureDao.findByIdScoped` SQL 尾附 ` AND 1 = ?`）**
+- 目标：`DmExposureDao.java`（注入前 md5 `e67ff78d22abb4aa7ffbc2c7d03265a1`）
+- 结果：`ScopedSqlPredicateEffectTest` 10 / **1 红**（仅 `exposureFindByIdScopedPredicateEffective`：`expected:<4> but was:<3>`）；`DmExposureDaoScopedSqlTest` 6 / **0 红**（不查占位符数）⇒ 证「占位符==参数」为**独立承重**判据
+- 复位 md5 **`e67ff78d22abb4aa7ffbc2c7d03265a1`**（== 注入前）
+
+**INJ-3（scope 整体删除：`DmHedgePlanDao.findByIdScoped` 去 `scope.sql()`）**
+- 目标：`DmHedgePlanDao.java`（注入前 md5 `05fef0a01b58f0b6f107b90b97165873`）
+- 结果两步：**(a)** 仅去 SQL 谓词、留 `args.addAll(scope.params())` ⇒ 由守卫 **②** 先红（`expected:<1> but was:<3>`）；**(b)** 同去参数 ⇒ 隔离出守卫 **③**：`hedgePlanFindByIdScopedPredicateEffective` 报「`scope 谓词须存在`」（`expected:<true> but was:<false>`）。该点**此前无任何真实 DAO 用例** ⇒ 本守卫为**唯一**检出者
+- 复位 md5 **`05fef0a01b58f0b6f107b90b97165873`**（== 注入前）；`git status --porcelain java/src/main` **为空**
+
+**复位后核验**：`SubAccountScope.java`/`DmExposureDao.java`/`DmHedgePlanDao.java` 三者 md5 均与注入前**逐字节相同**；`java/src/main` 工作树**零残留**；复位后重跑全量 = **650/0/0/0**（见 §三）。
+
+## 七、方案选择依据（(a) / (b) / (c) 择一并给理由）
+
+**选 (a)（断言 SQL 不含 ` OR ` 中和记号 + 占位符==参数）。依据**：
+
+1. **(b)/(c) 的「红」会被引擎自身解析失败污染。** 对 OR 中和注入，`InMemoryDmEngine` 因**无法求值**而抛（正是复核席 `MUT-C2` 指认的「唯一红例系引擎解析失败 `10022`、**非守卫命中**」）⇒ 用 (b) 会**把「引擎不支持」误当「守卫有牙」**（假绿风险）。且 (b) 在**白名单子查询**面（S2/S3/S4）根本不可用（引擎不解析子查询，见 §八），须先做 (c)。
+2. **(c)（引擎支持子查询求值）代价高**：改 1300+ 行引擎、且把「测试判据」与「引擎能力」耦合；风险/收益比差，且超出 2 人时。
+3. **(a) 与 `T-151` 同机制**：可**并存、不削弱**既有守卫；纯静态、零副作用、可机械复核、留于 `src/test`。
+4. **★关键收严（优于「仅顶层」）**：本判据取**任意括号深度**的 ` OR ` 记号 —— 因白名单载体的 scope 谓词在**子查询内**，对 `scope.sql()` 的中和作用落在**子查询的 WHERE**（深度 > 0），**仅断言「顶层无 ` OR `」会漏检该注入**。INJ-1 已实证：9/9 落点全红（含子查询内的 S2/S3/S4）。
+
+## 八、未覆盖 / 不可判定项（显式声明；**不**把不覆盖面写成已覆盖）
+
+- 本守卫是**静态 SQL 记号判据**，**非** SQL 语义求值。它判「无 ` OR ` 记号 + 占位符==参数 + scope 片段在」；它**不**判「其他语义上等价于恒真/恒假的写法」：**残余面** = ① `AND 1=1`（**无 OR**）等不含 ` OR ` 的中和形态 —— **不被本守卫检出**（本单目标为「OR 中和」形态；且此类不改变 scope 过滤力）②`NOT (… NOT IN …)` / `CASE` / `COALESCE` 等复杂等价改写 ③`OR` 以别名/方言函数伪装。
+- **未对真实 DM8 语义验证**（本环境无 DM8）；守卫**只锚 SQL 文本层**。
+- **S1（`AbstractDmDao.findPageScoped` 基类）无独立断言点**（protected；仅经 S1a/S1b/S1c 使用）⇒ 以 3 覆写点覆盖，**不另建**对基类的直接用例（不覆盖声明）。
+- **哨兵 0（跨账户只读）路径不构造 scope**（无谓词可中和）⇒ 不在本守卫范围；既有 cross 用例已断言「不含 scope」。
+- 占位符判据假设 DAO 按 1..n 顺序绑定（现有 DAO 均如此）；乱序/重复绑定索引未建模（当前无此形态）。
+
+## 九、`InMemoryDmEngine` javadoc 订正（part ②）
+
+**实测（本席探针，一次性文件 `${TMP}/T152EngineProbe`，用毕删除）**：
+
+| 探针 | 形态 | 实测结果 |
+|------|------|----------|
+| P1 | 裸列名 `WHERE id IN (SELECT …)`（1 元 scope） | **静默错值**：返回 0 行（DM8 正确应为 1 行）——**不抛** |
+| P2 | 带点号 `WHERE a.id IN (SELECT …)` | **抛** `UnsupportedOperationException：无法求值的 WHERE 原子` |
+| P3 | 裸列名 + 子查询逗号数 > 绑定参数数 | **抛** `IndexOutOfBoundsException`（`Index 1 out of bounds for length 1`） |
+| P4 | 真 `DmProductDao.findByIdScoped(7, scope=[7])`（品种 7 白名单仅含子账户 1） | **返回该行**（假阳·**越权可见**；DM8 正确应为 null） |
+| P5 | 真 `DmProductDao.findByIdScoped(7, scope=[1])` | **返回 null**（假阴；DM8 正确应为品种 7） |
+
+**行为真相**：子查询**不被解析** ⇒ 子查询文本被当作 `IN` 取值列表，按其中逗号切分后**消费绑定参数**，即把**外层列**（`t_product.id`）与绑定的**子查询列值**（`sub_account_id`）相比 ⇒ **多数形态静默错值**（可假阳=越权可见 / 假阴），**仅**「裸列名且逗号数 > 参数数」与「带点号限定」两种形态 loud 抛。**原文「两种形态都 loud 抛、不会静默出错」不成立**。
+
+**订正**：`InMemoryDmEngine.java:61-71` 的「子查询 → loud 抛」改写为「**子查询 → 不解析；多数形态静默错值，仅少数形态 loud 抛**」，并逐条列三形态（含 P1/P4/P5 实测）+ 结论「子查询面**不得依赖引擎 loud 抛自证**」（`+17/−5`）。
+
+**评估：该不实自述还误导了哪些既有断言/结论**（穷举命中，**只报不改**——不在本单授权条目内）
+1. `java/src/test/java/com/hedgeguard/web/M1EndToEndAcceptanceTest.java:108` —— javadoc 复述「引擎已披露不覆盖项（… **子查询 loud 抛**、…）」⇒ **同轴不实残留**（在 `src/test`，本席写域内但不在本单授权条目）。
+2. `docs/TEST_RESULT.md:6192` —— `T-023` 证据表行「子查询 | … | **抛**（`IndexOutOfBoundsException` / `UnsupportedOperationException…`）| ✔（**loud**）」⇒ **同轴不实残留**（证据章，**只可追加**）。
+3. `java/src/test/java/com/hedgeguard/service/ProductDetailIsolationTest.java:78` —— 「`InMemoryDmEngine` **不支持** `id IN (SELECT …)` ⇒ 该面用记录型假 JDBC」：**「不支持」为真**；**但**其决策理由若源自「loud 抛」（原文未直书）则不实 —— 真相是**静默错值**（若真用引擎会**静默假绿/假阳**）。**该决策本身正确**（用 RecordingJdbc 断言形状），仅**理由需更正**；且**未**泄漏为断言放水。
+4. **未误导出「放水断言」**：经查 `ProductDetailIsolationTest` 用 FakeDao（忠实模拟白名单语义）+ `DmProductDaoScopedSqlTest` 用 RecordingJdbc，**均未**把白名单子查询路由进 `InMemoryDmEngine` ⇒ 无既有断言因该不实自述而**失真**（此为「结论未受累、仅表述受累」）。
+
+> 建议：1 与 2 属 `NFR-MAINT-1`（文档须准确）**同轴残留**，宜另立一条（类 `T-158` 的「陈旧/不实注释穷举订正」）由 `src/test` 责任席 + 证据章追加席分别处置；本席**不自行改**（越界纪律）。
+
+## 十、边界与不变式（本席声明）
+
+- 只改 `java/src/test/**`（3 文件）；**未改** `java/src/main/**`、未改 `docs/TASKS.md`/`docs/BOARD.md`、未动 `java/target/`。
+- INJ-1/2/3 为**临时注入**，均以 `git checkout -- <file>` **逐字节复位**，复位后三文件 md5 与注入前**相同**、`git status --porcelain java/src/main` **为空**。
+- 变异在**共享树**内做（本环境本席为**唯一** mvn 写入者，`clean test` 与注入轮次已**串行**）——与上游 `hg-t156-iso` 的隔离副本法不同，本单以「注入前 md5 存档 + `git checkout` 复位 + 复位后 md5 相等 + `git status` 空 + 复位后全量 650/0/0/0」**五重取证**替代隔离。
+- `/tmp` 为 ~804MB tmpfs（常满）⇒ 全程 `TMPDIR=/root`，隔离物不出共享树。
+- 本席仅在开工时观察到 `docs/TASKS.md` 被**编排者**并发提交（`5e65c8a`，docs-only，非本席）；已报 `team-lead`。

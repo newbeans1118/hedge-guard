@@ -58,17 +58,29 @@ import java.util.regex.Pattern;
  * <p><b>明确不覆盖</b>（诚实披露）：条件唯一索引的 {@code WHERE} 谓词、JOIN、聚合（除 count 包裹）、
  * 子查询、多列外键、DM 专有函数、事务隔离/回滚（连接为自动提交；回滚不还原本引擎的行集）。
  *
- * <p><b>上述不覆盖项的失败形态并不相同，须分开表述</b>（{@code T-023} 补测复核探针实测，勿再并列）：
+ * <p><b>上述不覆盖项的失败形态并不相同，须分开表述</b>（{@code T-023} 补测复核探针实测；<b>子查询一项经
+ * {@code T-152} 探针实测<u>更正</u></b>——原文「两种形态都 loud 抛」<b>不成立</b>，勿再沿用）：
  * <ul>
  *   <li><b>JOIN / 聚合 → 静默返回错值</b>：SELECT 解析只取首个表名
  *       （{@code ^SELECT … FROM (\w+) …}），{@code JOIN}/聚合后缀落入未解析片段而被忽略，<b>不抛异常</b>，
  *       只是返回错误行集。实测（2 行基表）：{@code SELECT a.id FROM a JOIN b ON …} 与
  *       {@code SELECT MAX(id) FROM a} 均返回 <b>2 行</b>（正确应为 <b>1 行</b>）。
  *       此类最易"假绿"——用例若只断言"不报错"或不断言行数即会放过；</li>
- *   <li><b>子查询 → loud 抛</b>：实测两种形态都抛异常，<b>不会静默出错</b>——
- *       {@code WHERE id IN (SELECT …)}（裸列名）抛 {@code IndexOutOfBoundsException}（占位符取值越界）；
- *       {@code WHERE a.id IN (SELECT …)}（带点号限定）抛
- *       {@code UnsupportedOperationException("无法求值的 WHERE 原子…")}。</li>
+ *   <li><b>子查询 → 不解析；<u>多数形态静默错值</u>，仅少数形态 loud 抛</b>（{@code T-152} 探针实测）：
+ *       <ul>
+ *         <li><b>裸列名 {@code WHERE id IN (SELECT …)} → 静默错值</b>（<b>不抛异常</b>）：子查询被误当作
+ *             {@code IN} 的取值列表，按子查询内逗号切分后<b>消费绑定参数</b>，即把<b>外层列</b>
+ *             （如 {@code t_product.id}）与绑定的<b>子查询列值</b>（如 {@code sub_account_id}）相比。
+ *             实测：{@code DmProductDao.findByIdScoped(7, scope=[7])} 对白名单仅含子账户 1 的品种 7
+ *             <b>返回了该行</b>（假阳·越权可见）；scope=[1] 时<b>返回 null</b>（假阴）。
+ *             <b>危险向 = 可掩盖越权可见。</b></li>
+ *         <li><b>裸列名且子查询逗号数 &gt; 绑定参数数 → loud 抛</b> {@code IndexOutOfBoundsException}
+ *             （占位符取值越界）—— 这是原文误记为「裸列名一律抛」的那一半；</li>
+ *         <li><b>带点号限定 {@code WHERE a.id IN (SELECT …)} → loud 抛</b>
+ *             {@code UnsupportedOperationException("无法求值的 WHERE 原子…")}。</li>
+ *       </ul>
+ *       故子查询面<b>不得依赖「引擎 loud 抛」自证</b>；须改用记录型假 JDBC 断言 SQL 形状
+ *       （见 {@code DmProductDaoScopedSqlTest} 与 {@code ScopedSqlPredicateEffectTest}）。</li>
  * </ul>
  * 以上均不影响本用例所断言的建表→读写→查询与三类约束路径。
  */
