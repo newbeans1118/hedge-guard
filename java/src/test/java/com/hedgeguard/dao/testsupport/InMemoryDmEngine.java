@@ -52,9 +52,22 @@ import java.util.regex.Pattern;
  *       （{@code DmDialect.countSql} 形态）。</li>
  * </ul>
  *
- * <p><b>明确不覆盖</b>（诚实披露）：条件唯一索引的 {@code WHERE} 谓词、子查询、JOIN、
- * 聚合（除 count 包裹）、多列外键、DM 专有函数、事务隔离/回滚（连接为自动提交；
- * 回滚不还原本引擎的行集）。以上均不影响本用例所断言的建表→读写→查询与三类约束路径。
+ * <p><b>明确不覆盖</b>（诚实披露）：条件唯一索引的 {@code WHERE} 谓词、JOIN、聚合（除 count 包裹）、
+ * 子查询、多列外键、DM 专有函数、事务隔离/回滚（连接为自动提交；回滚不还原本引擎的行集）。
+ *
+ * <p><b>上述不覆盖项的失败形态并不相同，须分开表述</b>（{@code T-023} 补测复核探针实测，勿再并列）：
+ * <ul>
+ *   <li><b>JOIN / 聚合 → 静默返回错值</b>：SELECT 解析只取首个表名
+ *       （{@code ^SELECT … FROM (\w+) …}），{@code JOIN}/聚合后缀落入未解析片段而被忽略，<b>不抛异常</b>，
+ *       只是返回错误行集。实测（2 行基表）：{@code SELECT a.id FROM a JOIN b ON …} 与
+ *       {@code SELECT MAX(id) FROM a} 均返回 <b>2 行</b>（正确应为 <b>1 行</b>）。
+ *       此类最易"假绿"——用例若只断言"不报错"或不断言行数即会放过；</li>
+ *   <li><b>子查询 → loud 抛</b>：实测两种形态都抛异常，<b>不会静默出错</b>——
+ *       {@code WHERE id IN (SELECT …)}（裸列名）抛 {@code IndexOutOfBoundsException}（占位符取值越界）；
+ *       {@code WHERE a.id IN (SELECT …)}（带点号限定）抛
+ *       {@code UnsupportedOperationException("无法求值的 WHERE 原子…")}。</li>
+ * </ul>
+ * 以上均不影响本用例所断言的建表→读写→查询与三类约束路径。
  */
 public final class InMemoryDmEngine implements ConnectionFactory {
 
