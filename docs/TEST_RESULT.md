@@ -6097,3 +6097,197 @@ TMPDIR=/root mvn -B -o -Pcoverage test            # 生成 target/site/jacoco（
 - **落笔后**：以实时 `md5sum` 为准；**纯追加证明**：`head -5979 docs/TEST_RESULT.md | md5sum` = `57f9ff5d5701aceea09b79eb793bb8c2`（=落笔前全档 md5）。
 - **只读声明**：本席**未改** `docs/TEST_PLAN/**`、`java/**`、`web/**`、`docs/TASKS.md`、`docs/BOARD.md`、`docs/REQUIREMENTS/**`；唯一写入 = 本追加章。
 - **副本**：`/root/t022_probe/`（变异用，已弃；**未落 `/tmp`**）。
+
+---
+
+# `T-023` 独立复核证据（2026-09-23）
+
+**复核席**：测试工程师（实例 `te-verify-t023`） ｜ **复核对象**：`T-023`（编写 M1 单测与集成测试 · JUnit 5）交付 commit **`efc2a59`**（4 文件、+2471/−0）。
+**复核时点**：`HEAD = 1b15d92`；`git diff efc2a59 HEAD -- java/src java/pom.xml` = **空** ⇒ 交付面无后续改动。
+**只读范围**：本席**未改** `docs/TEST_PLAN/**`、`java/**`、`web/**`、`docs/TASKS.md`、`docs/BOARD.md`、`docs/REQUIREMENTS/**`；**唯一写入 = 本章（纯追加）**。
+**隔离副本**：`/root/t023v/`（布局 `<root>/{docs,java,tools,proto,web,cpp/src}`；`TMPDIR=/root`；**`/tmp` 未用**）；副本 `java/src` 树锚 = 交付锚 `c5817cb5…`/338。
+**结论**：**有条件通过** —— **0 阻断缺陷**；**1 缺陷** `TE-T023-001`（中 · 覆盖盲区）+ **4 观察项**。
+核心断言（锚点 / 门禁 / 约束用例**真承重** / DM8 诚实）**全部独立复现 ✔**；唯 **T-023 验收 1「覆盖计划核心逻辑」在 `PlanService.bindExposure` 上未达成**（该 `FR-PLAN-19` 核心规则**零用例**，实测关其规则后 **504/0/0/0 全绿**）——
+
+> **裁定口径提示（交编排者）**：按**量化口径**（T-023 验收 1 的「≥80%」= 五模块行覆盖率）**不阻断**；按**「覆盖计划核心逻辑」严格口径**则该缺陷**阻断 ⇒ 退回补用例**。
+
+---
+
+## 1. 锚点复现（判据 1 / 7）—— 独立实测 vs 产出方自述
+
+| 项 | 产出方自述 | 独立实测 | 判定 |
+|---|---|---|---|
+| `java/pom.xml` | `c5b52006ca5ec6807ae20a94a57cd2d8` / 220 | 同 | ✔ |
+| `dao/testsupport/InMemoryDmEngine.java` | `02f6964a960af635e561a6e94bdb75fa` / 1268 | 同 | ✔ |
+| `dao/M1Dm8EquivalentIntegrationTest.java` | `057928803550032c1aa94fb728f04523` / 380 | 同 | ✔ |
+| `service/ConfigServiceAdminTest.java` | `778e0c7bb748e2b10918ae662c659566` / 762 | 同 | ✔ |
+| `java/src` 树锚（`find java/src -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum`，cwd=仓库根） | `c5817cb5…` / 338 | **同**（基线 `efc2a59^` = 335 文件） | ✔ |
+| `git diff --numstat efc2a59^ efc2a59` | `61/0`、`380/0`、`1268/0`、`762/0` | 逐条吻合（`git show --stat` = 4 files changed, 2471 insertions(+), 0 deletions） | ✔ |
+| 范围（判据 7） | 只动 4 文件；`docs/**` 零改动；`src/main` 零改动 | `git show --name-only efc2a59` = 仅那 4 文件；`grep docs/` = 0；`src/main` = 0 | ✔ |
+
+> **说明**：`java/src/main` 与 `java/pom.xml` 自 `efc2a59` 至 `HEAD`（`1b15d92`）**逐字节未变**（`git diff --stat efc2a59 HEAD -- java/src java/pom.xml` 空）；`src/main` 树锚 = `aecf25b8bed9fd9e5011f9202fb9041a`（共享树与副本同）。
+> **口径校正（对派单）**：树锚 `c5817cb5…` 仅当**以 `java/src` 前缀**计算时重现；以 `src/`（cwd=`java/`）前缀计算为 `aaf91fb7…`——**前缀敏感**，报告口径正确。
+
+## 2. 门禁真机复现（判据 2 · 不得只引述报告）
+
+**在隔离副本 `/root/t023v/java` 实跑**：
+
+| 命令 | 期望 | 独立实测 | 判定 |
+|---|---|---|---|
+| `TMPDIR=/root mvn -B -o -Punit clean test` | `504 / 0 / 0 / 0`、`BUILD SUCCESS` | **同**（`Tests run: 504, Failures: 0, Errors: 0, Skipped: 0`；`BUILD SUCCESS`；139 s） | ✔ |
+| surefire 名单（`target/surefire-reports/*.xml`） | `== @Test == 504`、`*Test` 类 62 | surefire XML 类数 **62**、`tests=` 合计 **504**；`grep -rc @Test` 合计 **504**；`grep -rho @Test`=**504**；`find -name '*Test.java'`=**62** | ✔（**无注释吞并**） |
+| 基线（`efc2a59^`） | 60 `*Test` / 484 例 | `git ls-tree … efc2a59^ -- java/src/test` = **60** `*Test.java`；+2 新类（各 `@Test`=**10**）= 62；504−20=**484** | ✔ |
+| 聚合 `tools/arch-check/arch-check.sh` | `rc 0` | **rc 0**（E1–E7 退出码全 0：通过 7 / 命中 0 / 前置错 0） | ✔ |
+| `E5`（`scan_java_sql.sh`） | `rc 0` | **rc 0**（「dao 之外未发现 SQL」） | ✔ |
+
+**★`-Pcoverage` 非确定性（OBS-1，实测一手）**：`TMPDIR=/root mvn -B -o -Pcoverage test`
+
+| 跑次 | 结果 | E2 打印 |
+|---|---|---|
+| 第 1 次 | **`504 / 1 / 0 / 0`、BUILD FAILURE** | `[E2] N=32 samples=512 P50=7ms **P95=236ms** P99=238ms max=238ms` |
+| 第 2 次（`-Dmaven.test.failure.ignore=true`） | `504 / 0 / 0 / 0` | `[E2] N=32 samples=448 P50=9ms **P95=16ms**` |
+| （对照 · 无 jacoco 的 `-Punit`） | `504 / 0 / 0 / 0` | `[E2] … P95=11ms` |
+
+⇒ 失败源 = `WsAcceptanceTest.e2ConcurrentLatencyP95Under200ms:160`（`T-028` 用例，**非 `T-023`**），受 jacoco 代理开销放大后**偶发**越过 200 ms。故报告 §2 所载「`-Pcoverage test` ⇒ 504/0/0/0」为**可能结局之一、非确定性**；且**首跑因该用例失败时 jacoco `report` 目标未执行**（`target/site/jacoco/jacoco.xml` 不存在），须以 `-Dmaven.test.failure.ignore=true` 或先隔离该用例才能稳定取覆盖率。
+
+## 3. 覆盖率复算（判据 2 · 指标口径核）—— 独立重算 `jacoco.xml`
+
+| 类（模块） | LINE（自述/实测） | INSTRUCTION | BRANCH | 判定 |
+|---|---|---|---|---|
+| `ConfigService`（配置） | **91.6% / 91.6%** | 90.8% | 68.7% | ✔ |
+| `VarietyService`（产品/额度） | **89.9% / 89.9%** | 87.8% | 76.2% | ✔ |
+| `AuthService`（权限） | **87.9% / 87.9%** | 86.3% | 67.6% | ✔ |
+| `PlanService`（计划/方案计算） | **83.1% / 83.1%** | 81.9% | 61.6% | ✔ |
+| `SpotService`（现货） | **82.0% / 82.0%** | 79.8% | 65.1% | ✔ |
+
+**未混淆指标**：报告把**行覆盖率**明确标为 `LINE`，`INSTR`/`BRANCH` 另列，逐值与我重算一致 ⇒ **不存在「行覆盖」与「分支/指令覆盖」混称**。✔
+**但指标口径未锚定（见 (F)）**：`NONFUNCTIONAL.md:198` `NFR-TEST-1` 原文 = 「核心模块（方案计算、额度校验、会计生成）**单元测试覆盖率 ≥ 80%**」，`PROJECT.md:611`（§10-8）同；**均未指明 `LINE`/`BRANCH`**。按 **`BRANCH`** 口径：`PlanService` **61.6%**、`VarietyService` **76.2%** ⇒ **均 < 80%**。
+**会计生成不可度量**：`java/src/main` 下**无 `acct`/`accounting`/`voucher` 包**（`ls` 实测）⇒ 报告「M1 未交付 ⇒ 无法度量」**成立** ✔。
+
+## 4. ★`InMemoryDmEngine` 语义保真（判据 4 · 本单最易「假绿」处）
+
+**（4.1）四个强制点是否真承重 —— 自设变异证伪（各只杀对应 1 例）**：
+
+| 变异 | 形态（隔离副本内） | 期望 | 实测 | 复位校验 |
+|---|---|---|---|---|
+| A · 外键 | FK 循环 `if (value == null)` → `if (value == null \|\| true)` | `orphanForeignKeyIsRejected` 红 | ✅ `10 run, 1 failure`，仅该例红（复现产出方变异 A） | md5 回 `02f6964a…` ✔ |
+| B · NOT NULL | `if (c.notNull && …)` → `if (false && …)` | `nullOnNotNullColumnIsRejected` 红 | ✅ 1 failure，仅该例 | md5 回 `02f6964a…` ✔ |
+| C · 唯一 | `if (u.conditional)` → `if (u.conditional \|\| true)` | `duplicateInsertOnUniqueColumnIsRejected` 红 | ✅ 1 failure，仅该例 | md5 回 `02f6964a…` ✔ |
+| D · CHECK | `if (!check.enforceable())` → `if (true \|\| …)` | `checkConstraintRejectsOutOfRangeValue` 红 | ✅ 1 failure，仅该例 | md5 回 `02f6964a…` ✔ |
+
+⇒ 三类约束（非空/唯一/外键）与 CHECK **真由引擎按 DDL 语义强制**，非「碰巧抛错」。
+**异常链核**：引擎抛 `SQLException`（`InMemoryDmEngine:556/570/587/606`），经**生产代码** `TxTemplate.wrap`（`java/src/main/.../tx/TxTemplate.java:147–150`，含 `原因=e.getMessage()`）转 `IllegalStateException` ⇒ 测试断言的「含 `违反唯一约束`+`uk_product_code`」**直承引擎判定**（非测试侧桩伪造）。
+
+**（4.2）「46 表」实名复核**：4 个 M1 DDL 脚本 `docs/DEPLOY/schema/m1_{config_auth,product,spot,plan}.sql` 的 `CREATE TABLE` 逐脚本计数 = **20 + 8 + 10 + 8 = 46**（`grep -ciE '^\s*CREATE\s+TABLE'`）；用例 `ddlScriptsCreateSchema` 断言 `engine.tableCount()==46` 且**已绿** ⇒ **46 成立、与 DDL 表数一致** ✔。（脚本清单位于 `M1Dm8EquivalentIntegrationTest.SCRIPTS`，4 条。）
+
+**（4.3）「可求值 CHECK 110 / 登记未求值 54」复测**：实际用例仅断言 `enforced>=10` 与 `enforced+unchecked>0`（**弱断言**），真实值取自控制台：实测 `[T-023] 内存引擎 CHECK：可求值=110，登记未求值=54`；且 **110+54 = 164 = 4 脚本 `CHECK (` 出现总数**（`grep -oiE 'CHECK\s*\('` = 164）⇒ **引擎登记了全部 CHECK、无静默丢弃** ✔。
+
+**（4.4）「不覆盖」清单**逐项注入探针**（临时探针类 `ZzT023UncoveredProbeTest`，跑毕删除）**：
+
+| 披露项 | 探针形态 | 期望（不覆盖⇒不红） | 实测 | 判定 |
+|---|---|---|---|---|
+| 条件唯一索引 `WHERE` 谓词 | 建 `uk_probe_cond … WHERE flag='Y'`，连插 2 行 `(k=1,'Y')` | 接受 | **接受 2 行、`rejectedByUnique=0`** | ✔ 属实 |
+| （反向对照）非条件唯一 | `CONSTRAINT uk_probe2_k UNIQUE(k)` 连插 2 行 | 拒绝 | **抛 `违反唯一约束 uk_probe2_k`** | ✔（覆盖侧能红） |
+| 事务回滚 | `setAutoCommit(false)`→insert→`rollback()` | 不还原 | **回滚后仍 1 行** | ✔ 属实 |
+| 子查询 | `WHERE … IN (SELECT …)` / `WHERE EXISTS (…)` | 不保证 | **抛**（`IndexOutOfBoundsException` / `UnsupportedOperationException：无法求值的 WHERE 原子`） | ✔（**loud**） |
+| JOIN | `a JOIN b ON a.id=b.id+100`（正确语义 0 行） | 不保证 | **NO-THROW 返回 3 行（错值）** | ⚠ **静默错值**（见 OBS-4） |
+| 聚合（非 count 包裹） | `SELECT COUNT(*) FROM t`（正确 1 行） | 不保证 | **NO-THROW 返回 3 行（错值）** | ⚠ **静默错值**（见 OBS-4） |
+| `COUNT(*) AS cnt FROM (…) hg_cnt` 包裹 | `DmDialect.countSql` 形态 | 支持 | **1 行（正确）** | ✔ |
+
+> **清单完整性判定**：清单**内容**与实测一致、**无遗漏强制项**（四类强制点均能红、四类不覆盖项均「不红/不保证」）✔。**唯一精度缺口**：清单把 JOIN/聚合与子查询并列为「不覆盖」，但二者行为不同——子查询**loud 抛**、JOIN/聚合一**静默返回错值**（更危险，见 OBS-4）。**未触发**：本引擎**仅** `M1Dm8EquivalentIntegrationTest` 使用（`grep -rl InMemoryDmEngine src/test`）；该用例的「查询」走 `AbstractDmDao.findPage(query,null,∅)` ⇒ `where=null` ⇒ **不生成子查询/JOIN**（`DmProductDao.scopedProductIdsPredicate` 仅在 scoped 路径拼子查询）⇒ **本用例不受该精度缺口影响** ✔。
+
+**（4.5）`46 表` 与「真实 DAO 读写」语义链**：用例经**真实** `DmProductDao`/`DmSubProductWhitelistDao`/`DmExposureDao` 生成 SQL，引擎按语义求值（主键回填 `id=1`、乐观锁 `row_version` 1→2、`findPage` 的 `COUNT` 包裹 + `LIMIT/OFFSET`、三分量 Σ=60 往返）——**非仅断言 SQL 字符串** ✔。
+
+## 5. 验收 3 三类约束用例是否真承重（判据 5）
+
+| 类 | 用例 | 断言形态（独立读码） | 判定 |
+|---|---|---|---|
+| 重复插入 | `duplicateInsertOnUniqueColumnIsRejected` | `assertThrows(IllegalStateException)` **且** `msg.contains("违反唯一约束") && msg.contains("uk_product_code")` **且** 行数仍 1 **且** `rejectedByUnique()==1` | ✔ 真承重（变异 C 证） |
+| 空值 | `nullOnNotNullColumnIsRejected` | `assertThrows` + `msg.contains("NOT NULL") && contains("product_code")` + 落库 0 + `rejectedByNotNull()==1` | ✔（变异 B 证） |
+| 孤儿 | `orphanForeignKeyIsRejected` | `assertThrows` + `msg.contains("外键") && contains("t_sub_account")` + 落库 0 + `rejectedByForeignKey()==1` **＋反向对照**：`seedSubAccount(9999)` 补父行后**同一写入成功** | ✔（变异 A 证；**反向对照存在** ⇒ 拒绝确由「孤儿」引起） |
+| 取值域附加 | `checkConstraintRejectsOutOfRangeValue` | `assertThrows` + `msg.contains("CHECK") && contains("ck_product_category")` | ✔（变异 D 证） |
+| 敞口三分量往返 | `exposureThreeComponentsRoundTrip` | 真实 `DmExposureDao` 写入 40/10/10 后 `findById` 读回，`Σ分量.compareTo(exposureQty)==0` | ✔ |
+
+⇒ **断言均断言了「具体原因」而非仅「抛了异常」**，且孤儿类**含反向对照** ✔。
+
+## 6. 残留 / 复位 / 范围 / DM8 诚实性（判据 6 / 7 / 8）
+
+- **零残留**：全树（含 `java/`、隔离副本）扫 `*.orig`/`*.bak`/`*.rej`/`*MUTATION*` = **0 命中**；`git status --short`（全仓）= **空**；`ConfigService.java` 现 md5 = **`6f656de0dde946bb52576a7d2aae9d48`** = 变异 B 前值 ✔。
+- **变异 B 触及 `java/src/main` 的可接受性**：交付方自述「`.orig` 备份 → 单跑 → 逐字节复位 → md5 校验」，**复位后零残留经我独立复核属实** ⇒ **结果可采信**；理由（「仅测试侧变异只能证『用例对桩承重』」）**成立**。**但过程有一风险（OBS-2）**：该变异**在共享源树就地做**（非隔离副本），会使**并发读者**读到瞬时变异态的主源快照。
+- **DM8 不可达（诚实性）**：全盘 `DmJdbcDriver*.jar` **0 命中**；`java/lib` **不存在**；`ss -ltn` **5236 无监听**；**无** `dmserver`/`dmap` 进程 ✔。报告 §0/§2(b2)/§5 及引擎/用例 javadoc **处处标「⚠️ 未验 DM8 实机」**，**无任一处把等价执行写成 DM8 验证** ✔（grep 报告章 `DM8` 6 处全为「未验/不可达/不构成」）。
+- **E5「初稿落 `testsupport`/`integration` 判红 6 处」**：我在副本内**复现**该判据形态（把引擎 + 集成测试转置到非 `dao` 包）⇒ **E5 退 1、命中 5 处**（引擎 4：`CREATE TABLE`/`CREATE INDEX`/`ALTER TABLE`×2；集成测试 1：`INSERT INTO t_sub_account`）——**方向属实、数目不符（我 5 / 报告 6）**（见 OBS-3）。
+
+## 7. 自设变异 / 探针清单（形态 / 期望 / 实测 / 复位）
+
+| # | 目标 | 形态 | 期望 | 实测 | 复位 |
+|---|---|---|---|---|---|
+| M-A | 引擎 FK | `if (value == null)` → `\|\| true` | 孤儿例红 | ✅ 1 red | md5 `02f6964a…` ✔ |
+| M-B | 引擎 NOT NULL | `if (c.notNull…)` → `if (false…)` | 空值例红 | ✅ 1 red | ✔ |
+| M-C | 引擎唯一 | `if (u.conditional)` → `\|\| true` | 重复例红 | ✅ 1 red | ✔ |
+| M-D | 引擎 CHECK | `if (!enforceable())` → `if (true\|\|…)` | 越域例红 | ✅ 1 red | ✔ |
+| P-cond / P-noncond / P-rollback / P-JOIN / P-agg / P-subq / P-countwrap | 引擎「不覆盖」清单 | 见 §4.4 | 逐项 | 见 §4.4 | 探针类已**删除**；树锚回 `c5817cb5…`/338 ✔ |
+| E5-draft | E5 判据形态 | 引擎+集成测试置于非 `dao` 包 | E5 红 | ✅ 退 1、5 处 | 转置文件删除；树锚回 `c5817cb5…` ✔ |
+| **H1** | **生产规则** | `PlanService.bindExposure` 的 `if (bind.coveredQty.compareTo(uncovered) > 0)`（`:661`）→`… && false` | 若覆盖则红 | ❌ **504/0/0/0 全绿** | `PlanService.java` md5 回 `8dd973e7…` ✔ |
+| H2 | 对照 | 同形检查 `:552` 同法变异 | 红 | ✅ **1 red（`PlanServiceTest.createPlanRules`）** | 同上 ✔ |
+
+> **探针纪律**：全部变异/探针**仅在隔离副本 `/root/t023v/`**；`/root/t023_probe.py`、`/root/t023_*.orig` 均在**仓库外**；结束逐项复位并核 md5；副本 `java/src` 树锚 = `c5817cb5…`/338。
+
+## 8. 三问答复
+
+### (F) 覆盖率/门禁口径判定
+
+- **`504/0/0/0` 是验收 2/3 的成立证据** ✔（真机复现、surefire==`@Test`==504、约束用例真承重）。
+- **「五模块行覆盖率 ≥80」是否构成验收 1 的成立证据？** —— **仅在「LINE + 类聚合」口径下成立**；三点口径不成立：
+  1. **指标未锚定**：`NFR-TEST-1`/`PROJECT.md §10-8` 原文只说「覆盖率 ≥80%」，**未指明 `LINE`**。按 **`BRANCH`**：`PlanService` 61.6%、五模块**全部 < 80%** ⇒ 「达标」结论**取决于指标选择**。
+  2. **聚合掩盖零覆盖规则方法**：`PlanService` 行覆盖 83.1% ≥80，但其 `FR-PLAN-19` 核心规则方法 **`bindExposure` 行覆盖 = 0%**（`jacoco.xml` 实测；`src/test` 引用数 = 0）⇒ 验收 1「覆盖**计划核心逻辑**」在该方法上**未达成**（`TE-T023-001`）。
+  3. **`-Pcoverage` 非确定性**：同命令 2 跑 1 红（OBS-1）⇒ 「覆盖率可复现」须附「隔离 `WsAcceptanceTest` 或用 `-Dmaven.test.failure.ignore=true`」。
+- **应写成的口径**：宜写成「**`LINE` 覆盖率、类级聚合**：五模块 ≥80%（`BRANCH` 未达；核心规则方法 `bindExposure` 为 0%，未覆盖）；覆盖率快照取自 `<commit>` 的 `-Pcoverage`（jacoco 0.8.12）运行，**该运行须先隔离 `WsAcceptanceTest.e2`（jacoco 开销致其 P95 偶发 >200ms）**」。
+
+### (G) 逐条复核「未决 5 项」
+
+| # | 自述 | 独立判定 |
+|---|---|---|
+| 1 | DM8 实机未验（最大缺口） | **成立**（4 项不可达证据复核 ✔）；**实机复跑确应由 `T-024` 承接** |
+| 2 | ACCT 核心模块无覆盖率 | **成立**（无 `acct`/`accounting`/`voucher` 包） |
+| 3 | `java/lib/DmJdbcDriver18.jar` 缺失 | **成立**（`java/lib` 不存在 ⇒ `-Pdm` 不可用） |
+| 4 | `dao.impl` 41.2% | **成立**（报告已列，非 T-023 点名核心模块） |
+| 5 | Handler 适配层 20–65% | **成立**（报告已列） |
+
+**遗漏（我加）：**
+- **(a)** `PlanService.bindExposure`（服务层 · `FR-PLAN-19` 核心规则）**行覆盖 0%** 且**未在报告 §5 披露** ⇒ 与「验收 1 覆盖计划核心逻辑」直接相关（`TE-T023-001`）。
+- **(b)** **`-Pcoverage` 非确定性**（OBS-1）：报告 §2 的 `504/0/0/0` 非稳定结局。
+- **(c)** **离线可复现打折**：jacoco 插件 0.8.12 系**首次在线下载**入本地仓（实测 `/root/.m2/.../org.jacoco` 现有 0.8.12）；**新机无该缓存时 `mvn -o -Pcoverage` 会失败** ⇒ 「全部离线可复现」应限「除首次 jacoco/help 插件下载外」。
+- **(d)** `-Punit` **确为真等价**（见 §3 与判据 3）——**不是**遗漏，**已核实成立**。
+
+### (H) 是否构成「假绿」
+
+**尝试**：将**生产可达**端点 `POST /api/v1/plan/{id}/bind-exposure`（`PlanRoutes`→`BindExposureHandler:55`→`PlanService.bindExposure`）的**核心规则**「覆盖量 ≤ 敞口未覆盖量」（`FR-PLAN-19` 验收 3）**关闭**（`:661` 加 `&& false`）。
+**结果**：`TMPDIR=/root mvn -B -o -Punit test` ⇒ **`504 / 0 / 0 / 0`、`BUILD SUCCESS`（rc 0）**——**一个真实规则缺陷骗过全部 504 用例**。
+**对照**：对**同形**检查 `:552` 施加同法变异 ⇒ **红 1**（`PlanServiceTest.createPlanRules`）⇒ 差别在**覆盖**：`:552` 所在方法有用例，`bindExposure` **无**。
+**结论**：**存在一处「假绿」盲区**（`bindExposure`）——系该方法的**覆盖缺口**所致，非门禁失效；已立 `TE-T023-001`。其余通道（约束三类、装配/路由、`ConfigService` 规则，见产出方变异 B）经变异**确能杀红** ⇒ **「全绿≠无缺陷」在本单得到实证，且盲区已定位到具体方法**。
+
+## 9. 缺陷与观察
+
+**缺陷**
+
+| 编号 | 级别 | 标题 / 位置 | 复现 | 影响 |
+|---|---|---|---|---|
+| `TE-T023-001` | **中** | `PlanService.bindExposure`（`java/src/main/.../service/PlanService.java:623`，`FR-PLAN-19` 核心规则；端点 `POST /plan/{id}/bind-exposure`）**零用例覆盖**，报告 §5 未披露 | 见 §7-H1（关其 `:661` 规则 ⇒ 504 全绿；`:552` 同法 ⇒ 红） | 验收 1「覆盖计划核心逻辑」在该方法**未达成**；该规则的真实缺陷可**全绿逃逸**（`src/test` 引用数 = 0、行覆盖 = 0%） |
+
+**观察**
+
+| 编号 | 内容 | 建议 |
+|---|---|---|
+| `OBS-1` | `-Pcoverage` 非确定性：同命令 2 跑 1 红（`WsAcceptanceTest.e2` P95 236ms，jacoco 开销放大；`T-028` 用例） | 覆盖率快照须**隔离 `WsAcceptanceTest.e2`** 或用 `-Dmaven.test.failure.ignore=true`；报告 §2 的 `504/0/0/0` 非稳定结局 |
+| `OBS-2` | 产出方变异 B **在共享源树**就地改 `java/src/main/ConfigService.java`（非隔离） | 复位后零残留**属实**、结果**可采信**；但共享树变异会污染并发读者快照，宜改**副本内**做——本项目既有纪律本就如此 |
+| `OBS-3` | 「初稿落 `testsupport`/`integration` 被 E5 判红 **6** 处」——我复现为 **5** 处（引擎 4 + 集成测试 1） | 方向属实、数目不符；属过程自述，**不阻断**（原文初稿内容或略异） |
+| `OBS-4` | 引擎「不覆盖」清单把 JOIN/聚合与子查询并列，但 **JOIN/聚合静默返回错值**（非 loud 抛）——若后续用例复用该引擎跑 JOIN/聚合 SQL，会**静默假绿** | 建议在引擎 javadoc 把「JOIN/聚合＝**静默不保证**」与「子查询＝**loud 抛**」**分列**；本单未触发 |
+
+## 10. 落笔证明 / 只读声明
+
+- **落笔前**：`docs/TEST_RESULT.md` = `4e7e8479dc97a6931c3d1a78987f6cde` / **6099 行**（3×10s 静默恒定）。
+- **本追加章**：`L6100` 起。
+- **落笔后**：以实时 `md5sum` 为准；**纯追加证明**：`head -6099 docs/TEST_RESULT.md | md5sum` = `4e7e8479dc97a6931c3d1a78987f6cde`（= 落笔前全档 md5）。
+- **只读声明**：本席**未改** `docs/TEST_PLAN/**`、`java/src/**`、`web/**`、`docs/TASKS.md`、`docs/BOARD.md`、`docs/REQUIREMENTS/**`；**唯一写入 = 本追加章**。
+- **隔离副本**：`/root/t023v/`（变异/探针跑毕复位、探针类已删；`/root/t023_*.orig`、`/root/t023_probe.py` 在仓库外）；**未用 `/tmp`**。
+- **未自评 `DONE`**。
