@@ -6539,3 +6539,165 @@ POST (dfd23bfd…):  ① missing =  0   ② extra = 0   NOT_REGISTERED false = 0
 **残留与范围**：全树扫 `.orig/.bak/.rej/MUTATION*/*Probe*` = **0**；`git status` 仅余本席 3 个文件（2 新增 + `InMemoryDmEngine` javadoc）；`src/main` 零改动；变异只在隔离副本（已删）。
 
 **结论**：`TE-T023-001`（覆盖盲区）**已消除**——核心规则「覆盖量不得超敞口未覆盖量」现有 **4 例承重**（3 服务层 + 1 端点层），`bindExposure` 行覆盖由 **0% → 94.7%**。**待独立复核**。
+
+
+# `T-023` 补测独立复核证据（2026-09-23）
+
+**复核席**：测试工程师（实例 `te-verify-t023b`） ｜ **复核对象**：`T-023` 退回补测（消除 `TE-T023-001` 覆盖盲区），交付 commit **`602d414`**（3 文件 `+838/−3`）；复核时点 `HEAD = 486b3ec`。
+**只读范围**：本席**未改** `java/src/**`、`web/**`、`docs/TASKS.md`、`docs/BOARD.md`、`docs/REQUIREMENTS/**`、`docs/TEST_PLAN/**`；**变异仅在隔离副本**；**唯一写入 = 本章（纯追加）**。
+**隔离副本**：`/root/t023b-iso/`（布局 `<root>/{docs,java,tools,proto,web}`；`TMPDIR=/root`；**`/tmp` 未用**——本机 tmpfs 804M 常满）。
+**结论**：**有条件通过** —— **本交付范围内 0 阻断缺陷**；`TE-T023-001` 经独立复现**确已消除**，披露合规。**条件**：复核中新发现**同类盲区**（`VarietyService.putUnit` 的核心校验规则零覆盖，颠覆后 **517 全绿**）须另立任务处置（见 §4-(H)）。
+
+---
+
+## 1. 锚点复现（判据 1）—— 独立实测 vs 交付方自述
+
+| 项 | 交付方自述 | 独立实测 | 判定 |
+|---|---|---|---|
+| `service/PlanBindExposureTest.java` | `d1e179135fedf2a495332af2865faf92` / 500 | **同** | ✔ |
+| `web/handler/plan/BindExposureHandlerTest.java` | `ca82637b46b12842c3aac4b49109c2b4` / 322 | **同** | ✔ |
+| `dao/testsupport/InMemoryDmEngine.java` | `1e3e04a845914dcb45bff154f07f1be3` / 1281 | **同** | ✔ |
+| `java/src` 树锚（`find java/src -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum`，cwd=仓库根） | `9c6a101b4557229da5ddfa2e83441b22` / 340 | **同**（基线 `c5817cb5…`/338） | ✔ |
+| `git show --numstat 602d414` | `16/3` + `500/0` + `322/0`（两新文件由编排者入 git） | 逐条吻合（`--stat` = 3 files changed, 838 insertions(+), 3 deletions(-)） | ✔ |
+| `java/src/main` 零改动 | 声称 | `git show --numstat 602d414 -- java/src/main` = **空** | ✔ |
+| `@Test` 504 → 517（62 → 64 类） | 声称 | `git grep -c @Test 602d414^ ` 合计 **504** / `*Test.java` **62**；`HEAD` 合计 **517** / **64** | ✔ |
+
+> **说明**：交付 3 文件已由编排者提交为 `602d414`（`docs/**` 为 `486b3ec`）⇒ `git status --porcelain` **为空**（非派单预期的「仅余 3 文件」——系编排者已入 git 所致，非实施方越界）。
+> **溯源补充（本席实测）**：报告章头称「请其写入 `/root/t023b-report.md` ……但因该实例已收工未落」，但该文件**实存**（`4362` 字节，mtime `2026-09-23 11:10`），其正文与上述「`T-023` 退回补测报告」**逐字相同** ⇒ **转录保真** ✔（章头「未落」陈述不实，属编排者前言、**不影响技术主张**）。
+
+## 2. 门禁真机复现（判据 2 · 不得只引述报告）
+
+**在隔离副本 `/root/t023b-iso/java` 实跑**：
+
+| 命令 | 期望 | 独立实测 | 判定 |
+|---|---|---|---|
+| `TMPDIR=/root mvn -B -o -Punit clean test` | `517 / 0 / 0 / 0`、`BUILD SUCCESS` | **同**（`Tests run: 517, Failures: 0, Errors: 0, Skipped: 0`；BUILD SUCCESS；~90s） | ✔ |
+| surefire 名单（`target/surefire-reports/*.txt`） | `== @Test == 517`、`*Test` 类 64 | surefire 类 **64**、`tests=` 合计 **517**；`grep -rc @Test` 合计 **517**；两新类 `9` + `4` 例 | ✔（**无注释吞并**） |
+| 聚合 `tools/arch-check/arch-check.sh` | `rc 0` | **rc 0**（E1–E7 退出码全 0；补 `proto/`+`web/` 后 E6/E7 由 SKIP 转实扫，仍 0） | ✔ |
+| `E5`（`scan_java_sql.sh`） | `rc 0` | **rc 0**（「dao 之外未发现 SQL」） | ✔ |
+
+## 3. 覆盖率复算（判据 5 · 指标与聚合层级口径核）—— 独立重算 `jacoco.xml`
+
+取得方式：`TMPDIR=/root mvn -B -o -Pcoverage clean test -Dmaven.test.failure.ignore=true` ⇒ **517/0/0/0 BUILD SUCCESS**，`target/site/jacoco/jacoco.xml`（md5 `252b5074…`）。
+
+| 类 | LINE（自述/实测） | BRANCH（自述/实测） | 判定 |
+|---|---|---|---|
+| `ConfigService` | **91.6% / 91.6%** | 68.7% / 68.7% | ✔ |
+| `PlanService` | **90.4% / 90.4%** | 69.8% / 69.8% | ✔ |
+| `VarietyService` | **89.9% / 89.9%** | 76.2% / 76.2% | ✔ |
+| `AuthService` | **87.9% / 87.9%** | 67.6% / 67.6% | ✔ |
+| `SpotService` | **82.0% / 82.0%** | 65.1% / 65.1% | ✔ |
+
+**`PlanService#bindExposure` 方法级（jacoco 实测）**：方法本体 `LINE 36/37 = 97.3%`、`BRANCH 25/28 = 89.3%`；`lambda$bindExposure$1` `LINE 18/20`、`BRANCH 6/8`；**合计 `LINE 54/57 = 94.7%`、`BRANCH 31/36 = 86.1%`** —— 与自述**逐值吻合**。
+**仍未覆盖的 3 行 = `L637`/`L695`/`L702`**（jacoco 线级 `ci==0` 精确定位）——均 **defensive/error throw**（非法套保方向 / 绑定写入失败 / 敞口乐观锁冲突），自述属实 ✔。
+**披露合规核**：报告**显式写明**「指标＝LINE，聚合层级＝类级」、**明示 `BRANCH` 五模块全 <80%**（`69.8/76.2/68.7/67.6/65.1`）、**明示 `NFR-TEST-1` 原文未锚定指标与聚合层级**、**明示 `-Pcoverage` 取得方式含 `-Dmaven.test.failure.ignore=true` 及其 jacoco 抖动背景** ⇒ **披露合规** ✔（对照首轮复核方所建议口径，逐项命中）。
+
+## 4. 独立重做变异（判据 3，**不复用产出方手法**）
+
+**形态**：隔离副本内把 `PlanService.java:661` 的判据**方向翻转**（`compareTo(uncovered) > 0` → `< 0`，非产出方的 `&& false`）。
+**只动一行**：`diff` 原/变异 = 仅 `661c661`；**`:552`（`createPlan` 同形行）`diff` 逐字节相同** ✔；变异后 `PlanService.java` md5 `324353a8…`。
+**期望**：新增用例变红。**实测**（`mvn -o -Punit test -Dtest=PlanBindExposureTest,BindExposureHandlerTest`）：
+
+```
+PlanBindExposureTest: Tests run: 9, Failures: 4, Errors: 2   ← 6 例红
+  overCoverageRejectedWithNamedReason:170  Expected BizException, nothing thrown
+  overCoverageUsesRemainingUncovered:197   Expected BizException, nothing thrown
+  fullCoverageBoundaryThenNoRoom:135       Expected BizException, nothing thrown
+  totalBoundCannotExceedPlanQty:317        (具名原因断言不符)
+  normalPathBindsAndUpdatesExposure:98 / multipleBindsInOneCall:150  (误拒→ERROR)
+BindExposureHandlerTest: Tests run: 4, Failures: 2
+  endpointSurfacesOverCoverageRule:129     {"code":0,...,"data":{"bound":1}} expected 400 but 200
+  endpointHappyPath:93                     {"code":10001,...覆盖数量超过...} expected 200 but 400
+```
+⇒ **承重成立**（两条「覆盖越界」用例必红）。
+**复位校验**：从备份 `cp` 回 ⇒ md5 回 **`8dd973e7965c82fb1dbe1d985bedcce`**（= 交付方自述复位值 `8dd973e7…`），`cmp` 逐字节同 ✔。
+
+## 5. `InMemoryDmEngine` `+16/−3` 是否「纯 javadoc」（判据 6）
+
+`git show 602d414 -- …/InMemoryDmEngine.java` 逐行判：全部改动落在**类头 javadoc 块**（`@@ -52,9 +52,22 @@`，块内；`*/` 之后无改动）⇒ **无逻辑改动，纯 javadoc 属实** ✔。
+**内部引用一致性**：javadoc 内**无任何行号引用**（`grep -E '\.java:[0-9]|L[0-9]{2,}|:[0-9]{3}'` = **空**，故 `+13` 行不引起内部行号漂移）；所引方法名/类名均实存——`{@link #uncheckedCheckCount()}`（`:234`）、`DmDialect.countSql`（`dialect/DmDialect.java:25`）、`DmProductDao` ✔。
+**javadoc 技术断言可核**：其「SELECT 解析只取首个表名」对应实码 `SELECT = Pattern.compile("(?is)^SELECT\\s+(.*?)\\s+FROM\\s+(\\w+)(.*)$")`（`:630`）——`(\w+)` 仅取首个表名、`(.*)` 尾段被忽略，与叙述一致 ✔。
+
+## 6. 两处订正复核（判据 7）
+
+**①`E5` 计数 6→5**：隔离副本内把 `InMemoryDmEngine.java` + `M1Dm8EquivalentIntegrationTest.java` 置于**非 `dao` 包**后跑 `scan_java_sql.sh --root …` ⇒ **rc 1、命中 5 处**：
+`InMemoryDmEngine`（`:277` CREATE TABLE、`:281` CREATE INDEX、`:283` ALTER TABLE、`:302` throw 文案含 CREATE TABLE）**4 处** + 集成测试（`:331` INSERT INTO t_sub_account）**1 处** ⇒ **5 属实** ✔。
+报告**如实标注**该值「属采信复核方实测（非本席自测）」，**溯源纪律正确**（本席独立复现亦得 5）✔。
+**②引擎「不覆盖」清单分开表述**：自建 fixture 探针（`EngineProbe`，2 行基表）实测：
+
+| 形态 | javadoc/报告自述 | 独立实测 | 判定 |
+|---|---|---|---|
+| `SELECT a.id FROM a JOIN b ON …` | **静默返回错值**（2 行） | **行数=2、NO-THROW** | ✔ |
+| `SELECT MAX(id) FROM a` | **静默返回错值**（2 行） | **行数=2、NO-THROW** | ✔ |
+| `WHERE id IN (SELECT …)`（裸列名） | loud 抛 `IndexOutOfBoundsException` | **抛 `java.lang.IndexOutOfBoundsException`** | ✔ |
+| `WHERE a.id IN (SELECT …)`（点号限定） | loud 抛 `UnsupportedOperationException("无法求值的 WHERE 原子…")` | **抛同型同文案** | ✔ |
+
+⇒ **「JOIN/聚合＝静默错值」与「子查询＝loud 抛」分开表述成立** ✔（`TE-T023`/`OBS-4` 已闭环）。
+
+## 7. 断言强度（判据 4）
+
+4 条「覆盖量超限」断言**均断言具名原因/错误码**（非只 `assertThrows`）：
+- `overCoverageRejectedWithNamedReason`：`PARAM_INVALID` + 含 `覆盖数量超过敞口未覆盖数量` + `FR-PLAN-19 验收 3` + 回显 `150`/`100` + 零写入；
+- `overCoverageUsesRemainingUncovered` / `fullCoverageBoundaryThenNoRoom`：含具名原因；
+- `endpointSurfacesOverCoverageRule`：HTTP **400** + `code 10001` + 信封含具名原因 + `FR-PLAN-19 验收 3`。
+**`:677` 代偿排除**（本席自核）：两例计划量放大到 **1000**，请求覆盖 **150** ⇒ `total=150 ≤ planQty 1000` ⇒ **`:677`（计划量上限）不触发**，被拒点唯一为 **`:661`** ✔。
+
+## 8. 残留 / 范围（判据 8）
+
+- **零残留**：全树（排除 `.git`、`.codebuddy/`）扫 `*.orig`/`*.bak`/`*.rej`/`*MUTATION*`/`*Probe*` = **0** ✔（`EngineProbe` 在隔离副本内、仓库外）。
+- `git status --porcelain` = **空**（3 文件已入 `602d414`、`docs/**` 入 `486b3ec`）。
+- 共享树 `java/src/main` 关键件复核：`PlanService.java` `8dd973e7…`、`VarietyService.java` `b76d5f5f…`（**与变异前一致**，本席未就地改动共享树）✔。
+
+## 9. 三问答复
+
+### (F) 门禁与口径判定
+- **凭 `517/0/0/0` + `bindExposure LINE 94.7%` 判定 `TE-T023-001` 已消除 —— 成立**（该缺陷**专指** `bindExposure` 零覆盖）：0%→94.7%、**4 例承重**、本席独立变异**必红**、`:552` 同形行有对照。
+- **披露口径合规**：报告显式给出指标（`LINE`）、聚合层级（类级）、`BRANCH` 全 <80% 的告警、`NFR-TEST-1` 未锚定、`-Pcoverage` 取得方式 ⇒ **无需补正**。
+- **但不足以判定「M1 核心逻辑覆盖」全面达成** —— 见 (H)：同类盲区在 `VarietyService` 仍存（本席实证），故「覆盖盲区消除」这一**更高目标**只部分达成。
+
+### (G) 逐条复核其订正与披露
+| 项 | 结论 |
+|---|---|
+| `E5` 5 处 | **成立**（本席独立复现 5）；报告对其来源的「采信复核方实测」标注**诚实** ✔ |
+| 引擎不覆盖清单分开表述 | **成立**（4 形态探针逐项吻合）✔ |
+| `-Pcoverage` 取得方式（含 `-Dmaven.test.failure.ignore=true` 与 e2 抖动背景） | **成立且如实**（本席 ignore 跑一次即 517 全绿；`WsAcceptanceTest:160` 断言 `p95<=200` 属实）✔ |
+| 仍未覆盖的 3 处 = `L637`/`L695`/`L702` defensive throw | **成立**（jacoco 线级精确命中，逐行回读为 defensive throw）✔ |
+| 派单转述勘误 | 派单称「新增 2 文件为 **untracked**」——实为**已入 `602d414`**；余项转述与实测一致 |
+
+### (H) 是否仍有假绿盲区 —— **有**（本单最有价值发现）
+**方法**：由 jacoco 线/分支数据筛「`ci==0`（从未执行）的 `if` 校验守卫」，再于隔离副本**颠覆该规则、跑全量**验证。
+**尝试 → 结果**：
+| 候选 | 方法 → 覆盖情况（jacoco 实测） | 关掉后 |
+|---|---|---|
+| `VarietyService.putUnit`（新增换算关系 · `FR-PRODUCT-13`） | `:379` `requireText`、`:381` `生效起始日必填`、`:386–391` 写入事务 + `uk_product_unit_eff` 唯一规则、`:394` 日志 —— **`ci==0` 全部从未执行**（`lambda$putUnit$3` 0%）；现存 3 条 `putUnit` 用例（`VarietyServiceTest:184/188/192`）**均在早前守卫被拒**，成功路径零覆盖 | 把 `:381` 判据翻转为 `!= null`（`diff` 仅此一行）⇒ **`mvn -B -o -Punit clean test` = `517/0/0/0` BUILD SUCCESS** ❌ **全绿逃逸** |
+| `SpotService` 校验/乐观锁守卫（`:1084`/`:1464`/`:1473` 等） | 8 个 `if` 守卫 `ci==0`（含 `exportSpotPricesCsv` `:1128–1140` 过滤分支，该方法 26 行 0%） | 结构同类（未逐个跑全量） |
+| `PlanService` | **0 个从未求值的 `if`** —— 本轮补测后收紧 👌 | — |
+**结论**：存在**第二处「零覆盖且关掉后全绿」的核心规则盲区**（`VarietyService.putUnit`），与 `TE-T023-001` 同类（类级 `LINE%` 掩盖零覆盖方法）。**非本交付引入**（属存量），故**不阻断**本交付；但「M1 核心逻辑覆盖」仍未全面达成，建议**另立缺陷/任务**（形式比照 `TE-T023-001`）。
+
+## 10. 本席变异 / 探针清单
+| # | 目标 | 形态（隔离副本） | 期望 | 实测 | 复位 |
+|---|---|---|---|---|---|
+| MUT-1 | `PlanService:661` | `> 0` → `< 0`（方向翻转） | 新例红 | ✅ **8 例红**（服务 6 + 端点 2） | `cmp` 同；md5 回 `8dd973e7…` ✔ |
+| MUT-2 | `VarietyService:381` | `== null` → `!= null` | 若覆盖则红 | ❌ **517/0/0/0 全绿**（盲区证据） | `cmp` 同；md5 回 `b76d5f5f…` ✔ |
+| P-1 | 引擎 JOIN/聚合/子查询 | 自建 `EngineProbe`（仓库外） | 见 §6 | 4 形态吻合 | 副本内，仓库外 ✔ |
+| E5-draft | E5 判据 | 引擎+集成测试置非 `dao` 包 | E5 红 | ✅ rc1、5 处 | 副本内 ✔ |
+
+## 11. 落笔证明 / 只读声明
+- **落笔前**：`docs/TEST_RESULT.md` = `166a31ee119400138bd81b948c4be632` / **6541 行**（3×10s 静默恒定）。
+- **本追加章**：`L6544` 起。**落笔后**：以实时 `md5sum`/`wc -l` 为准（本档为活跃制品，勿引固定值）；**纯追加证明**：`head -6541 docs/TEST_RESULT.md | md5sum` = `166a31ee119400138bd81b948c4be632`（= 落笔前全档 md5）。
+- **只读声明**：未改 `java/src/**`、`web/**`、`docs/TASKS.md`、`docs/BOARD.md`、`docs/REQUIREMENTS/**`、`docs/TEST_PLAN/**`；**唯一写入 = 本追加章**。
+- **隔离副本**：`/root/t023b-iso/` 与 `/root/t023b-e5probe/`（变异跑毕复位、`cmp` 逐字节校验；副本已删）；备份 `/root/t023b-orig-*.java`、`/root/t023b-jacoco.py` 均在仓库外；**未用 `/tmp`**。
+- **未自评 `DONE`**。
+
+---
+
+## 编排者勘误（2026-09-23）—— `T-023` 补测报告章的「落笔方式」前言有误
+
+> 本勘误**由编排者追加**（不改写上述章头，遵 `docs/TEST_RESULT.md` **纯追加**体例）。
+>
+> **上文章头曾写**：「编排者请其写入 `/root/t023b-report.md` 以便文件交接，**但因该实例已收工未落**」。
+> **该陈述不实**：经复核席 `te-verify-t023b` 实测，**`/root/t023b-report.md` 实存**（4362 B，mtime `2026-09-23 11:10`，`md5 = e665c5995b9a16b2f15d2e3b015d6c68`）。编排者当时在 **11:09:40** 检查该文件、**未见**（其写入发生在此后约 1 分钟）⇒ 遂按「未落」处置。
+> **成因**：编排者**以一次即时检查的结论为终局**，未在收到「已落盘」回执或稍后复查即写入前言。**⇒ 纪律：凡把「某动作未发生」写进制品前，须**要么等到明确回执、要么在写前言前再查一次**（「未观察到」≠「未发生」）。
+> **技术影响 = 无**：复核席**独立比对**，该文件与本章正文**逐字相同** ⇒ **转录保真已被独立证实**（原「逐字转录、未改数字措辞」之声明**成立**）；受影响的**仅**为那一句**出处/时序**叙述。
+> 另：同轮复核指出，编排者派单称两新测试文件为 **untracked** —— 该值在其检查时点为真，但编排者随后已将其提交入 `602d414`，**述说时点差异**（非事实错误，已登记口径）。
+
