@@ -8,6 +8,9 @@
  * 路径来源：ApiRoutes.java（/trade/order、/trade/quote/{instrument}）。
  */
 import { HG } from '../core/ns.js';
+import '../core/format.js';
+import '../core/router.js';
+import '../core/ui.js';
 
 const ui = HG.ui;
 const F = HG.format;

@@ -56,6 +56,9 @@
  * 易用性 NFR-USE-2：详情页提供「下单」按钮，预填 计划ID / 子账户 / 品种 / 方向。
  */
 import { HG } from '../core/ns.js';
+import '../core/format.js';
+import '../core/router.js';
+import '../core/ui.js';
 
 const ui = HG.ui;
 const F = HG.format;

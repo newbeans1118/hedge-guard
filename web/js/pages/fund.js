@@ -3,6 +3,8 @@
  * 关键约束：子账户间划拨须"记账 + 加总校验 + 回滚"；出入金经 CTP 异步回执 + 幂等 + 超时待查。
  */
 import { HG } from '../core/ns.js';
+import '../core/router.js';
+import './_stub.js';
 
 HG.router.register('/fund', HG.pages.stub.renderStub({
   code: 'FUND', name: '资金管理', fr: 'FR-FUND-1~17', milestone: 'M2',

@@ -5,6 +5,7 @@
  */
 import { HG } from '../core/ns.js';
 import '../core/routes.js';
+import '../core/ui.js';
 
 const ui = HG.ui;
 

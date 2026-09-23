@@ -3,6 +3,8 @@
  * 关键约束：存在断点时不得输出"链条完整"结论（R-AUDIT-2）；审计导出失败/防篡改校验未过须阻断（10017/10018）。
  */
 import { HG } from '../core/ns.js';
+import '../core/router.js';
+import './_stub.js';
 
 HG.router.register('/audit', HG.pages.stub.renderStub({
   code: 'AUDIT', name: '审计', fr: 'FR-AUDIT-1~13', milestone: 'M3',

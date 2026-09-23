@@ -3,6 +3,8 @@
  * 关键约束：套保效果页两栏同屏（NFR-USE-5：CSS 并排，不分页不跳转）；双侧盈亏同时上报；凭证标注"待企业财务复核入账"。
  */
 import { HG } from '../core/ns.js';
+import '../core/router.js';
+import './_stub.js';
 
 HG.router.register('/acct', HG.pages.stub.renderStub({
   code: 'ACCT', name: '套保会计', fr: 'FR-ACCT-1~14', milestone: 'M4',

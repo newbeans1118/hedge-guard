@@ -3,6 +3,8 @@
  * 关键约束：子账户独立结算 + 加总对账（Σ 子账户 = 真实账户）；加总不一致仅阻断差异所属子账户（Q-11），不阻断平仓。
  */
 import { HG } from '../core/ns.js';
+import '../core/router.js';
+import './_stub.js';
 
 HG.router.register('/settle', HG.pages.stub.renderStub({
   code: 'SETTLE', name: '结算', fr: 'FR-SETTLE-1~17', milestone: 'M2',

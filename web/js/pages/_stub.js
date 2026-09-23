@@ -4,6 +4,7 @@
  * 在各自 FR 的字段级契约就绪前先登记页面入口、需求范围与后端路径，避免"看不出进度差"。
  */
 import { HG } from '../core/ns.js';
+import '../core/ui.js';
 
 const ui = HG.ui;
 

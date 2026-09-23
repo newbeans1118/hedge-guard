@@ -37,7 +37,10 @@
  *       失败统一经 HG.errmsg（阻断四项）；数据界面必配 加载/空/错误 三态。
  */
 import { HG } from '../core/ns.js';
+import '../core/format.js';
+import '../core/router.js';
 import '../core/routes.js';
+import '../core/ui.js';
 
 const ui = HG.ui;
 const F = HG.format;
