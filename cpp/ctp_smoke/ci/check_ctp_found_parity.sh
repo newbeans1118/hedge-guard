@@ -22,7 +22,18 @@
 #   ⚠️ 本机（hedge-guard 开发机）`/tmp` 是 ~800MB tmpfs ⇒ 应显式
 #      `TMPDIR=/ PARITY_TMPDIR=/` 并给 `--build-dir /<大分区>/...`。
 #
-# 退出码：0 = 一致（PASS）；1 = 不一致（FAIL，分歧）；3 = 不可判定（配置未成功，无并列判定行）
+# 退出码（T-130 收口）：
+#   0 = 一致（PASS）：两侧均产出判定行，且 found 与 style/trader_header/md_header **全字段逐字相同**。
+#   1 = 失败（FAIL）：
+#       ① 两侧判定**分歧**；或
+#       ② **仅一侧**产出判定行（另一侧在**披露判定前**即中止）⇒ parity 无法建立。
+#       ⚠️ ② 在 T-130 前被误判为「不可判定（3）」=「该红而退 3」盲区：因处置 FATAL 先于对侧
+#          披露（`ctp_smoke` 先于主工程求值）⇒ 探路件侧分歧只能看到一行。现**两侧任一方
+#          中止**均判红（1），**主工程侧与探路件侧的分歧一视同仁**。
+#   2 = 用法错误（未知参数）。
+#   3 = 不可判定（判据未能执行）：配置在**任何一侧披露判定行之前**即终止（如 CMake
+#       环境/前置问题，无任何 CTP 判定可依）。
+#   ⚠️ **1/2/3 均非 0 ⇒ 调用方（`ctest` / CI）一律视为失败**；仅 0 为通过。
 # =============================================================================
 set -uo pipefail
 
@@ -40,7 +51,7 @@ while [[ $# -gt 0 ]]; do
     --style)     STYLE="$2"; shift 2 ;;
     --expect)    EXPECT="$2"; shift 2 ;;
     --build-dir) BUILD_DIR="$2"; shift 2 ;;
-    -h|--help)   sed -n '2,26p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help)   awk 'BEGIN{c=0} /^# =====/{c++; if(c==2) exit; if(c==1){print; next}} c==1{print}' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "未知参数：$1" >&2; exit 2 ;;
   esac
 done
@@ -77,10 +88,11 @@ smoke="$(sed -n 's/.*found=\([A-Z]*\).*/\1/p' <<<"${smoke_line}")"
 main="$(sed -n 's/.*found=\([A-Z]*\).*/\1/p' <<<"${main_line}")"
 
 if [[ -z "${smoke}" || -z "${main}" ]]; then
-  echo "== [不可判定] 判定行不完整（smoke='${smoke}' main='${main}'）—— 一侧在打印前即中止；日志：${LOG}"
+  aborted="main"; [[ -z "${smoke}" ]] && aborted="smoke"
+  echo "== [FAIL] 判定行不完整（smoke='${smoke}' main='${main}'）—— 一侧未及披露判定即中止，parity 无法建立（未披露侧=${aborted}）；日志：${LOG}"
   grep -nE 'CMake Error|FATAL' "${LOG}" | head -10 | sed 's/^/   /'
   [[ "${CLEANUP}" == 1 ]] && rm -rf "${BUILD_DIR}"
-  exit 3
+  exit 1
 fi
 
 # 全字段对等：found 之外，style / trader_header / md_header 亦须逐字相同

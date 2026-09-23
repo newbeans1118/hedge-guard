@@ -55,6 +55,27 @@ set(HG_CTP_REQUIRE_SDK OFF CACHE BOOL
 include("${CMAKE_CURRENT_LIST_DIR}/HgCtpStyle.cmake")
 hg_ctp_resolve_style()
 
+# -----------------------------------------------------------------------------
+# 0c. 主工程**仅支持 CLASSIC**（T-130 诊断收口 / `OBS-T128-4`）
+#     `cpp/src/ctp_adapter/**` 直接 `#include <ThostFtdcTraderApi.h>`（官方分离式，CH-015）
+#     ⇒ 合并版 `ThostFtdcUserApi.h` / 类 `CThostFtdcUserApi` 在主工程**不可用**。
+#     `MERGED` 仅供探路件 `cpp/ctp_smoke` 做历史对照。若主工程误用 MERGED：
+#       · 官方 SDK 上 → 解析不到合并版头，下面 1c 会以「解析失败」拦下，**但不点名风格**；
+#       · 合并版 SDK 上 → 配置期**静默通过**（两侧 found=ON），直到
+#         `cpp/src/ctp_adapter/src/module.cc` 缺分离式头才在**编译期**失败（诊断滞后、且不点名风格）。
+#     ⇒ 前置**显式 FATAL 并点名风格**，消除「静默不可编译」窗口。
+#     ⚠️ 本检查**只加在主工程**（本文件），**不加**在共用的 `HgCtpStyle.cmake` ——
+#        探路件仍须能用 MERGED 做历史对照。
+# -----------------------------------------------------------------------------
+if(HG_CTP_HEADER_STYLE STREQUAL "MERGED")
+  message(FATAL_ERROR
+    "[CTP] 主工程不支持 HG_CTP_HEADER_STYLE=MERGED（实测传入 'MERGED'）。\n"
+    "      产品侧 `cpp/src/ctp_adapter/**` 直接 `#include <ThostFtdcTraderApi.h>`（官方分离式，CH-015）\n"
+    "      ⇒ 合并版头 `ThostFtdcUserApi.h` / 类 `CThostFtdcUserApi` 在主工程不可用。\n"
+    "      处理：主工程请用 -DHG_CTP_HEADER_STYLE=CLASSIC（默认，交付基线）；\n"
+    "            MERGED 仅供探路件 cpp/ctp_smoke 做历史对照。")
+endif()
+
 set(HG_PROTOBUF_MAJOR_REQUIRED "3" CACHE STRING
   "C++/Java 两侧一致的 protobuf 大版本（§4.2.5）")
 set(HG_PROTOBUF_PREFERRED_VERSION "3.21.12" CACHE STRING
@@ -235,18 +256,21 @@ if(CTP_USE_FETCH_DEPS)
   #   系统包轨（`find_package`）的 `protobuf::libprotobuf` 是 **IMPORTED** 目标，
   #   CMake 对 imported 目标的 `SYSTEM` 属性**默认为真** ⇒ 无需另配（本段仅关 FetchContent 轨）。
   # ---------------------------------------------------------------------------
-  if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.25")
-    # CMake ≥ 3.25 原生 `SYSTEM` 目标属性：其 `INTERFACE_INCLUDE_DIRECTORIES`
-    # 对消费方一律按系统目录对待（不影响 libprotobuf 自身的编译）。
-    set_target_properties(libprotobuf PROPERTIES SYSTEM TRUE)
-  else()
-    # 更早版本无 `SYSTEM` 目标属性 ⇒ 在本工程供给目标上显式补充
-    # `INTERFACE_SYSTEM_INCLUDE_DIRECTORIES` 标记（同目录亦在非 SYSTEM 列表中时，
-    # 该标记使其被当作系统目录 —— 见 CMake 属性文档）。
-    get_target_property(_hg_pb_inc_dirs libprotobuf INTERFACE_INCLUDE_DIRECTORIES)
-    if(_hg_pb_inc_dirs)
-      target_include_directories(hg_deps_protobuf SYSTEM INTERFACE ${_hg_pb_inc_dirs})
-    endif()
+  # 统一形态（T-130，来源 = `T-129` 复核观察 `OBS-T129-1`）：
+  #   不论 CMake 版本，一律在**本工程供给目标** `hg_deps_protobuf` 上把 `libprotobuf`
+  #   的头目录以 `SYSTEM` 传播（= `INTERFACE_SYSTEM_INCLUDE_DIRECTORIES`）。理由：
+  #     · 旧形态按版本二分（≥3.25 用 `libprotobuf` 的 `SYSTEM` 目标属性 / <3.25 用供给
+  #       目标），两条路径**作用面相同**（`hg_deps::protobuf` 的**唯一消费方 = `hg_hgcp`**）
+  #       却**不同形**；
+  #     · 统一后**只剩一条代码路径**，可在本机 CMake（4.2.3 ≥ 3.25）上被**实际执行/验证**，
+  #       无需依赖 <3.25 环境；
+  #     · 同一目录若亦在非 SYSTEM 列表中，SYSTEM 标记优先（CMake 属性语义）⇒ 与旧形态等价。
+  #   ⚠️ 若将来出现**绕过 `hg_deps::protobuf` 直接链接 `libprotobuf`** 的新消费方，本形态
+  #      不再覆盖它 ⇒ 届时须改用 `libprotobuf` 的 `SYSTEM` 目标属性（需 CMake ≥ 3.25）。
+  # ---------------------------------------------------------------------------
+  get_target_property(_hg_pb_inc_dirs libprotobuf INTERFACE_INCLUDE_DIRECTORIES)
+  if(_hg_pb_inc_dirs)
+    target_include_directories(hg_deps_protobuf SYSTEM INTERFACE ${_hg_pb_inc_dirs})
   endif()
 else()
   find_package(Protobuf REQUIRED)

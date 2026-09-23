@@ -310,6 +310,8 @@ bash tools/arch-check/arch-check.sh
 > **〔历史时点口径（2026-09-22 追加；只加不改）〕**：上方「`ctest` 前置接线」整块（含行号引用 `ctp_smoke/CMakeLists.txt:87` / `:128`、`HGCP_CTP_TRADER_HEADER` 取值、`CTP_SDK_ROOT=/home/ctpmini/ctpmini_admin/ctp_sdk`、`libthostuserapi.so` / `ThostFtdcUserApi.h`，以及三轨 `6/6` · `6/6` · `5/5` 计数）系 **`CTP Mini`（合并版 `UserApi`）基线**下的实测记录，**原句保留以留痕**。
 > **交付基线已变更为官方 CTP v6.7.13（分离式）**：头文件 = `ThostFtdcTraderApi.h` + `ThostFtdcMdApi.h`；库 = `thosttraderapi_se.so` / `thostmduserapi_se.so`（无 `lib` 前缀）；`HG_CTP_HEADER_STYLE` 默认 `CLASSIC` ⇒ `HGCP_CTP_TRADER_HEADER = "ThostFtdcTraderApi.h"`（见 `cpp/ctp_smoke/CMakeLists.txt:5–24`、`cpp/cmake/HgDependencies.cmake:10–11`）；**合并版 `ThostFtdcUserApi.h` / `CThostFtdcUserApi` / `CThostFtdcUserSpi` 在官方 SDK 上不可得**。
 > ⇒ 上方**行号引用与三轨计数均须在官方基线上重测**（本次**未**重测；本注仅作标记，不作为官方基线下的结论）。
+>
+> ✅ **官方基线重测已完成**（`2026-09-23`，`T-130`，落实上方自要求）：现行三轨 `CTP_SDK_ROOT` / 风格 / 计数与 `ctp_found_parity` 接线见本文档末 **§6**。上方块**只加不改**——其 `CTP_SDK_ROOT=/home/ctpmini/…` 等**仍为 `CTP Mini` 时代留痕**，勿当现行值引用。
 
 ```
 # cpp/build-ctp 实测（节选）：
@@ -323,3 +325,39 @@ bash tools/arch-check/arch-check.sh
 
 > 📌 **证据锚点口径**：本 README **不写死** md5 / 耗时类锚点（易随构建与并发写入失效）；
 > 引用任何制品一律**以实时 `md5sum` 为准**。上文实测数字均为 **`2026-09-21` 本机实跑**所得，复跑命令已内联。
+
+---
+
+## 6. 官方基线口径重测（`2026-09-23` · `T-130`）
+
+> 落实上文「`ctest` 前置接线」块（`2026-09-21`，`CTP Mini` 合并版口径）自要求的
+> 「**行号引用与三轨计数均须在官方基线上重测**」。**上方块只加不改**，本节为**现行口径**。
+> 环境：官方 CTP **v6.7.13（分离式）** 于 `<repo>/sdk/v6.7.13_20260225_api`；`HG_CTP_HEADER_STYLE=CLASSIC`；
+> CMake 4.2.3；`nproc=2`。
+
+**三轨实测（`ctest -N` 为准；`2026-09-23` 本机实跑）**：
+
+| 轨（构建目录） | `CTP_SDK_ROOT` | `CTP_USE_FETCH_DEPS` | `ctest -N` | 说明 |
+|----------------|----------------|----------------------|------------|------|
+| `cpp/build-ctp` | `<repo>/sdk/v6.7.13_20260225_api` | `OFF` | **39** | 含 `rsk02.ctp_header_cxx11_compat`（官方分离式头）与 **`ctp_found_parity`（`T-130` 新增）** |
+| `cpp/build-stub` | **（空）** | `OFF` | **35** | `CTP_FOUND=OFF` ⇒ `rsk02` **不注册**；`ctp_found_parity` 仍执行（两端一致 `OFF`） |
+| `cpp/build-fetch` | `<repo>/sdk/v6.7.13_20260225_api` | `ON` | **39** | 同 `build-ctp`；protobuf 经 FetchContent 源码构建 |
+
+> 实跑结果：三轨 `ctest` **100% passed**（`35/35` · `39/39` · `39/39`），构建 **0 告警**。
+> 📌 计数较 `T-130` 前（`ctp 38` · `stub 34` · `fetch 38`）**各 +1** —— 即新增 ctest 用例 `ctp_found_parity`。
+> 📌 计数随模块铺开/用例增补而变 ⇒ **不写死，以实时 `ctest -N` 为准**。
+
+**`ctp_found_parity` 接线口径（`T-130`）**：
+
+- **注册点**：`cpp/CMakeLists.txt` 末 `add_test(NAME ctp_found_parity …)`（`ctest` 用例，非 `E1`–`E7` 聚合成员）。
+- **判据脚本**：`cpp/ctp_smoke/ci/check_ctp_found_parity.sh`。
+- **此前状态**：该脚本 `T-128` 交付后**全仓零调用点** ⇒ **判据永不生效**（`OBS-T128-1`）；`T-130` 接线后由
+  `ctest` **实扫**（三轨均执行，见上表）。
+- **退码**：`0`=一致；`1`=分歧 **或** 一侧未及披露判定即中止；`2`=用法；`3`=判据未执行（无任何判定行）。
+  **非 `0` ⇒ `ctest` 失败**。
+- **与「旧入口防退化守卫」的区别**（勿混谈）：后者在 `cpp/cmake/HgCtpStyle.cmake`，管「陈旧冲突缓存项被
+  静默接受」；本判据管「主工程与探路件是否同源」。二者**正交**，删守卫**不会**让本判据变红。
+
+**`E4` 扫描数（不回归）**：`T-130` 前后均 `待扫描文件: 47 个`、`WARN 3`（`new`）、`命中 0`、退出 `0`
+（`E4` 扫描根 = `cpp/src/{order_engine,risk_engine,risk_state}`，`T-130` 未触碰 `cpp/src`）。
+
