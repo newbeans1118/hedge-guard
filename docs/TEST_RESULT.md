@@ -6701,3 +6701,897 @@ BindExposureHandlerTest: Tests run: 4, Failures: 2
 > **技术影响 = 无**：复核席**独立比对**，该文件与本章正文**逐字相同** ⇒ **转录保真已被独立证实**（原「逐字转录、未改数字措辞」之声明**成立**）；受影响的**仅**为那一句**出处/时序**叙述。
 > 另：同轮复核指出，编排者派单称两新测试文件为 **untracked** —— 该值在其检查时点为真，但编排者随后已将其提交入 `602d414`，**述说时点差异**（非事实错误，已登记口径）。
 
+
+---
+
+## 第 107 轮独立复核证据章（`T-019` / `T-020` / `T-021` / `T-134`，编排者 `team-lead` 并入登记 · 2026-09-23）
+
+> **并入口径**：以下 4 章由各自独立复核席（`test-engineer`，**均只读、未改共享树**）产出，**原文照录**；编排者仅在章首加本登记块。**纯追加已核**（追加前 `docs/TEST_RESULT.md` = `840ea4f4f442ae5011084f9bf87026a3` / **6703 行**）。
+>
+> | 任务 | 复核席 | 结论 | 缺陷（阻断/低） | 观察 | 冻结点（实测） |
+> |---|---|---|---|---|---|
+> | `T-019` | `te-verify-t019` | **有条件通过** | 0 / 2 | — | `spot.js` `886ee4964a9d559efce12652babd2484` / 1375 行 |
+> | `T-020` | `te-verify-t020` | **有条件通过** | 0 / 1 | 7 | `plan.js` `f58357a05e1f272d6d50617e7109faf9` / 1281 行 |
+> | `T-021` | `te-verify-t021` | **有条件通过** | 0 / 0 | 12 | `auth.js` `cb684e4b2b71668307ad8780f5815339` / 1173；`config.js` `a5601f2225f79319a3adfd31a1f49d17` / 1129 |
+> | `T-134` | `te-verify-t134` | **通过** | 0 / 0 | 3 | `app.js` `ab7163f7dc845b24922bf0c5bc04c88f` / 155；`session.js` `25740708d293a5f86057dcb344b7f872` / 112（与父提交逐字节同） |
+>
+> **★编排者对 `TE-T019-001` 的级别/事实订正（独立取证，2026-09-23）**：复核方记为「低·呈现：加载圈未清、与结果表并列常驻」。编排者实测 `spot.js`：`doQuery:563-564` 先 `ui.clear(alertBox)` + `ui.renderLoading(body, '正在查询现货价序列…')`，而 `renderSeries:574` **全程只 `body.appendChild`（`:586`/`:588`/`:611`/`:613`）、自始至终无 `ui.clear(body)`**；同页姊妹路径 `:1188` 加载 → `:1260` `ui.clear(body)` 才是正确三态。⇒ **后果不止「加载圈常驻」，而是每次重查都把新表叠加于旧表之上（陈旧结果与新旧两张表并存）**。级别仍按 **低**（无数据损坏、刷新可复原），但**事实描述以本节为准**。
+> **★`TE-T019-002` 独立取证**：全仓 `web/js/pages/*.js` 中 `session.onChange` **仅 1 处**（`spot.js:1349`），位于渲染入口 `renderExposure` 内 ⇒ 每重渲染叠加一监听器 ⇒ 单次广播触发 N 次 `/spot/exposure`。**复核方所述成立。**
+> **★`T-134` 两向实证采信**：复核方以**真实驱动 `main()`** 的无头探针得「修复前 `rc=1`（未处理 `TypeError`，`bootstrap`/`router.start`/`sidebar`/`topbar` 全 0 触达）／修复后 `rc=0`（全触达）」；跨模块对账 **修复前 1 条（`app.js:91`）→ 修复后 ∅**，且负控通过。**证据层级符合本项目「静态/桩证据不得替代 `main()` 实驱动」的纪律**（该纪律正是本 P0 上一轮被漏检的原因）。
+
+# T-019 独立复核章（te-verify-t019，test-engineer，独立于产出方）
+
+- **复核人**：te-verify-t019（独立复核席）
+- **复核时间**：2026-09-23 13:13–13:25 UTC（取样时刻见下）
+- **复核对象**：`T-019` 现货与实货敞口前端页面 `web/js/pages/spot.js`
+- **交付提交**：`eb28f9f`（`git show --stat` 实测 **仅 1 文件**：`web/js/pages/spot.js`，+834/−31）
+- **冻结点实测量**：`web/js/pages/spot.js` = `886ee4964a9d559efce12652babd2484`，**1375 行**
+  - 与派单给定冻结点**逐字一致** ⇒ 未发生并发写入（`13:19:19 / 13:19:29 / 13:19:39 UTC` 三次取样 ×10s 恒定）
+- **HEAD**：`29a9c19`｜**web 树锚（相对路径内容级）**：`c39b6df7f2299c1ab3aaa44e5596f9cd` / 27 文件（本席实测 13:19 时点）
+- **工作模式**：只读。临时探针全部落 `/root/review-t019/`（未用 `/tmp`；未改共享树任何文件）
+
+---
+
+## 1. 结论
+
+**有条件通过（0 阻断 / 2 缺陷：均为低 / 若干观察）**
+
+- **无 P0/P1 缺陷**。**跨模块 API 引用对账 0 缺失**（`T-134` 同类 P0 未复发）。
+- **FR 覆盖与线上契约总体成立**；`FR-SPOT-2/4/6/7/14` 的"无承载"**依据成立**（后端确无端点，未伪造入口）。
+- **两处低缺陷**均为**产出方探针（95/0 全绿）未覆盖的真实行为面** —— 属"全绿≠无缺陷"的**假绿盲区**，非阻断项。
+- 本席**不自评 `T-019` 为 DONE**；是否转 `DONE` 由编排者/用户裁量。
+
+---
+
+## 2. 证据分栏（独立实测 ↔ 产出方自述）
+
+| 项 | 独立实测（本席，带时点/命令） | 产出方自述（未采信，仅登记） | 判定 |
+|----|------------------------------|-----------------------------|------|
+| 交付面 | `eb28f9f` 仅 `web/js/pages/spot.js`（+834/−31）—— `git show --stat` | 同 | **吻合** |
+| 锚点/行数 | `886ee496…` / 1375 行（3 次取样恒定） | 同 | **吻合** |
+| 跨模块 API 引用 | 21 条真实代码引用，**0 缺失**（本席工具 + 负控 A/B/C 全 PASS） | 未做该对账 | **本席补充** |
+| 端点清单（14 对） | 逐条与 `SpotRoutes.register`（`:43–:63`）比对，**路径/方法全对**；字段名与 Handler 请求类逐字比对**全对** | 报 14 条、注明来源 | **吻合** |
+| FR 覆盖 | 见 §4；`2/4/6/7/14` 无端点依据成立；`13/15/17` 为部分 | 报 9 已实现 / 5 部分 / 5 未实现 | **大体吻合**（`16/18` 本席判"承载"，比其自评更**宽**——其自评偏保守，非缺陷） |
+| 探针结果 | 产出方 95/0；**本席发现其未覆盖加载态清除与监听器泄漏**（§3） | 95/0，且**如实标注**"非真实浏览器""innerHTML 按钮仅源码级核对" | **产出方诚实，但判决面不全** |
+| `ui.banner` 当 HTML 用（T-020 同族） | `spot.js` **0 命中**；全仓（排除 `.codebuddy`）**0 命中** | 未提及 | **未复发** |
+| put/del 越界 | `HG.api.put(` / `HG.api.del(` **0 命中** | 报未使用 | **吻合** |
+
+---
+
+## 3. 缺陷清单（2 条，均低）
+
+### TE-T019-001（低 · 呈现层）`seriesPanel` 查询成功后**加载态未清除**，与结果并列常驻
+
+- **文件:行号**：`web/js/pages/spot.js:574-614`（`renderSeries`）；触发点 `:562-572`（`doQuery` 内 `:564 ui.renderLoading(body, …)`）
+- **依据（基准）**：模块自述纪律 `:41`「任何取数界面必配 加载 / 空 / 错误 三态」；同族页面**既成惯例** `product.js:357→405`、`plan.js:280→319` 均为「`renderLoading` →（成功后）`ui.clear(body)` → 渲染结果」。`renderSeries` 在非空分支**首写前无 `ui.clear(body)`**（早退分支 L575/L579 走 `renderEmpty` 才清）。
+- **复现步骤**：
+  1. 进入 `#/spot?tab=series`（价格序列面板）；`renderSeries([])` 初始置空态（正常）。
+  2. 选任意品种/日期后点「查询序列」→ `doQuery()` 先 `ui.renderLoading(body,…)` 追加 `.hg-state > .hg-spinner`。
+  3. `download('/spot/price/export')` 返回非空 CSV → `renderSeries(rows)` 走非空分支，**未清 body** 直接 `appendChild` banner/表/注。
+- **期望**：加载态被结果替换（同 `product.js`/`plan.js`/本页敞口页 `renderRows:1260`）。
+- **实际**：「正在查询现货价序列…」**加载圈与结果表同时常驻**（本席无头探针实测 `.hg-spinner` 仍在 = true）。
+- **证据（原始输出）**：
+  ```
+  node /root/review-t019/headless-probe.mjs
+    价格序列·查询后：表格已渲染 = true ｜加载态(hg-spinner)仍在 = true
+    敞口页·加载后：加载态在 = false （渲染时曾出现 = true）   ← 负控：检测器能区分
+  PASS = 2 , FAIL = 2
+  ```
+  负控（同探针在**会清除**的敞口页上判"无残留"）证明此为**真实行为差异**，非探针伪影。
+- **失败场景**：用户看到永恒的"加载中"动画叠加在已返回的结果上，误判数据未就绪；**违反模块自述三态纪律**。
+- **归属建议**：前端（`#fe`）—— 在 `renderSeries` 非空分支首行补 `ui.clear(body)`（或改为由 `doQuery` 统一"清 → 渲染"）。
+
+### TE-T019-002（低 · 资源）`renderExposure` 每次渲染**累积** `HG.session.onChange` 监听器
+
+- **文件:行号**：`web/js/pages/spot.js:1349`（`HG.session.onChange(load);`，位于 `renderExposure` 函数体内）
+- **依据**：`session.js:32` `onChange(fn)` 返回退订函数（`return () => {…splice…}`），**调用点未接收/未退订**；`router.js:51-67` `renderCurrent` 每次 `hashchange` 重新执行 `route.render(containerEl, ctx)` ⇒ 每次进入 `#/spot/exposure` 追加一个 `load` 闭包。
+- **复现步骤**：
+  1. 进入 `#/spot/exposure`（注册第 1 个监听器）。
+  2. 离开再进入一次（注册第 2 个）。
+  3. 改变顶部子账户/汇总选择（`HG.session.setCurrent` → `emit()` 广播一次）。
+- **期望**：一次广播只触发一次 `load`（1 次 `/spot/exposure` 请求）。
+- **实际**：一次广播触发**与渲染次数等量**的 `load`（本席实测：2 次渲染 → **2 次**请求）。
+- **证据（原始输出）**：
+  ```
+    二次渲染后，单次 session.onChange 触发 /spot/exposure 请求数 = 2 （1=无泄漏；≥2=监听器累积）
+  ```
+  （仅 `spot.js` 在**页内**注册 `onChange`；`app.js:87/98` 仅顶层注册一次，非本模式。）
+- **失败场景**：反复进出敞口页后，每次子账户切换产生 N 倍冗余请求（且对**已卸载** DOM 渲染，浪费网络与 CPU）。功能不坏，但随会话增长**线性劣化**。
+- **归属建议**：前端（`#fe`）—— `renderExposure` 首次注册前先退订旧监听器，或用 `router` 提供的卸载钩子；最简：把 `load` 注册移出 `renderExposure`（如页面模块顶层一次注册，`load` 内自判当前路由）。
+
+> 两条均**未**被产出方探针（`/root/t019-probe.mjs` 95/0）覆盖 —— 该探针只断言"查询后出现样本提示/表格"，**不**断言"加载态消失"，也**不**测重复渲染的请求数。**⇒ 记录为假绿盲区**（与 §7 纪律一致）。
+
+---
+
+## 4. FR-SPOT-1~19 覆盖表（以 `docs/REQUIREMENTS/SPOT.md` 为唯一权威）
+
+> 判定口径：**不只看函数存在**，须「按钮 → handler → `HG.api` 调用 → 渲染」触发链完整；后端无端点者如实判"无承载"。
+
+| FR | 是否承载 | `spot.js` 落点 | 缺口说明 |
+|----|---------|----------------|---------|
+| FR-SPOT-1 新增采购合同 | **承载** | `contractForm('purchase')` `:236-344`（TABS `:1091`）｜提交 `:298-315`｜POST `:306` | 无（字段与 `PurchaseRequest` 逐字对齐） |
+| FR-SPOT-2 修改采购合同 | **无承载** | — | 后端无 UPDATE 端点（`ApiRoutes` SPOT 清单 `:32-36` 无）；未伪造入口 |
+| FR-SPOT-3 作废采购合同 | **承载** | `contractOpsPanel` `:350-415`（TABS `:1099`）｜POST `:403` | 无 |
+| FR-SPOT-4 查询采购合同列表 | **无承载** | — | 后端无 GET 列表端点 |
+| FR-SPOT-5 新增销售合同 | **承载** | `contractForm('sales')` `:236-344`（TABS `:1092`）｜双向 `:269-278`｜POST `:306` | 无 |
+| FR-SPOT-6 修改销售合同 | **无承载** | — | 同 FR-SPOT-2 |
+| FR-SPOT-7 查询销售合同列表 | **无承载** | — | 同 FR-SPOT-4 |
+| FR-SPOT-8 生产计划 + 在制品 | **承载** | `productionPanel` `:758-864`（TABS `:1096`）｜`wipPanel` `:870-934`（TABS `:1097`）｜POST `:841`/`:922` | 无 |
+| FR-SPOT-9 库存台账 | **承载** | `inventoryPanel` `:940-1024`（TABS `:1098`）｜负值二次确认 `:994-1002`｜POST `:1012` | 无 |
+| FR-SPOT-10 手工录入现货价 | **承载** | `priceForm` `:421-480`（TABS `:1093`）｜POST `:464` | 无 |
+| FR-SPOT-11 批量粘贴 | **承载** | `importPanel` `:657-752`（TABS `:1095`）｜POST `:736`（`BATCH_PASTE`） | 无 |
+| FR-SPOT-12 CSV 导入 | **承载** | `importPanel` 同上｜文件读取 `:697-705`｜POST `:736` | 无（已强制 CSV 必填 `importFileName` `:719`） |
+| FR-SPOT-13 查询价格序列 | **部分** | `seriesPanel` `:533-635`（TABS `:1094`）｜`download` `:566`｜样本提示 `:586-591`｜`renderSeries` `:574-614` | **无 JSON 列表端点** ⇒ 经 `GET /spot/price/export`(CSV) 前端解析的**替代实现**；验收 1/2/3/4 实质覆盖 |
+| FR-SPOT-14 计算实货敞口 | **无承载（前端）** | 说明 `:1144-1149` | `POST /spot/exposure` **要求调用方自给三分量+合计**（`SpotExposureHandler:87-134`）⇒ 前端计算即违"前端不得做业务判定"；**已投 Q-FE-001**、未伪造入口 |
+| FR-SPOT-15 查询敞口列表与详情 | **部分** | `renderExposure` `:1134-1351`｜`loadDetail`/`renderDetail` `:1281-1317` | 列表 ✓、详情 ✓；**构成明细缺**（`ExposureView` 无明细字段，页内 `:1313` 如实标注） |
+| FR-SPOT-16 子账户归属变更 | **承载** | `docSubAccountPanel` `:1030-1084`（TABS `:1100`）｜POST `:1068` | 无（变更后重算依赖 `recomputeRequired` 回显 `:1074`） |
+| FR-SPOT-17 来源标注 | **部分** | 只读展示 `:598-613`（`source_type/source_desc/operator_id/entry_time`）；只读声明 `:613` | **验收 3（补充说明）无端点**（无 update `sourceDesc`）；验收 1/2 覆盖 |
+| FR-SPOT-18 导出实货敞口 | **承载** | `doExport` `:1326-1345`｜`download` `:1337`｜空子账户提示 `:1329-1332` | 无（"含构成明细"属后端导出内容，非前端职责） |
+| FR-SPOT-19 导出现货价序列 | **承载** | `doExport` `:616-628`｜`download` `:620`｜筛选 `:558-560` | 无 |
+
+> **与产出方自评差异**：本席对 `FR-SPOT-16/18` 判**承载**（前端触发链完整），产出方自评降为"部分"（因其从"全 FR 验收项"尺度）。**其自评更保守，非缺陷**，仅登记差异以免下游误判覆盖度。
+
+---
+
+## 5. 线上契约一致性（wire 以**已实现 Handler** 为准）
+
+- **路径/方法**：14 个 `(方法, 路径)` 对逐条核 `SpotRoutes.register`（`:43–:63`）**全对**；**未只读 `routes.js` 对象臆断方法**（`routes.js` 仅含路径，方法本席取自 Java `register`）。方法抽样：`R.PRICE_EXPORT`→`download`(GET，`SpotPriceExportHandler`)，`R.EXPOSURE`→`get`(GET，`SpotExposureHandler:67`)，`R.EXPOSURE_RECALC`→`post`(`:57`) 等。
+- **字段名**：请求体逐字对齐 Handler 请求类，**camelCase 全对**（`subAccountId/spotCategoryCode/hasDualDirection/buyDirectionQty/negativeConfirmed/completionRatio/planPeriodStart/planPeriodEnd/lineType/targetSubAccountId/overwriteConfirmed/importFileName/priceUnit/sourceDesc/voidReason/contractId`）。
+- **分页信封**：`loadProducts:83-93` 读 `data.items` + `data.total` ⇒ 与 `PageData`（`items/total/page/size`，`PageData.java:15-24`）**一致**；`size=100 ∈ PAGE_SIZES` 合法（`api.js:40`）。**无 `records` 字段误用。**
+- **字符串化十进制**：数量/金额**全程以字符串透传**（`totalQty: v.totalQty`、`quantity: qty.value`、`spotPrice: spotPrice.value`、`completionRatio: ratio.value`）；`Number(...)` 仅用于 **ID 与形态校验**（`:213 Number(s)<=0` 注释即"不参与运算"），**未参与金额/数量展示运算**。展示经 `F.qty/F.money/F.decimal`（字符串实现）。
+- **排序显式方向**：`spot.js` **唯一**消费的分页列表为 `GET /product`（下拉），**未传 `sort`** ⇒ 依赖后端缺省（`ProductHandler.DEFAULT_SORT` 已显式补 `,desc`，非 `PageQuery` 陷阱）。本页无合同列表（FR-4/7 未实现），故**无"缺方向"缺陷**；仅记为观察（§6-O3）。
+- **导出错误不吞**：`seriesPanel.doExport:623-624`、`renderExposure.doExport:1340-1341` 均 `catch → ui.blockedHTML(err)`；`api.download` 对 JSON 信封错误**原样抛出**（`api.js:155-162`）⇒ **未吞错误信封**。
+
+---
+
+## 6. 跨模块 API 引用对账（本单必做 · `T-134` 同类）＋ 负控
+
+**工具**：`/root/review-t019/reconcile.mjs`（本席自写）——**真实加载 `window.HG`**（按 `app.js` 顺序 import core + `pages/spot.js`）；调用面**先剥注释/字符串/模板字面量**（含 `${}` 嵌套状态机）再抽 `HG.<chain>`；逐条对导出面解析。
+
+**独立实测结果**：
+```
+=== 结果：代码引用 21 条；缺失 0 条 ===
+  OK HG.api.{get,post,download,newIdempotencyKey} / HG.errmsg.{summary,isUnauthenticated}
+  OK HG.format / HG.ui / HG.pages.{,spot} / HG.router.{navigate,register}
+  OK HG.routes.{SPOT,PRODUCT.LIST} / HG.session.{currentId,isAggregate,onChange,state.subAccounts*}
+=== 负控自测 ===
+  负控A（注入 HG.session.roleLabel / HG.bogusMember.sub）：PASS 报出      ← 漏报检测
+  负控B（同一引用于字符串/注释/模板内）：PASS 未误报                     ← 误报检测
+  负控C（模板 ${HG.session.state.subAccounts.length} 真代码）：PASS 抽到   ← 剥净检测
+```
+- ⇒ **`spot.js` 未引用任何"从未导出"的成员**；**`T-134` 的 P0 形态（`HG.session.roleLabel`）在本文件不复现**。
+- 负控全过 ⇒ 本对账工具的"0 缺失"结论**有效**（非探针失能导致的假绿）。
+
+---
+
+## 7. 观察清单（不计缺陷）
+
+- **O1（残余未验证面）**：敞口表内 `data-detail` / `data-recalc` 按钮由 `innerHTML` 字符串渲染（`:1245-1246`），绑定在 `:1262-1263` 事后 `querySelectorAll`。**无真实浏览器** ⇒ 其点击链**仅源码级核对**（本席与产出方**同**受限）。建议门禁补一条真实 DOM 或 jsdom 断言。
+- **O2（`FR-SPOT-14` 系统级缺口）**：`POST /spot/exposure` 计算入口在**任何前端页面均无承载**（全仓仅 `spot.js` 涉敞口 UI）。前端侧的"不实现"有据（Q-FE-001），但**M1 的"计算敞口"无 UI 归属** ⇒ 建议编排者确认该能力的**承载方**（后端自动触发/计划模块/独立任务）。
+- **O3（下拉分页稳定性）**：`loadProducts` 逐页拼接依赖后端缺省排序（`created_time desc`，**单列无 tie-break**，`T-096` 已知）。产品数 ≤100 时单页无碍；>100 且同秒创建时可能**跨页重复/漏行**（仅影响下拉展示）。归 `T-096` 口径。
+- **O4（`decimalPositive` 用 `Number` 校验）**：`:213/228/910` 以 `Number` 做**边界判定**（仅形态，不改写值）。对**超长小数**可能因精度给出边界误判（如 `1e-400` 类）；**不影响传输值**。低。
+- **O5**：`renderSeries` 表头缺失列时 `idx()` 返回 -1 → 该列渲染空串（静默）。对**后端表头漂移**鲁棒性弱，但当前表头与 `FR-SPOT-19` 一致。
+- **O6**：`web` 树锚 `c39b6df7…` 与产出方交付时点自报（`9bb7fe5e…`）**不同** ⇒ 系 `fe-t020/fe-t021` 并发改 `plan.js/auth.js/config.js` 所致（非本单越界；交付提交 `eb28f9f` 仅含 `spot.js`，已核）。
+
+---
+
+## 8. 自设扫描面（产出方未提及，必做 ≥2）
+
+| # | 扫描点 | 结果 |
+|---|--------|------|
+| S1 | **跨模块 API 存在性双向对账**（T-134 同类，含负控 A/B/C） | **0 缺失**（§6） |
+| S2 | **加载态清除一致性**（vs `product.js`/`plan.js`/本页敞口页惯例） | **缺陷 TE-T019-001**（§3） |
+| S3 | **重复渲染的监听器/请求递增** | **缺陷 TE-T019-002**（§3） |
+| S4 | **`ui.banner` 当 HTML 用**（T-020 同族） | spot.js **0 命中**；全仓（排除 `.codebuddy`）**0 命中** |
+| S5 | **导出类接口是否吞错误信封** | **未吞**（三处 `catch → blockedHTML`） |
+| S6 | **stub/占位/TODO 残留** | `renderStub/TODO/FIXME/HACK` **0 命中**（唯一"占位"是 `:1210` 注释，指**故意**的失败占位行，非骨架残留） |
+
+---
+
+## 9. 残余局限（诚实声明）
+
+- 全部行为证据为**无头桩层面**（Node DOM 桩 + fetch 桩），**非真实浏览器**；已含**负控**（会清除的页面必须判"无残留"）以证检测器有效，但不能替代浏览器验收。
+- 后端**未运行**（本复核不启 Java 服务）：契约一致性为**静态逐字比对**（Handler 源码），**未做端到端联调**；DM8 侧不涉及（本单纯前端）。
+- §7-O1 的 `data-*` 按钮点击链**未执行**。
+
+---
+
+## 10. 复现命令（本席工具，只读）
+
+```
+node /root/review-t019/reconcile.mjs /root/myspace/hedge-guard/web/js/pages/spot.js   # 跨模块对账 + 负控 A/B/C
+node /root/review-t019/headless-probe.mjs                                             # 加载态 + 监听器泄漏 + 负控
+md5sum web/js/pages/spot.js                                                           # 锚点（3×10s 恒定）
+```
+
+---
+
+**回执要素**：结论=**有条件通过**；缺陷=**低 2 / 中 0 / 高 0**；锚点=`886ee4964a9d559efce12652babd2484` / 1375 行（`2026-09-23T13:19:39Z` 取样）；跨模块对账负控=**全 PASS**。
+
+---
+
+# T-020 独立复核（席 `te-verify-t020`）
+
+- **复核人**：测试工程师（独立于产出方）
+- **复核性质**：独立证伪；**未采信**任何产出方自评；**只读**（共享树 `web/`、`java/`、`docs/` 零改动；探针/脚本全在 `/root/review-t020/`，**未用 `/tmp`**）
+- **取样时刻**：2026-09-23T13:13:30Z / 13:16:10Z / 13:16:31Z（UTC）
+
+## 0. 冻结锚点（独立实测 vs 派单）
+
+| 项 | 派单声明 | 独立实测 | 判定 |
+|---|---|---|---|
+| `web/js/pages/plan.js` md5 | `f58357a05e1f272d6d50617e7109faf9` | **`f58357a05e1f272d6d50617e7109faf9`** | 一致 |
+| 行数 | 1281 | **1281** | 一致 |
+| `HEAD` | `29a9c19` | **`29a9c19`**（`git status` 干净） | 一致 |
+| 交付提交 diff | `+1059/−117` | **`39b1633`：`+1059/−117`（仅 `web/js/pages/plan.js` 1 文件）** | 一致 |
+| `web/` 树锚（内容级） | — | `find web -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum` = **`8d93d7f7383b39484ba3ee0d3df6a8dc`** | 取样时点事实 |
+
+⇒ **`plan.js` 冻结锚点吻合**，继续复核。
+
+**并发写入窗口留痕（非缺陷，按纪律核授权链）**：`13:13:30Z` `git status` **干净**；`13:17:31Z` 复测时 `java/src/main/java/com/hedgeguard/service/PlanService.java` 变为 **modified**（mtime **`2026-09-23 21:16:03 +0800` = 13:16:03Z**，`git diff --stat` `+78/−31`；diff 主题＝`createPlan` 的 seq 由「按子账户计数」改为「全局计数」＝**`BUG-003`/`T-137` 的 P0 修复**）。该写入落在 `java/**`，**为已知任务 `T-137` 的授权面**（本席派单明示 `T-137` 为 `GET /plan`/编制 P0 待修且「不评其修复」）；**`web/js/pages/plan.js` 未被触碰**（mtime `11:36:53 +0800`、md5 全程 `f58357a0…` 稳定）⇒ **本单结论不受影响**。本席**未修改共享树任何文件**（只读）。
+
+## 1. 证据分栏说明
+
+- **【实测】**＝本席在共享树只读执行所得（命令+输出+取样时刻）。
+- **【自述】**＝产出方/派单/他人制品中的陈述，仅登记不背书。
+
+---
+
+## 2. 专项结论（派单 (2)(3)，关键项）
+
+### (2) 页面侧 `precheckResult.unverified` 展示义务（`TE-016-001` 裁定归 `T-020`）
+
+**裁定依据（他人制品，已独立回读）**：`docs/TEST_RESULT.md:1694-1696`（归属裁定=`T-020`）+ `:1659`（当时「`plan.js` 无相关代码」）/`:1680`/`:1686`（风险提示：不在 `T-020` 收口则 `FR-PLAN-10` 验收2 按字面不通过）。
+
+**【实测】结论：✅ 已实现，`FR-PLAN-10` 验收2 (c) 页面侧达成。** 证据：
+
+| 环节 | `plan.js` 行号 | 实测内容 |
+|---|---|---|
+| 触发链 | `742` | `renderPlan()` 内 `box.appendChild(renderPrecheck(d))`（详情页每次加载均渲染） |
+| 读快照 | `802` | `const pr = d.precheckResult;`（来自 `GET /plan/{id}`） |
+| 展示 `unverified` | `807-814` | `const unverified = Array.isArray(pr.unverified) ? pr.unverified : [];` → 非空时 `ui.banner(... unverified.map(F.esc).join ...)`，文案显式点名 `<code>R-PLAN-3/③</code>` |
+| 兜底 | `803-805 / 815-817` | 无快照→「尚无预校验快照…」；快照无未校验项→「本次快照未含未校验项」（不虚假声明） |
+| 明细表 | `818-827` | `pr.items` → `rule/current/threshold/verdict/source` 五列 |
+| 落款 | `828-830` | `pr.generated_at` / `pr.generated_by` |
+
+**字段名一致性（后端为准，实测源码）**：`PlanService.PrecheckResult`（`java/.../service/PlanService.java:426-452`）Gson `@SerializedName` = **`items` / `unverified` / `generated_at` / `generated_by`**；`PrecheckItem:453+` = **`rule` / `current` / `threshold` / `verdict` / `source`**；`M1_UNVERIFIED = singletonList("R-PLAN-3/③")`（`:123-124`）。`PlanHandler.detail`（`PlanHandler.java:114`）把 `latestPrecheckSnapshot(planId)`（`PlanService.java:1079-1094`，解析落库 JSON）填入 `view.precheckResult`。⇒ **前端读取键与后端序列化键逐字一致，无字段名漂移。**
+
+补充：提交动作的成功响应 `unverified` 亦被消费——`doAction`（`910-913`）在 `action==='submit'` 时对 `data.unverified` 弹 toast。三项可见性 (a) 提交响应 / (c) 页面 均在前端有落点。
+
+### (3) 陈旧措辞订正确认（`T-017` 复核 `O-3`，`docs/TEST_RESULT.md:6372`/`:6398`/`:6453`）
+
+**【实测】结论：✅ 已订正，且订正后与事实相符。**
+- 要求订正的原两处：`plan.js:56`＝「后端未提供列表端点，显式登记阻塞」、`:111`＝「← 返回计划列表（接口未就绪说明）」。
+- **现 `:56`** ＝ ` * 易用性 NFR-USE-2：详情页提供「下单」按钮，预填 计划ID / 子账户 / 品种 / 方向。`（**无「未提供列表端点」**）
+- **现 `:111`** ＝ `  sel.appendChild(opt('', required ? '请选择子账户' : '（全部授权子账户）'));`（**无「接口未就绪」**）
+- `grep -n "未提供列表\|接口未就绪\|未就绪" web/js/pages/plan.js` ⇒ **0 命中**（rc=1）。
+- 反向佐证事实：`:40-41` 现写明「✅ `GET /plan`（列表）已注册（`PlanRoutes.java:52`；`T-010` 补齐）」；列表 banner（`:191-196`）同样声明「已注册并可用」。⇒ 措辞与「`GET /plan` 已注册」事实**一致**（无「时态超前/落后」）。
+- 残余「未实现/未注册/TODO」字样（`:43-54`/`:1066`/`:1175`）经逐条核对**均指向真实缺口**（`FR-PLAN-2`/`FR-PLAN-3` 确无端点；`T-104` 的 `remainingQty`/`limitReached` 服务端确实未输出）——**非陈旧措辞**。
+
+---
+
+## 3. FR 覆盖（(1)，逐条；依据 `docs/REQUIREMENTS/PLAN.md`，判据=完整触发链，非函数存在）
+
+| FR | 优先级 | 是否承载 | `plan.js` 关键行 | 缺口说明 |
+|---|---|---|---|---|
+| FR-PLAN-1 新增 | P0 | **是** | `538-664`（表单+`submit`→`648` POST `/plan`） | 验收2 前端强制（`:642` 无绑定即阻断，文案「计划必须绑定实货敞口」）；验收3/4/5 由服务端强制，前端经 `blockedHTML` 展示 |
+| FR-PLAN-2 改草稿 | P0 | **否（如实登记）** | `:52-54` 披露 | 后端**未注册** `PUT /plan/{id}`（`PlanRoutes.java:52-65` 全列 `register` 无 PUT/DELETE）⇒ 前端不虚构入口 |
+| FR-PLAN-3 删草稿 | P1 | **否（如实登记）** | `:52-54` 披露 | 同上，无 `DELETE /plan/{id}` |
+| FR-PLAN-4 列表 | P0 | **大部分** | `187-354` | 默认 `created_time,desc` 显式（`:200`/`:259`）；9 项筛选齐（`:258-270`）；执行进度 `:325-328`、占用额度 `:314`。**验收3**「审批人默认待我审批」仅以「仅看待审批」近似（`:47-48` 披露：无「排除本人发起」服务端参数）；**验收4** 服务端隔离 |
+| FR-PLAN-5 详情 | P0 | **部分** | `690-763` | 验收1 比率计算过程、验收3 审批链记录 → **未承载**（`:757-762` 诚实登记为「待补区块」）；**验收2 敞口跳转为「列表」非「详情」→ 见缺陷 `TE-T020-001`** |
+| FR-PLAN-6 简单法 | P0 | **是** | `403-409`/`475-476`→`488` | 无静默降级（`:507-514` 显示 `resultCode`/`failDetail`） |
+| FR-PLAN-7 最小方差 | P0 | **是** | `410-417`/`477-479` | `spotSeries`/`futuresSeries` 必填；样本不足交由服务端 `INSUFFICIENT_SAMPLE` 报错（不兜底） |
+| FR-PLAN-8 自定义规则 | P1 | **是** | `418-426`/`480-484` | 送 `requestedRatio`（可选）校验上限；取最严由服务端 |
+| FR-PLAN-9 书面文件 | P0 | **部分** | `1001-1058` | 生成+三要素门禁前端强制（`:1034-1038`）；`:858-865` 提交前门禁提示；**正文读取/历史版本查看缺端点**（`:1006-1010` 披露） |
+| FR-PLAN-10 提交审批 | P0 | **是** | `878-921` + `799-832`（见 §2(2)） | 验收2 M1 段三项（a）`:911-913`/（b）服务端/（c）`renderPrecheck` |
+| FR-PLAN-11 审批 | P0 | **是** | `679`/`868-871`→`908` | 发起人≠审批人由服务端（会话身份） |
+| FR-PLAN-12 驳回 | P0 | **是** | `882-886`/`899-903` | 原因必填（前端+服务端）+ 二次确认 |
+| FR-PLAN-13 撤销 | P1 | **是** | `679`/`882` | 仅 `PENDING_APPROVAL` 提供；见观察 `O-4` |
+| FR-PLAN-14 分解 | P0 | **是** | `1200-1267`→`1256` | 需 `APPROVED`（`:1109`）；前端校验合约/数量/期限齐备 |
+| FR-PLAN-15 交易计划查询 | P0 | **是** | `1081-1198` | `exec_deadline,asc` 显式（`:1082`/`:1127`）；`remainingQty`/`limitReached` 优先服务端、缺失按 `planQty−orderedQty` 派生并标注（`:1069-1079`/`:1173-1176`，因 `T-104` 未交付）；验收3 下单按钮 `:1166-1171`→`goOrder` |
+| FR-PLAN-16 冻结/解冻 | P1 | **是** | `680-681`/`908` | — |
+| FR-PLAN-17 终止 | P0 | **是** | `680-681`/`908` | 危险操作二次确认（`:899-903`） |
+| FR-PLAN-18 展期 | P1 | **部分** | `849-851`/`891-895` | 展期（`newEndDate`+原因）承载；**验收1「到期前 30 天提前提示」未在前端实现**（无到期提示逻辑，`R-PLAN-9` 属服务端待办）——见观察 `O-5` |
+| FR-PLAN-19 绑定敞口 | P0 | **是** | `934-983`→`967` | 仅 `DRAFT` 可增删（`:949`），非草稿显提示（`:980`） |
+| FR-PLAN-20 执行进度 | P1 | **是** | `765-796` | 五项指标 + 时间/数量进度 + 30pp 偏差提示（`:784-789`）+ 超额告警（`:791-794`）；无手工录入入口 |
+
+小结：**16/20 有实质承载**；`FR-PLAN-2`/`FR-PLAN-3` **无端点**（前端如实登记不虚构，属后端/需求缺口，不计 `T-020` 缺陷）；`FR-PLAN-5`/`FR-PLAN-18` 部分承载。
+
+---
+
+## 4. 线上契约一致性（(4)，以**已实现 Handler** 为准，非只读 `routes.js` 对象）
+
+**方法来源**：`routes.js` 对象**只含路径不含方法**（`T-017` 观察 `O-1`），本席直读 `PlanRoutes.java` 的 `router.register("GET"|"POST", …)`。
+
+| 前端调用（`plan.js` 行） | 路径（`routes.js`） | 已实现 Handler 方法 | 判定 |
+|---|---|---|---|
+| `HG.api.get(PLAN.LIST)` `:283` | `/plan` | `PlanRoutes.java:52` `GET` | ✅ |
+| `HG.api.post(PLAN.CREATE)` `:648` | `/plan` | `:53` `POST` | ✅ |
+| `HG.api.get(PLAN.detail)` `:701` | `/plan/{id}` | `:54` `GET` | ✅ |
+| `POST PLAN.doc` `:1042` | `/plan/{id}/doc` | `:55` | ✅ |
+| `POST PLAN.action(id,a)` `:908` | `/plan/{id}/{submit…extend}` | `:56-58`（8 动作枚举） | ✅ 8 动作与 `actionsForStatus`（`:676-684`）一致 |
+| `GET|POST PLAN.tradePlans` `:1137`/`:1256` | `/plan/{id}/trade-plans` | `:59-60` | ✅ |
+| `POST PLAN.ratio(m)` `:488` | `/plan/ratio/{simple\|minvar\|custom}` | `:61-63` | ✅ |
+| `POST PLAN.bindExposure` `:967` | `/plan/{id}/bind-exposure` | `:65` | ✅ |
+
+**`GET /plan` 查询参数对账**（前端 `query()` `:258-270` vs `PlanHandler.list` `:137-152`）：
+`page/size/sort`（`:259`，`sort` **显式带方向** `field,desc`）+ 筛选 `subAccountId/productId/status/planType/termStartFrom/termStartTo/createdFrom/createdTo/applicantId`（`:260-268`）——**与后端读取键逐字一致，含 `createdFrom/createdTo`（易误写 `createdTimeFrom`）**。
+- 排序白名单：前端 `LIST_SORT_FIELDS`（`:99`）＝ `PlanService.LIST_SORT_FIELDS`（`PlanService.java:144-147`）**逐元素一致**；`TRADE_SORT_FIELDS`（`:101`）＝ `TRADE_PLAN_SORT_FIELDS`（`:161-164`）**逐元素一致**。
+- 对 `T-137`（`GET /plan` P0 待修）**不予评价**；本节仅判「前端消费面与其**当前**契约一致」⇒ ✅。
+
+**请求体字段对账（camelCase）**：`CreateRequest`（`PlanHandler.java:204-241`）↔ 前端 `:648-654`；`BindRequest.exposureId/coveredQty` ↔ `:620`；`PlanDocHandler.Request.elemFormalDesignation/elemEffectivenessMethod/elemRebalanceMechanism/hedgingInstrument` ↔ `:1043-1044`；`TradePlanHandler.Item` ↔ `:1250`；`PlanRatioHandler.Request` ↔ `:476`/`:478-479`/`:481-483`；`PlanActionHandler.Request.reason/newEndDate` ↔ `:890`/`:894`。**全部 camelCase 一一对应。**
+
+**响应视图对账**：`PlanView`（`:254-336`）字段 ↔ 前端 `renderRows`/`renderPlan`/`renderRatioResult` 读取；`RatioView`（`:150-203`）↔ `renderRatioResult`（`:507-525`）**12 字段逐一对应**；`TradePlanHandler.View` 确**不含** `remainingQty/limitReached`（`:161-219`）⇒ 前端派生+标注策略正确。
+
+---
+
+## 5. 跨模块 `HG.*` 引用双向对账（(5)）+ 负控
+
+**工具**：`/root/review-t020/reconcile.mjs`（Node ESM 真实加载 9 个 `core/*.js` 取 `window.HG` 实值；`plan.js` 调用面**先剥离注释/字符串/模板**再抽点链；按实值走链解析）。
+**【实测】`window.HG` 实际导出面**：
+```
+HG.api   = {BASE,DEFAULT_PAGE_SIZE,PAGE_SIZES,del,download,get,list,newIdempotencyKey,post,put,request}
+HG.errmsg= {CODE_HINT,isBlocked,isTransport,isUnauthenticated,render,summary}
+HG.format= {date,dateTime,decSub,decimal,esc,fixed,money,pct,qty}
+HG.router= {currentPath,navigate,register,setNotFound,start}
+HG.routes= {AUTH,BASE,CONFIG,NOT_REGISTERED,PING,PLAN,PRODUCT,SPOT}
+HG.session={ALL,bootstrap,clearSessionSummary,currentId,isAggregate,onChange,setCurrent,setSessionSummary,state,userLabel}
+HG.ui    = {banner,blockedHTML,clear,confirm,el,esc,field,renderEmpty,renderError,renderLoading,setFieldError,statusBadge,tableHTML,toast}
+HG.ws    = {WS_PATH,connect,debounce,throttle}
+```
+**【实测】正向**：`plan.js` 引用 **45 处 / 去重 23 条**点链 → **未解析链 = 0**（`HG.pages` 为产物自身注册命名空间，已列入豁免并声明）。
+**【实测】负控（注入已知坏引用证探针能报错）**：
+```
+注入 5 条：HG.api.getWhateverX / HG.session.roleLabel / HG.routes.PLAN.NOPE_KEY / HG.noSuchModule.foo / HG.ui.notARealHelper
+预期报出 5，实报 5 ⇒ PASS
+```
+⇒ **(5) 结论：0 条「引用从未导出的成员」⇒ 无 P0。** 且 `HG.session.roleLabel`（`T-134` 根因）**在 `plan.js` 中确未被引用**（负控证明探针能捕获它）。
+
+> 反向（导出面未被 `plan.js` 用到）非缺陷：`plan.js` 只用其所需子集，`HG.ws`/`HG.errmsg.isBlocked` 等由他页消费。
+
+---
+
+## 6. 信封与数值（(6)）
+
+- **`PageData` 真消费**：`normalizePage`（`:357-368`）读 `data.items/total/page/size`；与 `PageData.java`（`items:List`/`total:long`/`page:Integer`/`size:Integer`）一致；列表（`:283`）与交易计划（`:1137`）均经此归一化。**✅ 非裸数组假设。**
+- **排序显式带方向**：列表 `:259`＝`state.sortField + ',' + state.sortDir`（默认 `created_time,desc`）；交易计划 `:1127`＝`exec_deadline,asc`。**✅**（避免 `PageQuery` 缺省恒 ASC 陷阱）
+- **金额/数量按字符串**：表单/查询一律传字符串（`:476`/`:620`/`:653`/`:894`/`:1250` 等），展示用 `F.qty/F.decSub/F.pct`（`format.js` 字符串实现，`decSub` 不经 `Number`）。`ratioPct`（`:158-162`）与 `timeProgress`（`:165-171`）用 `Number`，但**代码与注释均标注「仅展示辅助，非业务判定」**（`:157`/`:164`/`:783`）⇒ 可接受。
+- **错误信封不被吞**：所有失败分支走 `ui.renderError` 或 `ui.blockedHTML`→`HG.errmsg.render`（`errmsg.js:60-78`，阻断类展开 `ruleId/current/threshold/nextStep` 四项），**未见空 catch 吞错**（`.catch(()=>{})` 仅 `loadProductsOnce` 的展品缓存，非业务数据）。**导出类**：`ApiRoutes` 的 PLAN 清单**无 `/plan/export`**（`ApiRoutes.java:37-42`）⇒ **N/A**（本模块无导出端点）。
+
+---
+
+## 7. 自设扫描面（(7)，产出方未提及；≥2）
+
+| # | 检查点 | 方法 | 结论 |
+|---|---|---|---|
+| **P-A** | 所有写接口是否**都带幂等键** | `grep -c idempotencyKey` ＝ **6**，`HG.api.post` 恰 **6** 处（`488/648/908/967/1042/1256`） | ✅ 6/6 全带（含 `ratio`/`bind-exposure`/`doc`/`trade-plans`/动作） |
+| **P-B** | `GET /plan` 前端筛选键是否**穷举**后端读取键 | 前端 9 键 vs `PlanHandler.list` 9 键逐字比对（含 `createdFrom/createdTo`/`applicantId`） | ✅ 完全对齐（易漏的 `createdFrom` 类键均覆盖） |
+| **P-C** | `innerHTML` 拼接处**动态文本是否转义** | 通读所有 `innerHTML=`（`:320/491/658/810/916/973/1051/1178/1260`）与列 `render` | ✅ 动态值均经 `F.esc`/`ui.tableHTML`（内部 `F.esc`）/`errmsg.render`（`F.esc`）；`data-tp` 属性经 `F.esc(JSON.stringify(...))`（`:1169`） |
+| **P-D** | 路由注册顺序（`/plan/new` vs `/plan/:id`） | `router.register` 顺序 `:1277→1278→1279` | ✅ `/plan/new` 先行（`router.js:33` 首个匹配生效） |
+| **P-E** | 前端 `#/spot/exposure/:id` 详情路由是否存在 | `grep -rn "exposure/:" web/js/` ⇒ **(none)**；`spot.js` 仅注册 `/spot`、`/spot/exposure`（`:1372-1373`） | ⚠️ 无详情页路由 ⇒ 见缺陷 `TE-T020-001` |
+
+---
+
+## 8. 缺陷清单
+
+| 编号 | 级别 | 文件:行号 | 复现步骤 | 失败场景 | 期望（依据） | 归属建议 |
+|---|---|---|---|---|---|---|
+| **TE-T020-001** | **低** | `web/js/pages/plan.js:942` | 打开任一计划详情（`#/plan/{id}`）→「绑定的实货敞口」→ 点击某条 `#<exposureId>` 链接 | 跳转到**敞口列表页** `#/spot/exposure`，**未定位到该敞口详情**；用户需自行在列表中翻找 | `FR-PLAN-5` 验收2 字面：「详情页**可从计划跳转到所绑定的实货敞口详情**」（`REQUIREMENTS/PLAN.md:177`） | `T-020`（前端目标页依赖 `SPOT` 敞口详情页，前端 `web/js` 当前**未注册** `#/spot/exposure/:id`，亦未传 `id`）——**可能需裁定**：真正达成需 `SPOT` 侧补详情页路由（范围外），故 `T-020` 侧至少应把链接指向可定位目标或如实标注「列表定位」 |
+
+> **无 P0 / 无 P1（高/中）缺陷。** 上表 1 条**低**级，其对错取决于 `FR-PLAN-5` 验收2 是否允许「跳列表」近似——**本席按字面记不通过，是否改判由编排者/用户裁量**（测试席不出发布结论）。
+
+---
+
+## 9. 观察清单（均**不阻断**）
+
+- **O-1（跨任务依赖）**：`FR-PLAN-2`/`FR-PLAN-3` 无后端端点（`PlanRoutes.java:52-65` 无 `PUT`/`DELETE`）⇒ 前端**无法实现**修改/删除。`plan.js:52-54` **如实登记**、**未虚构入口**（符合「不虚构」纪律）。属后端/需求面缺口，**非 `T-020` 缺陷**。
+- **O-2（防御性兜底的可达性）**：`normalizePage`（`:357-359`）对「裸数组且为空」返回 `size=0` ⇒ `renderPager` 的 `Math.ceil(total/0)` 会得 `NaN`，页码显示「第 1 / NaN 页」。**当前服务端恒返回 `PageData` 信封**（`PlanHandler.list:159`/`TradePlanHandler.list:102`），此路径**不可达**；仅为潜在展示瑕疵。
+- **O-3（诚实披露项**，非缺陷）：`PlanView`/`TradePlanHandler.View` 确不含「比率计算过程/审批链/书面文件正文/`remainingQty`/`limitReached`」；`plan.js:44-51`/`:757-762`/`:1006-1010`/`:1173-1176` **逐项如实登记**，与后端源码一致。
+- **O-4（需求侧口径张力，非前端缺陷）**：`FR-PLAN-13` 输入写「状态须为**待审批或已冻结**」（`:291`），但 §2.1 状态机表（`:79`）对「已冻结」列的可执行操作为**解冻/终止**（**无撤销**）。`plan.js` `actionsForStatus`（`:681`）**跟随 §2.1 表**（`FROZEN` 不含 withdraw）。⇒ **需求两处自相矛盾**，建议产品经理澄清；前端取状态机表口径合理。
+- **O-5（跨面缺口）**：`FR-PLAN-18` 验收1「到期前触发提前提示（默认 30 天）」在 `plan.js` **无对应逻辑**（`R-PLAN-9` 明示「提醒进入审批人与发起人**待办**」，属服务端/待办面）。前端无承载点，**非前端缺陷**，建议确认承载方。
+- **O-6（环境）**：仓库含陈旧 git worktree `.codebuddy/worktrees/bg-...`（内含旧版 `plan.js`/`routes.js`）。**本席全部审计已排除 `.codebuddy/`**；提醒后续全仓 grep 勿据此误报。
+- **O-7（并发写入窗口）**：复核期间（13:16:03Z）`java/.../PlanService.java` 被**并发写入**（`+78/−31`，主题＝`createPlan` 序号的 `BUG-003`/`T-137` 全局化修复）。属**已知任务授权面**、**未触碰 `plan.js`** ⇒ 不影响本单；登记以备交叉核验（若后续以「当前」状态引用 `PlanService`，须重测其 md5/行数）。
+
+---
+
+## 10. 结论
+
+- **一行结论**：**`T-020`（套保计划前端页面 `plan.js`）= 有条件通过** —— 冻结点吻合；**派单 (2) 页面侧 `unverified` 展示义务已达成**、**(3) 陈旧措辞已订正且与事实相符**、**(5) 跨模块引用 23/23 全解析（负控 PASS）**、**(4) 契约 camelCase 一致**、**(6) 信封/方向/字符串/错误四项达标**；**0 P0 / 0 P1（高/中）缺陷**，1 低缺陷（`TE-T020-001`）+ 6 观察。
+- **条件**：`TE-T020-001`（`FR-PLAN-5` 验收2 跳转为「列表」非「详情」）——是否按字面判不通过、抑或允许近似 / 转 `SPOT` 承接，**请编排者裁定**。
+- **与产出方/派单说法的差异**：① 派单 `(2)` 的「缺项则报缺陷」——**实测不缺**（`renderPrecheck` 已落地）；② 派单 `(3)` 的「`plan.js:56`/`:111` 待订正」——**实测已订正**（原文已不存在）；③ 派单未提及的 `FR-PLAN-5` 验收2 敞口跳转缺口（`TE-T020-001`）由本席补登记。
+- **未覆盖声明**：无真实浏览器/jsdom（环境无）⇒ **真实渲染行为（`innerHTML` 插桩、点击跳转、Cookie 传递）不在本轮可证范围**；本复核为**静态 + Node 无头加载 + 只读源码比对**层面。
+- **不改产品代码**；**不自评 `T-020` 为 `DONE`**；是否准出由编排者/用户裁量。
+
+## 附：复核脚本与命令（可复现）
+
+- `/root/review-t020/reconcile.mjs`（跨模块对账 + 负控）：`cd /root/review-t020 && node reconcile.mjs`
+- 锚点：`md5sum web/js/pages/plan.js`；`find web -type f | LC_ALL=C sort | xargs md5sum | md5sum`；`git rev-parse --short HEAD`
+- 契约：`sed -n '52,66p' java/src/main/java/com/hedgeguard/web/handler/plan/PlanRoutes.java`；`PlanHandler.java:134-161`；`PlanService.java:426-470`
+
+---
+
+# T-021 独立复核章（席 `te-verify-t021`）
+
+- **复核对象**：`T-021` 权限与系统配置前端页面（`web/js/pages/auth.js` + `web/js/pages/config.js`）
+- **复核性质**：独立复核席（**独立于产出方 `fe-t021`**），只读取证
+- **结论**：**有条件通过 / 0 缺陷 / 12 观察**（条件见 §11；不自评 `T-021` 为 `DONE`）
+
+## 0. 冻结点与取样（独立实测）
+
+| 项 | 值 | 取样时刻 |
+|----|----|---------|
+| HEAD | `29a9c19` | 2026-09-23T13:13:33Z |
+| `web/js/pages/auth.js` | md5 `cb684e4b2b71668307ad8780f5815339`，1173 行 | 同上 |
+| `web/js/pages/config.js` | md5 `a5601f2225f79319a3adfd31a1f49d17`，1129 行 | 同上 |
+| 交付前态（`84a459a^`） | auth.js **19 行** md5 `cccf60135b261816fd1006bffb9542e7`；config.js **18 行** md5 `d286aa5dbdeedea23f461a6124ce8a7e`（均为真骨架） | 同上 |
+
+**冻结点核对 = 完全吻合**（派单给的值与实测逐字一致），无并发写入迹象，继续复核。
+交付提交 `84a459a`：`2 files changed, +2294 −29`（git 实测，与派单吻合）。
+
+| 项 | 独立实测 | 产出方自述 |
+|----|---------|-----------|
+| 两文件 md5/行数 | ✅ 吻合（见上） | `cb684e4b…`/1173、`a5601f22…`/1129 |
+| 端点 19 条逐条注行号 | ✅ auth.js 8 / config.js 11 条端点均在文件头注明行号 | 同 |
+| 零落盘 `setItem/setCookie` | ✅ **仅出现在说明文案**（见 §7） | 同 |
+| E6（跨模块 API 对账） | ✅ 自写工具独立复算 = 0 条不存在引用（§6） | 报 rc0 |
+| 无头桩 96/0 | ⚠️ **未复现**（属产出方探针，我方改用独立工具） | 自述 |
+| 「重置口令按钮误路由」已修 | ⚠️ **交付前态不可复现**（见 §3） | 自述「探针捕获并已修」 |
+
+---
+
+## 1. FR 覆盖（唯一权威 = `docs/REQUIREMENTS/AUTH.md` / `CONFIG.md`）
+
+判定口径：**承载 = 该 FR 的界面触发链在本文件内完整可达**（控件 → 调用 → 端点；非仅函数存在）。
+「不在本文件」= 需求点按设计归属其它文件（如登录页），非缺口。
+
+### 1.1 `FR-AUTH-1~18`（`auth.js`）
+
+| FR | 承载 | 证据（`auth.js:行号`） | 说明 |
+|----|------|----------------------|------|
+| FR-AUTH-1 新增用户 | ✅ | `createUserPanel` 432–493；POST `R.USER` 477–480 | **输入列「初始角色」缺**（→ §2 缺口⑥） |
+| FR-AUTH-2 修改用户 | ✅ | `openAction` UPDATE 365–370（PUT `R.USER`） | 用户名不可改已在 UI 注明 |
+| FR-AUTH-3 停用用户 | ✅ | `openAction` DISABLE 371–373（reason 必填 372） | 二次确认 379–386 |
+| FR-AUTH-4 启用用户 | ✅ | `openAction` ENABLE 374–377（reviewer 必填 375） | 一次性口令卡 390–392 |
+| FR-AUTH-5 查询用户列表 | ⚠️部分 | `usersTab` 194–430；列 261–272；筛选 199/205 | **无「按角色」筛选**（→ §2 缺口①）；亦无「关键字/子账户」筛选 |
+| FR-AUTH-6 定义角色 | ✅ | `roleDefinePanel` 547–603（DEFINE 584–587） | 岗位组必选 583 |
+| FR-AUTH-7 互斥配置 | ✅ | `positionTab` 650–761；POST 702–705 | banner 明示「不提供关闭入口」651–655 |
+| FR-AUTH-8 校验互斥 | ✅（间接） | `roleGrantPanel` 605–645；冲突经 `blockedHTML` 渲染 638 | 判定在后端；前端如実呈现 |
+| FR-AUTH-9 禁负责人操盘 | ⚠️部分（说明性） | 帮助文案 340；析取口径 banner 1140–1141 | 无专属控件；约束在后端触发 |
+| FR-AUTH-10 人员授权 | ✅ | `authzTab` 766–867；POST 828 | 三类信息齐备（名单/品种/额度） |
+| FR-AUTH-11 授权变更留痕 | ⚠️部分 | `changeLogTab` 971–1020；筛选 975–977 | **无时间范围筛选**（→ §2 缺口②） |
+| FR-AUTH-12 子账户数据权限 | ✅ | `subPermTab` 872–966 | 安全默认 banner 873–877 |
+| FR-AUTH-13 跨子账户查看 | ✅ | `subPermTab` `PERM_TYPE` 68/900–901；哨兵 0 选项 166 | 默认只读已在文案 |
+| FR-AUTH-14 登录认证 | 不在本文件 | 归属 `login.js`（文件头 4–5 行声明） | 设计如此 |
+| FR-AUTH-15 会话管理 | ❌ 本文件无 | 无登出/强制下线/超时 UI（`grep` 实测） | 登出在 `app.js`；**强制下线无端点**（→ §2 缺口③） |
+| FR-AUTH-16 口令管理 | ✅ | `passwordTab` 1076–1117；重置 `doResetPassword` 417–427 | 依赖 `oneTimePassword`（→ §4 跨任务耦合） |
+| FR-AUTH-17 登录失败锁定 | 不在本文件 | 归属登录流（后端 `AuthService.login` 235–266） | 设计如此 |
+| FR-AUTH-18 授权与越权记录 | ✅ | `changeLogTab` 971–1020 + `attemptTab` 1025–1071 | 两视图齐备（列 1001–1014 / 1055–1065） |
+
+### 1.2 `FR-CONFIG-1~15`（`config.js`）
+
+| FR | 承载 | 证据（`config.js:行号`） | 说明 |
+|----|------|----------------------|------|
+| FR-CONFIG-1 CTP 连接参数 | ✅ | `ctpTab` 360–517；保存 454–459；测试 476 | 凭据列结构性缺（合规） |
+| FR-CONFIG-2 敏感字段内存持有 | ⚠️部分（说明性） | banner 1093–1099 | 无「启动手工录入」界面（职责在启动流程） |
+| FR-CONFIG-3 本地 admin 持久化 | ⚠️部分 | `itemsTab` 显示 `persistScope` 列 217 | **无持久化范围管理端点**（→ §2 缺口⑦，待裁定） |
+| FR-CONFIG-4 下发配置不落盘 | ⚠️部分（说明性） | banner 155；`itemsTab` 显示来源 | 无专属界面 |
+| FR-CONFIG-5 风险阈值 | ✅ | `itemsTab` 通用配置项编辑（key/category）238–275 | 走通用 config/item 面 |
+| FR-CONFIG-6 参数下发 | ⚠️部分 | `dispatchTab` 863–911（仅 GET 记录） | **无「触发下发」端点**（并入缺口⑤族） |
+| FR-CONFIG-7 子账户创建/启停 | ⚠️部分 | `subAccountTab` 281–355（仅创建+列表） | **无停用端点**（→ §2 缺口④，页内 `:351` 自注） |
+| FR-CONFIG-8 子账户参数 | ⚠️部分 | `subAccountTab` 注 351（指向 PRODUCT/FUND） | 入口与登记 |
+| FR-CONFIG-9 组件间 TCP 连接 | ❌ 未承载 | **无 Tab/无调用**（`TABS` 1078–1088 无此项） | **整条无专属端点**（→ §2 缺口⑤） |
+| FR-CONFIG-10 行情/交易前置 | ✅ | `ctpTab`（`CTP_FRONT` 71/411–413；priority 415） | 模拟/实盘显式区分 |
+| FR-CONFIG-11 查询修改系统参数 | ✅ | `itemsTab` 151–276 | 敏感项只显状态 210–212 |
+| FR-CONFIG-12 配置变更留痕 | ✅ | `changeLogTab` 916–971 | 敏感仅记状态 960 |
+| FR-CONFIG-13 导入导出 | ✅ | `ioTab` 976–1057（导出 992–1011；导入 1031–1056） | 10019 逐项清单 1060–1073 |
+| FR-CONFIG-14 字典与科目 | ✅ | `dictTab` 522–625 + `subjectTab` 630–744 | 无删除入口（合规） |
+| FR-CONFIG-15 报告周期与提醒 | ✅ | `periodTab` 749–858；强制启用 803–808 | 合规必需不可关闭 |
+
+---
+
+## 2. ★「7 项后端缺口」全量独立复算（本单关键）
+
+**口径澄清**：7 项 = 产出方报出、编排者**当时仅抽查 2 项**后即立 `T-135`（`docs/TASKS.md:179`）者。
+依 `docs/BOARD.md:494`（第 104 轮）⑤，7 项原文为：role 筛选 / change-log from-to / 强制下线端点 /
+sub-account 停用 / `FR-CONFIG-9` 端点 / `CreateRequest` 初始角色 / 持久化范围端点。
+**本席逐条独立取证**（不采信产出方措辞）。
+
+| # | FR | 前端调用点 | 后端承载核验 | 结论 |
+|---|----|-----------|-------------|------|
+| ① | `FR-AUTH-5` 验收1（按角色筛选） | `auth.js:199`（仅状态）、`:205`（仅负责人）、`:241–243`（query 无 role） | `UserHandler.list:57–69` 仅读 `status`/`leader`；`AuthService.listUsers:859–874` WHERE 仅 `status`/`is_enterprise_leader` | **成立** |
+| ② | `FR-AUTH-11` 验收3（按用户与时间范围筛选） | `auth.js:975–977`（仅 userId；无 from/to 控件） | `ChangeLogHandler:38–42` 仅读 `userId`；`AuthService.listPermissionChangeLogs:1143–1148` WHERE 仅 `target_user_id` | **成立**（用户维度有、时间范围无） |
+| ③ | `FR-AUTH-15` 验收4（强制下线留痕） | `auth.js` **无任何强制下线 UI**（`grep forceLogout` = 0） | `AuthService.forceLogout:1173` **存在**，但 `AuthRoutes.java` **无注册**、`web/handler/**` 无该 handler（`grep` 实测空） | **成立**（服务层有、端点缺） |
+| ④ | `FR-CONFIG-7` 验收3（停用拒绝） | `config.js:351` 页内自注「无停用动作端点」 | `ConfigRoutes.java:43–44` 仅 GET|POST；`SubAccountHandler` 无 DELETE/DISABLE；`ConfigService.disableSubAccount:443` **存在但未接线** | **成立**（删=无入口 ✓；停用端点缺） |
+| ⑤ | `FR-CONFIG-9`（整条） | `config.js` **无组件通信 Tab/调用**（`TABS` 1078–1088） | 无 `/config/tcp*` 专属端点；**唯** `ConfigService.requireLoopbackBind:382` + `LOOPBACK_BIND_KEYS:101`（含 `hg.tcp.bind`）经通用 `/config/item` PUT 校验验收1 回环 | **成立**（整条无专属端点；验收1 有通用机制**部分**承载） |
+| ⑥ | `FR-AUTH-1`（初始角色） | `createUserPanel:477–480` 无角色字段，`:482` toast 让用户改去「角色」Tab GRANT | `UserHandler.CreateRequest:109–128` **无角色字段**；`AuthService.createUser:714–744` 不接收角色 | **成立**（`AUTH.md:99` 输入列含「初始角色」） |
+| ⑦ | `FR-CONFIG-3`（持久化范围声明） | `config.js:217` 仅**显示** `persistScope`，无管理控件 | `ConfigService` 仅设默认 `LOCAL_ADMIN`（`:223`/`:996`）与导入可改（`:1019`）；**无「声明持久化范围」管理端点** | **待裁定** |
+
+**计数：成立 6 / 不成立 0 / 待裁定 1**。
+
+### 2.1 待裁定项（⑦ `FR-CONFIG-3`）的两读
+- **读法 A（缺口成立）**：`FR-CONFIG-3` 处理规则明写「**持久化范围须显式声明（哪些项允许落盘）**」；
+  现仅以逐行 `config_item.persist_scope` **默认值**承载，无**管理端点/界面**，声明一经默认不可经 API 调整。
+- **读法 B（不成立）**：验收 1–4（重启保留 / 不含敏感 / 无开关 / 留痕）**均有承载**；`persist_scope`
+  字段本身就是「显式声明」的可查询载体 ⇒ 可判已满足。
+- **本席倾向**：**待裁定**（与 `docs/BOARD.md:494` 自述「3 项须先回读 FR 原文再定」一致）。
+  若判成立，缺口形态 = 「**无持久化范围管理端点**」，**不得**表述为「`FR-CONFIG-3` 整条无承载」（验收 1–4 有承载）。
+
+### 2.2 对产出方措辞的纠偏（不采信处）
+1. ⑤「`FR-CONFIG-9` 整条无端点」**略有夸大**：验收1（回环拒绝）**已有** `ConfigService.requireLoopbackBind`
+   经通用 `/config/item` 承载；缺的是**专属端点 + 验收4 告警 + 界面**。建议 `T-135` 描述收窄。
+2. ① 产出方只列「role 筛选」，**实际** `FR-AUTH-5` 输入列还缺「用户名/姓名关键字」「子账户」两项筛选（同类未列）。
+3. ③「补强制下线端点」**准确**：服务层 `forceLogout` 已具备（含留痕 `recordChange`），**仅差端点/接线**。
+
+---
+
+## 3. ★「重置口令按钮误路由」已修缺陷的确认
+
+**结论：当前态正确；但交付前态（`84a459a^`）不可复现 ⇒ 不代其背书「该缺陷确曾存在且已修」。**
+
+- **独立实测（当前态，逐字静态追踪）**：行内「重置口令」按钮 `data-act="reset"`（`auth.js:300`），
+  点击处理器 `:281–284`：`if (act === 'reset') doResetPassword(u); else openAction(u, act);` ⇒
+  `openAction` **永不**收到 `'reset'`；`doResetPassword`（`:417–427`）发 `PUT R.PASSWORD`（`/auth/password`）✓。
+  变更面板内另有独立重置按钮 `:407–408`（亦直连 `doResetPassword`）。**路由正确**。
+- **为什么不能复现交付前态**：`84a459a` 是**单笔**交付提交，其父提交 `84a459a^` 的两文件是 **19/18 行真骨架**
+  （实测 md5/行数见 §0）——**缺陷的被修前中间态从未进入 VCS**（修复发生在同一工作会话内、提交之前）。
+  ⇒ 依派单纪律，据实写「**不可复现 / 依据不足**」。
+- **旁证（非证据）**：`docs/BOARD.md:494`③ 载「用户行『重置口令』按钮原被错误路由到变更面板 ⇒ 已改为直连
+  `doResetPassword`」，与当前代码形状**相容**，但属**产出方/编排者自述**，**不构成本席独立验证**。
+
+---
+
+## 4. ★ `FR-AUTH-16` 跨任务耦合（只记录、不判缺陷、不改）
+
+`auth.js` **展示并依赖**后端回传的 `oneTimePassword`：
+
+| 展示/依赖点 | 行号 |
+|------------|------|
+| 文件头契约注（PUT `R.PASSWORD` → `{oneTimePassword}`） | `:34` |
+| 一次性口令卡取值 | `:176` 行 `res.oneTimePassword` |
+| ENABLE 结果卡 | `:390` 判定 + `:392` 渲染 |
+| 管理员重置结果卡 | `:423` 渲染 |
+
+- 展现形态：`oneTimePasswordCard`（`:173–189`）以 `type="password"` **遮蔽**、只读、**不回写任何浏览器存储**。
+- **定性**：`T-136`（P0，后端移除 `ResetView.oneTimePassword`）落地后，**本文件须同步处置**
+  （该卡将恒空 / ENABLE 分支不再触发渲染）⇒ 列为**跨任务耦合项**，**非 `T-021` 缺陷**，本席**未改动**。
+
+---
+
+## 5. 线上契约一致性（camelCase；以**已实现 Handler** 为准）
+
+**方法/路径**：两文件头部 19 条端点与 `AuthRoutes.java:48–74`（17 对）/ `ConfigRoutes.java:41–58`（17 对）
+**逐条一致**；`routes.js` **只含路径不含方法**（`O-1`），本次交付**逐条对照 `router.register` 取方法**，
+**未误用**（如重置口令用 `PUT /auth/password` ✓、保存 CTP 用 `POST` ✓）。
+
+**字段级**（请求类 + 视图类逐字比对，全部 ✅）：
+
+| Handler 视图/请求 | 前端消费字段 | 结论 |
+|------------------|-------------|------|
+| `UserView`（`UserHandler:167–209`） | id/username/realName/department/isEnterpriseLeader/status/lastLoginTime/roleCodes/subAccountScope | ✅ 全对（**无口令字段**） |
+| `CreateRequest` / `MutateRequest` | 见 §2⑥/§1.1 | ✅ 字段名对（**缺初始角色**属需求缺口，非契约错） |
+| `Role` 实体 | id/roleCode/roleName/positionGroupId/isPreset/isBusinessRole/hasTradingOperation/status | ✅ |
+| `AuthorizationView` | id/userId/subAccountId/productId/quotaLimit/effectiveFrom/effectiveTo/status/reviewerId | ✅（请求 `quota`、视图 `quotaLimit` 区分正确） |
+| `UserSubAccountPerm` 实体 | id/userId/subAccountId/permType/grantedBy/reviewerId/effectiveFrom/effectiveTo | ✅（GET 为 **bare 数组**，`:948` 正确处理） |
+| `PositionGroup`/`PositionConflict` | id/groupCode/groupName/frontMidBack/isConflictEnforced/status 等 | ✅ |
+| `PermissionChangeLog` | changeTime/changeTarget/targetId/targetUserId/subAccountId/beforeValue/afterValue/operatorId/reviewerId/rejected/rejectReason/dispatchStatus/changeReason | ✅ 全对 |
+| `UnauthorizedAttempt` | attemptTime/operatorId/attemptType/attemptDesc/targetResource/subAccountId/rejectCode/rejectReason/clientIp | ✅ 全对 |
+| `ConfigItemView` | configKey/configCategory/configValue/valueType/enumScope/isSensitive/sensitiveState/persistScope/dispatchToCtp/effectiveVersion/description | ✅ |
+| `SubAccountView` / `FrontView` | code/name/category/status/initialFund；envType/frontType/…/isEnabled | ✅ |
+| `ItemView`/`SubjectView`/`PeriodView` | 见 §1.2 | ✅（`PeriodView` **实含 `periodValue`**，前端 `:847` 消费正确） |
+| `DispatchView`/`LogView` | paramVersion/dispatchType/…/retryCount/operatorId；changeTime/configKey/…/dispatchResult | ✅ |
+| `ConfigImportHandler.Response.written` | `:1046` `res.written` | ✅ |
+
+> ⚠️ **观察（非缺陷）**：`config.js:27–28` 头注 `PeriodView` 字段列**漏写 `periodValue`**（Handler 与代码均有）。
+
+---
+
+## 6. ★ 跨模块 API 引用对账（双向；含负控自测）
+
+工具：`/root/review-t021/reconcile.mjs`（真实加载 `web/js/core/*` 建 `window.HG` 导出面；
+调用面**先剥字符串/模板/注释**，再抓 `HG.*` 与别名 `ui/F/R`）。
+
+- **导出面（实测）**：`api`{BASE,PAGE_SIZES,DEFAULT_PAGE_SIZE,newIdempotencyKey,get,post,put,del,list,download,request}、
+  `ui`{el,clear,renderLoading,renderEmpty,renderError,banner,statusBadge,tableHTML,toast,confirm,field,setFieldError,blockedHTML,esc}、
+  `format`{decimal,fixed,money,qty,pct,date,dateTime,esc,decSub}、`errmsg`{render,summary,isBlocked,isUnauthenticated,isTransport,CODE_HINT}、
+  `routes`{BASE,PING,AUTH,CONFIG,…}、`session`{ALL,state,onChange,currentId,isAggregate,setCurrent,bootstrap,setSessionSummary,clearSessionSummary,userLabel}、
+  `router`{register,setNotFound,navigate,start,currentPath}、`ws`{connect,throttle,debounce,WS_PATH}。
+- **对账结果**：两文件 **0 条不存在引用**（唯二命中为 `HG.pages` **自初始化**惯用法 `HG.pages = HG.pages || {}`，属**假阳性**，非缺陷）。
+- **负控自测（必须通过）**：向副本注入 7 个已知不存在成员（`HG.session.roleLabel`【即 `T-134` 同型】、`HG.ui.noSuchHelper`、
+  `HG.api.noSuchClient`、`R.NO_SUCH_ROUTE`、`F.noSuchFormat`、`HG.format.noSuchFn`、`R.NO_SUCH_CONFIG_ROUTE`）⇒
+  **7/7 全部报出**（含别名路径双报）⇒ 工具**不空转**。
+- **结论**：与 `T-134`（P0 真实事故）**不同型**，本单**无**「调用了从未导出的模块 API」类缺陷。
+
+---
+
+## 7. 信封 / 数值 / 敏感面（独立实测）
+
+| 检查点 | 结论 | 证据 |
+|--------|------|------|
+| `PageData` 信封真消费 | ✅ | `normalizePage`（auth.js:97–106 / config.js:88–97）读 `items/total/page/size`，兼容 bare 数组 |
+| 排序**显式带方向** | ✅ | 全部 load 构造 `sort: sortField+','+sortDir`（auth.js:241/522/843/993/1047；config.js:491/602/719/836/944） |
+| 错误信封不被吞 | ✅ | 统一经 `blockedHTML`/`renderError`/`errmsg.render`；导出走 `HG.api.download`（JSON 错误当异常抛，api.js:154–168） |
+| 金额/数量字符串化 | ✅ | 授权额度 `F.decimal(r.quotaLimit)`（auth.js:856）、期初资金 `F.money`（config.js:349） |
+| **口令字段遮蔽** | ✅ | 一律 `type="password"`（`au-n-pwd`/`au-pw-*`/`au-otp`），无「显示明文」入口 |
+| **零落盘** | ✅ **独立实测** | `grep localStorage\|sessionStorage\|setItem\|document.cookie\|setCookie\|location.href/search\|URLSearchParams` 命中 **4 处，全部在说明文案**（auth.js:50/185、config.js:49/1096），**无任何实际写入** |
+| 无「保存凭证」入口 | ✅ | 无对应控件（`grep` 实测） |
+| `XSS` 转义 | ✅ | 动态文本一律 `F.esc` 或 `ui.el({text})`；`innerHTML` 仅接 `tableHTML`/`blockedHTML`/`banner(固定串)` |
+
+---
+
+## 8. 自设扫描面（产出方未提及；≥2 项）
+
+**S1 写接口幂等头全覆盖**（产出方未提）：逐点核对 `newIdempotencyKey` 计数 = auth.js **9** / config.js **8**，
+与写调用点数**逐一相等**（POST/PUT 全带 `Idempotency-Key`；GET/`download` 不要求）⇒ ✅ **0 遗漏**。
+
+**S2 方法级绑定 + 未注册端点扫描**（`O-1` 的实质检查，产出方仅声明「遵守 O-1」）：
+逐条比对「前端调用的 (方法,路径)」⊆「`router.register` 集合」⇒ **19/19 一致**；
+且**无**对未注册端点/`NOT_REGISTERED` 的调用（`grep R.dispatch` 仅 `GET`，config.js:890）⇒ ✅。
+
+**S3 排序字段可用性**（产出方未提）：前端可选排序字段（如 `effective_from`、`change_target`、`group_a_id`、`env_type`…）
+均映射**真实列**；`PageQuery.validateField`（`PageQuery.java:145–152`）仅做**标识符安全**校验、**不**做列存在性校验 ⇒
+若某 DAO 未做列白名单，越界字段会落到 SQL 层报错而非 `10001`。**本次可选字段全为合法列 ⇒ 不可经 UI 触发**；
+列为**低观察**（`OBS-??`，见 §10）。
+
+**S4 需求「输入列 vs 实现」穷举**（顺 §2 展开）：`auth.js` 用户列表 `FR-AUTH-5` 实际缺**3** 类筛选（role【已立号】/关键字/子账户）；
+`FR-AUTH-11` 缺**3** 类（from-to【已立号】/变更类型/操作人）⇒ 见 §10 观察（建议并入 `T-135` 或另立）。
+
+---
+
+## 9. 缺陷清单
+
+**0 条**。（本次独立复核**未发现** `T-021` 两文件的代码级缺陷：无错误方法、无错误字段、无未导出 API 引用、
+无错误码吞没、无敏感面泄漏、无缺幂等头。）§2 的 7 项均为**后端承载面**问题（已由 `T-135` 承接），非前端缺陷。
+
+---
+
+## 10. 观察清单（不阻断）
+
+| 编号 | 级别 | 内容 | 证据 |
+|------|------|------|------|
+| OBS-T021-1 | 中 | 「已修缺陷」**不可独立复现**（交付前态为 19/18 行骨架，中间态未入 VCS）⇒ 不宜作为独立验证背书 | §3 |
+| OBS-T021-2 | 中 | `FR-AUTH-16` 跨任务耦合：`auth.js` 展示/依赖 `oneTimePassword`（4 处）⇒ `T-136` 后须回填 | §4 |
+| OBS-T021-3 | 中 | `FR-AUTH-5` 输入列**除 role 外**还缺「关键字」「子账户」筛选（产出方未列） | `AUTH.md:159` vs auth.js:199/205 |
+| OBS-T021-4 | 中 | `FR-AUTH-11` 输入列**除 from/to 外**还缺「变更类型」「操作人」（产出方未列） | `AUTH.md:249` vs auth.js:975 |
+| OBS-T021-5 | 中 | `FR-CONFIG-9` 缺口描述**夸大**：验收1 回环拒绝**已有** `ConfigRoutes`/`ConfigService.requireLoopbackBind` 通用承载；缺专属端点+验收4+界面 | `ConfigService.java:101/382` |
+| OBS-T021-6 | 中 | `FR-CONFIG-7` 停用：`ConfigService.disableSubAccount:443` **已实现未接线**（同族 `T-131`「已实现未接线」） | `grep` 实测 handler 侧空 |
+| OBS-T021-7 | 低 | `FR-CONFIG-3` 待裁定（§2.1）⇒ 若判成立，表述须收窄为「无持久化范围管理端点」 | §2.1 |
+| OBS-T021-8 | 低 | `config.js:27–28` 头注 `PeriodView` 漏写 `periodValue`（Handler/代码均有） | ReportPeriodHandler:115 |
+| OBS-T021-9 | 低 | 派单「T-017 补挂 17 条路径（AUTH 8 / CONFIG 9）」中 **CONFIG 9 与实测不符**：`routes.js` CONFIG **11** 键、`config.js` 用 **11** 路径、`ConfigRoutes` **17** 对 | routes.js:65–77 |
+| OBS-T021-10 | 低 | 排序字段列存在性仅由 DAO 兜底（`PageQuery` 不校验列）⇒ 潜在 SQL 层报错而非 `10001`（本次 UI 不可触发） | `PageQuery.java:145` |
+| OBS-T021-11 | 低 | `FR-AUTH-6` 预置六类角色/系统管理员权限不含交易（验收2）在本文件**无界面强制点**（依赖后端 `defineRole`） | auth.js:499/547–603 |
+| OBS-T021-12 | 信息 | 产出方自述「无头桩 96/0」**未复现**（属其探针）；本席以独立工具替代，见 §6 | §0 表 |
+
+---
+
+## 11. 度量与覆盖核对
+
+| 指标 | 值 |
+|------|-----|
+| 独立实测锚点 | auth.js `cb684e4b2b71668307ad8780f5815339`/1173 · config.js `a5601f2225f79319a3adfd31a1f49d17`/1129 · HEAD `29a9c19`（2026-09-23T13:13:33Z） |
+| FR 覆盖 | `FR-AUTH-1~18`：界面承载 **13** / 部分 **4**（5,9,11,15）/ 不在本文件 **2**（14,17）〔注：15 本文件无、由 §2③ 缺端点〕 |
+| | `FR-CONFIG-1~15`：界面承载 **9** / 部分 **5**（2,3,4,6,7,8）/ 未承载 **1**（9） |
+| 7 项缺口复算 | **成立 6 / 不成立 0 / 待裁定 1** |
+| 缺陷数 | **0**（阻断 0 / 严重 0 / 一般 0 / 低 0） |
+| 观察数 | **12** |
+| 跨模块 API 对账 | 0 条不存在引用；**负控 7/7 报出**（通过） |
+| 契约字段一致性 | 13 组视图/请求类**逐字全对** |
+| 敏感面 / 零落盘 | 实际写入 **0** |
+
+### 结论与条件
+
+**有条件通过**（`T-021` 两文件**自身 0 缺陷**）。条件（非缺陷）：
+
+1. **`FR-AUTH-16` 前端同步**：`T-136` 定「重置口令交付形态」后，`auth.js` 的 `oneTimePasswordCard`/ENABLE
+   结果渲染须同步处置（否则 ENABLE 分支将恒不显示一次性口令）；**该处置须在 `T-136` 落地后另派**。
+2. **7 项后端缺口**由 `T-135` 承接（本单**已独立证实其成立**；其中 ⑤ 描述宜按 §2.2 收窄、⑦ 待裁定）——
+   T-021 界面在这些能力落地后需按需回填（role 筛选 / from-to / 停用按钮 / 组件通信 Tab）。
+
+**不自评 `T-021` 为 `DONE`**；是否转 `DONE` 由编排者与用户裁量。本席**只读**，未改动共享树任何文件。
+
+---
+
+# T-134 独立复核报告（席 te-verify-t134）
+
+- **复核对象**：`T-134`（P0，前端基座：`HG.session.roleLabel` 未定义致整页初始化中断）
+- **被复核交付**：提交 `9d727bf`（chore(checkpoint) T-134 与 T-024）
+- **复核方**：`te-verify-t134`（test-engineer，**独立于产出方 fe-t134**）
+- **复核时间**：2026-09-23T13:13:30Z ~ 2026-09-23T13:21:48Z（UTC）
+- **取证方式**：只读；探针/脚本一律落 `/root/review-t134/`；**未修改共享树下任何文件**
+- **证据层级声明**：以下为 **Node ESM 真实 `import` + 自建最小 DOM 垫片**，**真实进入并驱动 `main()`**；
+  **仍非真实浏览器**（无 jsdom/puppeteer）。已做到「不抛错 + 副作用确被触达」的运行时实证，**不等于浏览器渲染验证**。
+
+---
+
+## 0. 结论
+
+**通过（0 阻断缺陷）**。根因确证、两向执行实证、跨模块对账（含负控）、回归面、门禁复跑 **全部独立复现吻合**；
+仅有 **3 项 T-134 范围外的观察**（不阻断、不属本次改动引入）。
+
+> 本席**不自评** `T-134 = DONE`；是否转 `DONE` 由编排者/用户裁量。
+
+---
+
+## 1. 冻结点核对（独立实测）
+
+- **取样时刻**：2026-09-23T13:13:30Z（工作树对 `web/js/**` 无改动）
+
+| 制品 | 冻结点声称 | 本席独立实测 | 判定 |
+|------|-----------|-------------|------|
+| `web/js/app.js` | `ab7163f7dc845b24922bf0c5bc04c88f` / 155 行 | `ab7163f7dc845b24922bf0c5bc04c88f` / 155 行 | ✅ 吻合 |
+| `web/js/core/session.js` | `25740708d293a5f86057dcb344b7f872` / 112 行 | `25740708d293a5f86057dcb344b7f872` / 112 行 | ✅ 吻合 |
+| HEAD | `29a9c19` | `29a9c19bfa42fd6b1beb4fc046864bd51c11fbcc` | ✅ 吻合 |
+| 修复前 `app.js`（`git show 9d727bf^:web/js/app.js`） | — | `df85ca2295559275f06bcff821550847` / 152 行 | 记 |
+
+**并发现象（与本次复核无关，据实记录）**：`13:21:48Z` 复测时 `git status` 示 `java/src/main/.../PlanService.java`、
+`java/src/test/.../M1EndToEndAcceptanceTest.java` 两文件被改 —— 属 **`T-137`（BUG-003 修复）在途**，**不在 `web/**`**，
+**不影响** 本单两个锚点（复测仍逐字节一致）。**非「我的被审文件被并发改」**。
+
+---
+
+## 2. ★根因确证（(1)，独立复现，不采信自述）
+
+| 断言 | 独立实测证据 |
+|------|-------------|
+| `session.js` **确未**导出 `roleLabel` | `grep -n role web/js/core/session.js` → **NO MATCH**（`session.js` 全篇无 `role` 字样）；导出面实测 = `{ALL,state,onChange,currentId,isAggregate,setCurrent,bootstrap,setSessionSummary,clearSessionSummary,userLabel}`（`session.js:108-111`） |
+| `roleLabel` **从未存在**（非「漏写」） | `git show 59b6f70:web/js/core/session.js \| grep -n role` → **无命中**（**基线首提交即无该键**） |
+| 修复前**确**在 `main()` 同步路径调用它 | 修复前 `app.js:91` = `const r = HG.session.roleLabel();`（在 `refreshUser()` 体内 `:89`，`refreshUser()` 于 `:94` 立即调用，`buildTopbar()` 于 `main()` 内被调用） |
+| `roleLabel` 在**全仓**仅剩注释字样 | `grep -rn roleLabel web/js/` → 仅 `app.js:92` 的**注释**（修复自述） |
+
+**举证**：`main()` 无 `try/catch` 包住 `buildTopbar()`，`main()` 于文件尾顶层调用 ⇒ 抛出的 `TypeError` 变成未处理 rejection。
+
+---
+
+## 3. ★★两向执行实证（(2)，本单核心）
+
+**探针**：`/root/review-t134/driver.mjs` —— 建 `window/document` 最小垫片（含 `.children`/`scrollTo`/`hashchange`/`sessionStorage`/`fetch`），
+`await import(<tree>/web/js/app.js)` **真实触发顶层 `main()`**，随后等待 500ms 收集副作用。
+
+| 观测点 | 修复前（`9d727bf^`） | 修复后（HEAD） |
+|--------|--------------------|----------------|
+| `unhandledRejection` | **`HG.session.roleLabel is not a function`** | **（无）** |
+| `bootstrap()` 触达（fetch `/api/v1/config/sub-account`） | **0** | **1** |
+| `router.start()` 触达（`hashchange` 监听） | **0** | **1** |
+| `renderCurrent()` 触达（`window.scrollTo`） | **0** | **1** |
+| `buildSidebar()` 触达（`hg-sidebar` / `业务主线` 分组） | **false / 0** | **true / 1** |
+| `#hg-app` 子节点数（topbar + layout） | **0**（`buildTopbar()` 在 append 前即抛） | **2** |
+| **rc（未处理 rejection ⇒ 1）** | **rc=1（失败）** | **rc=0（成功）** |
+
+**「跑完了 `main()`」的证明**：修复后 `bootstrap`（`main():137` 的 `await`）**确被触达并 resolve**，其后 `router.start(mainEl)`
+（`main():152`）**确被触达**（`hashchange` 监听注册 + `renderCurrent`→`scrollTo` 双双发生），且 `buildSidebar()`（`main():128`）与
+`buildTopbar()`（`main():126`）的产物均落到 `#hg-app`。**即整条 `main()` 从头跑到底**。
+修复前则在 `main()` 同步段第一步 `buildTopbar()`（`:126`）即中断，**其后的四类副作用 0 触达**——**失败半径与 TASKS 记载一致**。
+
+**探针本身的有效性**：修复前 `import` 仍 `importOk=true`（模块求值成功），失败以 **未处理 rejection** 形态出现
+（非 import 语法错）—— 说明探针**真的进入了 `main()`**，而非停在静态解析。
+
+---
+
+## 4. ★跨模块 API 对账（(3)，全量 + 负控）
+
+**工具**：`/root/review-t134/reconcile.mjs`
+- **导出面**：**真实加载** `web/js/app.js` 得 `window.HG`（自动穿透 `HG.routes = ROUTES` 标识符间接赋值），
+  递归枚举 **167** 条可达叶路径。
+- **调用面**：扫 `web/js/**/*.js`（**24 文件**），**先剥** 行/块注释、单双引号字符串、模板字面量（含 `${}` 内保留代码）。
+- **声明处理**：赋值目标（LHS）不计为消费，并纳入「本仓已声明路径」集合（16 条）。
+
+| 版本 | 扫文件 | 原始 `HG.` 命中（含注释/字符串） | 去噪后不同链 | **未解析（调用−导出）** |
+|------|-------|-------------------------------|-------------|----------------------|
+| 修复前 | 24 | 318 | 66 | **1 条**：`web/js/app.js:91 HG.session.roleLabel` |
+| 修复后 | 24 | 320 | 65 | **∅（0 条）** |
+
+**负控自测（`/root/review-t134/negctl/`，注入 `pages/_negctl.js`）** —— 应恰检出 2、忽略 3：
+
+| 注入形态 | 期望 | 实测 |
+|---------|------|------|
+| 注释内幻影 `HG.phantomInComment.foo` | 不计入 | ✅ 未计入 |
+| 字符串内幻影 `HG.phantomInString.bar` | 不计入 | ✅ 未计入 |
+| 模板**文本**内幻影 `HG.phantomInTemplateText.baz` | 不计入 | ✅ 未计入 |
+| 模板 **`${}` 内真代码** `HG.phantomInTemplateCode.qux` | **计入** | ✅ 检出（`_negctl.js:4`） |
+| 真实幻影调用 `HG.phantomReal.doThing` | **计入** | ✅ 检出（`_negctl.js:5`） |
+
+⇒ **负控通过**：工具**能报错**（非空转），且字符串/注释/模板文本**不误报**。
+
+**工具自纠（据实披露）**：首版未区分「赋值 LHS」，把 `web/js/pages/login.js:69 HG.pages.login = { render };`
+（**写入**）与 `:70` 的**同名读取**误报为未解析（→ 修复前 3 条）。已加「赋值目标不算消费 + 本仓声明路径视为可解析」处置；
+`login.js` 属**独立入口**（`login.html` 加载，非 `app.js` 图内），故其自声明在 `app.js` 图中不可见——**属工具待排除项，非缺陷**。
+
+**检查面覆盖**：本单要求覆盖**全部命名空间**（上轮漏检因只查 `HG.routes.*`）；本工具枚举 `window.HG` **全部**顶层命名空间
+`[api,errmsg,format,pages,router,routes,session,ui,ws]`，逐条解析，**不限于 `routes`**。
+**不适用项（单列）**：`HG.pages.*`（命名空间式挂载，`core/` 无 `pages.js`）、`HG.routes.NOT_REGISTERED`（子命名空间）、
+`window.HG`（`ns.js` 导出键空但承载 `HG` 本体）、**HTML 内引用**（`.js` 扫描不含，另见 §7 S2）。
+
+---
+
+## 5. 修复形态正当性（(4)）
+
+**修复形态 = (B)：改 `app.js` 使 `refreshUser()` 只调 `HG.session.userLabel()`**（提交 diff 见 §6），**未在 `main()` 外套 `try/catch`**。
+
+**实质问题：有无 `FR`/`NFR` 要求顶栏展示「角色标签」？**
+- `grep -rn "顶栏" docs/ARCHITECTURE.md docs/REQUIREMENTS/` → **0 命中**（两文件均无「顶栏」）。
+- `grep -rn roleLabel docs/` → 仅 `TASKS.md`/`BOARD.md` 的**本任务自身**记述，**无任何 FR/NFR 要求**。
+- `role` 语义仅存在于 **AUTH**（角色=权限集合，`REQUIREMENTS/AUTH.md`）与 **SETTLE/AUDIT**（签署角色），
+  **均未要求**在顶栏展示当前用户角色标签；`ARCHITECTURE.md §3.15`（前端结构）亦无此要求。
+- **无数据源**：`session.js` 的 `state.user` 仅 `{userId, username, expireTime}`；认证探针 `GET /config/sub-account` 不含角色；
+  `session.js` 头注明示本层**不依赖** `/auth/user`。
+
+**⇒ 结论**：删去该展示**不构成功能缺失/回归**（无需求依据），属**合规的形态选择**。
+且 `roleLabel` 属「**从未存在且无数据源**」，补一个恒返 `''` 的实现是**绕过症状 + 伪造「已支持角色」假象** ⇒ **(B) 为正解**。
+判据：**根因修复**而非症状掩盖（未加 `try/catch` 掩盖；未新增依赖）。
+
+---
+
+## 6. 回归面（(5)）
+
+- **改动面**：`git show --numstat 9d727bf -- web/js/app.js` ⇒ **`6 3`**（+6/−3），**单一 hunk**，**仅 `refreshUser()` 体**（新增 4 行注释 + 1 行实现替换 3 行旧实现）。
+- **`session.js` 零改动**：`git show --stat 9d727bf -- web/js/core/session.js` **空**；
+  与父提交**逐字节比**：`git show 9d727bf^:web/js/core/session.js \| md5sum` = `git show HEAD:...` = `25740708…` ⇒ ✅ 零改动。
+- **历史溯源**：`git log -- web/js/app.js` ⇒ 仅 `9d727bf`（本次）与基线 `59b6f70`；`session.js` ⇒ `161e3d3`(T-017) 与基线。与「存量缺陷、非 T-017 引入」自洽。
+- **无其它行为变化**：diff 未触及 `main()` / `buildSidebar()` / `router.start` / `doLogout`。
+- **门禁复跑（独立）**：
+  - `bash tools/arch-check/check_frontend.sh` ⇒ **E6 rc=0**
+  - `bash tools/arch-check/arch-check.sh` ⇒ **聚合 rc=0（通过 7 / 命中 0 / 前置错 0；E1–E7 全 0）**
+  - `node --check` 全 `web/js/**` ⇒ **失败 0**
+
+---
+
+## 7. 自设扫描面（(6)，产出方「已披露」≠ 已排查）
+
+- **S1（独立入口）**：`web/login.html` 是**另一入口**（不加载 `app.js`）。复刻其 import 顺序后驱动 `HG.pages.login.render()`：
+  探针 `/root/review-t134/login-driver.mjs` ⇒ **`renderOk=true`、form 子节点=1、无异常**。**登录页未受本缺陷波及**。
+- **S2（HTML 侧引用）**：对账工具只扫 `.js`；补扫 `web/*.html` 的 `HG.` 引用 ⇒ 仅 `login.html:24 window.HG.pages.login.render(...)`，
+  该路径由 `login.js:69` 声明 ⇒ **可解析，无幻影**。
+- **S3（模块顶层加载耦合，新发现·见观察 O-1）**：多个页面模块在**模块求值期**即调用 `HG.router.register` / `HG.pages.stub.renderStub` /
+  `HG.ui` / `HG.format`，却**只 import `../core/ns.js`**（详见 O-1）。
+- **S4（负向核查）**：`web/js/core/*_stub*.js` **不存在**（`core/` 实为 `api,errmsg,format,ns,router,routes,session,ui,ws`）；
+  `pages/_stub.js` 是**功能实现**（`renderStub` 真渲染，非空壳）⇒ 该提示前提**不成立**，**无此类运行期异常**。
+
+---
+
+## 8. 缺陷清单
+
+**无**（0 阻断 / 0 严重 / 0 一般 / 0 低）。未发现由 `9d727bf` 引入或未修复的缺陷。
+
+---
+
+## 9. 观察清单（均**不阻断**，且**不属本次改动引入**）
+
+**O-1（低·加载耦合，非本次引入）** —— **7 个页面模块在模块求值期依赖未 import 的 `HG.router` 等**
+- **文件**：`web/js/pages/{acct,audit,fund,risk,settle,plan,trade}.js`（各**仅** `import '../core/ns.js'`）
+- **证据（`/root/review-t134/standalone-page.mjs`，单独 import 该页面）**：
+  7 个文件**全数**抛 `Cannot read properties of undefined (reading 'register')`（`HG.router` 未定义即调 `HG.router.register(...)`）。
+  同类还有 `HG.pages.stub.renderStub`（`acct/audit/fund/risk/settle`）、`HG.ui` / `HG.format`（`plan/trade` 等）。
+- **为何当前**不**崩溃**：`app.js` **先** import 全部 `core/*`（`:8-16`）与 `pages/_stub.js`（`:19`），**后** import 各页面（`:20+`）；
+  ESM 深度优先、按序求值 ⇒ 页面求值时 `HG.router`/`HG.ui`/`HG.pages.stub` 已就位。**实测修复后 `main()` rc=0 佐证**。
+- **定性**：**同一类**「假设他人副作用已执行」的脆弱点（与 T-134 同类但**不同触发路径**）；**当前入口不触发**，
+  故 **不作缺陷**。**归属建议**：如须加固，宜**另立任务**为各页面补显式 import（**不在 T-134 写域内**——T-134 不得改 `pages/**`）。
+
+**O-2（低·文档漂移，非本次引入）** —— `ARCHITECTURE.md §3.15` 前端结构清单列 `js/core/{api,router,session,ui,format,errmsg}.js`，
+漏列 `ns.js`/`routes.js`/`ws.js`（实存 9 个）。属既有文档漂移，**与 T-134 无关**，仅记录。
+
+**O-3（口径·证据层级）** —— 本单全部运行时证据为 **Node ESM + DOM 垫片**（**非真实浏览器**）。
+建议 TASKS 的「待独立复核」建议①（真实浏览器加载 `index.html` 断言侧栏渲染 + 无 console 错误）**仍留有残余**；
+本席已把「`main()` 全链路可达不抛 + 侧栏/bootstrap/router 真触达」做实，**但未做浏览器渲染验证**。
+
+---
+
+## 10. 证据分栏：独立实测 vs 产出方自述
+
+| 事项 | **独立实测（本席）** | **产出方自述（fe-t134）** | 判定 |
+|------|---------------------|--------------------------|------|
+| 两文件锚 | `ab7163f7…`/155、`25740708…`/112（13:13:30Z） | 同 | ✅ 吻合 |
+| 修复前 rc | **rc=1**（`TypeError: HG.session.roleLabel is not a function`；bootstrap/router/sidebar/topbar 全 0） | rc=1（同链路） | ✅ 吻合 |
+| 修复后 rc | **rc=0**（bootstrap 1 / router.start 1 / scrollTo 1 / sidebar 1 / app 子节点 2） | rc=0（全触达） | ✅ 吻合 |
+| 对账 | 修复前 **1**（`HG.session.roleLabel`）/ 修复后 **∅**；负控通过 | ∅（两法互证+负控；修复前恰 1 条） | ✅ 吻合 |
+| `session.js` 零改动 | 与父提交**逐字节**同（`25740708…`） | 零改动 | ✅ 吻合 |
+| 门禁 | E6 rc=0、聚合 7/7 rc=0、`node --check` 0 失败 | 同 | ✅ 吻合 |
+
+> 说明：上表「吻合」是**本席独立复现后**的对照，**非**采信自述。
+
+---
+
+## 11. 结论与建议
+
+- **T-134 修复**：**独立复核 = 通过（0 阻断缺陷）**。根因修复正确（形态 B）、无功能回归（无 FR/NFR 要求角色标签）、无副作用、门禁全绿。
+- **建议**：**满足转 `DONE` 的实质条件**（最终由编排者/用户裁量）。
+- **残余**：O-1（页面加载耦合，宜另立任务）、O-2（文档漂移）、O-3（**非真实浏览器**——浏览器级验证仍为空白）。
+- **产出物**：本报告 `/root/te-verify-t134-chapter.md`；探针与工具 `/root/review-t134/{driver,reconcile,negctl,login-driver,toplevel,standalone-page}.mjs` + `{prefix,postfix,negctl}` 隔离树。**未改共享树任何文件**。
