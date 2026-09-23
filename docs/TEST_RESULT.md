@@ -5773,3 +5773,207 @@ PASS 导入错误逐行清单：含「第 5 行…」（逐行定位）
 - 落笔**前**（提交态冻结）：`docs/TEST_RESULT.md` = `6988ede839c95a13916793350296b28a` / **5578 行**。
 - 落笔**后**：`head -5578 docs/TEST_RESULT.md | md5sum` = `6988ede839c95a13916793350296b28a`（**与落笔前整档逐字节相同**）⇒ **本章为纯追加**、未触碰既有内容。
 - 共享源树 `web/**`/`java/**` 本章落笔期间**未改**（`product.js` 仍 `b8e66b70…`、`web` 树仍 `f827e00e…`/27）。
+
+---
+
+# `T-023` 交付报告 —— M1 单测与集成测试（JUnit 5）〔交付实例 `be-t023`，2026-09-23〕
+
+> **本章由编排者落笔**（内容为交付方 `be-t023` 回传的正文，**未改写其结论**；仅将首行改为本章标题并删去交付附言）。
+> 交付实例**未改 `docs/**`**；原始证据日志 `/root/t023-*.log`、`/root/t023-coverage-summary.txt`。
+
+---
+
+## 0. 结论速览
+
+| 项 | 结论 |
+|----|------|
+| 验收 1（覆盖率 ≥ 80%） | ✅ **达标**：五模块**行覆盖率**均 ≥ 80%（配置 91.6% / 产品 89.9% / 权限 87.9% / 计划 83.1% / 现货 82.0%） |
+| 验收 2（`-Punit` + 集成测试） | ✅ **字面满足**（补 `unit` profile）；集成测试以**等价执行**跑通「建表→读写→查询」；**⚠️ 未验 DM8 实机** |
+| 验收 3（约束三类 + 敞口三分量） | ✅ **全部通过**（详见 §3） |
+| 全量用例 | **504 / 0 / 0 / 0**（62 类；surefire 名单为准） |
+| 反退化 | ✅ 2 个自设变异均**杀红**，复位逐字节一致 |
+| 构建 | `mvn -B -o -Punit clean test` **BUILD SUCCESS**；`mvn verify` 前置 arch-check 聚合 **rc 0** |
+
+---
+
+## 1. 改动清单（仅列本实例所改）
+
+| 文件 | md5 | 类型 | 摘要 |
+|------|-----|------|------|
+| `java/pom.xml` | `c5b52006ca5ec6807ae20a94a57cd2d8` | 改 | **仅新增两个 profile**：`unit`（空语义=默认档，字面满足验收 2）与 `coverage`（jacoco 0.8.12 + surefire `argLine` 追加 `${argLine}`）。**未动依赖/插件、未动主源** |
+| `java/src/test/java/com/hedgeguard/dao/testsupport/InMemoryDmEngine.java` | `02f6964a960af635e561a6e94bdb75fa` | 新 | 按 SQL 语义求值的**内存假 JDBC 引擎**（\~1268 行）：建表（列/NOT NULL/IDENTITY/DEFAULT/主键/唯一/外键/CHECK）、INSERT/UPDATE/DELETE、SELECT（WHERE/IN/ORDER BY/LIMIT-OFFSET/COUNT 包裹） |
+| `java/src/test/java/com/hedgeguard/dao/M1Dm8EquivalentIntegrationTest.java` | `057928803550032c1aa94fb728f04523` | 新 | **集成测试（等价执行）**（380 行、10 例）：建表→读写→查询 + 约束三类 + 敞口三分量 DB 级往返 |
+| `java/src/test/java/com/hedgeguard/service/ConfigServiceAdminTest.java` | `778e0c7bb748e2b10918ae662c659566` | 新 | **CONFIG 管理面覆盖补齐**（762 行、10 例）：字典/会计科目/报告周期/CTP 前置/参数下发/导入导出 |
+
+> **落点说明**：前两个文件置于 `**/dao/**` 下，因 E5 判据「Java 的 SQL 只允许出现在 `dao` 层」
+> 对全仓（含 `src/test`）生效——与既有 `M1DaoMappingAndWriteTest`（`dao/impl`）同惯例。
+> 初稿曾落 `com.hedgeguard.integration` / `com.hedgeguard.testsupport`，被 E5 判红 6 处后改置。
+>
+> **未改主源（`java/src/main/**`）零改动**；`docs/**` 零改动。
+> `git status` 另示 `docs/TEST_PLAN/{INDEX,PRODUCT,RISK,SPOT}.md` 为 modified —— **非本实例改动**（他人并发写入，本实例全程未触 docs）。
+
+---
+
+## 2. 逐条验收自证
+
+### 验收 1：覆盖率 ≥ 80%
+
+**手段**：新增 `coverage` profile 接 jacoco。命令与输出：
+
+```
+$ cd java && TMPDIR=/root mvn -B -o -Pcoverage test
+[INFO] Tests run: 504, Failures: 0, Errors: 0, Skipped: 0
+[INFO] --- jacoco:0.8.12:report (jacoco-report) @ hg-biz ---
+[INFO] BUILD SUCCESS
+```
+
+> jacoco 插件 0.8.12 系**在线下载一次**入本地仓（`mvn -o` 之前先 `dependency:get`），此后离线可复现。
+> 报告落 `java/target/site/jacoco/index.html` 与 `jacoco.xml`。
+> **坑**：默认 surefire 的 `argLine` 写死 `-Dfile.encoding=UTF-8`，会覆盖 jacoco 注入的 `${argLine}`
+> ⇒ 首跑报「missing execution data file」；已在 `coverage` profile 内把 argLine 改为默认值 + `${argLine}` 修正。
+
+**五模块（TASKS T-023 验收 1 点名）逐模块行覆盖率**：
+
+| 模块 | 主服务类 | 行覆盖率 LINE | 指令 INSTR | 分支 BRANCH | 判定 |
+|------|---------|--------------|-----------|------------|------|
+| 配置 | `ConfigService` | **91.6%** | 90.8% | 68.7% | ✅ |
+| 产品 | `VarietyService` | **89.9%** | 87.8% | 76.2% | ✅ |
+| 权限 | `AuthService` | **87.9%** | 86.3% | 67.6% | ✅ |
+| 计划 | `PlanService` | **83.1%** | 81.9% | 61.6% | ✅ |
+| 现货 | `SpotService` | **82.0%** | 79.8% | 65.1% | ✅ |
+
+**NFR-TEST-1 核心模块（方案计算 / 额度校验 / 会计生成）行覆盖率**：
+
+| 核心模块 | 承载类 | 行覆盖率 | 判定 |
+|---------|--------|---------|------|
+| 方案计算（套保比率三档） | `PlanService` | 83.1% | ✅ |
+| 额度校验（额度/红线） | `VarietyService`（+ `PlanService` 红线段、`SubAccountVisibility` 100%） | 89.9% | ✅ |
+| 会计生成（凭证/文档） | **M1 未交付该模块** | **无法度量** | 不适用（M1 不在范围） |
+
+**未达 80% 的模块（如实列出并说明）**——以下均**非** T-023 点名的「核心逻辑」层，且不属 NFR-TEST-1 三类核心模块：
+
+| 包 | 行覆盖率 | 说明 |
+|----|---------|------|
+| `com.hedgeguard.dao.impl` | 41.2% | 主要未覆盖在**各表 DAO 的 `updateById`/专用查询**等分支；本轮以**真实 DAO 的 insert/findById/findPage/findByCode** 端到端覆盖了主通路（见验收 2），未覆盖分支多为未接线/未使用的写入方法 |
+| `com.hedgeguard.web.handler.{spot,auth,config,product,plan}` | 20.2% / 37.1% / 21.5% / 32.0% / 65.1% | **HTTP Handler 适配层**（薄封装）；其业务逻辑在 service 层已被覆盖，Handler 的 happy-path 由路由/分发用例与集成测试覆盖，细分支未逐一覆盖 |
+| `com.hedgeguard.web` | 76.8% | 分发器/过滤器；接近阈值 |
+
+**项目整体**（供参考，非本验收判据）：LINE 66.9%、INSTR 66.8%、BRANCH 59.7%、METHOD 70.0%、CLASS 78.3%。
+（整体 < 80% 系 Handler 适配层与部分 DAO 写入分支未覆盖所致；**核心模块**口径已达标。）
+
+### 验收 2：`mvn test -Punit` + 集成测试
+
+**(b1) `-Punit` 字面满足**（已补 profile，未改判据）：
+
+```
+$ cd java && TMPDIR=/root mvn -B -o -Punit test          # 结果：Tests run: 504, 0/0/0；BUILD SUCCESS
+$ cd java && mvn -B -Punit help:active-profiles          # （在线一次，helper 插件离线缺）
+The following profiles are active:
+ - unit (source: com.hedgeguard:hg-biz:1.0.0-SNAPSHOT)
+```
+
+`unit` profile 语义 = **不启用 `dm` 的默认档**（不引 DM 驱动、不建真实连接，全部走假 DAO / 假 JDBC）。
+本 profile **不增删依赖与插件** ⇒ `mvn test -Punit` 与 `mvn test` 等价。**未改判据**。
+
+**(b2) 集成测试「建表→读写→查询」——等价执行**（⚠️ **未验 DM8 实机**）：
+
+DM8 环境**不可达**（全盘 `DmJdbcDriver*.jar` 0 命中、`java/lib` 不存在、5236 无监听、无 `dmserver`）。
+依编排者裁定 (a)，以**按 SQL 语义求值的内存假 JDBC 引擎**真跑：
+
+| 阶段 | 做法（真执行，非仅断言 SQL 字符串） | 证据用例 |
+|------|-----------------------------------|---------|
+| **建表** | 把 4 个 M1 脚本（`m1_config_auth`/`m1_product`/`m1_spot`/`m1_plan`）的 `CREATE TABLE` 逐条经 `Statement.execute` 喂给引擎 ⇒ **登记 46 张表**，并按 DDL 语义登记 NOT NULL/主键/唯一/外键/CHECK | `M1Dm8EquivalentIntegrationTest.ddlScriptsCreateSchema`（断言 `tableCount()==46`、`uk_product_code`、`fk_exposure_sub→t_sub_account` 等） |
+| **读写** | 由**真实 `DmProductDao`** 生成 INSERT/SELECT/UPDATE，经引擎按语义求值：主键回填 `id=1`、`findById`/`findByCode` 读回、`updated_time` 空值语义、乐观锁 `row_version` 推进 | `insertAndReadBackThroughRealDao`、`optimisticLockUpdateAdvancesVersion` |
+| **查询** | `findPage` 的 `SELECT COUNT(*) AS cnt FROM (…) hg_cnt` 包裹 + `ORDER BY … LIMIT ? OFFSET ?` 经引擎求值：`total=3`、第一页 3 行、第二页 0 行、`id` 升序首行 `A1` | `pagedQueryReturnRowsAndCount` |
+
+引擎自披露：可求值 CHECK **110** 条、登记但未求值的复杂 CHECK **54** 条（`engineDisclosesUncheckedChecks`，控制台 `[T-023] 内存引擎 CHECK：可求值=110，登记未求值=54`）。
+**明确不覆盖**（诚实披露）：条件唯一索引 `WHERE` 谓词、子查询/JOIN/聚合、多列外键、事务回滚还原 —— 均在引擎类 javadoc 与本表披露。
+
+> **口径声明**：以上是**等价执行**，**不构成 DM8 实机验证**。「DM8 实机建表→读写→查询」仍待部署方在可达实例复跑，
+> 由 `T-024`（端到端验收）承接。**不得**将本档写成 DM8 验证。
+
+### 验收 3：约束类三类 + 敞口三分量
+
+**约束类**（判据口径见 `TEST_PLAN/INDEX.md` §35：唯一约束→重复插入；非空→空值；外键→孤儿数据）。**全部通过**：
+
+| 类 | 用例 | 断言（含结果） |
+|----|------|--------------|
+| **重复插入** | `M1Dm8EquivalentIntegrationTest.duplicateInsertOnUniqueColumnIsRejected` | DB 级：同 `product_code` 二次插入 → `IllegalStateException` 含「违反唯一约束 … uk_product_code」；引擎行数仍 1；`rejectedByUnique()==1` |
+| 重复插入（服务级补充） | `ConfigServiceTest.missingItemAndDuplicateKey`(→10010)、`ConfigServiceTest.createSubAccountForcesEnabledAndLogs`(重复编码→10010)、`VarietyServiceTest`「新增品种：编码重复 10010」、`SpotServiceTest`「同子账户同品种同类型同日重复录入拒绝」、`AuthSeedDataTest`「三段 INSERT 均以 NOT EXISTS 去重」 | 均绿 |
+| **空值** | `M1Dm8EquivalentIntegrationTest.nullOnNotNullColumnIsRejected` | DB 级：`t_product.product_code`（NOT NULL）写 null → `IllegalStateException` 含「NOT NULL … product_code」；落库 0；`rejectedByNotNull()==1` |
+| 空值（服务级补充） | `ConfigServiceTest.disableRequiresReasonAndExistingAccount`（原因空白→10001）、`VarietyServiceTest`「期权三要素必填」 | 均绿 |
+| **孤儿数据** | `M1Dm8EquivalentIntegrationTest.orphanForeignKeyIsRejected` | DB 级：`t_sub_product_whitelist.sub_account_id=9999` 在 `t_sub_account` 无父行 → `IllegalStateException` 含「外键 … t_sub_account」；落库 0；`rejectedByForeignKey()==1`；**反向对照**：补 id=9999 父行后同写入成功（证拒绝确由「孤儿」引起） |
+| 孤儿/引用完整性（服务级补充） | `SpotServiceTest.voidReferenceCheck`（被敞口明细引用→10011）、`SpotT109FixTest` FR-SPOT-16（被生效计划引用→拒因列「计划」） | 均绿 |
+| 取值域（CHECK 边界，附加） | `M1Dm8EquivalentIntegrationTest.checkConstraintRejectsOutOfRangeValue` | `t_product.category='OTHER'` → `IllegalStateException` 含「CHECK … ck_product_category」 |
+
+**敞口三分量**用例（`TC-SPOT-14` / `TC-BOUND-9`）**全部通过**：
+
+| 用例 | 断言 |
+|------|------|
+| `SpotServiceTest.exposureRejectsComponentMismatch`（:284） | 写入侧：Σ分量 ≠ 合计 → **拒绝写入**且不落库 |
+| `SpotServiceTest.exposureDetailsMustSumToComponents`（:329） | 明细之和须等于分量列（否则拒写）；一致时连明细一并落库 |
+| `SpotServiceTest.exposureUnmappedSentinel`（:296） | 未映射哨兵值（0）与标记双向联动（DC-041） |
+| `SpotServiceTest.exposureValuationLabelsNonCurrentPrice`（:358） | 估值沿用非当日价须标注 `price_as_of` + 非当日价标记 |
+| `SpotServiceTest.spotCategoryDualState`（:373） | 品类双态（CH-008）：未映射按真实品类各占一行、已映射归一行 |
+| `SpotServiceTest.displayRecalcNeverWritesBack`（:424） | 展示侧重算：不一致 → 留痕 `COMPONENT_RECALC` 且 `writtenBack=false` |
+| **`M1Dm8EquivalentIntegrationTest.exposureThreeComponentsRoundTrip`（新）** | **DB 级往返**：真实 `DmExposureDao` 写入 `contract_unexecuted_qty=40 / inventory_qty=10 / production_plan_qty=10` 后 `findById` 读回，**Σ分量 = 合计（60）** |
+
+---
+
+## 3. 现值数字与锚点
+
+**测试总数**（surefire 名单为准，非 `grep -c @Test`）：
+
+```
+父 POM 全量：Tests run: 504, Failures: 0, Errors: 0, Skipped: 0        （62 个 *Test 类）
+基线（T-023 开工时）           ：484 / 0 / 0 / 0
+本实例新增                     ：+20（集成测试 10 + CONFIG 管理面 10）
+```
+
+**`java/src` 锚点**（`find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum`）：
+
+```
+基线（T-023 开工时）： 8bf0e1d6c2e83a52e62d511616324c4b  / 335 文件
+交付后（本次）      ： c5817cb53f61b169ad7b6cdca335a817  / 338 文件   （+3 文件 = 引擎 + 2 测试；前缀一致）
+```
+
+> 说明：锚点**不含** `java/pom.xml`（本锚点为 `java/src` 级）。若需仓库级锚点请另行定义口径。
+
+**构建门禁**：`mvn -B -o -Punit clean test` → BUILD SUCCESS；聚合 `tools/arch-check/arch-check.sh` **rc 0**（E1–E7 全 0、E5 退 0；新增文件不再触发 E5——见 §1 落点说明）。
+
+---
+
+## 4. 反退化（自设变异，均复位逐字节一致）
+
+| # | 变异（探针，**非交付改动**） | 期望 | 实测 | 复位校验 |
+|---|---------------------------|------|------|---------|
+| A | `InMemoryDmEngine.validate()` 关闭**外键强制**（`if (value == null)` → `if (value == null \|\| true)`） | `orphanForeignKeyIsRejected` 变红 | ✅ 红：`Expected java.lang.IllegalStateException to be thrown, but nothing was thrown`（`t023-mutA.log`） | `md5 = 02f6964a960af635e561a6e94bdb75fa`，`diff` 逐字节一致，无 `MUTATION-A` 残留 |
+| B | `ConfigService.saveReportPeriod()` 关闭**合规必需报告门禁**（`if ("Y".equals… && !"Y".equals…)` → `if (false && …)`） | `ConfigServiceAdminTest.reportPeriodLifecycle` 变红 | ✅ 红：`Expected com.hedgeguard.web.BizException to be thrown, but nothing was thrown`（`:179`，`t023-mutB.log`） | `md5 = 6f656de0dde946bb52576a7d2aae9d48`，`diff` 逐字节一致，无 `MUTATION-B` 残留 |
+
+> **变异 B 触及 `java/src/main`**：系**临时探针**（`.orig` 备份 → 单次运行 → 逐字节复位 → md5 校验），
+> **未留下任何主源改动**（`ConfigService.java` 现行 md5 = `6f656de0dde946bb52576a7d2aae9d48` = 变异前值）。
+> 之所以作此探针：仅**测试侧**变异只能证明「用例对自身桩在承重」，**证明「用例对生产规则承重」只能对被测生产行为注入故障**——
+> 此为仓库既有既定手法（备份 + 复位 + md5 校验）。若编排者认此越界，可仅采信变异 A（纯测试域）。
+
+---
+
+## 5. 未决 / 建议（「还差什么才算 T-023 真正完成」）
+
+**✅ 已可判定达标**：验收 1（五模块行覆盖率均 ≥80%）、验收 2 的 `-Punit` 字面档、验收 3（约束三类 + 敞口三分量）。
+
+**❓ 未决 / 待承接（诚实清单）**：
+
+1. **DM8 实机未验**（最大缺口）：本轮「建表→读写→查询」仅**等价执行**。真正闭环须在**可达 DM8 实例**上复跑 4 个 DDL 脚本 + 真实 DAO 读写查询；建议 `T-024` 承接，并保留本报告 §2 的等价证据作对照。
+2. **ACCT 核心模块无覆盖率**：NFR-TEST-1 点名的「会计生成」在 M1 未交付 ⇒ 该类覆盖**无法度量**；待 ACCT 模块交付后单独立项。
+3. **`java/lib/DmJdbcDriver18.jar` 缺失**：`dm` profile 的 `systemPath` 指向不存在的文件 ⇒ `mvn -Pdm …` 不可用（非本任务范围，属部署前置 R-5）。
+4. **DAO 写面分支覆盖偏低**（`dao.impl` 41.2%）：多为未接线/未使用的 `updateById`/专用查询分支；如需提升需针对各表 DAO 补写用例（建议随各表任务增量补，不必在 T-023 一次性拉满）。
+5. **Handler 适配层覆盖偏低**（`web.handler.*` 20%–65%）：属薄适配层，业务逻辑已在 service 覆盖；若门禁要求全包 ≥80%，需单列任务。
+
+**📌 交付物完整性**：本轮 `java/src/test` 新增 3 文件、`java/pom.xml` 新增 2 profile；`java/src/main` 与 `docs/**` 零改动。
+
+**复现命令**（全部离线可复现，除首次 jacoco / help 插件下载）：
+```
+cd java
+TMPDIR=/root mvn -B -o -Punit clean test          # 504/0/0/0
+TMPDIR=/root mvn -B -o -Pcoverage test            # 生成 target/site/jacoco（覆盖率）
+```
