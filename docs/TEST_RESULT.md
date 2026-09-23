@@ -11031,3 +11031,199 @@ grep -rn "loud" docs/ java/ 2>/dev/null | grep "子查询" | grep -vE "TEST_RESU
 - 本报告为 `docs/TEST_RESULT.md` **新节、纯追加**：追加前 **10953 行 / `head -10953 | md5sum` = `c1e0e48a6cc638d7431f0fcf5ec4722b`**；**追加后 `head -10953 | md5sum` 实测 = `c1e0e48a6cc638d7431f0fcf5ec4722b`**（一致 ⇒ 原档逐字节未变）。
 - **未** `commit`/`amend`/`reset`/`push`；未改任何 `java/src/**`、`web/**`、`docs/TEST_PLAN/**`。
 - 共享树除本证据节外 **`git status --porcelain` 仅 `docs/TEST_RESULT.md` 一项**（本报告落笔本身；代码零改动）。
+
+---
+
+# `T-158` 退回补正报告 —— `TE-TXT-001` 订正 + 穷举面**放宽**重扫（席 `te-txt-b`；2026-09-24；纯追加）
+
+> **承接**：`df1b0f0` 合单（`T-158`+`T-160`+`T-162`）之独立复核（席 `te-verify-txt`）= **有条件通过 / 0 阻断 / 1 缺陷（低 `TE-TXT-001`）/ 3 观察**。复核认定 **`T-160`/`T-162` 假设全部成立（B/C/D/E/F/G，0 缺陷）⇒ 不动、不返工**；本单**只补 `T-158`**。
+> **写域**：`java/src/test/**`（1 文件 1 字面量）+ `docs/TEST_RESULT.md`（纯追加）。**未改** `java/src/main/**`、`web/**`、`ApiRoutes` 声明面，**未**削弱/删改任何断言。`mvn` 全程串行（当前唯一构建者）、`TMPDIR=/root`、**未**用 `/tmp`、未在 `/tmp` 建副本。
+> **冻结基线（开工）**：`HEAD=027ea23`；`java/src` 树锚 `6693e9f5b954837e179f72caf907cf84` / **359** 文件。
+> **交付（实测）**：`java/src` 树锚 **`30657c94c54ea488dcbd70700c4d78b5` / 359**（仅 1 文件内容变更、**文件数不变**）。复核席证据节已由编排者先行提交（复核期间 `HEAD` 由 `027ea23`→`8571f6f`→`e54847f`，均为 `docs/**`，`java/src` 不动）。
+
+## 一、`TE-TXT-001` 订正（以**实测**为准，非抄 `:50`）
+
+**缺陷**：`java/src/test/java/com/hedgeguard/web/handler/ModuleRoutesConsistencyTest.java:40` 类 javadoc `<li>覆盖下限</li>` 写 `… + SPOT 10 + PLAN 4`；同文件 `:50` 字段 javadoc 写 `… + SPOT 10 + PLAN 5`。二者同指 `REGISTERED` 常量、无时序语义 ⇒ **`:40` 陈旧**（`NFR-MAINT-1`）。
+
+**实测基准（独立测量）**：
+```
+grep -c 'new String\[\]'  <file>                         # = 27（REGISTERED 条目总数）
+grep -oP 'ApiRoutes\.full\("/[^"]*' <file>               # 52–78 行：auth2/config4/product6/spot10/plan5
+                                                          # （116/119 行另有 2 次，在断言内，须剔除）
+grep -noP 'PLAN \d+' <file>                              # 改前：40:PLAN 4 / 50:PLAN 5
+```
+⇒ `REGISTERED` **27 条**、其中 **PLAN = 5**（`:74–78`），故 `:40` 的 `4` 为陈旧值。**运行期佐证**：`registeredPathsAreContractual` 断言 `REGISTERED` 逐条被真实注册，交付态全量 **650 绿**即证该 27 条（含 5 条 PLAN）确实注册（`FullWebAssembly.ROUTE_COUNT=81` 亦含之）。
+
+**处置**：`:40` `PLAN 4` → **`PLAN 5`**（仅注释字面量；断言/结构零改动）。
+- 交付文件 md5 **`af299e844ad6593957c5fdc24d44a44e`** / **175** 行；`git diff --numstat` = **`1 1`**。
+
+## 二、门禁（交付态，独立实测）
+
+| 项 | 命令 | 实测 |
+|----|------|------|
+| 单测 | `cd java && TMPDIR=/root mvn -B -o -Punit clean test` | **Tests run: 650, Failures: 0, Errors: 0, Skipped: 0** + **BUILD SUCCESS**（开工基线同为 650；本单仅改注释，用例数不变） |
+| `@Test` 口径 | `grep -rn --include=*.java -E '^\s*@Test' java/src/test \| wc -l` | **650** == surefire **650**（`TEST-*.xml` 汇总 79 文件）== 全出现次数；`@ParameterizedTest/@RepeatedTest` = **0**（**非** `grep -c @Test` 单口径） |
+| 架构判据 | `cd java && mvn -B -o -validate` | **rc 0**；`E1`–`E7` 逐项退出码 **0**；末行 `arch-check 通过：七个判据脚本全部通过（退出码 0）` |
+
+## 三、穷举面**放宽**重扫（退回的真正原因）
+
+**上一轮漏因（自省）**：`T-158` 模式 ② 只锚「路由/计数词 + 字面量 `45/47/81/82/83`」，**未含「模块名 + 数字」形态** ⇒ `PLAN 4` 整类漏检（且漏点正在同文件内）。故本轮**放宽**：
+
+**本轮实际模式与范围**（`java/**` 全域，含 `src/main` 供判定；**改动**仅 `src/test`）：
+```bash
+# ① 「11 键模块名 + 数字」
+grep -rnP --include='*.java' '\b(AUTH|CONFIG|PRODUCT|SPOT|PLAN|TRADE|SETTLE|RISK|ACCT|FUND|AUDIT)[ ]?\d+' java/src
+# ② 计数词
+grep -rnP --include='*.java' '\d+\s*(对|路径|条|个 ?\(?方法)|路由数|业务路由|routeCount|判据数|用例数|测试数|表数|列数|\bE[1-7]\b' java/src
+# ③ 五模块 breakdown（本轮新增一致性判据之载体，见 §四）
+grep -rnP --include='*.java' 'AUTH[ ]?\d+.*CONFIG[ ]?\d+.*PRODUCT[ ]?\d+.*SPOT[ ]?\d+.*PLAN[ ]?\d+' java/src
+```
+
+**穷举表（逐处判定）**：
+
+| # | 落点 | 原文（摘要） | 判定 | 依据 |
+|---|------|-------------|------|------|
+| 1 | `.../web/handler/ModuleRoutesConsistencyTest.java:40` | `… + PRODUCT 6 + SPOT 10 + **PLAN 4**` | **陈旧 ⇒ 已改** `PLAN 5` | 实测 `REGISTERED`=27、PLAN=5（`:74–78`）；`:50` 亦 5 |
+| 2 | 同上 `:50` | `… + SPOT 10 + **PLAN 5**（含 `FR-PLAN-4` 的 `GET /plan`）` | **正确** | 同上 |
+| 3 | `.../web/BootstrapAssemblyTest.java:119` | `5 个注册器…83 条路由` | **正确** | 5 模块注册器；`83` |
+| 4 | 同上 `:134` | `81 条业务路由（含 T-109 19 + T-010 AUTH 15…）` | **正确** | 业务 = 81 |
+| 5 | 同上 `:137` | `断言值由 67 订正为 82` | **正确**（历史动作记录） | `T-010` 期值 |
+| 6 | 同上 `:139` | `计数明细（业务）= AUTH17/CONFIG17/PRODUCT13/SPOT15/PLAN18` | **不可判定 / 时序快照**（`T-010` 块内；现行 CONFIG18 见 `:146`） | 见 §四(b) 定性；**不改**（披露） |
+| 7 | 同上 `:143` | `CONFIG 由 17 对增为 18 对（+1）` | **正确**（历史动作记录） | `T-135` 订正 |
+| 8 | 同上 `:146` | `81（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18）+ ping 2` | **正确** | 和 = 81 |
+| 9 | `.../web/FakeJdbcDriver.java:23` | `业务路由数 = 81（+ ping 2 = 83）` | **正确**（上一轮已订正） | `FullWebAssembly:51`=81 |
+| 10 | `.../web/T109EndpointRegistrationTest.java:30` | `CONFIG 9 / SPOT 5 / PLAN 1 共 15 条路径` | **正确** | `T-109` 交付 15 路径 |
+| 11 | 同上 `:31,102,146` | `19 个 (方法,路径) 对` | **正确** | `T-109` 交付 19 对 |
+| 12 | 同上 `:148` | `routeCount == 83 守卫` | **正确**（上一轮已订正） | `BootstrapAssemblyTest:145` |
+| 13 | `.../web/AUTHEndpointRegistrationTest.java:26,56,62` | `AUTH 10 条路径` | **正确** | `ApiRoutes` AUTH 10 路径 |
+| 14 | 同上 `:37,56,78` | `15 个 (方法,路径) 对` | **正确** | `T-010` 交付 15 对 |
+| 15 | `.../web/FullWebAssembly.java:26` | `仍有 8 个测试类各自 register` | **正确** | 列名 8 个 |
+| 16 | 同上 `:38` | `生产装配面 = 本装配面 + 2` | **正确** | ping GET/HEAD 2 条 |
+| 17 | 同上 `:40` | `routeCount()==83 间接兜底` | **正确** | 83 |
+| 18 | 同上 `:42` | `只手选 4 条未注册路径` | **正确** | 段①(a) 不覆盖声明 |
+| 19 | 同上 `:51` | `ROUTE_COUNT = 81` | **正确** | 业务 81 |
+| 20 | `.../web/RouteReachabilityBug004Test.java:10,17,18,20` | `5 条被遮蔽 / 4 条 / 1 条` | **正确** | `BUG-004` 事实 |
+| 21 | `.../web/RouteReachabilityExhaustiveTest.java:26,27` | `4 条 / 1 条 / 共 5 端点不可达` | **正确** | `BUG-004` 事实 |
+| 22 | `.../dao/ConfigAuthSchemaTest.java:33,36` | `CONFIG 7 张 / AUTH 13 张 / 20 张` | **正确** | `7+13=20` |
+| 23 | `.../dao/M1ProductSpotPlanSchemaTest.java:34,35,39,58` | `PRODUCT 8 / SPOT 10 / PLAN 8 / 26 张` | **正确** | `8+10+8=26` |
+| 24 | 同上 `:287` | `SPOT 9 / PLAN 8 / PRODUCT 3 张 NOT NULL` | **正确**（度量 = **NOT NULL 列数**，非建表数） | 见 §四(b) |
+| 25 | `.../dao/M1Dm8EquivalentIntegrationTest.java:68` | `config_auth 20+8+10+8 = 46` | **正确** | `20+26=46` |
+| 26 | `.../dao/M1ProductSpotPlanSchemaTest.java:169` / `M1Dm8EquivalentIntegrationTest.java:119` | 表数 `26` / 列数 `>=19` | **正确**（下限断言） | 解析器防空 |
+| 27 | `src/main/.../auth/AuthRoutes.java:20` | `AUTH 10 条路径` | **正确**（`src/main` ⇒ 报告不改） | 边界要求 |
+| 28 | 同上 `:21` | `由仅 2 条（login/logout）补齐为全量` | **正确**（叙述，无计数） | — |
+| 29 | 同上 `:52` | `补齐 AUTH 声明面（其余 8 条路径）` | **正确** | `2+8=10` |
+| 30 | `src/main/.../product/ProductRoutes.java:60` | `这 4 条端点在生产装配下不可达` | **正确**（`BUG-004` 事实） | 报告不改 |
+| 31 | `java/CONTRACTS.md:24` | `CONFIG/AUTH 20 张表 DDL` | **正确**（doc，非源码） | `7+13=20` |
+| 32 | `src/main/.../web/Bootstrap.java:78–81`、`.../entity/Exposure.java:21` | 叙述（无计数） | **非本类** | 目视 |
+
+> 说明：`模式②` 另命中大量**测试数据夹具**计数（如「应导入 5 条」「应含 1 条绑定敞口」「第一页 10 条上限内应返回 3 行」等），系**测试输入/期望值**、非文档性陈旧计数 ⇒ **非本类**（不逐条列入，避免与本类混淆；如需可按 `grep -rnP '\d+\s*条' java/src/test` 全列）。
+
+**结论**：全 `java/**` 内「陈旧/不实**计数注释**」**仅 1 处**（`#1`）⇒ 已订正；余皆 **正确 / 非本类 / 时序快照**，逐处给依据；`src/main` 命中 4 处（`#27–#30`）**判正确且不改**（边界要求）。
+
+## 四、★同文件内部一致性检查（本轮新增判据）
+
+**为何新增**：本轮漏点恰是「**同文件内同模块数字不一致**」（`:40` PLAN 4 vs `:50` PLAN 5）。故增两条判据：一条**严口径**（可判定 0 命中），一条**宽口径**（据实披露其过触发）。
+
+### (a) 严口径 —— 「同文件内五模块路由覆盖 breakdown 必须唯一」（剔除位于【…订正/加注…】注释块内的历史快照）
+
+```bash
+cd /root/myspace/hedge-guard && python3 - <<'PY'
+import re, subprocess, pathlib
+FIVE = re.compile(r'AUTH[ ]?\d+.*CONFIG[ ]?\d+.*PRODUCT[ ]?\d+.*SPOT[ ]?\d+.*PLAN[ ]?\d+')
+TOK  = re.compile(r'(AUTH|CONFIG|PRODUCT|SPOT|PLAN)[ ]?(\d+)')
+MODS = ['AUTH','CONFIG','PRODUCT','SPOT','PLAN']; HIST = ('订正','加注')
+files = subprocess.run(['grep','-rlP','--include=*.java',FIVE.pattern,'java/src'],
+                       capture_output=True,text=True).stdout.split()
+hits=0
+for f in files:
+    lines = pathlib.Path(f).read_text(encoding='utf-8').splitlines(); n=len(lines); hist=set(); i=0
+    isc = lambda l: l.strip().startswith(('//','*','/*'))
+    while i<n:
+        if isc(lines[i]):
+            j=i; blk=[]
+            while j<n and isc(lines[j]): blk.append(j); j+=1
+            if any(h in ' '.join(lines[k] for k in blk) for h in HIST): hist.update(blk)
+            i=j
+        else: i+=1
+    live=[(i+1, tuple(m.group(2) for m in TOK.finditer(l)))
+          for i,l in enumerate(lines) if FIVE.search(l) and i not in hist]
+    uniq=set(d for _,d in live)
+    if len(uniq)>1:
+        hits+=1; print(f"[HIT] {f}");
+        for ln,d in live: print(f"     :{ln} {dict(zip(MODS,d))}")
+    else:
+        print(f"[ok ] {f}  live={[ln for ln,_ in live]}  = {dict(zip(MODS,next(iter(uniq)))) if uniq else '—'}")
+print(f"### C_c1 HIT files = {hits}   （0 = 通过）")
+PY
+```
+实测输出：
+```
+[ok ] java/src/test/java/com/hedgeguard/web/handler/ModuleRoutesConsistencyTest.java  live breakdowns=[40, 50]  = {'AUTH': '2', 'CONFIG': '4', 'PRODUCT': '6', 'SPOT': '10', 'PLAN': '5'}
+[ok ] java/src/test/java/com/hedgeguard/web/BootstrapAssemblyTest.java  live breakdowns=[146]  = {'AUTH': '17', 'CONFIG': '18', 'PRODUCT': '13', 'SPOT': '15', 'PLAN': '18'}
+### C_c1 HIT files = 0   （0 = 通过）
+```
+⇒ **0 命中（通过）**。注：`BootstrapAssemblyTest:139` 因位于【`T-010` 订正（加注）】注释块内、被判**历史快照**而剔除；现行值 `:146` 单独 live、无冲突；`ModuleRoutesConsistencyTest:40/:50` 现同为 `PLAN 5`。
+
+### (b) 宽口径 —— 「**任意**「模块名+数字」同文件多值」：据实披露其**非 0** 输出
+
+```bash
+cd /root/myspace/hedge-guard && python3 - <<'PY'
+import re, subprocess, collections, pathlib
+pat = re.compile(r'\b(AUTH|CONFIG|PRODUCT|SPOT|PLAN|TRADE|SETTLE|RISK|ACCT|FUND|AUDIT)[ ]?(\d+)')
+files = subprocess.run(['grep','-rlP','--include=*.java',pat.pattern,'java/src'],
+                       capture_output=True,text=True).stdout.split()
+hits=0
+for f in files:
+    d=collections.defaultdict(set); loc=collections.defaultdict(list)
+    for i,l in enumerate(pathlib.Path(f).read_text(encoding='utf-8').splitlines(),1):
+        for m in pat.finditer(l):
+            d[m.group(1)].add(m.group(2)); loc[m.group(1)].append((i,m.group(2)))
+    bad={k:sorted(v) for k,v in d.items() if len(v)>1}
+    if bad:
+        hits+=1; print(f"[HIT] {f}")
+        for k in bad: print(f"     {k}: {bad[k]}   @ {loc[k]}")
+print(f"### C_broad HIT files = {hits}")
+PY
+```
+实测输出：
+```
+[HIT] java/src/test/java/com/hedgeguard/dao/M1ProductSpotPlanSchemaTest.java
+     PRODUCT: ['3', '8']   @ [(34, '8'), (58, '8'), (287, '3')]
+     SPOT: ['10', '9']   @ [(34, '10'), (58, '10'), (287, '9')]
+[HIT] java/src/test/java/com/hedgeguard/web/BootstrapAssemblyTest.java
+     AUTH: ['10', '15', '17']   @ [(134, '15'), (137, '10'), (139, '17'), (146, '17')]
+     CONFIG: ['17', '18']   @ [(139, '17'), (146, '18')]
+### C_broad HIT files = 2
+```
+**逐处定性（均非缺陷）**：
+- `M1ProductSpotPlanSchemaTest`：`:34/:58` 的 `PRODUCT 8 / SPOT 10` 是**建表数**；`:287` 的 `PRODUCT 3 / SPOT 9` 是**子账户贯穿 NOT NULL 列数** ⇒ **同一模块名、不同口径（度量）**，不构成不一致。
+- `BootstrapAssemblyTest`：`:134/:137/:139` 的 `AUTH 10/15/17`、`CONFIG 17` **均位于标注了 `【T-010 订正（加注）】` 的注释块内**（该时点值/历史动作）；`CONFIG 18`（`:146`）为现行 ⇒ **时序取代**，非「同指一物的两说」。
+- **结论**：宽口径判据**固有「过触发」**（不区分度量 / 时序），**不能**充当「必须 0」判据；经逐处定性，**陈旧缺陷 = 0**（真值由严口径 (a) 判定）。**未擅改** `:139`（避免篡改历史快照），其「可否补时间限定词」见 §六 不可判定项 1。
+
+## 五、「陈旧残留 = 0」可复现命令（改动后，实测）
+
+```bash
+cd /root/myspace/hedge-guard
+# ① 上一轮陈旧值 45/47/82 及旧模块键名 ACCOUNT —— 期望无输出（rc=1）
+grep -rnP --include=*.java '业务路由数 = 4[57]|ping 2 = 4[57]|routeCount == 8[02]' java/src/test ; echo "rc=$?"
+grep -rn --include=*.java -e '{@code ACCOUNT}' -e '"ACCOUNT"' java/src/test ; echo "rc=$?"
+# ② 本单陈旧五模块 breakdown（PLAN 4）—— 期望无输出（rc=1）
+grep -rnP --include=*.java 'AUTH 2 \+ CONFIG 4 \+ PRODUCT 6 \+ SPOT 10 \+ PLAN 4' java/src ; echo "rc=$?"
+# ③ 现存五模块 breakdown 必为现行值（人工核对 PLAN 5 / CONFIG 18）
+grep -rnP --include=*.java 'AUTH[ ]?\d+.*CONFIG[ ]?\d+.*PRODUCT[ ]?\d+.*SPOT[ ]?\d+.*PLAN[ ]?\d+' java/src
+```
+实测：`①a rc=1`、`①b rc=1`、`② rc=1`（**均无输出**）；`③` 仅 4 行 —— `ModuleRoutesConsistencyTest:40/:50`（**均 `PLAN 5`**）+ `BootstrapAssemblyTest:139`（`T-010` 快照 `CONFIG17`）/`:146`（现行 `CONFIG18`），后者已按 §四(b) 定性为时序快照。
+
+## 六、边界、不变式与未覆盖声明（本席）
+
+- **写域**：`java/src/test/**`（**仅 1 文件 1 字面量**：`ModuleRoutesConsistencyTest:40` `PLAN 4`→`PLAN 5`）+ `docs/TEST_RESULT.md`（纯追加）。**未改** `java/src/main/**`、`web/**`、`ApiRoutes` 声明面、`docs/TEST_PLAN/**`；**未**削弱/删改任何断言。
+- **纯追加证明**：追加前 **11033 行 / md5 `cd9be8a16d6122d464e44ff863aad253`**；本节落盘后 `md5sum docs/TEST_RESULT.md` 已变，`head -11033 | md5sum` 实测 = `cd9be8a16d6122d464e44ff863aad253`（**一致 ⇒ 原档逐字节未变**）。
+- **git**：仅以 `git commit --only java/src/test/java/com/hedgeguard/web/handler/ModuleRoutesConsistencyTest.java docs/TEST_RESULT.md` 提交；未 `amend`/`reset`/`push`。提交前 `git status --porcelain` **仅本单 2 文件**（复核席 `docs/TEST_RESULT.md` 变更已由编排者先行提交，未动其历史）。
+- **本次穷举面已放宽到**：`java/**` **全域**（`*.java` + `java/CONTRACTS.md`），模式含 ①「11 键模块名 + 数字」②计数词（对/路径/条/个(方法/路由数/业务路由/routeCount/判据数/用例数/测试数/表数/列数/`E1`–`E7`）③五模块 breakdown。
+- **仍不可判定者（显式声明）**：
+  1. `BootstrapAssemblyTest:139`（`T-010` 时序快照）：**判「应否补时间限定词」不可判定**——本席判其**非缺陷**（区块已标 `T-010`），但若被读作现行值则误导 ⇒ **建议**后续加注「（`T-010` 时）」（**非本单授权改动，报请编排者裁定**）。
+  2. `M1ProductSpotPlanSchemaTest:287`：同一模块名跨**度量**（建表数 vs NOT NULL 列数）共存，机械判据**恒过触发** ⇒ 判**非缺陷**。
+  3. `docs/TEST_PLAN/INDEX.md:138`「47 对/37 路径」陈旧（现 **83**）——**不在本单写域**，派单已另立 **`T-163`**（`test-manager` 域），**未改**。
+  4. `模式②`「测试数据夹具计数」未逐条列入穷举表（判**非本类**）；如需清单可另跑 `grep -rnP '\d+\s*条' java/src/test`。
+
+- **状态**：**已完成，待独立复核**（不自评 `DONE`）。

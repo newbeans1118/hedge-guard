@@ -37,7 +37,7 @@ import java.io.IOException;
  *   <li><b>不臆造路径</b>：已注册的每个路径都必须存在于 {@code ApiRoutes} 冻结清单
  *       （路径是冻结项：须先改 {@code ARCHITECTURE §4.1.1} 才能改代码，{@code NFR-MAINT-5}）；</li>
  *   <li><b>无重复注册</b>：同一 {@code (方法, 路径)} 重复注册会在启动期失败（{@code §1.4}）；</li>
- *   <li><b>覆盖下限</b>：本批显式登记的路由（AUTH 2 + CONFIG 4 + PRODUCT 6 + SPOT 10 + PLAN 4）必须真实注册；</li>
+ *   <li><b>覆盖下限</b>：本批显式登记的路由（AUTH 2 + CONFIG 4 + PRODUCT 6 + SPOT 10 + PLAN 5）必须真实注册；</li>
  *   <li><b>路径归属</b>：只允许本批五模块（{@code auth}/{@code config}/{@code product}/{@code plan}/{@code spot}）。</li>
  * </ol>
  */
