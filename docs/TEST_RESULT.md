@@ -10252,3 +10252,85 @@ GET /api/v1/spot/exposure/export → 实际命中 /api/v1/spot/exposure/{id}
 - 唯一不符 = 观察 O-1（47 未能复现），**不阻断**。
 
 **复位声明**：全部注入均在隔离副本 `/t154-iso` 内完成；复核结束时 `diff -rq` 空、树锚复原 `a0dadfa33c7a0e02966d261fd71343c7`/356、共享树 `git status --short` 为空。探针目录 `/t154-probe`、`/t154-iso` 已删除（回执附 `[ -e ]` 核实）。
+
+---
+
+## T-153 独立复核（席 `te-verify-t153`）—— `Router` 路由匹配优先级裁定 = (a)
+
+> **对象**：`docs/DECISIONS/router-match-precedence.md`（258 行 / `43ce2a26e0663271a665ff55c942ada6`），提交 `abdcdd4`（`git show --stat` = 1 file / 258 insertions，仅该文件）。
+> **结论**：**有条件通过**（须修 2 处，见下）＋ 7 项观察。
+> **取样时刻**：2026-09-24（`HEAD` = `ecfffca`）。所有 md5/行数为**本席实时实测**。
+> **写者纪律**：`java/src/**` 只读；全部探针在一次性目录 `/root/probe-t153`（仓库外）以**私有 `javac` 输出**运行；未改共享树任何 `java/**` 文件。提交用 `git commit --only <精确路径>`。
+
+### 一、独立实测（全部本席自建探针，非复跑产出方）
+
+**① 树锚（`java/src` 级，仓库根 cwd）**：`find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum` = **`a0dadfa33c7a0e02966d261fd71343c7` / 356**（与派单逐字一致）。
+口径附注：在 `java/src` 内跑 `find . -type f | sort | xargs md5sum | md5sum` = **`d00828e4…`**（非派单所称 `b0ac2e52…`；另测 A–E 五种变体均**不能**复现 `b0ac2e52…`，见观察 O-2）。
+
+**② 路由枚举 + 遮蔽回查（探针 `Probe`；五模块装配，服务入参 `null`）**：
+| 实测项 | 本席结果 | 产出方自述 |
+|---|---|---|
+| 已注册路由总数 | **81** | 81 ✅ |
+| 段数分布（去前导 `/`） | 3 段=**4** ｜ 4 段=**52** ｜ 5 段=**25** | 4/52/25 ✅ |
+| 同 `(方法, 段数)` 含多成员分组数 | **7** | 7 ✅ |
+| 当前实例路径遮蔽 | **0** | 0 ✅ |
+| 「字面↔占位」有向可重叠对 | **5**（无向 5） | 10 有向 / 5 无向 ✅ |
+| 混组（同 `(方法,段数)` 内字面段与占位段并存） | **3**（`GET\|4`、`GET\|5`、`POST\|5`） | 3 ✅ |
+
+**③ 改前复现（本席口径：`git show 1137801^:` 取旧 `ProductRoutes`/`SpotRoutes` 编译为 overlay，置于 `classpath` 最前）**：
+- 遮蔽 = **5**：`GET /product/quota`、`/product/mapping`、`/product/change-log`、`/product/export` → `GET /product/{id}`；`GET /spot/exposure/export` → `GET /spot/exposure/{id}` ✅ **与 `BUG-004` 集合逐条一致**。
+- 旧序行号独立核对：旧 `ProductRoutes` **:38** = `register("GET", ProductHandler.PATH_BY_ID, …)`；旧 `SpotRoutes` **:54** = `PATH_BY_ID`、**:60** = `SpotExposureExportHandler` ✅ 与裁定 doc §1.3 #6 逐字一致。
+
+**④ N4 等价性（本席自建 (b1) matcher，独立复刻 `Router.match` 语义并交叉校验）**：
+- 语料口径（本席）= 101 路径（每条路由的实例路径 + 纯字面路由自身 + 逐段截断 + 模块×近失末段 + `/`、`/api/v1/ping`、`/nope/nope`）× 4 方法 = **404 次比对 ⇒ `DIFFS=0`**（探针内置忠实性交叉校验：自建 `matchA` 与真实 `Router.match` 在全部 404 例上**逐例一致**，0 mismatch）。
+- **加大规模**：首两段固定 `/api/v1` 后枚举 1–3 个自由段（字母表 = 全表字面段 + `1`/`x`/`zzz`，共 57 个）⇒ **`CMP=753996`，`DIFFS=0`**。
+- **非空转**：旧序 overlay 上同判据 **`DIFFS=5`**，恰为那 5 条 —— 证明 (b1) 确有语义效果。
+
+**⑤ N5**：`Router.pathExists`（`:79-87`）为**忽略方法的全体 OR**（任一**同段数**命中即 `true`），与顺序无关 ✅；`ModuleRoutesConsistencyTest`（`java/src/test/.../web/handler/`）用 `HashSet` 等值（`:100`）、`List.contains`（`:105`）、`anyMatch`（`:110/115/118`）——**均顺序无关** ✅。§2.4 (c) 否决理由 ②（`routes()` 被 `ModuleRoutesConsistencyTest:90`/`BootstrapAssemblyTest`（经 `Bootstrap` 的 `routeCount`）/`T-154` 依赖）**成立** ✅。
+
+**⑥ N3「无源」独立复核（扫描范围与模式已列，可比）**：
+- 扫描范围：`docs/ARCHITECTURE.md`、`java/CONTRACTS.md`、`docs/DATA_MODEL.md`、`docs/PROJECT.md`、`docs/REQUIREMENTS/*.md`（11 文件）、`docs/DECISIONS/*.md`、`docs/DEPLOY/**`、`java/src/main/java/**`、`web/**`（**排除** `.codebuddy/`、台账 `TASKS.md`/`BOARD.md`、及本裁定 doc 自身）。
+- 模式：`字面.{0,12}(优先|先于)`、`静态.{0,12}(优先|先于)`、`占位.{0,20}(最后|之后|在后)`、`注册序`、`匹配优先级`、`优先序`、`匹配顺序`、`precedence`、`priorit`。
+- **结果**：**无任何规范性「匹配优先序」条款**。唯一命中 = `CONTRACTS.md:761`（`§5.1` 的 **`T-151` 变更登记行**，属留痕描述、非规范条款；裁定 doc §3.2 已将其作为**先例**引用，未遗漏）。
+- 逐处回读：`ARCHITECTURE.md §3.7` 仅在 `:495` 以「内部结构」列名 `Router`，无匹配语义；`ARCHITECTURE.md §4.1.1` 只有路由**声明**目标形态、无匹配算法；`CONTRACTS.md §0①` 载体列表**不含 `Router`**（`:49` 实测）；`§0③`=字段级；`§1.4`（`:122-132`）实为 **3 条 bullet**（占位符独占整段/段数不符即不命中/尾斜杠与查询串归一化；重复注册启动失败；handler 签名）**无优先序**；`§3.1`（`:360`）列 `Router`/`RouteMatch` 的**关键成员** `register/match/pathExists/routes`（论成员不论算法）；`Router.java:13-20` 冻结四则**无优先序**。⇒ **N3 成立**。
+- **D1 独立证实**：`ARCHITECTURE.md` **§1 仅 §1.1/§1.2**（`:63/65/100`），**无 §1.4** ✅。
+
+**⑦ 对抗性假设 A2（失败消息自解释，**已提交版本**）**：committed `RouteReachabilityExhaustiveTest.java`（`e2c507db066e8aacc1d018a9aad23eeb` / 177 行）**:100-102** 原文 = `assertTrue(failures.isEmpty(), "存在不可达 / 被遮蔽的路由（注册序须「先静态、后占位符」）：\n" + String.join("\n", failures));`，且 `:93` 的 failure 条目点名「被遮蔽 + 实际命中 `<pattern>`」⇒ **「自解释」在已提交版本仍成立**（产出方作业期读的是在飞件，但最终提交保留同一消息）。`ProductRoutes` javadoc「注册序约束（`T-151`）」段（`:24-28`）、`SpotRoutes` 同名段（`:31-34`）**确实存在** ✅。**A2 无缺陷**。
+
+**⑧ §7.6 五处时点锚——全部逐字命中（说明落笔后未变）**：`Router.java ed36991692f40fef731c2959c6df0481`/195 ｜ `CONTRACTS.md 82adbe8bbf1ddab33329bd2e66f9691f`/831 ｜ `ARCHITECTURE.md 94cedcf5dfa37d9e55f1c4e2ba341599`/3267 ｜ `ProductRoutes.java 4843b32a565852891ae26c2bb17f18aa`/63 ｜ `SpotRoutes.java d1f6e1d16350ce7bbe0e09563aac6ea1`/73 ✅。
+
+**⑨ 未自行放行**：`abdcdd4` 仅新增 1 文件（`git show --stat` = 1 file / 258 insertions），**未改** `CONTRACTS.md`、**未改**任何台账（`TASKS.md`/`BOARD.md`）✅。§6.5 `CH` 提案本文**六项齐备**（对象与范围 / 现行文本逐字 / 拟改文本 / 兼容性 / `L3` 定级依据 / 「未登记未生效、未获批准前不得据此改代码」声明）✅。
+
+### 二、缺陷
+
+**`TE-T153-001`（中）——`N2` 的「天然完备」为过宽断言；守卫对本缺陷类的覆盖面**依赖一处**无断言的跨文件手工同步**。
+- 实测：`T-154` 主判据的遍历面 = `FullWebAssembly.assemble()` **硬编码的 5 个 `*Routes.register`**（`FullWebAssembly.java:30-38`），规模守卫 `FullWebAssembly.ROUTE_COUNT = 81`（`:24`）与之**自洽**。
+- 实测：**无任何判据把 `FullWebAssembly` 的装配面与 `Bootstrap` 的生产装配面对齐** —— `grep -rn FullWebAssembly java/src` 仅 2 个 `T-154` 系测试引用；`ROUTE_COUNT` 无跨文件耦合；`BootstrapAssemblyTest:145` 的 `assertEquals(83, assembly.routeCount())` 与 `FullWebAssembly.ROUTE_COUNT=81` **互相独立**（差 2 = ping 的 GET/HEAD）。
+- **注入实验**（探针 `Silent`）：模拟「`Bootstrap` 新增第 6 模块并注册一条**遮蔽形态**路由（占位符在前、静态在后），但未改 `FullWebAssembly`」⇒
+  - `T-154` 对 `FullWebAssembly` 装配面：**0 failures（全绿）——静默漏检**；
+  - 同一判据对**真实生产装配**：**1 failure**（`GET /api/v1/trade/order/summary → SHADOWED by /api/v1/trade/order/{id}`）。
+- **定量后果**：未同步的第 6 模块的**全部路由**（含遮蔽）不在守卫面内；`BootstrapAssemblyTest:145` 是**唯一**间接绊线，但其补救动作（把 83 改成新数）**不强制**同步 `FullWebAssembly` ⇒ 漏检可**长期静默**。
+- **与 doc 的张力**：裁定 doc `N2` 称「该判据**天然完备于本缺陷类**… 在本类上已达到与**框架保证同等**的工程效果」；`§5 F5` 亦以「（第 6 模块注册后）`T-154` **红**」为前提。**该前提不被保证**（除非手工同步）。doc `§4` 的可发现化落点（4.1–4.4）**未包含**「新增模块须同步 `FullWebAssembly`」这一项。
+- **订正建议（不推翻 (a)）**：① 把 `N2`/`F5` 的措辞限定为「**在已装配（`FullWebAssembly` 列举）的模块集合内**完备」，并显式声明对未同步模块的**残余风险**；② 增补可发现化落点：「**新增模块时须同步 `FullWebAssembly`**」，最好再加一条**断言**（`FullWebAssembly` 的装配路由集合 == `Bootstrap` 生产装配的路由集合）——本项 `java/src/test/**` 写域归可写该域的实例。
+
+**`TE-T153-002`（低）——引用锚点不实：`java/CONTRACTS.md` **无 `§5.5`**。
+- doc **5 处**引 `§5.5`：`:126`（「`CONTRACTS` §5.3 / §5.5 / §0」）、`:139`、`:187`（「触发 `§5.5「任何冻结条目变更须升版」`」）、`:228`、`:240`。
+- 实测：`grep -n '^#\{1,6\} ' java/CONTRACTS.md` ⇒ §5 仅 **§5.1 / §5.2 / §5.3**，**无 §5.4/§5.5**；`grep -rn '§5.5' docs/ java/`（除本 doc）**无其它规范来源**（另有一个无关命中 = RFC 6455 §5.5，在 `ws/WsFrame*.java`）。
+- 所引条文**确实存在**，实为 **`java/CONTRACTS.md:725` = `## 5. 变更纪律` 编号列表第 5 项**：`5. **本文件版本**：任何冻结条目变更须**升版**（`HGC-1.1`…）并说明差异。` ⇒ **实质结论不受影响**，但锚点须订正为「§5 第 5 条（`CONTRACTS.md:725`）」。**同错已传播到 `docs/TASKS.md:200`（`T-155` 条）**，一并订正。
+- 备注：产出方**自行**纠正了编排者 `D1` 的同类引用错误（`ARCHITECTURE.md §1.4` → `CONTRACTS.md §1.4`），却**未发现自身**的 `§5.5`。
+
+### 三、观察（均不阻断；含不立号理由）
+
+- **O-1（台账侧陈旧数字，非裁定 doc 缺陷）**：`docs/TASKS.md:198`（`T-153` 验收文本）写「既有 **82 对**路由匹配结果逐条不变」，而本席实测**业务路由 = 81**（含 ping 的 GET/HEAD = 83，`BootstrapAssemblyTest:145` 断言 83 佐证）。**不立号**：属编排者台账文字，建议回写时订正为 81 并注明「含 ping = 83」口径。
+- **O-2（口径不可复现）**：派单称「在 `java/src` 内跑 `find .` ⇒ `b0ac2e52…`」；本席实测该形态 = `d00828e4…`，并另测 5 种变体（含/不含 `LC_ALL=C`、`-print0`、含 `src` 路径）**均不能复现 `b0ac2e52…`**。**根口径 `a0dadfa3…/356` 逐字命中**。**不立号**：不影响结论，仅提示引用须带命令与 cwd。
+- **O-3（A2 结论）**：见实测 ⑦ —— 已提交版本的失败消息**仍自解释**，「可发现化」成立。**不立号（无缺陷）**。
+- **O-4（治理原则自洽性）**：doc `§3.2` 原则**成立**。其「**冻结它（或改变它）才是变更、才须 `CH`**」一句已闭合「凡未列举即可任意改动」的滥用口 ⇒ **不足以被滥用**。唯一提示：「**实现自由区**」单独摘出易被误读为「无约束」，建议加限定语（把该原则的「改变它仍须 `CH`」并列写在同一标签旁）。**不立号**：措辞建议。
+- **O-5（`§1.4` 条数口径）**：doc `§1.2` 写「四条」；`CONTRACTS.md §1.4`（`:122-132`）实为 **3 条 bullet**（把「占位符独占整段 / 段数不符 / 尾斜杠归一化」拆为 3 即得 4，再单列 handler 签名）。口径差异、不影响结论。**不立号**。
+- **O-6（`D1`–`D4` 核对）**：`D1` 成立（见实测 ⑥）；`D2` 成立（混组 3、真可重叠 2 组）；`D3` 成立（含旧序 `:38`/`:54`/`:60` 逐条核对）；`D4` 成立 —— `RouteRegistry` 全仓**仅 `Router.java:44` 一处命中、`class/interface/enum` 定义数 = 0**。**不立号**（`D4` 已由 `T-155` 承接）。
+- **O-7（`F1` 机械前提，抽验）**：`java/pom.xml:89-90` 明文「`mvn test -Punit` 与 `mvn test` 等价」（`unit` profile 仅设属性，不增删依赖/插件）；surefire 默认配置（`:167-174`）**无 `includes`/`excludes`/`skipTests`**；`RouteReachabilityExhaustiveTest`/`BootstrapAssemblyTest`/`ModuleRoutesConsistencyTest`/`FullWebAssembly` **无 `@Disabled`/`@Tag`/`@Ignore`/`assumeTrue`**（grep rc=1）。⇒ `T-154` 判据在默认门禁中运行，`F1` 未触发。**不立号**（与 `te-verify-t154` 结论一致，本席仅抽验）。
+
+### 四、结论
+
+**有条件通过** —— `(a)` 的**结论**（维持现状、零代码、不开口 `CH`）**成立且未被本席证伪**（`N1`/`N3`/`N4`/`N5`、`§3.2` 原则、`(c)` 否决、`D1`–`D4`、`§6.5` 完整性、未自行放行 **均经独立复算/回读证实**）；但 `N2` 的**支撑**存在 `TE-T153-001`（中）所述过宽断言与守卫覆盖面依赖无断言的跨文件手工同步，及 `TE-T153-002`（低）引用锚点不实。**建议**：订正 `N2`/`F5` 措辞 + 增补「新增模块须同步 `FullWebAssembly`」落点（含断言），并把 `§5.5` 锚点订正为 `§5` 第 5 条（`CONTRACTS.md:725`）后转 `DONE`。
+
+**复位声明**：全部探针在一次性目录 `/root/probe-t153`（仓库外）以私有 `javac` 输出完成；`java/**` 只读、未改共享树任何文件；共享树 `git status --short` 仅含本证据章追加。
