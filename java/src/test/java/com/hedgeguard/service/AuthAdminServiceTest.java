@@ -194,6 +194,32 @@ class AuthAdminServiceTest {
     }
 
     @Test
+    @DisplayName("FR-AUTH-16：三条置位路径（新建 / 重置 / 启用）⇒ 登录会话均带强制改口令标记")
+    void threeSettingPathsLeadToGatedLogin() {
+        // 路径一：新建用户（初始口令）—— 对应 AuthService.createUser 置 must_change_password='Y'
+        service.createUser("newlisi", "李四", "NP-N1", "财务部", "N", "Hg#2026Trading01", 9L);
+        Session s1 = service.login("newlisi", "Hg#2026Trading01", "127.0.0.1", "JUnit");
+        assertTrue(s1.mustChangePassword, "新建用户首次登录须带强制改口令标记");
+
+        // 路径二：管理员重置口令 —— 对应 resetPassword 置 'Y'
+        long idReset = service.createUser("resetlisi", "王五", "NP-R1", "财务部", "N",
+                "Hg#2026Trading01", 9L);
+        service.resetPassword(idReset, "Hg#2027Trading01", 9L);
+        Session s2 = service.login("resetlisi", "Hg#2027Trading01", "127.0.0.1", "JUnit");
+        assertTrue(s2.mustChangePassword, "重置口令后登录须带强制改口令标记");
+
+        // 路径三：启用用户（须先停用 + 重新配置角色）—— 对应 enableUser 置 'Y'
+        long idEnable = service.createUser("enablelisi", "赵六", "NP-E1", "财务部", "N",
+                "Hg#2026Trading01", 9L);
+        service.disableUser(idEnable, "调岗", 9L);
+        roleDao.put(role(11L, AuthService.ROLE_TRADER, 1, "Y"));
+        userRoleDao.put(userRole(idEnable, 11L));
+        service.enableUser(idEnable, "Hg#2027Trading01", 9L, 8L);
+        Session s3 = service.login("enablelisi", "Hg#2027Trading01", "127.0.0.1", "JUnit");
+        assertTrue(s3.mustChangePassword, "启用用户登录须带强制改口令标记");
+    }
+
+    @Test
     @DisplayName("FR-AUTH-5：用户列表分页（默认字段 created_time）+ 状态筛选；返回不含口令字段（结构保证）")
     void listUsersPaged() {
         service.createUser("a", "A", "NP-A", "d", "N", "Hg#2026Trading01", 9L);

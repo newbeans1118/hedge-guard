@@ -268,8 +268,9 @@ public final class AuthService implements SubAccountVisibility {
         LocalDateTime now = Clocks.now();
         LocalDateTime expire = now.plusMinutes(sessionIdleMinutes());
         String sessionId = newSessionId();
+        // FR-AUTH-16：把「首次登录 / 重置后强制修改口令」标记贯通进会话（服务端在分发前据此门禁）。
         Session session = new Session(sessionId, user.id, user.username, permissionVersionOf(user.id),
-                expire);
+                "Y".equals(user.mustChangePassword), expire);
         tx.inTransaction(connection -> {
             userAccountDao.touchLastLogin(user.id, now);
             userAccountDao.unlock(user.id);
@@ -341,7 +342,8 @@ public final class AuthService implements SubAccountVisibility {
                             + "（CFG-23b hg.auth.session_idle_minutes）");
         }
         Session renewed = new Session(session.sessionId, session.userId, session.username,
-                session.permissionVersion, now.plusMinutes(sessionIdleMinutes()));
+                session.permissionVersion, session.mustChangePassword,
+                now.plusMinutes(sessionIdleMinutes()));
         sessionStore.save(renewed);
         tx.inTransaction(connection -> {
             loginSessionDao.touch(sessionId, now);
@@ -377,6 +379,22 @@ public final class AuthService implements SubAccountVisibility {
             }
             return null;
         });
+    }
+
+    /**
+     * 清除会话的「强制修改口令」标记（{@code FR-AUTH-16} 处理规则：改密成功后解除门禁）。
+     *
+     * <p>由 {@code PasswordHandler} 在本人改口令（{@code POST /auth/password}）成功后调用——
+     * 服务层 {@link #changePassword} 已把库中 {@code must_change_password} 归零，本方法同步刷新
+     * <b>内存会话快照</b>，使同一会话无需重新登录即可继续。<b>非</b>「改口令」端点不得触碰本标记。
+     *
+     * @param sessionId 会话 ID（不存在或已过期时静默返回——门禁随会话失效自然解除）
+     */
+    public void markPasswordChanged(String sessionId) {
+        Session session = sessionStore.find(sessionId);
+        if (session != null && session.mustChangePassword) {
+            sessionStore.save(session.withMustChangePassword(false));
+        }
     }
 
     /**

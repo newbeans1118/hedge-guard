@@ -48,6 +48,12 @@ function render(root) {
       const data = await HG.api.post(HG.routes.AUTH.LOGIN, { username: u, password: p });
       // 记录展示用会话摘要（{userId, username, expireTime}；不含凭据）。会话本身在 HttpOnly Cookie。
       HG.session.setSessionSummary(data);
+      if (data && data.mustChangePassword) {
+        // FR-AUTH-16：首次登录 / 重置后强制修改口令 —— 服务端已限制全部业务端点，前端直接引导至改密 tab。
+        ui.toast('请先修改初始口令后再使用系统', 'warn');
+        window.location.href = '/web/index.html#/auth?tab=password';
+        return;
+      }
       ui.toast('登录成功，正在进入系统…', 'ok');
       window.location.href = '/web/index.html';
     } catch (err) {

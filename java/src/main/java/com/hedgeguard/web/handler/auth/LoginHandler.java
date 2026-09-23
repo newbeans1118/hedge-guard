@@ -67,6 +67,9 @@ public final class LoginHandler implements RouteHandler {
         body.userId = session.userId;
         body.username = session.username;
         body.expireTime = session.expireTime.toString();
+        // FR-AUTH-16：把「须强制修改口令」状态回传递给前端，供其引导用户进入改密界面；
+        // 服务端门禁本身由 SessionAuthFilter 独立强制（不依赖此字段）。
+        body.mustChangePassword = session.mustChangePassword;
         return HttpResult.json(200, ApiResponse.ok(body, ctx.traceId()))
                 .withHeader("Set-Cookie", sessionCookieName + "=" + session.sessionId
                         + "; Path=/; HttpOnly; SameSite=Lax");
@@ -93,6 +96,13 @@ public final class LoginHandler implements RouteHandler {
 
         /** 会话过期时间（ISO-8601）。 */
         public String expireTime;
+
+        /**
+         * 是否须强制修改口令（{@code FR-AUTH-16}：首次登录 / 口令被重置后为 {@code true}）。
+         *
+         * <p>供前端引导至改密界面；<b>不</b>承担门禁——门禁由服务端 {@code SessionAuthFilter} 强制。
+         */
+        public boolean mustChangePassword;
     }
 
     /** 供注册器使用的路径常量（逐字取自 {@code §4.1.1}）。 */

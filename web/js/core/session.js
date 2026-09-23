@@ -47,7 +47,11 @@ function restoreSelection() {
 /** 记录登录摘要（登录成功后由 login 页调用；不含会话 ID / 口令）。 */
 function setSessionSummary(body) {
   if (!body) { state.user = null; try { window.sessionStorage.removeItem(SUMMARY_KEY); } catch (e) {} return; }
-  state.user = { userId: body.userId, username: body.username, expireTime: body.expireTime };
+  state.user = {
+    userId: body.userId, username: body.username, expireTime: body.expireTime,
+    // FR-AUTH-16：登录响应含 mustChangePassword；门禁由服务端强制，此处仅用于把用户引导到改密界面。
+    mustChangePassword: !!body.mustChangePassword
+  };
   try { window.sessionStorage.setItem(SUMMARY_KEY, JSON.stringify(state.user)); } catch (e) { /* 忽略 */ }
 }
 
@@ -58,6 +62,16 @@ function restoreSummary() {
 function clearSessionSummary() {
   state.user = null;
   try { window.sessionStorage.removeItem(SUMMARY_KEY); } catch (e) { /* 忽略 */ }
+}
+
+/** 当前会话是否处于「须强制修改口令」状态（FR-AUTH-16；服务端强制，此处仅用于界面引导）。 */
+function mustChangePassword() { return !!(state.user && state.user.mustChangePassword); }
+
+/** 清除「须强制修改口令」状态（改密成功后由 auth 页调用；与服务端解除门禁保持一致）。 */
+function clearMustChangePassword() {
+  if (!state.user) return;
+  state.user.mustChangePassword = false;
+  try { window.sessionStorage.setItem(SUMMARY_KEY, JSON.stringify(state.user)); } catch (e) { /* 忽略 */ }
 }
 
 /** 子账户列表（bare 数组，字段 code/name/category/status，见 SubAccountHandler.SubAccountView）。 */
@@ -79,6 +93,12 @@ function normalize(data) {
 async function bootstrap() {
   restoreSelection();
   restoreSummary();
+  if (mustChangePassword()) {
+    // FR-AUTH-16 门禁：本会话被服务端限制，任何业务探针都会被 10003 拒绝 ⇒ 不调用探针，
+    // 直接进入「须改口令」态（否则会被误判为 degraded「后端不可达」，误导用户）。
+    state.loaded = true;
+    return { ok: false, unauthenticated: false, degraded: false, mustChangePassword: true, error: null };
+  }
   try {
     const data = await HG.api.get(HG.routes.CONFIG.SUB_ACCOUNT);
     state.subAccounts = normalize(data);
@@ -107,6 +127,6 @@ function userLabel() {
 
 HG.session = {
   ALL, state, onChange, currentId, isAggregate, setCurrent, bootstrap,
-  setSessionSummary, clearSessionSummary, userLabel
+  setSessionSummary, clearSessionSummary, userLabel, mustChangePassword, clearMustChangePassword
 };
 export default HG.session;

@@ -60,6 +60,10 @@ public final class PasswordHandler implements RouteHandler {
                     "改口令须提交 {oldPassword, newPassword}；复现=按 §4.1.1 提交 application/json");
         }
         authService.changePassword(ctx.currentUserId(), request.oldPassword, request.newPassword);
+        // FR-AUTH-16：改密成功 ⇒ 解除本会话的「强制修改口令」门禁（服务端已在库中归零标记，此处同步内存快照）。
+        if (ctx.session() != null) {
+            authService.markPasswordChanged(ctx.session().sessionId);
+        }
         return HttpResult.json(200, ApiResponse.ok(null, ctx.traceId()));
     }
 

@@ -1137,10 +1137,16 @@ function passwordTab(container) {
     submit.disabled = true; const orig = submit.textContent; submit.textContent = '提交中…';
     try {
       await HG.api.post(R.PASSWORD, { oldPassword: oldPwd.value, newPassword: newPwd.value }, { idempotencyKey: HG.api.newIdempotencyKey() });
+      const wasGated = HG.session.mustChangePassword();
+      HG.session.clearMustChangePassword(); // FR-AUTH-16：与服务端解除门禁保持一致
       oldPwd.value = ''; newPwd.value = ''; confirmPwd.value = ''; // 口令不驻留
       alertBox.appendChild(ui.banner('口令已修改。', 'ok'));
       ui.toast('口令已修改', 'ok');
       form.reset();
+      if (wasGated) {
+        // 首次登录 / 重置后强制改口令：改完即进入系统（此前业务端点被服务端门禁拒绝）。
+        window.location.href = '/web/index.html';
+      }
     } catch (err) {
       alertBox.innerHTML = ui.blockedHTML(err);
     } finally {

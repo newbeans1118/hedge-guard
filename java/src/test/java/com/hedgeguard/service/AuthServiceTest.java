@@ -219,6 +219,30 @@ class AuthServiceTest {
         service.logout("not-exist");   // 幂等
     }
 
+    @Test
+    @DisplayName("FR-AUTH-16：登录贯通强制改口令标记；续期保留；改密后清除；未置位不受影响")
+    void mustChangePasswordFlagPropagation() {
+        // 置位用户：登录后会话须带标记（门禁的服务端依据）
+        addUser(1L, "first01", "ENABLED");
+        userDao.users.get(1L).mustChangePassword = "Y";
+        Session flagged = service.login("first01", "Hg#2026Trading01", "127.0.0.1", "JUnit");
+        assertTrue(flagged.mustChangePassword, "置位用户登录后会话须带强制改口令标记");
+
+        // 续期须保留标记（否则滑动超时即绕过门禁）
+        Session renewed = service.touchSession(flagged.sessionId);
+        assertNotNull(renewed);
+        assertTrue(renewed.mustChangePassword, "续期须保留强制改口令标记");
+
+        // 改密成功 ⇒ 清除标记（同一会话无需重登）
+        service.markPasswordChanged(flagged.sessionId);
+        assertFalse(store.find(flagged.sessionId).mustChangePassword, "改密成功后须清除标记");
+
+        // 未置位用户不受影响（防误拒）
+        addUser(2L, "normal01", "ENABLED");
+        Session normal = service.login("normal01", "Hg#2026Trading01", "127.0.0.1", "JUnit");
+        assertFalse(normal.mustChangePassword, "未置位用户登录不得带标记");
+    }
+
     // ------------------------------------------------------------ 岗位分离
 
     @Test
