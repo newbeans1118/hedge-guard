@@ -10689,3 +10689,80 @@ E1..E7 退出码：0 / 0 / 0 / 0 / 0 / 0 / 0
 - 变异在**共享树**内做（本环境本席为**唯一** mvn 写入者，`clean test` 与注入轮次已**串行**）——与上游 `hg-t156-iso` 的隔离副本法不同，本单以「注入前 md5 存档 + `git checkout` 复位 + 复位后 md5 相等 + `git status` 空 + 复位后全量 650/0/0/0」**五重取证**替代隔离。
 - `/tmp` 为 ~804MB tmpfs（常满）⇒ 全程 `TMPDIR=/root`，隔离物不出共享树。
 - 本席仅在开工时观察到 `docs/TASKS.md` 被**编排者**并发提交（`5e65c8a`，docs-only，非本席）；已报 `team-lead`。
+
+---
+
+# T-152 交付独立复核报告（席 `te-verify-t152`）
+
+- **复核对象**：提交 `417d069`（交付方实例 `te-t152`）；**复核时点 HEAD**：`417d069`
+- **方式**：只读取证 + `/root/iso-t152`（`/` 下，`<root>/{docs,java,tools,cpp,proto,sdk,web}`）隔离副本内注入；**共享树零改动**（`git status --porcelain` 全程为空）
+- **结论：通过（0 阻断 / 0 缺陷 / 5 观察）**
+
+## 一、证据链独立核（独立实测）
+
+| # | 断言 | 独立实测 | 判定 |
+|---|------|---------|------|
+| 1 | 提交 4 文件 | `git show --numstat 417d069`：`TEST_RESULT.md +147`、`ScopedSqlPredicateEffectTest.java 347`、`InMemoryDmEngine.java +17/−5`、`ScopedPredicateGuard.java 112`；`DmProductDaoScopedSqlTest.java` **不在**改动集 | ✅ |
+| 2 | 门禁 650/0/0/0 | `mvn -B -o -Punit clean test` ⇒ `Tests run: 650, Failures: 0, Errors: 0, Skipped: 0` BUILD SUCCESS | ✅ |
+| 3 | `@Test`==surefire==650 | `grep -rc @Test java/src/test` = 650；surefire `.txt`/`.xml` 合计 = 650 | ✅ |
+| 4 | arch-check rc0 / E1–E7 全 0 | `bash tools/arch-check/arch-check.sh` ⇒ AGG_RC=0，E1..E7 各 0 | ✅ |
+| 5 | 树锚 `0e81c830…`/359 | `find java/src -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum` = `0e81c83090dcf5408944f84fc368322b`，359 文件 | ✅ |
+| 6 | T-151 未削弱 | `DmProductDaoScopedSqlTest.java` md5 `04733fdcf9d81c4d153b66633dcd0e59` == 自述；`git show 1137801:…` 同 md5 ⇒ 与 T-151 交付**逐字节同**；2 条语义守卫（`:244`/`:264` `assertFalse(rec.sql.contains(" OR "))`）与断言目视仍在 | ✅ |
+| 7 | 口径 40/38/2 | 见 ★E（独立复算一致） | ✅ |
+
+## 二、对抗性假设（★A–★F）
+
+### ★A 守卫形态可绕过？ —— **假设不成立（守卫生效面优于假设）**
+独立探针 `/root/t152probe/GuardProbe` 直调 `ScopedPredicateGuard`：
+- **A1** 换行/制表/紧邻 `\n OR 1=1`、`\tOR 1=1`、`(?,?)OR 1=1` ⇒ **均检出**（判据为 `\bOR\b` 词边界，**非**连续串 `" OR "`；换行/制表皆词边界）。
+- **A2** 小写/混合 `or 1=1`、`oR 1=1` ⇒ **均检出**（`CASE_INSENSITIVE`）。
+- **A3** `OR/**/1=1`、`/**/OR/**/1=1` ⇒ **均检出**（注释先剔成空格 ⇒ 还原 ` OR 1=1`）。两种结果一致：检出。
+- **A4** 不含 ` OR ` 形态：`AND 1=1`（no-op，不改变过滤力）、`UNION SELECT … WHERE 1=1`、`; DELETE …` ⇒ **均不检出**（== §八已披露残余面①）。
+- 良性不误报：`ORDER BY` / `priority` / `COLOR` / 字面量 `'A OR B'` / `-- OR` 注释 ⇒ 均不误报。
+- **检出面** = {独立 `OR` 记号（任意大小写 / 任意分隔空白或注释 / **任意括号深度**）}；**漏检面** = {非 `OR` 等价改写：`AND 1=1`(no-op)、`UNION SELECT`、语句串 `;`、`NOT(…NOT IN…)`/`CASE`/`COALESCE`}。
+- 裁定：漏检面**已在 §八披露**（明示「不含 ` OR ` 的中和形态不被本守卫检出」）；`UNION`/`;` 未逐词点名但属同披露面 ⇒ **非新缺陷**。最小反例（漏检，已披露）：`scope.sql() + " UNION SELECT * FROM t_x WHERE 1=1"`。
+
+### ★B 判据真接线、非空转？ —— **成立（三组注入全复现 + 本席强化实验）**
+- **INJ-1**（`SubAccountScope.sql()` 尾附 ` OR 1=1`；注入前 md5 `04d64808ec70cdebb52c6eb4e7a4232f` == 产出方自述）：
+  `ScopedSqlPredicateEffectTest` **10/9 红**（9 落点**全红**；唯一绿=自测 `guardDetectorIsNotVacuous`）、`DmProductDaoScopedSqlTest` **9/2 红**（= T-151 语义守卫）、`DmExposureDaoScopedSqlTest` **6/0**、`DmTradePlanDaoScopedSqlTest` **4/0**、`DmTradePlanStableOrderTest` **4/0** ⇒ 合计 **33/11**（与产出方逐项吻合）。**证**：9 落点全接线；3 形状文件对「谓词中和」**全盲**。
+- **★B 强化（本席自设）**：**保持 INJ-1**、同把守卫 `containsNeutralizingOr` 强制 `return false` ⇒ 9 落点**全部转绿**，仅自测 `guardDetectorIsNotVacuous` 红（10/1）⇒ **证守卫为该 9 落点的唯一承重检出者**。
+- **INJ-2**（`DmExposureDao.findByIdScoped` SQL 尾附 ` AND 1 = ?`）：`ScopedSqlPredicateEffectTest` **10/1 红**（仅 `exposureFindByIdScoped`，`expected:<4> but was:<3>`）、`DmExposureDaoScopedSqlTest` **6/0** ⇒ 判据②**独立承重**。
+- **INJ-3(b)**（`DmHedgePlanDao.findByIdScoped` 同删 `scope.sql()` 与 `scope.params()`）：`ScopedSqlPredicateEffectTest` **10/1 红**（仅 `hedgePlanFindByIdScoped`，报「scope 谓词须存在」）⇒ 判据③**独立承重**；该落点此前无真实 DAO 用例 ⇒ 本守卫为**唯一**检出者。
+
+### ★C 占位符判据边界 —— **无缺陷**
+探针 4 例：字面量 `'?'`+块注释 `/* ? */`（→3）、行注释 `-- ?`（→2）、字面量内转义引号 `'it''s ? here'`（→1）、普通 4 占位符（→4）⇒ 均正确剔注释/字面量。
+
+### ★D P4「假阳=越权可见」 —— **成立，但性质=测试夹具保真度（非生产缺陷）**
+隔离副本内用**真 `DmProductDao` + `InMemoryDmEngine`** 独立复现（品种 7 白名单仅含子账户 1）：
+- **P4** `findByIdScoped(7, scope=[7])` ⇒ **返回行 id=7**（假阳·**越权可见**；DM8 正确应为 null）✅
+- **P5** `findByIdScoped(7, scope=[1])` ⇒ **null**（假阴）✅；对照 P6 `scope=[99]` ⇒ null；P7 `scope=[]` ⇒ 抛 `IndexOutOfBoundsException: Index 1 out of bounds for length 1`
+- **P2** 带点号 `a.id IN (SELECT…)` ⇒ 抛 `UnsupportedOperationException：无法求值的 WHERE 原子` ✅
+- **P3** 裸列名 + 子查询逗号数>参数数 ⇒ 抛 `IndexOutOfBoundsException: Index 1 out of bounds for length 1` ✅
+- **定性**：根因在 `InMemoryDmEngine`（不解析子查询；`WHERE` 原子正则 `^(\w+)\s+IN\s*\((.*)\)$` 把子查询文本当 IN 取值列表、按逗号切分消费绑定参数）⇒ **内存假引擎不保真**。**生产跑 DM8，`DmProductDao` 的 SQL 正确无误**（形状测试+守卫共同证明）⇒ **非生产缺陷**，**不得**据此判生产越权。
+- **影响面独立核**：全仓 `findByIdScoped|findAllScoped|findPageScoped|findByHedgePlanScoped` 的测试引用**全部**是 `FakeDao`，**无一处**把白名单子查询路由进 `InMemoryDmEngine` ⇒ 产出方「未误导出放水断言」**属实**。
+
+### ★E 口径 40/38/2 —— **一致**
+```
+for f in DmProductDaoScopedSqlTest DmExposureDaoScopedSqlTest DmTradePlanDaoScopedSqlTest; do
+  grep -c "\.contains(" java/src/test/java/com/hedgeguard/dao/impl/$f.java; done
+# => 19 / 12 / 12   （每文件含 1 处假驱动分发 sql.contains("COUNT(*)")，非断言 ⇒ 减 3）
+```
+断言级 = 18/11/11 = **40**；语义 = 2（**仅** `DmProductDaoScopedSqlTest:244`/`:264` 的 `assertFalse(contains(" OR "))`）；形状 only = **38**。口径：该 40 为「3 个 scoped 文件内**断言级** `.contains(`」，含非 scope 形状断言（`COUNT(*)`/`ORDER BY`/`LIMIT`）⇒「scoped」标签略宽，**不影响数值**。
+
+### ★F T-151 未被削弱 —— **成立**
+见 §一#6：md5 与 T-151 提交 `1137801` 逐字节同、不在 `417d069` 改动集、2 条语义守卫与断言目视在位。
+
+## 三、观察单（不立号）
+
+| # | 观察 | 不立号理由 |
+|---|------|-----------|
+| O-1 | `ScopedSqlPredicateEffectTest` javadoc 头写「（10 个落点…）」但 `<ol>` 只列 9 条（第 10 = `S1` 基类，TEST_RESULT §五表A 确有 S1 行） | 数字与表A自洽，仅 `<ol>` 未列基类项；纯文档口径、无功能影响 |
+| O-2 | 漏检面含 `UNION`/`;`，§八只逐词点名 `AND 1=1` | 属**已披露**残余面；且威胁模型为**回归**非注入（`scope` 列名受 `[A-Za-z_]` 校验、非用户可控） |
+| O-3 | `\bOR\b` 可漏 `1OR 1=1`/`OR1=1`（紧邻 token） | 非现实回归形态（DAO 拼装均空白分隔）；仅登记 |
+| O-4 | 守卫只剔单引号字面量，双引号标识符 `"OR"` 会误判（假阳向） | 无 DAO 产出双引号标识符；假阳非假阴、非安全向 |
+| O-5 | Part② 探针 `${TMP}/T152EngineProbe` 用毕删除，仓库不可查 | 本席已在隔离副本内**独立复现全部 P1–P5 形态**（★D）⇒ 结论不依赖该一次性文件 |
+
+## 四、边界与不变式（本席声明）
+- 只读共享树；全部注入仅在 **`/root/iso-t152`**（`/` 下）内进行并**逐字节复位**（与共享树 `diff` 全同）；共享树 `git status --porcelain` **全程为空**。
+- `mvn` 串行执行（本席为唯一构建者）；全程 `TMPDIR=/root`，未用 `/tmp`。
+- 未 `commit`/`amend`/`reset`/`push`；未改 `java/src/main/**` 最终态。
