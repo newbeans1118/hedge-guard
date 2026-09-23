@@ -9755,3 +9755,97 @@ user.mustChangePassword = "N"; // 单条 UPDATE，仍是单写，但值写错
 - 复核席原判「其余 **2 低 + 4 观察** 均不阻断」**在补正后仍成立**：补正仅动 `java/CONTRACTS.md`（内容级锚 `java/src`/`web` 恒定），未触及功能/前端面；低缺陷项 (`te-verify-t146-002`/`-003`) 与观察项 (`-004`~`-007`) 已由编排者立号 `T-148`/`T-149` 承接。
 - ⇒ **`T-146` 可转 `DONE`**（判据 = **授权 + 独立验证**）；授权下达属编排者/门禁职责。
 - 本席与编排者所述数值 **逐项一致**；**新发现 = 0**（新缺陷 0、新观察 0）。
+
+---
+
+## 证据章 · `T-148` 独立复核（席 `test-engineer` / 实例 `te-verify-t148`）
+
+**复核对象**：`T-148`（P1）—— `FR-AUTH-16`「重置后强制修改」对已登录会话生效（`resetPassword`/`enableUser` 立即失效目标用户会话 + `kicked_by` 留痕）
+**冻结点**：实交提交 **`b66934e`**（feat(auth) T-148）
+**⚠️ 与派单不符（据实指出）**：派单称「`HEAD = b66934e`」，**实测工作区 `HEAD = 8a63f6f`** —— 系其后 1 笔**仅动 `docs/BOARD.md` + `docs/TASKS.md`** 的台账提交（`git diff --stat b66934e 8a63f6f` = 2 files / +16 −11），`java/src` 内容级锚两点**逐字节相同** ⇒ 不影响复核对象。
+**树锚**（取样 `2026-09-23T19:01:01Z`，连采 3 次恒定，`git status --porcelain` 空）：`java/src` **`498a1d5ae3ad2b8061b89e42b2a0c8e3` / 350**、`web` **`275318eb310b7316ce49c696c2d27b52` / 27** —— **与派单一致**。
+**隔离副本**：`/root/t148-verify`（布局 `<root>/{docs,java,tools}`，缺 `tools/` 会致 `mvn validate` arch-check `127`；`TMPDIR=/root`）；基线副本 `/root/t148-base`（`b66934e^`，其 `java/src` = `2a74492e800706d13f48f8a0121a0945` / 349，**即 `T-146` 基线锚**）。
+**说明**：本席全程**未改共享树**（`java/**`、`web/**`、`docs/TASKS.md`、`docs/BOARD.md`、`java/CONTRACTS.md` 零改动；本证据章为**纯追加**）。变异/探针一律在隔离副本内做，`AuthService.java` 复位后 `md5 = 0104f7732973bd1b54b0f23945d2770b`。
+
+### I. 结论
+
+- **结论 = 通过（阻断缺陷 0 / 观察 6）** ⇒ **`T-148` 具备转 `DONE` 条件**（`DONE` 判据 = 授权 + 独立验证；授权由编排者下达）。
+- **本任务验收判据全数承重**：①已登录→重置→旧会话被拒（`10006`）②重登新会话被门禁（`10003`）③反向不误伤 ④本人改密不误加失效 ⑤镜像方向 `enableUser` 可达且同形已修；**5 组自设变异全部击杀**（M1–M5），另 **1 组 Handler 级可达性探针绿**（M6）。
+- **门禁独立复现**：`TMPDIR=/root mvn -B -o -Punit clean test` = **593 / 0 / 0 / 0**；基线（`b66934e^`）**独立实测 588 / 0 / 0 / 0** ⇒ **delta = +5**；`@Test` == surefire `<testcase>` == **593**（72 类）；arch-check（**共享树**，`E6`/`E7` 实扫）**`E1`–`E7` 全 `0`、聚合 `rc=0`**。
+- **未发现新增阻断缺陷**；发现 6 项观察（`te-verify-t148-001`~`-006`），**均不阻断**，其中 `-001`（= 编排者 `O-1`）**独立证成为真缺口**、归 `T-150` 承接（**属 `T-148` 验收面之外**，不构成本任务阻断）。
+
+### II. 独立实测 vs 交付方自述（分列对照）
+
+| # | 交付方自述（`/root/be-t148-chapter.md` 及派单 §3） | 本席独立实测 | 判 |
+|---|---|---|---|
+| 3.1 | 提交 `b66934e`，2 文件 / **+439 / −0**；`AuthService` +29、新测试 +410 | `git show --numstat b66934e` = `29 0 AuthService.java` + `410 0 ResetPasswordSessionInvalidationRealDaoTest.java`；`--name-only` 仅此 2 文件 | ✅ |
+| 3.1a | 新测试路径 `java/src/test/java/com/hedgeguard/service/…` | **实测在 `java/src/test/java/com/hedgeguard/web/ResetPasswordSessionInvalidationRealDaoTest.java`**（`web` 包非 `service`） | ⚠️路径笔误（不影响） |
+| 3.1b | `resetPassword`（事务后）与 `enableUser`（`recordChange` 后）各加 `invalidateSessionsImmediately(userId, operatorId)` | 实测 `AuthService.java:439`、`:981` 两处调用；diff hunk 定位吻合 | ✅ |
+| 3.1c | 新增私有重载 `invalidateSessionsImmediately(long, Long)`（`~:1513-1529`），写 `kicked_by=operatorId` | 实测 `:1524-1531`（javadoc `:1513-1523`）；`loginSessionDao.invalidateByUser(userId, SESSION_KICKED, operatorId, …:+1)` | ✅ |
+| 3.1d | **未改动** `disableUser` 共用的无参版本 | 逐字节比对：无参法体 `md5 = 5f8f7b4451fde84d9104b1196c7d91fa`，`b66934e^` 与 `b66934e` **IDENTICAL** | ✅（**a 项**） |
+| 3.2 | 选带 `operatorId` 变体，理由 = `FR-AUTH-16`「重置须留痕」 | 理由成立（`t_login_session.kicked_by` 注释即「强制下线的管理员」）；但**需 `O-1` 补齐**（见 `-001`） | ✅ / 附观察 |
+| 3.3 | 语义：旧会话消失⇒`10006`；重登新会话⇒`10003` | **M1 变异 + 用例 ①/②** 独立复现：旧会话被清 ⇒ 过滤 401/`10006`；`login` 后新会话 `mustChangePassword=true` ⇒ 403/`10003` | ✅ |
+| 3.4 | 镜像方向（`enableUser`）**成立且已同批修** | `enableUser:944-974` 前置仅 3 条**无「目标须 DISABLED」**；`UserHandler:120-129` `action=ENABLE` 仅要 `newPassword`+`reviewerId`；**M6 Handler 级探针**对在线 `ENABLED` 用户 ⇒ `200` 且会话被清 | ✅ |
+| 3.5 | 门禁 `593/0/0/0`（基线 588，+5）；`@Test`==surefire==593；arch-check `E1`–`E7` 全 0 rc0 | 独立复现：**593/0/0/0**、基线 **588/0/0/0**、`@Test`==surefire==**593**、arch-check 共享树 `E1`–`E7` 全 `0` `rc=0` | ✅ |
+| 3.6 | 自设变异 `MUT-R`⇒红 ①`:172`+③`:221-222`；`MUT-E`⇒红 ⑤`:263`；披露 `MUT-R` 不击落 ② | **本席自设 M1/M2 独立复现同结果**（见 §IV）；②由登录读库快照承重、与旧会话失效正交 —— 披露属实 | ✅ |
+| 3.7 | `O-1`（`resetPassword` 无独立审计行）、`O-2`（复用惯用法推进 `permission_version_snapshot`） | `O-1` **证成为真缺口**（见 §V）；`O-2` **证成观察**（`src/main` 0 处比较/校验） | ✅ |
+
+| 派单 §5 扫描面 | 本席独立结论 |
+|---|---|
+| **(a)** 无参 helper 逐字节未变 | ✅ **证成**：`invalidateSessionsImmediately(long)` 法体 `b66934e^` vs `b66934e` `diff` 空 / `md5` 同（`5f8f7b44…`）⇒ `disableUser` 语义不受影响 |
+| **(b)** `10006` vs `10003` 语义 | 实测成立：被踢与过期**不可区分**（同落 `NOT_AUTHENTICATED`）；`FR-AUTH-16` 处理规则 / `R-AUTH-6` 原文**均未要求区分**错误码 ⇒ **不构成需求层缺口**（记为观察 `-002`） |
+| **(c)** 自设变异 M1–M6 | ✅ 见 §IV；**M3（仅清内存）→ 红**⇒「库侧无守卫」**被证伪**；**M4/M5（丢 `operatorId`）→ 红**⇒「留痕无守卫」**被证伪** |
+| **(d)** 测试基座忠实性 | ✅ **真走真实 DAO + `InMemoryDmEngine`**：`DmUserAccountDao`/`DmLoginSessionDao` 真实；断言读**引擎原始行**（`engine.table("t_user").rows`）+ **真实 DAO 读回**（`loginSessionDao.findBySessionId`）；仅 `FakeHistoryDao` 内存假件（**已诚实披露**，与「会话失效」无因果） |
+| **(e)** 覆盖完整性 | ①（无在线会话不报错）**由 ②/⑤ 隐式覆盖**（未 seed 库会话行 ⇒ `invalidateByUser` 命中 0 行）②（他人不受影响）**③ 显式覆盖** ③（`changePassword` 不失效 + 同会话续用）**④ 覆盖** ④（旧 Cookie 再访问被拒）**① 覆盖** —— **无缺项**（详见 §VI） |
+| **(f)** 既有用例交互 | ✅ **593 = 588 + 5**；新测试文件 `@Test` 恰 5；`AuthAdminServiceTest` 既有 `enableUser`/`resetPassword` 断言语义**未变**（累计 `invalidateCalls` 用 `>=`、未断言「不得失效」）⇒ **无既有用例被改写/被静默弱化**（详见 §VI） |
+| **(g)** 契约面 | ✅ `java/CONTRACTS.md` **不在提交内**（`--name-only` 0 命中）；新增方法为 `private`，未增删端点/DTO/错误码/DAO 方法 ⇒ **无需登记** |
+| **(h)** 台账只读核对 | ✅ `TASKS.md` 表头 **9 列**、**150 行全 9 格**、含转义竖线者**恰 6 行**（`T-010`/`T-032`/`T-033`/`T-035`/`T-096`/`T-131`）；`T-150` 行 **9 格完整**；`BOARD.md` 分区 **`TODO 61 / IN_PROGRESS 0 / 待复核 16 / DONE 56 / BLOCKED 15 / REJECTED 2 = 150`**，四区「本区共 N 条」注与实际行数**逐一相符** |
+
+### III. 缺陷 / 观察（逐条编号）
+
+| 编号 | 现象 | `file:line` | 失败场景 | 定级 | 归属 |
+|---|---|---|---|---|---|
+| `te-verify-t148-001` | **`resetPassword` 无独立持久审计行**（= 编排者 `O-1`，**独立证成为真缺口**）：仅 `LOG.info`；目标**无在线会话**时 `invalidateByUser` 命中 0 行 ⇒ **无任何持久化操作人记录**；有在线会话时仅 `t_login_session.kicked_by`（且会话行**允许物理 DELETE**） | `AuthService.java:413-442`（无 `recordChange`）；对照 `:855/:901/:928/:976/:1437` 均有 | 管理员重置**离线**用户口令 ⇒ `FR-AUTH-16`「重置须留痕」在可审计面（`t_permission_change_log`/`t_login_log`）**留不下记录** | **P2（中低，不阻断）** | 已由编排者立 **`T-150`**（建议形态 = 补 `recordChange(CHANGE_USER_ATTR, …)`） |
+| `te-verify-t148-002` | 被踢会话与超时都会话**同落 `10006`**，API 面不可区分；用户看到的是「会话不存在或已超时」而非「口令被重置」 | `SessionAuthFilter.java:95-98`；`ErrorCode.java:27` | 管理员因怀疑泄露而重置在线用户 ⇒ 该用户被重定向重新登录，**不知因由**（重登后得 `10003` 方才引导改密） | 观察（**需求未要求区分**） | 无（`FR-AUTH-16`/`R-AUTH-6` 原文无区分要求） |
+| `te-verify-t148-003` | **`permission_version_snapshot` 只写不读**（= 编排者 `O-2`，**独立证成**）：复用惯用法对口令重置（**非权限变更**）亦 `+1`，但该列 `src/main` **0 处比较/校验** | 写：`AuthService.java:287/:1507/:1526`；读映射：`DmLoginSessionDao.java:92`；**无消费点** | 无功能后果（会话失效靠 **内存清空** 生效，非版本比对） | 观察（无功能后果） | 无（记录在案） |
+| `te-verify-t148-004` | 重置会**踢掉目标用户的全部会话（含其它设备）**，而非仅当前会话 | `AuthService.java:1526` `invalidateByUser(userId, …)`（按 `user_id` 批量） | 目标用户在多端登录 ⇒ 重置后**全部**下线 | 观察（**安全期望**，与 `R-AUTH-9`/`R-AUTH-11` 一致） | 无 |
+| `te-verify-t148-005` | 口令更新（主事务）与会话失效（**新开事务**）分两次提交 ⇒ 第二段失败则「口令已改、会话未清」的窗口 | `AuthService.java:422-434` 与 `:439`（`invalidateSessionsImmediately` 自带 `tx.inTransaction`） | 两 tx 之间进程异常 ⇒ 旧会话带旧快照存活 | 观察（**与 `disableUser:922/926`、`forceLogout:1432-1435` 既有惯例同形**，非本任务引入） | 无 |
+| `te-verify-t148-006` | 证据形态：e2e 走 **`RequestDispatcher` + 真实 `SessionAuthFilter`**（非真实 TCP socket）；`FakeHistoryDao` 为内存假件 | `ResetPasswordSessionInvalidationRealDaoTest.java:147`、`:367-397` | —— | 观察（**符合本项目 `InMemoryDmEngine` e2e 惯例**且**已诚实披露**；`FakeHistoryDao` 与会话失效无因果） | 无 |
+
+> **均不阻断**：`-001` 属 `T-148` 验收面之外（另立 `T-150`）；`-002`/`-003`/`-004`/`-005`/`-006` 或为需求未要求项、或为既有惯例、或为已披露的测试基座限定。
+
+### IV. 变异台账（**本席自设，未复用交付方**；隔离副本 `/root/t148-verify`）
+
+> 纪律：每组**先证 `build` 成功/编译 `rc=0`（`mvn -Punit` 完整记录）再看测试 `rc`**；结束后 `cp` 复位并核 `md5 = 0104f7732973bd1b54b0f23945d2770b`（全部 ✅）；禁两实例并发（串行执行）。
+
+| 组 | 变异点 `file:line` | 改前 → 改后 | 结果 | 红点（方法 `:行` / 断言） | 复位 |
+|---|---|---|---|---|---|
+| **M1** | `AuthService.java:439`（resetPassword） | `invalidateSessionsImmediately(userId, operatorId);` → 注释 | `593 run / 2 fail` | ①`resetPasswordInvalidatesExistingSession:172`（内存会话未清）、③`resetKillsAllTargetSessionsButNotOthers:221`（目标会话 A 未失效） | ✅ md5 同 |
+| **M2** | `AuthService.java:981`（enableUser） | 同上 → 注释 | `593 run / 1 fail` | ⑤`enableUserInvalidatesOnlineSession:263`（在线会话未清） | ✅ md5 同 |
+| **M3**（自设） | `AuthService.java:439` | 调用 → **仅清内存**（`sessionStore.invalidateByUser(userId);`，**不写库**） | `593 run / 1 fail` | ①`:181`「库中会话状态须为 `KICKED`」expected `<KICKED>` was `<ACTIVE>` | ✅ md5 同 |
+| **M4**（自设） | `AuthService.java:439` | 实参 `operatorId` → **`null`**（丢 `kicked_by`） | `593 run / 1 fail` | ①`:182`「`kicked_by` 须被写入（留痕重置操作人）」expected not `<null>` | ✅ md5 同 |
+| **M5**（自设，负控） | `AuthService.java:1524-1531`（新重载体） | 法体 → **直接委托无参版本**（`invalidateSessionsImmediately(userId)`，忽略 `operatorId`） | `593 run / 1 fail` | ①`:182`（同 M4） | ✅ md5 同 |
+| **M6**（自设，可达性探针） | 隔离副本新增 `T148HandlerReachProbeTest`（真实 `UserHandler` + 真实 `Router`/`SessionAuthFilter`/`RequestDispatcher`） | 经 `PUT /api/v1/auth/user {action:ENABLE}` 对**在线 `ENABLED`** 用户 | `6 run / 0 fail`（5 原 + 1 探针） | ——（探针**绿**）⇒ **该情形可达**，且经 Handler 路径同样失效目标会话、`must_change_password='Y'` | 探针文件已删，副本锚复归 `498a1d5a…`/350 |
+
+**关键判据结论**：**M3 红** ⇒ 「库侧无守卫」**被证伪**；**M4/M5 红** ⇒ 「`kicked_by` 留痕无守卫」**被证伪**（交付方选择带 `operatorId` 变体的**唯一理由已被断言覆盖**：`assertNotNull(row.kickedBy)` + `assertEquals(OPERATOR, row.kickedBy)`）。
+
+### V. 对编排者两条裁定的独立判定
+
+- **`O-1`（`resetPassword` 无独立审计行）⇒ 判定：真缺口成立，`T-150` 应保留。**
+  独立取证：①`resetPassword:413-442` **不调** `recordChange`；同类 `createUser:855`/`updateUser:901`/`disableUser:928`/`enableUser:976`/**`forceLogout:1437`** **均调**；②`TB-AUTH-11 t_password_history`（`DATA_MODEL.md:903-919`）= `user_id`/`password_hash`/`changed_time`/`seq_no`，**无操作人列**；③`t_login_session.kicked_by` 仅覆盖「当时有 ACTIVE 会话」且会话行**允许物理 DELETE**；④`writeLoginLog` 在 `resetPassword` **未被调用** ⇒ 目标离线时仅 `LOG.info`。
+  **对遣词的反证评估**：(i)「`LOG.info` 即满足留痕」**不成立** —— `FR-AUTH-18` 的审计查询面为 `t_permission_change_log`/`t_unauthorized_attempt`，应用日志非可查审计记录；(ii)「口令重置不属 `CHANGE_USER_ATTR` 范畴」**不成立** —— 该枚举即含 `USER_ATTR`，且兄弟 `enableUser` 正以 `USER_ATTR` 记「启用（须强制改口令）」。⇒ **缺口成立**；定级 P2（把守「重置事实 + 操作人」的**可审计性**，非安全绕过）**于 `T-148` 范围内不阻断**（`T-148` 三条判据均不含留痕）。
+- **`O-2`（复用惯用法对非权限变更亦推进 `permission_version_snapshot`）⇒ 判定：观察成立，不立号。**
+  独立取证：`grep -rn "permission_version_snapshot" java/src/main` 仅得 `AuthService.java:287`（写）、`LoginSession` 实体字段、`DmLoginSessionDao.java:36/76/92/120`（列/绑定/读映射/UPDATE SET）⇒ **0 处比较/校验**；且 `Session.permissionVersion` 亦无运行时比对点（仅传参/构造）。⇒ 该列**无业务消费点**，`+1` 无功能后果。会话「即时失效」实由 **`sessionStore.invalidateByUser` 清内存** 达成（`SessionAuthFilter:93-98`），与被 `+1` 的库列无关。⇒ **观察成立**。
+
+### VI. 扫描面补充证据
+
+- **(e) 覆盖完整性（逐条）**：①「目标无在线会话」⇒ **②/⑤ 隐式覆盖**（未 seed 库会话行，`invalidateByUser` 命中 0 行、不抛错）；②「他人不受影响」⇒ **③**（`S-2`/`OTHER_UID` 仍 `200`）；③「`changePassword` 不失效 + 同会话续用」⇒ **④**（`S-3` 置位 → 经真实 `PasswordHandler` 改密 → 会话仍在、标记清除、`200`）；④「旧 Cookie 再访问被拒」⇒ **①**（`call()` 以 `Cookie: HGSESSION=<sid>` 经真实过滤器 ⇒ `401`/`10006`）。
+  **⚠️ 措辞提示（派单 §5(e)②）**：原文「未被重置的其他在线用户/同用户其它会话 ⇒ 不受影响」中「同用户其它会话」与实现语义**相反** —— 实测**目标用户的其它会话（`S-1b`）依设计应一并失效**（③ 已断言）；**不受影响者**仅「未被重置的**其他用户**」。本席据实测记此，未按原文措辞判定。
+- **(f) 593 构成**：`b66934e^` 独立实测 **588**，`b66934e` **593**，新测试类 surefire 报 **5 run**，该文件 `@Test` 计 **5** ⇒ 旧 588 + 新 5。既有 `AuthAdminServiceTest` 对 `enableUser`（`:186`/`:217`）与 `resetPassword`（`:207`）的断言仅涉状态/哈希/置位，**未断言会话计数上界**，故新增失效**不使其语义改变**（全绿）；**未发现被静默弱化的旧断言**。
+- **(h) 统计口径**：`TASKS.md` 任务行「有效竖线」按**未转义竖线**计（先剔 `\|` 再数 `|`）：**150/150 行 = 9 格**；`BOARD.md` 分区行数由 `^### ` 段界内 `^\|\s*T-\d+` 逐段统计。
+
+### VII. 证据落点
+
+- 本节追加于 `docs/TEST_RESULT.md`：**起始行 `9758`**（原文件末行 `9757`）。
+- **纯追加证明**：追加前 `docs/TEST_RESULT.md` = 9757 行 / `md5 = 618bbb4a5c96a9b15c3b79e09018e6e4`；`head -9757 docs/TEST_RESULT.md | md5sum` **追加后仍 = `618bbb4a96…`**（见文末「追加后 md5」）。
+- 隔离副本与基线副本：`/root/t148-verify`（=`498a1d5a…`/350）、`/root/t148-base`（=`2a74492e…`/349）；变异日志 `/root/mut_M1..M5.log`。
