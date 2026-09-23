@@ -87,9 +87,12 @@ function buildTopbar() {
   HG.session.onChange(refreshSubSelect);
 
   function refreshUser() {
-    const u = HG.session.userLabel();
-    const r = HG.session.roleLabel();
-    userLabel.textContent = r ? (u + '（' + r + '）') : u;
+    // 会话层（core/session.js）**不承载角色数据**：state.user 仅 { userId, username, expireTime }，
+    // 引导探针 GET /config/sub-account 亦不含角色（该文件全篇无 "role"）⇒ 顶栏只显示登录用户摘要。
+    // ⚠️ 原实现在此调用从未存在的 HG.session.roleLabel() ⇒ buildTopbar() 抛 TypeError ⇒ main() 中断
+    //    ⇒ 侧栏 / HG.session.bootstrap() / HG.router.start() 全不执行，整站 SPA 从不初始化（T-134）。
+    //    此为根因修复（不依赖不存在的 API），非在 main() 外套 try/catch 掩盖症状。
+    userLabel.textContent = HG.session.userLabel();
   }
   refreshUser();
   HG.session.onChange(refreshUser);
