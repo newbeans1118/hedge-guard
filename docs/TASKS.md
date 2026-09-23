@@ -60,12 +60,12 @@
 | T-015 | 实现套保比率三档计算 | FR-PLAN-6/7/8, R-SPOT-8, CFG-06/06b | backend-engineer#java2 | P1 | T-007 | 16 人时 | 初版 | 已完成，待独立复核 |
 | T-016 | 实现套保计划编制/书面文件门禁/审批链/状态机 | FR-PLAN-1~5/9~20, R-PLAN-5 | backend-engineer#java2 | P0 | T-007, T-015 | 24 人时 | 初版 | DONE（附条件；判据 = 授权 + 独立验证；独立复核 = 有条件通过〔13 项判据 12 符合；`CR-002` 核心反例闭合；反退化 8/8 全红；隔离副本 `346/0/0/0` 独立复现〕；条件 = (c)「审批页面展示」由 `T-020` 承载，义务不减） |
 | T-017 | 搭建前端基座（登录/核心工具/零构建链） | NFR-USE-1~5, NFR-MAINT-1/5, NFR-COMPAT-3 | frontend-engineer | P0 | T-003 | 16 人时 | 初版 | TODO |
-| T-018 | 实现品种管理前端页面 | FR-PRODUCT-1~14 | frontend-engineer | P1 | T-017, T-012 | 12 人时 | 初版 | TODO |
+| T-018 | 实现品种管理前端页面 | FR-PRODUCT-1~14 | frontend-engineer | P1 | T-017, T-012 | 12 人时 | 初版 | **IN_PROGRESS**（2026-09-23 派发实施中，**唯一写者**；实例 `be-t018`） |
 | T-019 | 实现现货与实货敞口前端页面 | FR-SPOT-1~18 | frontend-engineer | P1 | T-017, T-013, T-014 | 16 人时 | 初版 | TODO |
 | T-020 | 实现套保计划前端页面 | FR-PLAN-1~20 | frontend-engineer | P1 | T-017, T-016 | 16 人时 | 初版 | TODO |
 | T-021 | 实现权限与系统配置前端页面 | FR-AUTH-1~18, FR-CONFIG-1~15 | frontend-engineer | P1 | T-017, T-008, T-009, T-010 | 16 人时 | 初版 | TODO |
 | T-022 | 制定 M1 测试策略与用例设计（约束→用例映射） | NFR-TEST-1/2/3, NFR-MAINT-2 | test-manager | P0 | T-002 | 16 人时 | 初版 | TODO |
-| T-023 | 编写 M1 单测与集成测试（JUnit 5） | NFR-TEST-1/3, NFR-MAINT-2 | test-engineer | P0 | T-010, T-012~T-016 | 32 人时 | 初版 | TODO |
+| T-023 | 编写 M1 单测与集成测试（JUnit 5） | NFR-TEST-1/3, NFR-MAINT-2 | test-engineer | P0 | T-010, T-012~T-016 | 32 人时 | 初版 | **IN_PROGRESS**（2026-09-23 派发实施中，**唯一写者**；实例 `be-t023`） |
 | T-024 | 执行 M1 端到端验收（双子账户→品种/敞口→计划→隔离→落库） | PROJECT §9 M1 验收, §10-34 | test-engineer | P0 | T-023 | 16 人时 | 初版 | TODO |
 | T-025 | 执行 M1 代码与架构合规审查 | NFR-MAINT-4/5/6, NFR-SEC-9, PROJECT §10-7 | code-reviewer | P0 | T-012~T-021 | 16 人时 | 初版 | TODO |
 | T-026 | RSK-01 protobuf 在 C++11 下空壳构通验证 | ARCH §9 RSK-01, §7.1.5 | backend-engineer#cpp | P0 | — | 8 人时 | 初版 | DONE（**附条件**；判据 = **授权 + 独立验证**；`T-030` 汇签结论 = **通过**〔**技术风险已排除，不得上推为「协议已验证」** —— `proto/hgcp.proto` 实测不存在，协议级闭环待 `T-032`〕；见 §2 备注） |
@@ -508,6 +508,7 @@
   3. 导入错误按行提示（缺列/格式错误）；导出触发 CSV 下载。
 - **产出**：`web/js/pages/product.js`
 - **备注**：接口依据 `ARCHITECTURE.md` §4.1.1。
+  **📌（2026-09-23 派发登记 · 只加不改）** 状态 = **IN_PROGRESS**（实例 `be-t018`、**唯一写者**：`web/js/pages/product.js` + `web/js/routes.js`）。**派发前置经实测核验**：其验收 2 所列 **6 个端点全部已在服务端注册且有 Handler**（`/product`、`/product/{id}`、`/product/whitelist`、`/product/quota`、`/product/import`、`/product/export`；注册清单见 `java/src/main/java/com/hedgeguard/web/ApiRoutes.java:29-31`）。**形式依赖 `T-017` 登记为 `TODO` 但实现面已在树**（`web/js/core/` 6 文件 + 登录页 + `window.HG`；`E6` 已 `rc=0`）⇒ **实质前置满足**。**基线**：`web` 树 = `81a06bce19f9db6df02c46a34f93eb20` / **27 文件**（`product.js` 本为 19 行 `renderStub` 桩件）。
 
 ### T-019 实现现货与实货敞口前端页面
 
@@ -573,7 +574,7 @@
   2. 覆盖子账户隔离、敞口三分量一致性（`#17` 必测用例①②③④⑤）、限额三层全序（`#13`）；
   3. 明确 M1 不依赖 DM8 的「假 DAO」单测档（`RSK-03` 应对）；
   4. 用例均可给出唯一预期值。
-- **产出**：`docs/TEST_PLAN/M1.md`
+- **产出**（**📌 2026-09-23 编排者就地修订，理由见下；原写 `docs/TEST_PLAN/M1.md`**）：**以 `docs/TEST_PLAN/**` 为承载**（14 文件：`INDEX.md` + 11 模块 + `BOUNDARY.md` + `NONFUNCTIONAL.md`），并在 `INDEX.md` **增一节「里程碑视图（M1）」**索引 M1 相关用例。**不另造 `M1.md`**（避免与既有模块化件重复）。**修订理由（据实）**：只读普查实测 —— 该 TEST_PLAN 为**阶段 S5 / v0.1 / 状态:草稿**的**全里程碑**件，其内容**实质已覆盖本任务验收**（`INDEX.md:35` 唯一约束/非空/外键/CHECK 映射；`:109-121` JUnit→TC 映射 174/272；`:666` `RSK-03` 假 DAO 无 DM 档；`:598` 三层限额全序；`:599` 敞口三分量），而 `T-022/T-056/T-072/T-084` 各自命名的 `M1/M2/M3/M4.md` **全部不存在** ⇒ **书面产出面与实际承载形态不符，是边界写在事实之前**（同族先例：`T-130` 验收 6）。**待办**：该「里程碑视图」小节与「草稿→定版」状态由 `T-022` 交付时一并处理。
 - **备注**：**不写代码**；用例设计属测试经理职责。
 
 ### T-023 编写 M1 单测与集成测试（JUnit 5）
@@ -589,7 +590,8 @@
   1. JUnit 5 单测覆盖产品/现货/计划/权限/配置核心逻辑，**核心模块单测覆盖率 ≥ 80%**（`PROJECT.md` §10-8）；
   2. 集成测试在 DM8 上跑通建表→读写→查询；无 DM 时 `mvn test -Punit` 用假 DAO 可跑单测；
   3. 约束类用例（重复插入/空值/孤儿数据）与敞口三分量用例全部通过。
-- **产出**：`java/src/test/**`、测试报告（**产出路径补登 2026-09-21**：落 `docs/TEST_RESULT.md` §`T-023` 节）
+- **产出**：`java/src/test/**`、测试报告（**产出路径补登 2026-09-21**：落 `docs/TEST_RESULT.md` §`T-023` 节 —— **该节由编排者落笔，交付方回传正文**）
+  **📌（2026-09-23 派发登记 + 三条裁定 · 只加不改）** 状态 = **IN_PROGRESS**（实例 `be-t023`、**唯一写者**：`java/src/test/**` + `java/pom.xml` 测试档）。**现状（另一席只读普查实测）**：`java/src/test` 66 文件 / 60 `*Test.java` / `@Test` 484；陈旧 surefire 快照（`2026-09-22 17:22:52`）**484 / 0 / 0 / 0**（该快照后 `T109EndpointRegistrationTest.java` 被改过 ⇒ **现值须重跑**）；**无 `jacoco`**（覆盖率 ≥80% **当前无法证明**）；**profile 只有 `dm`**（`pom.xml:64-84`，`systemPath=${dm.driver.jar}` 指向**不存在的 `java/lib/`**）；**无任何真库依赖**（无 DM/H2/SQLite；全部为假 JDBC / 假 DAO / 内存求值）。**★裁定 (a)：验收 2 的「DM8 实机」档 —— 环境不可达，改以「等价执行」**（实测：全盘无 `DmJdbcDriver*.jar`、`java/lib` 不存在、`ss -ltnp | grep 5236` 无监听、无 `dmserver`/`dmap` 进程）⇒ 用**内存求值假 JDBC**（本项目已有先例）**真跑** `建表 DDL → INSERT → SELECT` 的**语义**，并**显式标注「未验 DM8 实机」**；**不得**把等价执行写成 DM8 验证（与 `RSK-03`/`R-5`（`BOARD.md` 状态**开放**）一致）。**★裁定 (b)：补 `unit` profile** —— 判据字面要求 `mvn test -Punit` 而 `pom.xml` 无该 profile ⇒ **补一个 `unit` profile**（语义 = 不启用 `dm` 的默认档）使**判据字面可满足**，**不改判据**、**不降级**。**★裁定 (c)：前置口径** —— 形式依赖 `T-012`~`T-015` 登记为「已完成，待独立复核」，其**实现面已在树**（各模块测试已存在）⇒ **构成实质前置，可直接开工**（若实测发现前置实现缺失须报）。
 - **备注**：—
 
 ### T-024 执行 M1 端到端验收
