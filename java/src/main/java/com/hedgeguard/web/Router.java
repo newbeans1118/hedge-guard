@@ -19,6 +19,13 @@ import java.util.Map;
  *       便于前端区分"资源不存在"与"方法用错"。</li>
  * </ul>
  *
+ * <p><b>非冻结 · 实现约定</b>：{@link #match} 为<b>注册序首个命中</b>，故占位符路由须<b>最后</b>注册 ——
+ * 同一 {@code (方法, 段数)} 内，若占位符路由注册在静态路由之前，同段数的静态路由会被<b>静默遮蔽</b>
+ * （{@code BUG-004} 形态：请求被解析为占位符取值，端点在生产装配下不可达）。依据见
+ * {@code docs/DECISIONS/router-match-precedence.md}（裁定 (a) 维持现状：注册序约定 + 机械判据防守）；
+ * 防复发判据见 {@code RouteReachabilityExhaustiveTest} / {@code RouteReachabilityProductionParityTest}
+ * （随 {@code mvn test} 自动运行）。本条**不在**上述「路由规则（冻结）」四则之内。
+ *
  * <p>线程安全：注册在启动期完成，之后只读；{@link #match} 无共享可变状态。
  */
 public final class Router {
@@ -41,7 +48,11 @@ public final class Router {
         if (registration.containsKey(key)) {
             throw new IllegalStateException(
                     "路由重复注册：" + key + "；原因=同一 (方法, 路径) 被注册两次；"
-                            + "复现=检查 RouteRegistry 中该路径的注册次数（禁止静默覆盖）");
+                            + "复现=在装配入口 Bootstrap.registerBusinessRoutes（web/Bootstrap.java）"
+                            + "及各模块注册器 *Routes.register(...)"
+                            + "（如 web/handler/product/ProductRoutes.java）中检索该 (方法, 路径) 的 "
+                            + "register 调用并去重；诊断=比对 Router.routes() 清单"
+                            + "（见 RouterTest / ModuleRoutesConsistencyTest）；（禁止静默覆盖）");
         }
         Route route = new Route(m, pattern, split(pattern), handler);
         registration.put(key, route);
