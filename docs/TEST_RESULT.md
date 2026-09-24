@@ -11658,3 +11658,95 @@ git show 3a991c3:docs/TASKS.md | grep -a '^| T-010 '            # 已成 `xargs 
 ```
 - 本席**未** `commit` / `amend` / `reset` / `restore --staged` / `push`；一切注入仅在 `/root/t159-verify/**`（隔离副本）。
 - **共享树零改动**：复核全程 `git status --porcelain` 为空；共享树 `WsServer.java` 恒 `480862879811d27607a244ba0d81ee48`。
+
+---
+
+# `T-159b` E2 判定量改「合并样本集 pooled P95」—— 退回补正交付报告（席 `te-t159b`；2026-09-24；**纯追加**）
+
+> 工单：`T-159` **退回补正**（承接交付 `5fc2833`；缺陷 `TE-T159-001`，中 = 有效判据被放宽）。
+> **硬约束**：不得改 `200 ms` 阈值、不得削其它断言、只改 `java/src/test/**`、`src/main` 零改动、报告口径自洽、`TMPDIR=/root`、单 `mvn`、`git commit --only`。
+> 基线：开工时 `HEAD=a20b124`、工作树干净；本单写入期间编排者提交 `36b68f7`（**仅 docs/ 台账**，`java/` 未动）。
+
+## 一、结论
+
+**已完成，待独立复核（不自评 DONE）。** 缺陷 `TE-T159-001` 的根因——判定量由「单窗口 P95」换成「各轮 P95 的**轮中位数**」⇒ 恰好 ≤2/5 轮越阈即放行——已消除：判定量改为 **R 轮样本合并集的 `pooled P95`**（E2 字面口径），阈值 `200 ms` 与其它断言均未动。
+- 3 次连续全量 `mvn -B -o -Punit clean test` = **650 / 0 / 0 / 0 + BUILD SUCCESS**（无假红）。
+- **注入必红**：隔离副本内「推送前 +250ms」⇒ `pooled P95` = 258–274ms ⇒ **BUILD FAILURE**（4 种窗口一致）。
+- **关键对照（本单决定性证据）**：**同一次运行**的 **各轮 P95 中位数 = 13/12/12ms（旧判据 ⇒ 绿）**，而 **pooled P95 = 258/259/259ms（新判据 ⇒ 红）** ⇒ 旧判据放行的间歇性退化态，新判据**必红**。
+
+## 二、改动（唯一文件：`WsAcceptanceTest.java`；+ 本证据节）
+
+| 项 | 值 |
+|----|----|
+| 文件 | `java/src/test/java/com/hedgeguard/web/ws/WsAcceptanceTest.java` |
+| md5 / 行数 | `acc1ad65db62b456ff7b959ea25e399e` / 413 |
+| `git diff --numstat` | `30   51   java/src/test/java/com/hedgeguard/web/ws/WsAcceptanceTest.java`（+30 / −51） |
+| 树锚 `find java/src -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum` | `22b6760d1625e2b11a9809a82389852a` / **359 文件** |
+
+改动要点（方法 `e2ConcurrentLatencyP95Under200ms`）：
+
+- 预热 800ms **保留**（样本丢弃；另补 `latencies.clear()` 确保合并集只含测量窗样本）；
+- R=5 轮 / 窗口**保留**，但各轮样本**累加进同一 `List<Long> pooled`**；**不再**对轮 P95 取中位数；
+- 唯一判定量 = `merged = pooled.sorted()` 的 `percentile(merged,95)`，断言 `p95 <= 200`（**阈值未改**，`grep "p95 <= 200"` = 1 处）；
+- 报告行 `[E2] N=… samples=… P50=… P95=… P99=… max=…` 的**每一个数均来自该合并集**（同源自洽，见 §三）；
+- 删除已无引用的 `median()` / `maxOf()` 两个私有辅助方法（死代码，**非断言**）。
+
+**不削其它断言**：`assert` 出现次数 HEAD=28 / 现=28；`@Test` HEAD=8 / 现=8；每轮 `samples.length >= n` 断言保留。
+
+### 为何这个形态成立（不是「放宽判据」）
+
+1. **判定量即 E2 字面口径**：推送期内 `publish→收到` 的端到端 P95 ≤ 200 ms；阈值一分未动。
+2. **去噪改由「样本稀释」实现**：单个瞬态推送节拍 ≈ 32 样本 = 合并集 960 的 **3.3% < 5%** ⇒ 被稀释吸收（纯统计稀释，非投票放水）。旧「轮中位数」把去噪做成 **≥3/5 轮才红** 的投票，才产生盲区。
+3. **仍有牙**：注入态 `pooled P95` = 258–274ms ⇒ 必红（见 §四）；检出下限由「≥3/5 轮越阈（≈60% duty）」降到「≈2 个推送节拍（≈6.7%）越阈」。
+
+## 三、门禁（3 次连续全量跑，独立实测）
+
+命令：`cd java && TMPDIR=/root mvn -B -o -Punit clean test`
+
+| 次 | 结果 | `[E2]` 判定行 |
+|----|------|--------------|
+| #1 | `Tests run: 650, Failures: 0, Errors: 0, Skipped: 0` + `BUILD SUCCESS` | `[E2] N=32 samples=960 P50=5ms P95=13ms P99=14ms max=15ms \| rounds=5 (判定量=pooled P95, 阈值=200ms)` |
+| #2 | `Tests run: 650, Failures: 0, Errors: 0, Skipped: 0` + `BUILD SUCCESS` | `[E2] N=32 samples=960 P50=7ms P95=12ms P99=13ms max=14ms \| rounds=5 (判定量=pooled P95, 阈值=200ms)` |
+| #3 | `Tests run: 650, Failures: 0, Errors: 0, Skipped: 0` + `BUILD SUCCESS` | `[E2] N=32 samples=960 P50=7ms P95=12ms P99=13ms max=15ms \| rounds=5 (判定量=pooled P95, 阈值=200ms)` |
+
+**报告行同源自洽（④）**：以 #1 为例，`samples=960` = 5 轮各 192 之和；`P50=5 ≤ P95=13 ≤ P99=14 ≤ max=15`，四者与 `samples` 同出 `merged`（合并集）。三次的逐轮行（`[E2] round=1..5`）亦全部打印。
+
+## 四、注入前后对照 + 逐字节复位（②）
+
+**隔离副本**：`/root/t159b-verify/{java,tools,docs}`（复制自共享树；`java/src` 树锚 = 共享树 `22b6760d…/359`）。**注入点**：`WsServer.flushQuotes()` 的 **drain 之后、`sendQuote` 之前** 插入 `Thread.sleep(250)`（env 门控；仅当 32 连接就绪后按毫秒窗计——本类中仅 E2 达 32 连接，故无需人工对齐轮次）。运行：`mvn -B -o -Punit test -Dtest=WsAcceptanceTest`。
+
+| 实验 | 注入窗（相对 32 连接就绪） | 各轮 P95（ms） | 轮中位数（旧判据） | **pooled P95（新判据）** | 结果 |
+|------|--------------------------|---------------|-------------------|------------------------|------|
+| **D0 注入前**（无 env） | — | `[10,11,10,11,12]` | 11 | **11** | `BUILD SUCCESS` |
+| **D1b 系统性** | `[0, ∞)` | `[265,269,281,260,263]` | 265 | **274** | **`BUILD FAILURE`** |
+| **W1 间歇** | `[2000,3200)` | `[13,266,255,10,11]` | **13（绿）** | **258** | **`BUILD FAILURE`** |
+| **W2 间歇** | `[2600,3800)` | `[12,259,264,11,11]` | **12（绿）** | **259** | **`BUILD FAILURE`** |
+| **W3 间歇** | `[1400,2600)` | `[259,263,11,12,12]` | **12（绿）** | **259** | **`BUILD FAILURE`** |
+
+- **D1b 断言原文**：`org.opentest4j.AssertionFailedError: E2 要求 P95 ≤ 200 ms，实际（合并样本集 pooled P95）=274ms（样本量=384，P50=258ms，max=285ms）`。
+- **W1 决定性**：同一运行的**各轮 P95 中位数 = 13ms（旧判据 ⇒ `BUILD SUCCESS`）**，而 **pooled P95 = 258ms（新判据 ⇒ `BUILD FAILURE`）** —— 与复核席 ★A「perRoundP95=`[32,260,257,10,12]`、中位数 32 ⇒ 绿」**同形，改判红**。
+- **逐字节复位**：注入态 `WsServer.java` = `c211f850a9acf593a228e972d6c1632c`、树锚 = `e983493171a859e06ad37c93ca2a5970/359`；以共享树原文件覆盖回副本后 = `480862879811d27607a244ba0d81ee48`（= 共享树现值）、树锚 = `22b6760d1625e2b11a9809a82389852a/359`（= 注入前），`grep "TEST-ONLY 注入\|HG_INJ_FROM"` = **0**。
+- **技法提示（供后续复用）**：首版用「相对类加载时刻的全窗」注入，因 E2 在类中执行序靠后而**全部落空**（3 窗均 `BUILD SUCCESS`）；改以「**32 连接就绪**」为基准自校准后，E2 一击命中。⇒ 单测注入须以**被测用例自身的可达状态**为门控，勿用进程级墙钟。
+
+## 五、`src/main` 零改动 / 无生产侧钩子（⑤）
+
+- 共享树 `git diff --name-only -- java/src/main` = **空**；共享树 `WsServer.java` 恒 `480862879811d27607a244ba0d81ee48`（与复核席时点一致）。
+- 本单提交 `git show --name-only` = 仅 `java/src/test/java/com/hedgeguard/web/ws/WsAcceptanceTest.java` + `docs/TEST_RESULT.md`。
+- 注入代码**只存在于隔离副本** `/root/t159b-verify/**`，共享树无任何 `HG_INJ_*` / `TEST-ONLY 注入` 字样。
+
+## 六、未覆盖 / 不可判定项（据实声明）
+
+1. **`pooled P95` 仍非「任一时段 P95 ≤ 200ms」的逐段保证**：它是整段（5×1200ms）合并样本的 95 分位。若退化 **< 5% 时间**（< 1 个推送节拍 ≤ 32 样本），仍会被稀释吸收——这是**刻意的瞬态抑制代价**，非缺陷；**检出下限 ≈ 6.7%（≈2 节拍）**，系设计选择，已在代码注释与本节写明。
+2. **环境敏感性未改**：3 次全量跑均在**空闲单机构建者**下进行；高负载机器上基线 P95 可能上移（原 `T-159` 动因即负载下偶发 228ms）。本判据**不改变**该性质，仅改了去噪统计量，**未**在人为 CPU 压力下复测。
+3. **注入窗为经验取值**：W1/W2/W3 三窗均落 E2 测量段并均复现红；窗位由「32 连接门控 + 毫秒偏移」自校准。**未**在 `mvn test` 全量（非 `-Dtest`）下重跑三窗。
+4. **未做**：真实浏览器端到端、DM8 实例、CTP 联调（均不属本单范围）。
+
+## 七、纯追加证明（本证据节）
+
+```
+追加前： wc -l docs/TEST_RESULT.md = 11660 ; md5sum = 665f454fd972ab23d5baef88890a2bc8
+追加后： head -11660 docs/TEST_RESULT.md | md5sum = <同前>   （原档逐字节未变）
+```
+- 本席仅 `git commit --only java/src/test/java/com/hedgeguard/web/ws/WsAcceptanceTest.java docs/TEST_RESULT.md`；**未** `amend` / `reset` / `restore --staged` / `push`。
+- 本席**未改**需求文档、`docs/DECISIONS/websocket-selection.md`、`200 ms` 阈值。
+- **状态**：**已完成，待独立复核**（不自评 `DONE`）。
