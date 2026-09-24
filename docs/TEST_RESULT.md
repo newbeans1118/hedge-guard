@@ -11879,3 +11879,180 @@ git show 3a991c3:docs/TASKS.md | grep -a '^| T-010 '            # 已成 `xargs 
 | `docs/TEST_PLAN/INDEX.md:138` 陈旧计数 | `T-163` |
 
 **状态：`T-159` 补正 = 通过（待编排者据本复检将 `TE-T159-001` 转 `CLOSED`）。**
+
+---
+
+## T-155 独立复核（席 `te-verify-t155`；提交 `05788d3`）
+
+> **复核对象**：`T-155`（`Router` 可发现化 + 一处不实复现指引订正），交付实例 `be-t155`，提交 `05788d3`（1 file，`--numstat` `12 1`）。
+> **复核立场**：产出方自述**不构成证据**；本席全部结论自下取证、只读提问，**目标 = 攻击它** —— 本单性质特殊（交付物只有注释 + 一处异常消息），其**风险恰在「有没有顺手动了不该动的」**（`Router` 匹配语义 / `java/CONTRACTS.md` 冻结面）。故火力集中于 ★A/★B/★H。
+> **复核时点**：2026-09-24。**受审对象 = 提交 `05788d3`**；复核期间共享树 `HEAD` 由 `05788d3` 前移至 **`c121ab1`**（编排者台账提交，docs-only，`git log -- docs/BOARD.md` 可证）⇒ **不改变受审对象**。
+
+### 一、执行环境与锚点（**独立实测** vs 产出方自述）
+
+| 项 | 本席独立实测 | 与产出方自述 |
+|---|---|---|
+| 受审提交范围 | `git show --name-only 05788d3` = **仅** `java/src/main/java/com/hedgeguard/web/Router.java` | ✅ 一致（1 文件） |
+| `--numstat` | **`12 1`** | ✅ 一致 |
+| `Router.java`（改后） | md5 **`0ac56eeea6bde6416daeb2a54e6d5ed2`** / **206** 行 | ✅ 一致 |
+| `Router.java`（`05788d3^`） | md5 `ed36991692f40fef731c2959c6df0481` / 195 行 | ✅ 一致 |
+| 树锚（改前 `05788d3^`，`git archive` 复原后 `find java/src \| LC_ALL=C sort \| xargs md5sum \| md5sum`） | **`22b6760d1625e2b11a9809a82389852a`** / **359** | ✅ 一致 |
+| 树锚（交付，WT `java/src` 同级口径） | **`18389f05583c2c422d1f8c63238a9939`** / **359** | ✅ 一致（文件数不变） |
+| 共享树洁净 | `git status --porcelain` = **空**；`Router.java` md5 = `0ac56eee…` | ✅ 一致 |
+
+### 二、对抗性假设逐条裁定（★A–★H）
+
+**★A（最高风险：冻结面是否真的一字未动）—— 成立（通过）**
+命令：`awk '/路由规则（冻结）：/,/<\/ul>/' <file>` 分别取 `05788d3^` 与现行版，再 `diff`。
+- 结果：`diff` **rc = 0 ⇒ 逐字节完全相同**（含标点与换行；`:13`–`:20` 整段）。
+- `<li>` 计数：**旧 4 / 新 4**；顺序未变（`:15 基础路径` / `:16 占位符` / `:17 重复注册` / `:18–19 405`）。
+⇒ 「冻结四则」**未改写、未重排、未增删**。★A 成立。
+
+**★B（是否夹带任何代码改动）—— 成立（通过，仅注释/字符串）**
+本席**自有方法**（Python 逐行判类）：对 `git diff 05788d3^ 05788d3 -- <file>` 的 **13 行改动（12 增 + 1 删）**逐行判类 ⇒ **COMMENT 7 行 / STRING-CONT 6 行 / `OTHER`（候选代码）= 0**。
+- 再以**归一化**法加固：删全行注释、将字符串字面量中和为 `"<STR>"`，对两版**仅比较代码行** ⇒ 差异**只在不含控制流的字符串拼接续行**（`+ "<STR>"`），**无任何控制语句/方法签名/常量/注解**。
+- 8 个方法的**签名逐字节**比对（行号因新增 11 行 javadoc 而整体 +11，签名文本不变）：
+
+| 方法 | 改前行号 | 改后行号 | 签名 |
+|---|---|---|---|
+| `register` | 37 | 44 | `public void register(String method, String pattern, RouteHandler handler)` |
+| `match` | 58 | 69 | `public RouteMatch match(String method, String path)` |
+| `pathExists` | 79 | 90 | `public boolean pathExists(String path)` |
+| `routes` | 90 | 101 | `public List<String> routes()` |
+| `validate` | 98 | 109 | `private void validate(String method, String pattern)` |
+| `matchSegments` | 116 | 127 | `private static Map<String, String> matchSegments(String[] pattern, String[] actual)` |
+| `normalize` | 132 | 143 | `private static String normalize(String path)` |
+| `split` | 144 | 155 | `private static String[] split(String path)` |
+
+⇒ **无代码改动**：`match`/`matchSegments`/`pathExists`/`split`/`validate`/`register` 的**实现行与签名逐字节未变**，仅 `register` 的**异常消息字符串**内容改变。★B 成立。
+
+**★C（新指引是否真可执行）—— 成立（通过；附 1 观察，见 §四 O-1）**
+逐一核实消息点名的入口**真实存在且用途正确**：
+
+| 点名入口 | 实测证据 |
+|---|---|
+| `Bootstrap.registerBusinessRoutes` | `web/Bootstrap.java:205`（`private static AuthService registerBusinessRoutes(Router, TxTemplate, SessionStore, Config)`），其内**确实**依次调用 `AuthRoutes.register` / `ConfigRoutes.register` / `ProductRoutes.register` / `SpotRoutes.register` / `PlanRoutes.register`（`:247`–`:255` 区间）⇒ 确为装配入口 |
+| `*Routes.register(...)` | `ProductRoutes.register`（`…/handler/product/ProductRoutes.java:41`）、`SpotRoutes.register`（`…/handler/spot/SpotRoutes.java:47`）、`AuthRoutes:47`、`ConfigRoutes:41/52`、`PlanRoutes:51` —— 均为 `public static void register(Router, …)` ✅ |
+| `Router.routes()` | `Router.java:101` 存在；生产调用方 `Bootstrap.java:155/165`，测试调用方 `RouterTest:98–100`、`RouteReachabilityExhaustiveTest:87/98/130/133` ⇒ 确为诊断清单 |
+| `RouterTest` / `ModuleRoutesConsistencyTest` | `java/src/test/java/com/hedgeguard/web/RouterTest.java`、`…/web/handler/ModuleRoutesConsistencyTest.java` 均存在；后者**含「无重复注册」断言**（`:81`/`:99–101`）⇒ 相关 |
+
+**全体检索 `RouteRegistry`**（`grep -rn`，排除 `.git`/`.codebuddy`）：**`java/src` 0、`java/` 0、`cpp/` 0、`web/` 0**；**`docs/` 12 处**（`BOARD.md` 6 / `TASKS.md` 3 / `DECISIONS/router-match-precedence.md` 2 / `TEST_RESULT.md` 1），**全部为对历史缺陷的记述/引用**（含本单自身台账与 `RTR-DEC-001` 观察 `D4`）。
+⇒ 点名入口**全部真实且用途正确** ⇒ 无「不可执行指引」缺陷。**观察 O-1**（口径）：产出方「`RouteRegistry` 全仓 0 命中」**字面不成立**（`docs/` 12 命中）；**准确口径 = 「代码面（`java/`/`cpp/`/`web/`）0 命中，`docs/` 仅历史记述」**。实质断言成立 ⇒ **不立缺陷**。
+
+**★D（「重复注册」子串是否仍承重）—— 成立（通过）**
+依赖断言：`RouterTest.java:79` `assertTrue(e.getMessage().contains("重复注册"))`。
+**变异（隔离副本 `/root/t155iso`，:50 行 `"路由重复注册："` → `"路由重复登记："`）配对实测**（均 `clean`，排除陈旧 class 假红）：
+
+| 轮次 | 命令 | 结果 |
+|---|---|---|
+| CONTROL（未变异，clean） | `mvn -B -o -Punit clean test -Dtest=RouterTest` | `Tests run: 9, Failures: 0` **BUILD SUCCESS** |
+| MUTATION（`重复注册`→`重复登记`，clean） | 同上 | `Tests run: 9, Failures: 1` ⇒ `rejectsDuplicateRegistration:79` `expected: <true> but was: <false>` **BUILD FAILURE** |
+
+⇒ 子串「重复注册」**确被真依赖**、该测试对消息**有守卫力**（正控绿 / 变异红）。★D 成立。
+（**技法注**：首次 CONTROL 曾因「`mv` 复原保持旧 mtime < 变异 class ⇒ Maven 跳过重编译」出现**陈旧 class 假红**；加 `clean` 后消除 ⇒ 与本项目既有教训同源。）
+
+**★E（新段是否真「段落可区分」且不在冻结块内）—— 成立（通过）**
+结构性证据（`:13`–`:29` 全文逐行）：
+
+```
+:13  * <p>路由规则（冻结）：      ← 冻结块开始（<p> + <ul>）
+:14  * <ul>
+:15–19 *   <li>…（四则）…</li>
+:20  * </ul>                      ← 冻结块结束
+:21  *                            ← 空行（分隔）
+:22  * <p><b>非冻结 · 实现约定</b>：…   ← 新段（独立 <p>，位于 </ul> 之后）
+:27  * （随 {@code mvn test} 自动运行）。本条**不在**上述「路由规则（冻结）」四则之内。
+:28  *                            ← 空行（分隔）
+:29  * <p>线程安全：…             ← 既有线程安全段
+```
+⇒ 新段 = **`:22`–`:27` 的独立 `<p>…`**，位于 **`</ul>`（`:20`）之后、线程安全 `<p>`（`:29`）之前**，**不在 `<ul>` 之内**；含「**非冻结 · 实现约定**」字样（`:22`）且自陈「本条**不在**上述「路由规则（冻结）」四则之内」（`:27`）。产出方声明的 `:22–27` **准确**。★E 成立。
+
+**★F（零回归）—— 成立（通过）**
+- **全量独立跑**（共享树，`TMPDIR=/root`）：`mvn -B -o -Punit clean test` ⇒ **`Tests run: 650, Failures: 0, Errors: 0, Skipped: 0` + BUILD SUCCESS** ✅。
+- **4 个 Router 相关类**（surefire 与 `@Test` 双口径，非单 `grep -c`）：
+
+| 类 | surefire XML `tests=` | `@Test` 计数 |
+|---|---|---|
+| `RouterTest` | 9 | 9 |
+| `RouteReachabilityBug004Test` | 2 | 2 |
+| `RouteReachabilityExhaustiveTest` | 6 | 6 |
+| `RouteReachabilityProductionParityTest` | 2 | 2 |
+| **合计** | **17 / 0 失败** | **17** |
+
+- **架构门禁**：`mvn -B -o validate` ⇒ **rc 0**，`E1`–`E7` **全 0**（E4 实扫 `WARN 3` 为信息性、不影响退码）。
+- **`java/CONTRACTS.md` 本单未改**：`05788d3 --name-only` **不含**之（`grep -c` = 0）；`diff <(git show 05788d3^:java/CONTRACTS.md) <(git show 05788d3:java/CONTRACTS.md)` **为空**；`diff java/CONTRACTS.md <(git show HEAD:java/CONTRACTS.md)` **为空**（md5 `82adbe8bbf1ddab33329bd2e66f9691f`）。★F 成立。
+
+**★G（新段陈述是否与裁定/代码事实相符）—— 成立（通过）**
+逐句核对 `docs/DECISIONS/router-match-precedence.md`（`RTR-DEC-001`，289 行，md5 `73b2ee65…`）与代码事实：
+
+| 新段陈述 | 裁定/代码依据 | 判定 |
+|---|---|---|
+| 「`match` 为**注册序首个命中**」 | §0/§1.1「遍历 `routes`（`ArrayList`，**注册序**），**首个命中即返回**」；`Router.match:72` `for (Route r : routes)` + `:78 return` 逐字相符 | ✅ |
+| 「占位符路由须**最后**注册；否则同段数静态路由被**静默遮蔽**」 | §2.1 约定 + §1.3 #6 改前复现 5/5（`BUG-004` 形态）；`matchSegments:131–135` 占位段吞任意非空单段 | ✅ |
+| 「`BUG-004` 形态：请求被解析为占位符取值，端点在生产装配下不可达」 | §2.2 `N1`/`R1`（`BUG-004` 已修，5 端点遮蔽） | ✅ |
+| 「裁定 (a) 维持现状：注册序约定 + 机械判据防守」 | §0/§2.1 原文（**不引入字面优先、零代码改动、不开口 `CH`**） | ✅ |
+| 「防复发判据见 `RouteReachabilityExhaustiveTest` / `RouteReachabilityProductionParityTest`（随 `mvn test` 自动运行）」 | 两测试文件均存在，且在本次全量 `mvn test` 中**确被执行**（各 6 / 2 例） | ✅ |
+| 「本条**不在**上述「路由规则（冻结）」四则之内」 | ★A/★E 已证（新段在 `</ul>` 之后） | ✅ |
+
+⇒ 新段**未把机制或裁定说反**，**不属**「注释比代码更误导」缺陷类。★G 成立。
+
+**★H（是否该开 `CH` 而未开）—— 独立结论：不越界、无须 `CH`**
+逐项判「是否触碰冻结条目」：
+1. **`Router.java` javadoc 冻结四则** ⇒ **未触**（★A 逐字节未变）。
+2. **`java/CONTRACTS.md §1.4`（3 条 bullet：占位符独占整段 / 重复注册启动期失败 / handler 签名）** ⇒ **未触**（★F 逐字节未变；且 §1.4 **无「优先序」条款**，实测确认）。
+3. **`match` 语义** ⇒ **未改**（★B 实现行逐字节未变）。
+4. **给 `Router` 新增公开 API** ⇒ **无**（★B 签名清单：无新增方法/公开成员）。
+
+依 `T-153` 的「**无源 ⇒ 设计变更**」口径（`RTR-DEC-001` §3 / `N3`）：引入「**字面段优先**」的**新框架语义**才是变更、才须 `CH`；本单**未引入任何新语义**，仅**描述既有实现行为**并**指向既有裁定**，且该段**显式标注「非冻结」**、**明言不在四则之内**，**不进入任何冻结集**。按本项目治理原则「**未被列举的行为属实现自由区；维持现状＝零改动 ⇒ 不触发任何升版义务**」⇒ **无须 `CH`**。
+⇒ **本单不越界、无须 `CH`**；产出方「未开 `CH`」**正确**。（**附**：本段的**可发现化落点**本就是 `T-153` 裁定 §4.3 / `R2` 的**建议内容**，属对该裁定的**执行**而非变更。）
+
+### 三、缺陷清单
+
+**无缺陷（0 阻断 / 0 高 / 0 中 / 0 低）。** （可复用判据误报：无。）
+
+### 四、观察（含不立号理由）
+
+- **O-1（口径不精确，不立号）**：「`RouteRegistry` **全仓** 0 命中」字面不成立（`docs/` 12 命中）。准确口径 = **代码面（`java/`/`cpp/`/`web/`）0 命中；`docs/` 命中均为对历史缺陷的记述**（含本单台账与 `RTR-DEC-001` `D4`）。**实质断言成立 ⇒ 不立号**（与既有教训「『全仓 0 命中』多为『`src/main` 0 命中』」同源）。
+- **O-2（产出方已披露，本单判据未要求，不立号）**：异常消息**字面未加断言**（`RouterTest:79` 只断言子串「重复注册」承重、未锚定整条消息文本）。本单判据（`T-155` 判据③）**未要求**；加整条消息断言会动 `src/test` 属范围外 ⇒ **不立号**（若编排者判应加断言，另立号）。
+- **O-3（未复验项，不立号）**：**未**以 `mvn javadoc` 渲染校验新段（不在门禁内）⇒ 新段的 `<p>`/`<b>`/`{@link #match}` 在**渲染视图**下未复验（**仅**核了源文件结构与 javadoc 语法形态）。无缺陷证据，仅覆盖声明。
+- **O-4（技法留痕，不立号）**：变异复位的**陈旧 class 假红**（`mv` 保旧 mtime ⇒ Maven 跳过重编译），已由 `clean` 消除 ⇒ 记入判据纪律。
+
+### 五、无法判定项
+
+**无。**（★A–★H 全部可判定。）
+
+### 六、度量数据
+
+| 指标 | 值 |
+|---|---|
+| 用例执行（全量，独立跑） | **650** 通过 / **0** 失败 / **0** 错误 / **0** 跳过 |
+| Router 相关类 | **17** 例全绿（9/2/6/2；surefire == `@Test`） |
+| 架构门禁 | `validate` rc **0**；`E1`–`E7` **全 0** |
+| 变异探针 | **1 组配对**（正控绿 / 变异红 于 `RouterTest:79`） |
+| 缺陷 | **0**（0 高 · 0 中 · 0 低） |
+| 观察 | **4** |
+
+### 七、纯追加 + 复位 + 共享树零改动证明
+
+```
+追加前： wc -l docs/TEST_RESULT.md = 11881 ; md5sum = 886950604ba5032c8561881c275d02b7
+追加后： wc -l = 12057 ; head -11881 | md5sum = 886950604ba5032c8561881c275d02b7
+        （= 追加前全文 md5，逐字节未变，已实测）
+        git diff --numstat -- docs/TEST_RESULT.md = `176  0`（**0 删除 ⇒ 纯追加**，已实测）
+        （本证据节自身 md5 属自指量 ⇒ 不写死，以 `wc -l` / `md5sum docs/TEST_RESULT.md` 实时为准）
+```
+- **隔离副本复位**：`/root/t155iso`（变异用）内 `Router.java` 已覆回共享树原文件 ⇒ md5 = `0ac56eeea6bde6416daeb2a54e6d5ed2`（= 共享树）；副本已 `rm -rf` 删除。
+- **共享树零改动**：复核全程（含变异轮）`git status --porcelain` = **空**；**未** `commit`/`amend`/`reset`/`restore --staged`/`push`；`Router.java` md5 = `0ac56eee…`、树锚 `java/src` = `18389f05…/359`。
+- 本席**未改** `src/main`、`java/CONTRACTS.md`、`docs/DECISIONS/router-match-precedence.md`、`docs/BOARD.md`、`docs/TASKS.md`。
+
+### 八、未闭环项 → 承载
+
+| 未闭环项 | 处置 |
+|---|---|
+| ★A 冻结四则是否被误触 | **已证伪**（逐字节未变）⇒ 不退回、无须 `CH` |
+| ★B 是否夹带代码改动 | **已证伪**（13 行全注释/字符串）⇒ 不退回 |
+| 异常消息**字面未加断言**（产出方已披露） | 本单**观察**（O-2）；若判应加断言 ⇒ 另立号，不并入本单 |
+| `docs/TEST_PLAN/INDEX.md:138` 陈旧计数 | `T-163` |
+| `#java2` 队列 `T-113`/`T-114`/`T-147`/`T-150` | 后续派单（非本席） |
+
+**状态：`T-155` 独立复核 = 通过（0 阻断 / 0 缺陷 / 4 观察）；不越界、无须 `CH`（待编排者据本结论将 `T-155` 转 `DONE`）。**
