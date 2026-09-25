@@ -1168,7 +1168,7 @@
 - **依赖**：T-030
 - **估时**：32 人时
 - **来源**：初版
-- **状态**：**TODO**（2026-09-21 `T-030` 汇签解锁，由 `BLOCKED` 转）
+- **状态**：**IN_PROGRESS**（2026-09-25 第 149 轮派发实施，实例 `be-t042`，写域 `java/bridge/**` + `java/CONTRACTS.md`；2026-09-21 `T-030` 汇签解锁，由 `BLOCKED` 转 `TODO`）
 - **验收标准**：
   1. HGCP TCP 客户端：连接/鉴权/心跳/重连/补数/protobuf 编解码/命令回执关联全实现；用**同一份 `proto/hgcp.proto`** 与 C++ 侧同源生成；
   2. 接口就位：`placeOrder`/`confirmOrder`/`cancelOrder`/`dispatch`/`isReady`/`replayProgress`/`mirror`；**不提供 `preCheck`**（判定只在 C++）；
