@@ -84,7 +84,7 @@
 | T-039 | 实现事件流产出与保序补数（含缓冲保留） | ARCH §4.2.6, NFR-REL-2/5, NFR-PERF-6 | backend-engineer#cpp | P0 | T-032, T-036 | 24 人时 | 初版 | TODO |
 | T-040 | 实现 Java 端行情 WebSocket 服务端（**生产级**） | FR-TRADE-12, R-TRADE-11, NFR-PERF-5, `EVT_MARKET_QUOTE`, ARCH §4.1.2/§6.13/§7.1.11 | backend-engineer#java | P1 | T-028, T-042 | 16 人时 | 初版（`CH-006` 定界改派 `#java`） | BLOCKED |
 | T-041 | 实现崩溃恢复集成（在途指令不释放冻结额度） | PROJECT §10-27, FR-TRADE-15/16, ARCH §9 RSK-10 | backend-engineer#cpp | P0 | T-036, T-037 | 24 人时 | 初版 | TODO |
-| T-042 | 实现组件桥接层 TradingBridge（HGCP 客户端） | FR-TRADE-14, FR-RISK-9~12, NFR-REL-2/5 | backend-engineer#java | P0 | T-030 | 32 人时 | 初版 | TODO |
+| T-042 | 实现组件桥接层 TradingBridge（HGCP 客户端） | FR-TRADE-14, FR-RISK-9~12, NFR-REL-2/5 | backend-engineer#java | P0 | T-030 | 32 人时 | 初版 | **IN_PROGRESS**（2026-09-25 第 149 轮派发实施，实例 `be-t042`；⚠️ **2026-09-30 进度审查加注**：本行此前为 `TODO`，与 `TASKS.md` §2 `:1171` 及 `BOARD.md:127` 的 `IN_PROGRESS` **文件内自相矛盾** —— 系提交 `997a6bd` 仅改 §2 与 BOARD、漏改本 §1 总览列所致，**是为订正、非新状态变更**） |
 | T-043 | 交付 TRADE 模块 9 张表 DDL 与 DAO | FR-TRADE-1~18 | backend-engineer#java | P0 | T-004 | 16 人时 | 初版 | TODO |
 | T-044 | 交付 SETTLE 模块 16 张表 DDL 与 DAO | FR-SETTLE-1~17 | backend-engineer#java2 | P0 | T-004 | 24 人时 | 初版 | TODO |
 | T-045 | 交付 FUND 模块 9 张表 DDL 与 DAO | FR-FUND-1~17 | backend-engineer#java2 | P0 | T-004 | 16 人时 | 初版 | TODO |
