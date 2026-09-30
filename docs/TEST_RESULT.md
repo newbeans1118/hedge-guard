@@ -12056,3 +12056,146 @@ git show 3a991c3:docs/TASKS.md | grep -a '^| T-010 '            # 已成 `xargs 
 | `#java2` 队列 `T-113`/`T-114`/`T-147`/`T-150` | 后续派单（非本席） |
 
 **状态：`T-155` 独立复核 = 通过（0 阻断 / 0 缺陷 / 4 观察）；不越界、无须 `CH`（待编排者据本结论将 `T-155` 转 `DONE`）。**
+
+---
+
+# 2026-09-30 全量基线复现报告（席 `prog-review-20260930` 续 / 编排者亲跑；**纯追加**）
+
+> **性质声明（先读这段）**：本章**不是**「待复核 15 单」的独立复核结论。
+> 依本项目 `DONE` 判据 = **授权 + 独立验证**，该 15 单的复核须由**独立复核席**出具，**编排者自评不构成证据**。
+> 本章只做且只claim一件事：**让「全量绿」重新可复现** —— 因 2026-09-30 进度审查实测发现
+> `TEST_RESULT.md` 最近一次全量记录停在 **2026-09-24**，09-25 之后零新证据章 ⇒ 证据链存在断点。
+> 本章落的是**今日（2026-09-30）在 `HEAD = fa9d753` 上亲跑的基线实测**，供后续复核席取用。
+
+## 〇、结论
+
+| 项 | 实测 | 判 |
+|----|------|----|
+| Java 全量单测 | `650/0/0/0` + **BUILD SUCCESS** | ✅ 可复现 |
+| C++ `ctest` | **35/35 全过** | ✅ 可复现（**桩轨**，见 §四） |
+| `arch-check` 聚合 | **rc 0**，`E1`–`E7` 全 0 | ✅ 可复现 |
+| 台账计数 | 164 任务 / 1907 人时，BOARD↔TASKS 逐条一致 | ✅ 无账实背离 |
+| 缺陷状态 | `BUG-002`/`BUG-003` 仍标 `NEW`，但**修复已在代码内** | ⚠️ 状态机滞后（非缺陷未修） |
+
+**⚠️ 本章不含**：任何「某单已通过独立复核」的结论。15 单的复核另派。
+
+## 一、独立实测锚点（2026-09-30）
+
+| 量 | 值 |
+|----|----|
+| `HEAD` | **`fa9d753`**（2026-09-30；工作树脏 = 仅 `dev-team/agents/*.md` + 未跟踪 `.verify/`，**不涉源码**） |
+| `docs/BOARD.md` md5 / 行数 | `8b5f1b7659e5865355348fa232d4f8ed` / 674 |
+| `docs/TASKS.md` md5 / 行数 | `26999f99de3a9539d57c2e10e021d248` / 3237 |
+| `docs/ARCHITECTURE.md` md5 / 行数 | `34c5965ccf6148c82b83446b72876e6c` / 3268 |
+| `docs/DATA_MODEL.md` md5 / 行数 | `d17bce0c37e513a0a236304b9cb3f25d` / 5252（**与 M1 门禁现行定版 v1.3.5 一致**） |
+| `proto/hgcp.proto` md5 / 行数 | `860e401d01225f7532bbf7ec7acf291f` / 801 |
+| 树锚 `find java/src -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum` | **`18389f05583c2c422d1f8c63238a9939`** / **359 文件** |
+| 树锚 `find cpp/src -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum` | **`327118d860c1618ecc9609f7d95b1d0e`** / **115 文件** |
+| 树锚 `find web -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum` | `71b81a4ecaa929c80a3fa3b107b46147` / 27 文件 |
+| `docs/TEST_RESULT.md` 追加前锚（`head -12058 \| md5sum`） | **`7dfe06406424ee0ed3b46b7010d2d945`** / 12058 行 |
+
+## 二、Java 全量单测（独立复现）
+
+命令：`cd java && mvn -B -o -Punit clean test`
+
+```
+[INFO] Tests run: 650, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS
+[INFO] Total time:  01:56 min
+RC=0
+```
+
+**用例数三向对账**（防 `@Test` 被注释吞并致虚高）：
+
+| 口径 | 值 |
+|------|----|
+| surefire 报告 **`tests` 属性逐类求和** | **650**（79 个测试类） |
+| 源码 `grep -rho "@Test" java/src/test --include=*.java \| wc -l` | **650** |
+| 汇总行 `Tests run:` | **650** |
+
+⇒ 三数一致，**无注释吞并**。
+
+## 三、`arch-check` 聚合（独立复现）
+
+命令：`bash tools/arch-check/arch-check.sh`
+
+```
+  通过(0)=7  命中(1)=0  用法/前置错误(2)=0
+  E1 0 / E2 0 / E3 0 / E4 0 / E5 0 / E6 0 / E7 0
+arch-check 通过：七个判据脚本全部通过（退出码 0）
+AGG_RC=0
+```
+
+`E7` 附带输出：`ARCH` 顶层消息 40 / 复合 10 / 枚举 28；`proto` message 50 / enum 28；字段 214 + 66 = 280；§4.2.8.5 条件字段 15 项 —— 与 `CH-013` 冻结不变量一致。
+
+## 四、C++ `ctest`（独立复现）⚠️ **轨别必须写明**
+
+命令：
+```
+cd cpp && TMPDIR=/ cmake -S . -B /hg-build-base -DCMAKE_BUILD_TYPE=Release
+TMPDIR=/ cmake --build /hg-build-base -j4
+cd /hg-build-base && TMPDIR=/ ctest --output-on-failure
+```
+结果：`CFG=0` / `BUILD=0` / `CTEST=0` ⇒ **100% tests passed, 0 tests failed out of 35**。
+
+⚠️ **诚实披露（不得省略）**：本次构建实测日志明载
+`CTP SDK 不可得（CTP_SDK_ROOT='' …）→ CTP_FOUND=OFF，跳过探路目标`、
+`[HG-CTP-FOUND] role=main found=OFF style=CLASSIC`、
+`CTP_FOUND=OFF（ctp_adapter 走空实现）`。
+
+⇒ 本次 35/35 **走的是桩轨（stub），不是 CTP 实轨**。
+尽管 `sdk/v6.7.13_20260225_api/` 确在本地，但 `CTP_SDK_ROOT` 未设 ⇒ 未探到。
+**任何人引用本章 ctest 结果，必须连同本段一起引用**；不得表述为「CTP 实轨全绿」。
+（`TMPDIR=/` 是必需的：本机 `/tmp` 为 804M tmpfs，源码构建落 `/tmp` 会 `No space left on device`。）
+
+## 五、台账一致性独立复算
+
+| 检查项 | 实测 | 判 |
+|--------|------|----|
+| `TASKS.md` §1 任务行数 | **164** | ✅ == 合计声称 |
+| `BOARD.md` §2 六区任务行合计 | **164** | ✅ |
+| 两文件任务编号集合差 | **∅ / ∅**（无孤儿、无缺号） | ✅ |
+| 六区分区 ↔ §1 状态列**逐条一致** | **0 处不一致** | ✅ |
+| §1 表格**有效列数**（按转义 `\|` 扣除后计） | **164/164 行均为 11 列** | ✅ 无缺格 |
+
+> **解析陷阱留痕（供复核席复用）**：直接按 `split('|')` 计列数会得到 11 个「异常行」
+> （`T-010` NF=20、`T-032` NF=14、…、`T-161` NF=33）—— **全部是假阳性**，因单元格内含转义 `\|`。
+> 正确口径：`line.replace('\\|','\x00').split('|')` ⇒ 全表 11 列齐整。
+> 本项目此前多次出现「表格列数」类误报，**判据须先扣转义再计数**。
+
+## 六、缺陷状态 vs 代码实况（**只报不改**）
+
+| 单 | 文件内状态 | 代码实测 | 判 |
+|----|-----------|---------|----|
+| `BUG-001` | **CLOSED**（复检通过 2026-09-22） | — | ✅ 一致 |
+| `BUG-002` | **NEW** | `cpp/src/risk_engine/src/risk_engine.cc:218` `if (!is_open) return;  // 平仓 / 减仓不受额度限制（R-RISK-5）`；同形 `:270` / `:295` | ⚠️ **状态滞后**：修复已在，`T-035` 平仓豁免修复经独立 delta 复检通过 |
+| `BUG-003` | **NEW** | `java/src/main/java/com/hedgeguard/service/PlanService.java:591` `hedgePlanDao.findMaxPlanNoByPrefix`（当日最大序号+1） | ⚠️ **状态滞后**：修复已在，`T-137`/`T-141` 均已 `DONE` |
+
+**处置**：`BUG-002`/`BUG-003` 的「复检结论」栏为空模板，`NEW → VERIFYING → CLOSED` 的翻转**须由测试席出具**。
+**本章不代填**（09-30 进度审查报告已明确此纪律）。
+
+## 七、本章不覆盖（显式声明）
+
+1. **不含** 15 单「待独立复核」的复核结论 —— 判据是授权 + 独立验证，须另派复核席。本章只提供**基线**。
+2. **不含** `CTP 实轨`的 ctest 证据（见 §四）。
+3. **不含** `BUG-002`/`BUG-003` 的复检证据 —— 只做了「修复代码是否落盘」的存在性核对，**未**跑其专项复现用例。
+4. **未**对 `DM8` 做任何验证（本环境无 DM8；`R-5` 仍开放）。
+5. `.verify/`（3.7M，调研用 PDF/txt）与 `dev-team/agents/*.md`（09-26 未提交改动）**未处置**，需用户裁定。
+
+## 八、给后续复核席的可复用基线
+
+起手命令（均已在 2026-09-30 的 `fa9d753` 上跑通）：
+
+```bash
+cd /root/myspace/hedge-guard
+# ① Java 全量（约 2 分钟）
+(cd java && mvn -B -o -Punit clean test)          # 期望 650/0/0/0 BUILD SUCCESS
+# ② 架构判据聚合（秒级）
+bash tools/arch-check/arch-check.sh                # 期望 rc 0 / E1-E7 全 0
+# ③ C++（约 3.5 分钟；注意 TMPDIR，且为桩轨）
+mkdir -p /hg-build-base && TMPDIR=/ cmake -S cpp -B /hg-build-base -DCMAKE_BUILD_TYPE=Release
+TMPDIR=/ cmake --build /hg-build-base -j4
+(cd /hg-build-base && TMPDIR=/ ctest --output-on-failure)   # 期望 35/35
+```
+
+**复核 15 单时请连同 §一 的锚点一起引用**，并在出结论前**自行重测 md5**（本项目 `R-15`/`R-16` 已多次发生「作业期间锚点被静默超越」）。
