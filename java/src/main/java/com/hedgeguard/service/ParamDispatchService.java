@@ -31,4 +31,22 @@ public interface ParamDispatchService {
      * @param ack    回执
      */
     void requireEffective(ParamChange change, AckResult ack);
+
+    /**
+     * 下发指定用户的权限快照（{@code CMD_UPDATE_PERMISSION}，{@code T-168}）。
+     *
+     * <p><b>L3 侧 {@code DB → wire} 派生</b>（装配点唯一合法层：{@code bridge} 不读库，
+     * {@code CONTRACTS §2.2}「{@code dao} 与 {@code bridge} 互不依赖」）：读库派生 5 布尔
+     * + 按 {@code CONTRACTS §3.2.1} 冻结 9 键组装 {@code entries[n]}，经 {@link #dispatch}
+     * 下发并留痕（{@code paramVersion} 单调、{@code t_param_dispatch} 先落 {@code PENDING}）。
+     *
+     * <p><b>条目粒度（{@code CONTRACTS §3.2.1} ⚠️ 块）</b>：按 {@code operator_id}
+     * 聚合 —— 同一用户跨多子账户的授权行合并到<b>同一 entry</b>（引擎侧
+     * {@code PermissionSnapshot} 以 {@code operator_id} 单键 map 后写覆盖，逐行发会静默丢授权）。
+     *
+     * @param userId     被授权用户（快照主体）
+     * @param operatorId 操作人（留痕）
+     * @return 回执
+     */
+    CompletableFuture<AckResult> dispatchPermissionSnapshot(long userId, long operatorId);
 }

@@ -5,8 +5,16 @@ import com.hedgeguard.bridge.ParamChange;
 import com.hedgeguard.bridge.TradingBridge;
 import com.hedgeguard.common.Clocks;
 import com.hedgeguard.common.Config;
+import com.hedgeguard.dao.AuthorizationDao;
 import com.hedgeguard.dao.ParamDispatchDao;
+import com.hedgeguard.dao.RoleDao;
+import com.hedgeguard.dao.UserAccountDao;
+import com.hedgeguard.dao.UserRoleDao;
+import com.hedgeguard.dao.entity.Authorization;
 import com.hedgeguard.dao.entity.ParamDispatch;
+import com.hedgeguard.dao.entity.Role;
+import com.hedgeguard.dao.entity.UserAccount;
+import com.hedgeguard.dao.entity.UserRole;
 import com.hedgeguard.dao.tx.TxTemplate;
 import com.hedgeguard.service.ParamDispatchService;
 import com.hedgeguard.web.BizException;
@@ -17,6 +25,8 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -133,6 +143,12 @@ public final class ParamDispatchServiceImpl implements ParamDispatchService {
     private final TradingBridge bridge;
     private final Duration ackTimeout;
 
+    /** 权限快照派生的读库依赖（{@code T-168}）；未装配时 {@code dispatchPermissionSnapshot} 显式拒绝。 */
+    private final UserAccountDao userAccountDao;
+    private final RoleDao roleDao;
+    private final UserRoleDao userRoleDao;
+    private final AuthorizationDao authorizationDao;
+
     /** 版本分配锁（仅用于**首次播种**；契约 §3.2.2：**必须由服务层串行化**，该表无 {@code UNIQUE(param_version)}）。 */
     private final Object versionLock = new Object();
 
@@ -176,10 +192,7 @@ public final class ParamDispatchServiceImpl implements ParamDispatchService {
      */
     public ParamDispatchServiceImpl(TxTemplate tx, ParamDispatchDao paramDispatchDao,
                                     TradingBridge bridge, Duration ackTimeout) {
-        this.tx = tx;
-        this.paramDispatchDao = paramDispatchDao;
-        this.bridge = bridge;
-        this.ackTimeout = ackTimeout;
+        this(tx, paramDispatchDao, bridge, ackTimeout, null, null, null, null);
     }
 
     /**
@@ -192,11 +205,58 @@ public final class ParamDispatchServiceImpl implements ParamDispatchService {
      */
     public ParamDispatchServiceImpl(TxTemplate tx, ParamDispatchDao paramDispatchDao,
                                     TradingBridge bridge, Config config) {
+        this(tx, paramDispatchDao, bridge, config, null, null, null, null);
+    }
+
+    /**
+     * 构造（**全量**：含权限快照派生的读库依赖，{@code T-168}；生产装配使用本形态）。
+     *
+     * <p>四个权限 DAO 允许为 {@code null}（既有构造形态不接它们）：此时
+     * {@link #dispatchPermissionSnapshot} 以 {@code 10002} 显式拒绝（不 NPE、不静默发空快照）。
+     *
+     * @param tx               事务模板
+     * @param paramDispatchDao 下发留痕 DAO
+     * @param bridge           组件桥接
+     * @param ackTimeout       回执超时
+     * @param userAccountDao   {@code t_user}（{@code is_enterprise_leader} 来源）
+     * @param roleDao          {@code t_role}（角色编码 / {@code has_trading_operation} 来源）
+     * @param userRoleDao      {@code t_user_role}（用户→角色关联）
+     * @param authorizationDao {@code t_authorization}（授权品种集合来源）
+     */
+    public ParamDispatchServiceImpl(TxTemplate tx, ParamDispatchDao paramDispatchDao,
+                                    TradingBridge bridge, Duration ackTimeout,
+                                    UserAccountDao userAccountDao, RoleDao roleDao,
+                                    UserRoleDao userRoleDao, AuthorizationDao authorizationDao) {
         this.tx = tx;
         this.paramDispatchDao = paramDispatchDao;
         this.bridge = bridge;
-        this.ackTimeout = Duration.ofMillis(config == null ? ACK_TIMEOUT_MILLIS
-                : config.getInt(KEY_CMD_TIMEOUT_MS, (int) ACK_TIMEOUT_MILLIS));
+        this.ackTimeout = ackTimeout;
+        this.userAccountDao = userAccountDao;
+        this.roleDao = roleDao;
+        this.userRoleDao = userRoleDao;
+        this.authorizationDao = authorizationDao;
+    }
+
+    /**
+     * 构造（**全量 + 配置口径**：权限派生依赖 + 回执超时取 {@code CFG-28}）。
+     *
+     * @param tx               事务模板
+     * @param paramDispatchDao 下发留痕 DAO
+     * @param bridge           组件桥接
+     * @param config           配置（{@code null} 时按 {@value #ACK_TIMEOUT_MILLIS} ms 兜底）
+     * @param userAccountDao   {@code t_user}
+     * @param roleDao          {@code t_role}
+     * @param userRoleDao      {@code t_user_role}
+     * @param authorizationDao {@code t_authorization}
+     */
+    public ParamDispatchServiceImpl(TxTemplate tx, ParamDispatchDao paramDispatchDao,
+                                    TradingBridge bridge, Config config,
+                                    UserAccountDao userAccountDao, RoleDao roleDao,
+                                    UserRoleDao userRoleDao, AuthorizationDao authorizationDao) {
+        this(tx, paramDispatchDao, bridge,
+                Duration.ofMillis(config == null ? ACK_TIMEOUT_MILLIS
+                        : config.getInt(KEY_CMD_TIMEOUT_MS, (int) ACK_TIMEOUT_MILLIS)),
+                userAccountDao, roleDao, userRoleDao, authorizationDao);
     }
 
     /** 当前生效的回执超时（毫秒；供自检与用例断言"来自 CFG-28 配置"。 */
@@ -452,6 +512,142 @@ public final class ParamDispatchServiceImpl implements ParamDispatchService {
      */
     public List<ParamDispatch> inspectProblems() {
         return paramDispatchDao.findProblems();
+    }
+
+    /**
+     * 下发指定用户的权限快照（{@code CMD_UPDATE_PERMISSION}；{@code T-168}）。
+     *
+     * <p><b>派生规则（派单权威表，逐键）</b>：
+     * <ul>
+     *   <li>{@code is_enterprise_leader} ← {@code t_user.is_enterprise_leader}（{@code 'Y'}）；</li>
+     *   <li>{@code is_management_role} ← {@code t_user_role → t_role.role_code = 'APPROVER'}（禁止类）；</li>
+     *   <li>{@code has_risk_role} ← {@code role_code = 'FIN_RISK'}（禁止类）；</li>
+     *   <li>{@code has_settle_role} ← {@code role_code = 'SETTLER'}（禁止类）；</li>
+     *   <li>{@code has_trading_post} ← 任一启用角色 {@code has_trading_operation ∈ {'Y','1'}}
+     *       （<b>准入类</b>，方向与上三者相反，{@code CH-019}；状态口径与
+     *       {@code AuthService.hasTradingRole} 同形）。</li>
+     * </ul>
+     *
+     * <p><b>条目粒度裁定（本单核心，{@code CONTRACTS §3.2.1} ⚠️ 块）</b>：
+     * <b>按 {@code operator_id} 聚合为一个 entry，用户跨多子账户的授权行合并进同一 entry</b>。
+     * 依据：① 契约 ⚠️ 块明文「同一 {@code operator_id} 跨多个 {@code sub_account_id}
+     * 必须落在同一 entry 内，L3 组装方必须按 {@code operator_id} 聚合后再发」；
+     * ② 引擎侧 {@code PermissionSnapshot} 为单键 {@code unordered_map<uint32_t, PermissionEntry>}
+     * （键 = {@code operator_id}，后写覆盖先写，{@code load_batch.h:96} /
+     * {@code risk_snapshot.cc:87}）——按「一行一 entry」发多行会<b>静默只剩最后一行</b>，
+     * 其余子账户授权被静默丢弃；③ 协议 {@code PermissionEntry.sub_account_id}（字段 2）为
+     * <b>单值 uint32</b>（{@code hgcp.proto:719}），跨子账户的「多值」无法在单 entry 内承载。
+     * ⇒ <b>每用户恰发一个 entry</b>：{@code sub_account_id} 承载该用户<b>授权行的最小子账户 ID</b>
+     * （协议必填字段须取值；引擎侧 {@code T-038} 装填时真正的子账户全集须经
+     * {@code putPermission} 之外的跨侧承载解决——该缺口已在回报中披露，属 {@code T-038} 域），
+     * {@code product_ids} 承载该用户<b>全部授权品种</b>的并集（按 ID 升序、去重）。
+     * {@code quota_limit}：授权行额度在本协议中无逐品种承载位，且 {@code PermissionEntry.quota_limit}
+     * 语义为单值个人额度——各行额度不一致时发任意一行值都会歪曲语义，故<b>不发该键</b>（选填），
+     * 个人额度仍由 {@code t_authorization} 直查校验（既有 {@code evalPermission}
+     * {@code individual_quota} 路径在 {@code T-038} 装填前本就不经本指令生效）。
+     *
+     * <p>无任何 {@code EFFECTIVE} 授权行时抛 {@code 10001}（拒绝发「空授权」快照——
+     * 空品种集合语义歧义且会覆盖引擎侧既有权限，安全默认 = 不发）。
+     *
+     * @param userId     被授权用户（快照主体）
+     * @param operatorId 操作人（留痕）
+     * @return 回执
+     */
+    @Override
+    public CompletableFuture<AckResult> dispatchPermissionSnapshot(long userId, long operatorId) {
+        if (userAccountDao == null || roleDao == null || userRoleDao == null
+                || authorizationDao == null) {
+            throw BizException.of(ErrorCode.COMPONENT_UNAVAILABLE,
+                    "权限快照派生的读库依赖未装配（构造未接四个权限 DAO），拒绝下发"
+                            + "（不得静默发空快照）：userId=" + userId
+                            + "；复现=以全量构造装配 ParamDispatchServiceImpl（T-168）");
+        }
+        UserAccount user = userAccountDao.findById(userId);
+        if (user == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "被授权用户不存在：userId=" + userId
+                            + "；复现=核对 t_user 主键（快照主体须真实存在）");
+        }
+        boolean enterpriseLeader = "Y".equals(user.isEnterpriseLeader);
+
+        boolean managementRole = false;
+        boolean riskRole = false;
+        boolean settleRole = false;
+        boolean tradingPost = false;
+        for (UserRole userRole : userRoleDao.findByUser(userId)) {
+            Role role = roleDao.findById(userRole.roleId);
+            if (role == null) {
+                continue;
+            }
+            String code = role.roleCode == null ? "" : role.roleCode.trim();
+            if ("APPROVER".equals(code)) {
+                managementRole = true;
+            } else if ("FIN_RISK".equals(code)) {
+                riskRole = true;
+            } else if ("SETTLER".equals(code)) {
+                settleRole = true;
+            }
+            if ("ENABLED".equals(role.status)
+                    && ("Y".equals(role.hasTradingOperation) || "1".equals(role.hasTradingOperation))) {
+                tradingPost = true;
+            }
+        }
+
+        List<Authorization> rows = authorizationDao.findEffective(userId, Clocks.today());
+        if (rows.isEmpty()) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "该用户无任何 EFFECTIVE 授权行，拒绝发空权限快照（空集合语义歧义且会覆盖"
+                            + "引擎侧既有权限，安全默认 = 不发）：userId=" + userId
+                            + "；复现=先在 t_authorization 配置有效授权（T-168 派生前提）");
+        }
+        // 条目粒度：按 operator_id 聚合 —— 单 entry；sub_account_id 取最小授权子账户
+        // （协议字段 2 单值必填），product_ids 取全部授权品种并集（升序去重）。
+        String entryPrefix = "entries[0].";
+        Map<String, String> entry = permissionEntryPayload(userId, rows, enterpriseLeader,
+                managementRole, riskRole, settleRole, tradingPost);
+        ParamChange change = new ParamChange(ParamChange.Type.CMD_UPDATE_PERMISSION, 0L, operatorId);
+        for (Map.Entry<String, String> kv : entry.entrySet()) {
+            change.payload.put(entryPrefix + kv.getKey(), kv.getValue());
+        }
+        return dispatch(change);
+    }
+
+    /**
+     * 单个权限条目的 payload（{@code CONTRACTS §3.2.1} 冻结 9 键；8 必填 + {@code quota_limit}
+     * 选填不发）。5 布尔在此逐键落位——{@code TE-CH019-001} 承接的<b>派生侧守卫</b>断言即锚此处。
+     */
+    private static Map<String, String> permissionEntryPayload(long operatorId,
+                                                              List<Authorization> rows,
+                                                              boolean enterpriseLeader,
+                                                              boolean managementRole,
+                                                              boolean riskRole,
+                                                              boolean settleRole,
+                                                              boolean tradingPost) {
+        int minSubAccount = Integer.MAX_VALUE;
+        java.util.Set<Long> products = new LinkedHashSet<>();
+        for (Authorization row : rows) {
+            minSubAccount = Math.min(minSubAccount, row.subAccountId);
+            products.add(row.productId);
+        }
+        StringBuilder productIds = new StringBuilder();
+        java.util.List<Long> sorted = new ArrayList<>(products);
+        java.util.Collections.sort(sorted);
+        for (Long pid : sorted) {
+            if (productIds.length() > 0) {
+                productIds.append(',');
+            }
+            productIds.append(pid);
+        }
+        Map<String, String> m = new LinkedHashMap<>();
+        m.put("operator_id", String.valueOf(operatorId));
+        m.put("sub_account_id", String.valueOf(minSubAccount));
+        m.put("product_ids", productIds.toString());
+        m.put("is_enterprise_leader", String.valueOf(enterpriseLeader));
+        m.put("is_management_role", String.valueOf(managementRole));
+        m.put("has_risk_role", String.valueOf(riskRole));
+        m.put("has_settle_role", String.valueOf(settleRole));
+        m.put("has_trading_post", String.valueOf(tradingPost));
+        return m;
     }
 
     // ------------------------------------------------------------ 内部

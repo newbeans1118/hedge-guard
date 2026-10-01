@@ -6,7 +6,11 @@ import com.hedgeguard.bridge.HgcpClient;
 import com.hedgeguard.bridge.TcpHgcpTransport;
 import com.hedgeguard.bridge.TradingBridge;
 import com.hedgeguard.common.SensitiveLog;
+import com.hedgeguard.dao.AuthorizationDao;
 import com.hedgeguard.dao.ParamDispatchDao;
+import com.hedgeguard.dao.RoleDao;
+import com.hedgeguard.dao.UserAccountDao;
+import com.hedgeguard.dao.UserRoleDao;
 import com.hedgeguard.dao.impl.DmAccountSubjectDao;
 import com.hedgeguard.dao.impl.DmConfigChangeLogDao;
 import com.hedgeguard.dao.impl.DmConfigItemDao;
@@ -165,7 +169,8 @@ public final class Bootstrap {
             // 「可观测性」。该字段亦供装配级用例断言，且为 M2 接线（T-046 等）的就绪接缝。
             // （参数下发当下无 HTTP 路由，故暂无业务消费者——这不影响本条的可观测性要求。）
             paramDispatchService = buildParamDispatchService(tx, new DmParamDispatchDao(tx), config,
-                    hgcpClient);
+                    hgcpClient, new DmUserAccountDao(tx), new DmRoleDao(tx), new DmUserRoleDao(tx),
+                    new DmAuthorizationDao(tx));
             LOG.info(paramDispatchService == null
                     ? "参数下发服务未装配（组件桥不可用）"
                     : "参数下发服务已装配（回执超时取 CFG-28 " + ParamDispatchServiceImpl.KEY_CMD_TIMEOUT_MS
@@ -230,12 +235,26 @@ public final class Bootstrap {
      */
     static ParamDispatchService buildParamDispatchService(TxTemplate tx, ParamDispatchDao dao,
                                                           Config config, TradingBridge bridge) {
+        return buildParamDispatchService(tx, dao, config, bridge, null, null, null, null);
+    }
+
+    /**
+     * 全量装配形态（{@code T-168}）：权限快照派生（{@code dispatchPermissionSnapshot}）的
+     * 读库依赖在此接线——四个 DM DAO 与 {@code registerBusinessRoutes} 同源同形态。
+     * 单测沿用 4 参旧形态（权限 DAO 传 {@code null} ⇒ 快照下发显式拒绝）。
+     */
+    static ParamDispatchService buildParamDispatchService(TxTemplate tx, ParamDispatchDao dao,
+                                                          Config config, TradingBridge bridge,
+                                                          UserAccountDao userAccountDao,
+                                                          RoleDao roleDao, UserRoleDao userRoleDao,
+                                                          AuthorizationDao authorizationDao) {
         if (bridge == null) {
             LOG.info("未装配参数下发服务（" + Config.ENV_HGCP_AUTH_TOKEN
                     + " 未设置）：HGCP 组件桥不装配，参数下发不可用");
             return null;
         }
-        return new ParamDispatchServiceImpl(tx, dao, bridge, config);
+        return new ParamDispatchServiceImpl(tx, dao, bridge, config,
+                userAccountDao, roleDao, userRoleDao, authorizationDao);
     }
 
     /**
