@@ -12507,3 +12507,94 @@ TMPDIR=/ cmake --build /hg-build-base -j4
 
 **复核结论：有条件通过（0 阻断；1 缺陷 TE-CH019-001〔中，测试覆盖缺口〕+ 4 观察）。**
 
+---
+
+## T-167+T-168 合单独立复核（席 te-verify-t167168）
+
+- **复核时点**：2026-10-02 01:00–01:40（ Asia/Shanghai）。
+- **复核对象**：`8d5ebc9`（T-167 编码侧）+ `5eec86c`（T-168 派生侧），合单复核（改动文件不相交）。
+
+### 1. 冻结点独立实测（2026-10-02 01:00–01:05）
+
+| 项 | 编排者值 | 本席独立实测 | 一致? |
+|---|---|---|---|
+| HEAD | `5eec86c` | `5eec86c`（`git log --oneline -1`） | ✅ |
+| java/src 树锚（仓库根口径 `cd <root> && find java/src -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum`） | `68b4b557fc46df6ca6da89642450c6a2`/376 | `68b4b557fc46df6ca6da89642450c6a2`/376 | ✅ |
+| `ParamChangeEncoder.java` | `be9d540d…` | `be9d540dd2607e9e16f40d59c3897bea` | ✅ |
+| `ParamDispatchService.java` | `f0c487c8…` | `f0c487c8df3957f3bde0b523c5efb72b` | ✅ |
+| `ParamDispatchServiceImpl.java` | `f3a7559d…` | `f3a7559d50c5855f50262ed03ff33ba7` | ✅ |
+| `Bootstrap.java` | `c2cea7ee…` | `c2cea7ee934a9d152069dfaa29303f6a` | ✅ |
+| `ParamChangeEncoderPermissionRouteTest.java` | `5d775a10…`/265 | 同 / 265 行 | ✅ |
+| `PermissionSnapshotDispatchTest.java` | `341272e0…`/525 | 同 / 525 行 | ✅ |
+| `docs/TEST_RESULT.md` | 12509 行 | 12509 行 | ✅ |
+
+### 2. 全量门禁（隔离副本 /root/t167168v，四件 docs/java/cpp/tools 齐备；副本锚 = 仓库根口径 `72fe3fc6…` 前缀 = `68b4b557…`）
+
+- `mvn -B -o -Punit clean test`：**687/0/0/0 BUILD SUCCESS**（01:03–01:06，2m13s）；surefire 汇总 `687/0/0/0`；`@Test` 计数：T-167 测试类 6、T-168 测试类 7（`grep -c @Test` == surefire 类内 run 数）。
+- `arch-check`：rc 0，E1–E7 全 0（副本最初缺 `proto/` ⇒ E7 SKIP 退 0；补拷 `proto/hgcp.proto` 后实扫：**顶层 214 + 复合 67 = 281**、消息 40+10、枚举 28 —— 与编排者 `E7: 214+67=281` 一致）。
+
+### 3. 结构核（独立实测）
+
+- `git show --stat`：8d5ebc9 = 2 文件 +347/−0（仅 `ParamChangeEncoder.java` +82 与新测试）；5eec86c = 4 文件 +766/−8（接口 +18 / Impl +208−6 / Bootstrap +23−2 / 新测试 525）——与派单一致；两单生产侧改动文件集不相交、无第三方文件被触碰。
+- `ParamChangeEncoder.java:53-54` `case CMD_UPDATE_PERMISSION -> encodePermission(change)` 在位；`:266` 起 payload 反解析（8 必填键 `requireEntry` 缺一即抛、`boolOf` 严格 true/false、`splitProductIds` 空串拒、`:283` `rejectUnknownEntryKeys` 9 键白名单 + 顶层键必须 `entries[` 前缀）。
+- `ParamDispatchServiceImpl:557` `dispatchPermissionSnapshot` + `permissionEntryPayload`（最小子账户 / 品种并集升序去重 / 8 键落位、`quota_limit` 不发）；权限 DAO 未装配 ⇒ `10002`；用户不存在 / 无 EFFECTIVE 行 ⇒ `10001`。
+- `Bootstrap:171-173` 生产装配 8 参形态（4 DM DAO 注入）；`:236-239` 4 参旧形态保留（委托 8 参传 null）；`ParamDispatchAssemblyTest` 3 用例经 4 参入口实测装配产物（null 桥 / CFG-28 超时判别量 / 未就绪桥 10002 显式拒绝），不因本次改动破坏。
+- `TradingBridge.java` 零改动（`git diff 3511726..HEAD -- bridge/TradingBridge.java` 空）；`TradingBridgeContractTest:23-31` 七项方法集反射断言通过（687 全绿含此）。
+
+### 4. 行为核（独立实测）
+
+- **用例 7 `payloadSurvivesEncoderRoundTrip` = 真 DB→wire 全链**：`dispatchPermissionSnapshot`（Fake 4 DAO 派生）→ `bridge.sent` 取 `ParamChange` → `ParamChangeEncoder.encode(change)` → `CmdUpdatePermission.parseFrom` → 9 字段断言（含 `getHasTradingPost()`、entryCount==1）。非直喂 DTO。
+- **T-167 用例 1 真经 `HgcpClient.dispatch`**：`authenticatedClient`（注入 `RecordingTransport` + 反射置 transport + HELLO_ACK 握手至 AUTHENTICATED）→ `client.dispatch(change)` → 断言 `t.sent.size()==1`（0 帧即缺陷本体）→ 解完整 wire 帧断言 type==0x0116。非直调 encode。
+- **守卫咬合与射程边界（变异实测，见 §5）**：T-168 派生改坏 ⇒ T-168 红、T-167 **不红**（编码器只忠实逐条编码、无派生语义，符合设计）；T-167 路由删 case ⇒ T-167 6 例 5F+2E、**且 T-168 用例 7 红 1**（round-trip 经 encode）——交叉守卫单向存在：编码侧坏会击穿派生侧 round-trip 用例，反之不然（派生侧坏不被编码侧用例感知）。射程如实报告。
+
+### 5. 变异承重（7 例，隔离副本；每例先证 `mvn -B -o compile` rc=0 再看测试；复位后 `find\|md5sum\|md5sum` 回 `72fe3fc6…` 且 `diff -r java/src` 恒等）
+
+| # | 变异点 | 目标串 count 先测 | build | 结果 | 红几例 |
+|---|---|---|---|---|---|
+| M1 | **条目粒度**：`dispatchPermissionSnapshot` 聚合改「逐行发 entry」（`entries[i]` 每行一 entry，只发首行即 return） | `for (Authorization row : rows)`=1 | rc0 | T-168 红 3（derivesAllNineKeys / singleEntryAcrossTwoSubAccounts / roundTrip）；T-167 0 红 | 3 |
+| M2 | **sub_account_id 最小→最大**：`Math.min` 改取最大 | `Math.min(minSubAccount`=1 | rc0 | T-168 红 2（用例 1 + 用例 4 均断言最小值） | 2 |
+| M3 | `boolOf` 松弛：接受 `yes`/`no` 为 false | `if ("true".equalsIgnoreCase(s))`=1 | rc0 | T-167 红 1（nonBooleanValueIsRejected） | 1 |
+| M4 | `has_trading_operation` `'1'` 分支删除（仅认 'Y'） | `"1".equals(role.hasTradingOperation)`=1 | rc0 | T-168 红 1（TE-CH019-001 承接用例） | 1 |
+| M5 | **删 `case CMD_UPDATE_PERMISSION`**（回 default 软失败） | `case CMD_UPDATE_PERMISSION`=1 | rc0 | T-167 红 5F+2E（6 例几乎全灭）+ T-168 roundTrip 红 1 ⇒ **7 例** | 7 |
+| M6 | 删 `rejectUnknownEntryKeys` 9 键白名单调用 | —（唯一调用点） | rc0 | T-167 红 1（unknownKeyIsRejected） | 1 |
+| M7 | 删 T-168「无 EFFECTIVE 行 ⇒ 10001」守卫 | —（唯一守卫点） | rc0 | T-168 红 1（guardsReject） | 1 |
+
+7/7 全部必红；复位证明：逐文件从共享树原件覆盖回副本后树锚恢复 `72fe3fc6…`，末次 `diff -r java/src` 输出空（TREE_IDENTICAL）。
+
+### 6. ★条目粒度裁定的独立判定
+
+**裁定「每用户恰 1 个 entry」：判定成立。** 依据逐条独立实测：
+
+1. `java/CONTRACTS.md` §3.2.1（现行 `HGC-1.2`/`HGC-1.6` 节，:440 附近 ⚠️ 块）明文「同一 `operator_id` 跨多个 `sub_account_id` **必须落在同一 entry 内**……**L3 组装方必须按 `operator_id` 聚合后再发**」（`CH-019` 登记）——契约级强制，非实现自由度。
+2. 引擎侧 `load_batch.h:96` `putPermission(operator_id, p)` 即 `permissions_[operator_id] = p` 单键 map 后写覆盖（`applyTo` → `load_batch.cc:85-87` 逐 key 覆盖进快照）——逐行发 N entry **静默只剩最后一行**，M1 变异（逐行发）+ 用例 4 断言恰构成该缺陷形态的守卫。
+3. `proto/hgcp.proto:719` `PermissionEntry.sub_account_id`（字段 2）单值 uint32 必填——单 entry 无法承载子账户集合。
+
+**★`sub_account_id` 取「最小」的语义探针（派单点名的决定性探针）：**
+
+- 引擎判定（`risk_engine.cc:426`）：`sub_ok = allow_all_sub_accounts || sub_accounts.find(req.sub_account_id) != end`——按**集合**判定。`PermissionEntry.sub_accounts` 是 `unordered_set`（`model.h:223`）。
+- **协议单值 `sub_account_id` → 引擎集合 `sub_accounts` 的装填映射 = T-038 域，当前生产 0 调用（`putPermission` 仅测试可达）**——即：无论 Java 侧发 7 还是发 22，当下都不进入引擎判定路径；「取最小是否把『只在 22 有授权』误判为『在 7 有授权』」**在生产链路上当下不可达**，其真伪取决于 T-038 的装填规则。
+- 若 T-038 将单值直映为 `sub_accounts = {min}`：则「只在 22 有授权、产品并集含 11/22」的用户下单 22 品种于子账户 22 ⇒ **会被误拒**（`sub_accounts={7}` 不含 22 ⇒ 0x100B）——该风险真实存在，但它是**协议表达力缺口**（单值字段 vs 集合语义）的下游后果，非本两单可修复（协议字段级变更须 CH）。产出方已如实披露为 T-038 残留（交付注记「真正的子账户全集须经 putPermission 之外的跨侧承载解决」），本席认定披露充分、归属正确。
+- 品种并集方向无此问题：引擎 `products` 判定同为集合，并集升序去重忠实承载「全部授权品种」，M2/M1 双变异均守卫。
+
+**结论：裁定正确且有契约+引擎+协议三重依据；「取最小」是协议表达力约束下的诚实承载，语义风险已披露且归属 T-038，不构成本单缺陷。**
+
+### 7. 覆盖缺口扫描
+
+1. `dispatchPermissionSnapshot` 无 HTTP 消费者（T-042 后续接线）——装配级可观测性：`Bootstrap.Assembly.paramDispatchService()` 留存产物 + `ParamDispatchAssemblyTest` 3 用例直测 4 参装配入口（经 8 参委托）；但 **8 参全量形态（4 DAO 非 null）无装配级测试**（生产 8 参实参只在 `Bootstrap:171` 生产路径，测试经 4 参 null 传入）——权限 DAO 的装配正确性（DM 实例类型/同源）无守卫，属低风险观察（DAO 构造形态与 `registerBusinessRoutes` 同源同形态，且实例级派生已由 T-168 7 例覆盖）。
+2. T-167 披露的「`HgcpClient.dispatch` 吞 IAE 对所有指令存在」（`HgcpClient.java:563-570` 独立确认）——本两单未扩大该面：T-167 消除的是「合法指令进不去 encode」，吞异常行为本身未改、其他 6 指令路径未触碰。
+3. `findEffective` 判定（`DmAuthorizationDao.java:109-116`）：`status='EFFECTIVE' AND effective_from<=today AND (effective_to IS NULL OR effective_to>=today)`——与 `DATA_MODEL.md` §TB-AUTH-7（:789-791 `status` CHECK 域含 `EFFECTIVE`/`EXPIRED`；`effective_to NULL=长期`）一致。⚠️ 注意 `Clocks.today()` 为业务日；`effective_from` 在 `DATA_MODEL` 为 NOT NULL 而 SQL 容忍 NULL（`OR effective_from IS NULL`）——防御性宽松，不构成缺陷（NULL 行为取值域外）。
+4. `has_trading_operation` `'1'` 分支：`DATA_MODEL.md:669` 仅 CHAR(1)+CHECK（未列取值域明文）；`'Y'/'1' ⇒ true` 的口径权威在 `ARCHITECTURE.md:2969`（v1.5.19 / CH-019 派生规则）——实现与权威一致，用例 3 守卫（M4）。
+5. 观察点：`deriveRoles`（`ParamChangeEncoder` public static）与本单派生逻辑存在两处角色→布尔的推导形态（编码器供 DTO 直喂用、服务层供 DB 派生用）；两者判据一致（精确 role_code 匹配）但无共享实现——`PermissionSnapshotDispatchTest` 用例 1 与 T-167 用例 6 各自锚定一侧，不构成缺陷，列为观察。
+
+### 8. 结论
+
+- **T-167：通过**（0 缺陷；编码路由 + 严格校验 + 6 例守卫，M3/M5/M6 三重变异必红）。
+- **T-168：通过**（0 缺陷；派生 9 键 + 条目粒度裁定成立 + 守卫齐备，M1/M2/M4/M7 + 交叉 M5 共 5 形变异必红）。
+- **TE-CH019-001 双侧闭合确认**：编码侧（T-167 用例 2 第 9 字段 + M3/M5）+ 派生侧（T-168 用例 1/3 + M4）+ 全链（T-168 用例 7 round-trip）。
+- 观察 3 条（§7.1 装配级 8 参形态无直测 / §7.5 deriveRoles 双形态 / §6 T-038 装填缺口已披露），均不阻断。
+
+### 9. 独立性声明
+
+- **独立实测**：冻结点全部 md5/树锚/行数、两单 `git show --stat`、全量 687/0/0/0、arch-check（含 E7 214+67）、7 例变异（build→红→复位 diff 恒等）、引擎判定逻辑（`risk_engine.cc:399-437`/`load_batch.h:96`/`model.h:220-243`）、契约 ⚠️ 块、`findEffective` SQL、`HgcpClient` 吞异常面、`TradingBridge` 零改动、`has_trading_operation` 权威口径（ARCH v1.5.19）。
+- **只能引述（未独立复跑）**：C++ ctest 三轨（本两单未触 cpp/**，不涉）、DM8 真库行为（全量基于 InMemoryDmEngine/Fake DAO，引擎级 SQL 语义未在真 DM8 复验——沿用项目既定 dev/test 口径）。
+
