@@ -723,6 +723,7 @@ message PermissionEntry {
   bool            is_management_role   = 6;  // 必
   bool            has_risk_role        = 7;  // 必
   bool            has_settle_role      = 8;  // 必
+  bool            has_trading_post     = 9;  // 必
 }
 
 // 实货敞口条目（§4.2.8.6；含三类分量 + 快照时点）
