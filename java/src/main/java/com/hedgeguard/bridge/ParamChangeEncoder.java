@@ -50,6 +50,8 @@ public final class ParamChangeEncoder {
             case CMD_TRIGGER_REPLAY:
                 return encodeOperatorReason(Hgcp.CmdTriggerReplay.newBuilder(), change)
                         .build().toByteArray();
+            case CMD_UPDATE_PERMISSION:
+                return encodePermission(change);
             default:
                 throw new IllegalArgumentException(
                         "本里程碑未实现的参数变更类型（payload 映射未定义）：" + change.type);
@@ -238,6 +240,86 @@ public final class ParamChangeEncoder {
             b.addEntries(e);
         }
         return b.build().toByteArray();
+    }
+
+    /**
+     * {@link #encode(ParamChange)} 对 {@code CMD_UPDATE_PERMISSION} 的路由实现：
+     * 按 {@code java/CONTRACTS.md} §3.2.1 冻结的 9 键，从 {@code payload} 的
+     * {@code entries[n].<字段>} 扁平键值<b>反解析</b>出 {@link PermissionInput}
+     * 列表再喂 {@link #encodePermission}（与既有 6 指令的 payload 形态一致）。
+     *
+     * <p><b>必填键</b>（§3.2.1）：{@code operator_id} / {@code sub_account_id} /
+     * {@code product_ids} / {@code is_enterprise_leader} / {@code is_management_role} /
+     * {@code has_risk_role} / {@code has_settle_role} / {@code has_trading_post}
+     * —— 缺任一键即抛 {@link IllegalArgumentException}（不得静默缺省：
+     * 布尔缺省 {@code false} 对禁止类是「放行」、对准入类是「拒绝」，方向相反、
+     * 静默缺省会扭曲授权语义）；{@code quota_limit} 选填。
+     *
+     * <p>⚠️ {@code entries[]} 条目粒度 = {@code t_authorization} 行级
+     * {@code (user_id, sub_account_id, product_id)}，而引擎侧快照按 {@code operator_id}
+     * 单键后写覆盖（§3.2.1 ⚠️ 块）——<b>按 {@code operator_id} 聚合是 L3 组装方义务</b>，
+     * 本方法如实逐条编码、不做聚合（聚合会掩盖组装方未按约定聚合的错误）。
+     *
+     * @param c 参数变更
+     * @return protobuf 序列化字节
+     */
+    private static byte[] encodePermission(ParamChange c) {
+        List<PermissionInput> inputs = new ArrayList<>();
+        for (Map<String, String> e : entries(c)) {
+            PermissionInput in = new PermissionInput();
+            in.operatorId = longOf(requireEntry(e, "operator_id"));
+            in.subAccountId = uint(requireEntry(e, "sub_account_id"));
+            for (String v : splitProductIds(requireEntry(e, "product_ids"))) {
+                in.productIds.add((int) longOf(v));
+            }
+            in.quotaLimit = e.get("quota_limit");
+            in.enterpriseLeader = boolOf(requireEntry(e, "is_enterprise_leader"));
+            in.managementRole = boolOf(requireEntry(e, "is_management_role"));
+            in.riskRole = boolOf(requireEntry(e, "has_risk_role"));
+            in.settleRole = boolOf(requireEntry(e, "has_settle_role"));
+            in.tradingPost = boolOf(requireEntry(e, "has_trading_post"));
+            inputs.add(in);
+        }
+        rejectUnknownEntryKeys(c, "operator_id", "sub_account_id", "product_ids",
+                "quota_limit", "is_enterprise_leader", "is_management_role",
+                "has_risk_role", "has_settle_role", "has_trading_post");
+        return encodePermission(c.paramVersion, inputs);
+    }
+
+    /** 条目级必填键（区别于顶层 {@link #require}）。 */
+    private static String requireEntry(Map<String, String> e, String key) {
+        String v = e.get(key);
+        if (v == null) {
+            throw new IllegalArgumentException("payload 条目缺必填键：entries[n]." + key);
+        }
+        return v;
+    }
+
+    /** {@code "true"}/{@code "false"} 严格解析（其余取值一律拒绝，不得静默当 false）。 */
+    private static boolean boolOf(String s) {
+        if ("true".equalsIgnoreCase(s)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(s)) {
+            return false;
+        }
+        throw new IllegalArgumentException("payload 布尔字段取值非法（须 true/false）：" + s);
+    }
+
+    /** {@code product_ids} 逗号分隔十进制（§3.2.1）；条目级必填 ⇒ 空串直接拒绝。 */
+    private static List<String> splitProductIds(String s) {
+        List<String> out = new ArrayList<>();
+        for (String part : s.split(",")) {
+            String t = part.trim();
+            if (!t.isEmpty()) {
+                out.add(t);
+            }
+        }
+        if (out.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "payload 条目必填键 product_ids 为空（须逗号分隔十进制）：" + s);
+        }
+        return out;
     }
 
     /**
