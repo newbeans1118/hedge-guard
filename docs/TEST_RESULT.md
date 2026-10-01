@@ -12199,3 +12199,135 @@ TMPDIR=/ cmake --build /hg-build-base -j4
 ```
 
 **复核 15 单时请连同 §一 的锚点一起引用**，并在出结论前**自行重测 md5**（本项目 `R-15`/`R-16` 已多次发生「作业期间锚点被静默超越」）。
+
+---
+
+# T-042（组件桥接 TradingBridge）独立复核证据（复核席 `te-verify-t042`，2026-10-01）
+
+> **纯追加说明**：本节为**追加**章。追加前基线 = `head -12201 docs/TEST_RESULT.md | md5sum` = **`6962e655521e506349ebfb571d157b43`**（文件当时 12201 行）。
+> 追加动作**仅**新增本章，未修改任何既有字节。
+
+## T042.0 复核对象、冻结点与取样时刻
+
+| 项 | 值（本席独立实测） |
+|---|---|
+| 提交 | `0a396e0`（feat(T-042) 桥接层收口）；前置 `62ac3d3`（契约登记 + 起 CH-018）、`4db583e`（ARCH §3.10 同步，`HEAD`） |
+| `java/src` 树锚 | **`find java/src -name '*.java' \| LC_ALL=C sort \| xargs md5sum \| md5sum` = `ca48707b367dce3a3c04bd365e69a1e8` / 373 文件** |
+| 取样时刻 | 2026-10-01 13:18:47 / 13:18:58 / 13:19:08（**连续 ≥3 次 ×10s 取样恒同** ⇒ 静默，得与产出方交换树锚） |
+| `git status --short -- java docs/ARCHITECTURE.md java/CONTRACTS.md proto cpp` | **空**（冻结点上被复核路径无未提交改动） |
+| 基线门禁（本席独立复跑，隔离副本 `/root/iso-t042`，`cd java && mvn -B -o -Punit clean test`） | **669 / 0 / 0 / 0 · BUILD SUCCESS**；`@Test` 计数（全 `src/test`）**669 == surefire 669**；82 个 surefire 报告类 |
+| `arch-check` | `bash tools/arch-check/arch-check.sh` ⇒ **rc 0** |
+| 产出方自述锚（仅登记，**不作证据**） | `0a396e0` / `ca48707b…` / 373 / 669/0/0/0 / rc 0 —— **与本席实测逐项吻合** |
+
+**变更面**（`git diff 62ac3d3..0a396e0`）：7 改 + 2 新，全在 `java/src`；
+`bridge/HgcpClient.java`、`bridge/TradingBridge.java`、`bridge/stub/InMemoryTradingBridge.java`、
+`common/Config.java`、`web/Bootstrap.java`、
+`test/.../bridge/TradingBridgeContractTest.java`、`test/.../service/impl/ParamDispatchServiceImplTest.java`；
+新增 `test/.../bridge/HgcpResumeDataReplayTest.java`（5 例）、`test/.../web/ParamDispatchAssemblyTest.java`（4 例）。
+（`docs/TASKS.md` 1 行、`java/CONTRACTS.md` §3.2.3 —— 编排者落点，**不在本席复核的实现范围内**，仅作交叉参考。）
+
+---
+
+## T042.1 验收标准逐条结论（独立证据 vs 产出方自述）
+
+| # | 验收标准（原文摘要） | 本席结论 | 独立证据 |
+|---|---|---|---|
+| 1 | HGCP TCP 客户端全实现；用**同一份 `proto/hgcp.proto`** 与 C++ 侧同源生成 | **部分**（**限同源**，跨侧运行时**未实测**） | ① 同源：`java/src/main/java/hgcp/v1/Hgcp.java:2` = `// source: hgcp.proto`（全仓 `grep -rn 'source:' java/src` **仅此 1 处**）+ `proto/hgcp.proto` 实存（28394 B）⇒ **声明级同源成立**。② 连接/鉴权/心跳/重连/补数/回环/帧编解码：源码在位（`connectAndHandshake`/`sendHello`/`heartbeatLoop`/`onDisconnected` 退避重连/`sendResumeRequest`/`onResumeData`）。③ **跨进程 E2E 零证据**（见 T042.3）。 |
+| 2 | 接口就位七项；**不提供 `preCheck`** | **达成** | `TradingBridge.java` 反射断言（`TradingBridgeContractTest:24-31`）**逐字未动**：`assertEquals(new TreeSet<>(asList("placeOrder","confirmOrder","cancelOrder","dispatch","isReady","replayProgress","mirror")), names)` + `assertFalse(names.contains("preCheck"))`。本席实测 `git diff` 中该断言 **`+`/`-` 均 0 行**（仅 151/155 两处**调用点**改写）。 |
+| 3 | 事件流按序消费 + 幂等去重 + 镜像构建（LRU + 落库唯一约束双保险） | **未达成** | **★ 承重检验 M7**：把 `IdempotencyCache.first` 的重复分支由 `return false` 改为 `return true`（**幂等去重被完全击穿**）⇒ `HgcpResumeDataReplayTest`+ `HgcpFrameTest` **15/15 全绿**。全 `src/test` 内 `IdempotencyCache`/`idempot` 仅 `web/RouterTest.java` 命中（路由幂等，非事件幂等）⇒ 按 `business_id`+`event_seq` 的事件级去重**无任何直接用例**；落库唯一约束侧亦无测试。 |
+| 4 | 事件驱动、不轮询（不主动查库 / 不主动查 C++） | **达成** | 消费入口唯一为 `onFrame`（读循环 `reader.drain()` → `onFrame`）与补数 `onResumeData`→`onFrame`；无定时查库/查 C++ 循环（`heartbeatLoop` 只发心跳帧）。 |
+| 5 | 回执超时 3000 ms（`CFG-28`）标未生效；断连后两侧最终一致 | **部分** | ① **`CFG-28` 非硬编码：达成且承重** —— `ParamDispatchAssemblyTest` 以该键置 200 作判别量；**M4**（把 `ParamDispatchServiceImpl(TxTemplate,DAO,TradingBridge,Config)` 的 `config.getInt(...)` 改回常量 `ACK_TIMEOUT_MILLIS`）⇒ **`ParamDispatchAssemblyTest` 红 1 / `ParamDispatchServiceImplTest` 红 1（共 19: 2F）**。② 3000 ms 缺省值 = `ACK_TIMEOUT_MILLIS=3000L`（`ParamDispatchServiceImpl:78`），经 Config 读，非硬编码。③ 「断连后两侧最终一致」**未达成**（须 §10-32 联调，本机不可达）。 |
+| 6 | `CMD_UPDATE_PERMISSION` 从库派生 4 布尔 | **未达成** | `ParamChangeEncoder.deriveRoles`（`:228`）+ `encodePermission`（`:203`）**实测全仓 0 调用点**（`grep -rn 'encodePermission\|deriveRoles\|PermissionInput' java/src` ⇒ 除定义文件外**空**）。**★ 承重检验 M3**：把 `case "APPROVER": mgmt = true;` 翻转为 `mgmt = false;`（`is_management_role` 派生恒假）⇒ **`TradingBridgeContractTest`+`ParamDispatchServiceImplTest`+`ParamDispatchAssemblyTest`+`HgcpResumeDataReplayTest`+`HgcpFrameTest` 42/42 全绿**（`deriveRoles` 无任何用例）。另 `is_enterprise_leader` 的**取值输入侧**（`AuthService`/`DmUserAccountDao`）不是本单新增，且无端到端组装点。 |
+| 7 | `java/CONTRACTS.md` 补登 `MsgResumeData` `from_seq`/`to_seq` per-batch 语义 + 空批口径 | **达成**（属编排者落点，仅交叉参考） | `java/CONTRACTS.md:476` 新增 **§3.2.3**（`from_seq`/`to_seq` per-batch / 三条不变式 / 空批口径 / 500·501 边界 / Java 落地路径 + 两处措辞澄清）+ `:783` §5.1 编辑登记行；**未升版**（`HGC-1.6` 不变）。**本席实测**：该文件命中 `MsgResumeData`/`from_seq`/`to_seq`/`per-batch`（此前工单载「grep 0 命中」已被填平）。 |
+
+---
+
+## T042.2 承重检验（变异 ≥3 例；**本席自选承重点**）
+
+> 方法：隔离副本 `/root/mut2-t042`（含 `{docs,java,tools}` 布局；`TMPDIR` 未指 `/tmp`）。
+> 每例：**① 实测目标串 count == 1 → 注入 → ② 先证编译通过（构建阶段无 `COMPILATION ERROR`）→ ③ 再看测试红/绿 → ④ 复位后 `diff` 与 `.orig` 逐字节恒等**。
+> 全部 7 例复位后，`find src -name '*.java' … | md5sum` 回 **`01c2e013a57548088887fbf18e4e91fa`**（与注入前一致），且目标用例集回绿。`src` 内 `.orig/.bak/.rej` 残留 = **0**。
+
+| 编号 | 打点（本席自选） | 目标串 count | 结果 | 判定 |
+|---|---|---|---|---|
+| **M1** | `HgcpClient.onResumeData`：批内坏帧由 `throw new HgcpProtocolException(inner.status)` 改 `continue`（静默跳过） | 1 | **红**：`HgcpResumeDataReplayTest` 5: **1F** | 补数坏帧拒绝**承重** |
+| **M2** | `HgcpClient.cancelOrder`：`.setOperatorId(operatorId)` 改 `.setOperatorId(0L)`（**退回 CH-018 前的静默退化**） | 1（注：两处 `setOperatorId(operatorId)`，本席以**含方法签名+构建器链**的更长锚精确命中 `cancelOrder` 一处） | **绿**：`TradingBridgeContractTest`+`ParamDispatchServiceImplTest`+`ParamDispatchAssemblyTest` **27/27** | **承重缺口**：`FR-TRADE-6` 验收 4 / `CH-018` 修复**无守卫** |
+| **M3** | `ParamChangeEncoder.deriveRoles`：`APPROVER → mgmt = true` 翻 `false` | 1 | **绿**：5 个相关类 **42/42** | **承重缺口**：验收 6 无守卫 |
+| **M4** | `ParamDispatchServiceImpl`：`config.getInt(KEY_CMD_TIMEOUT_MS,…)` 改回常量 `ACK_TIMEOUT_MILLIS` | 1 | **红**：`ParamDispatchAssemblyTest` **1F** + `ParamDispatchServiceImplTest` **1F**（19: 2F） | `CFG-28` 非硬编码**承重**（独立复现产出方声明） |
+| **M6** | `Bootstrap.buildParamDispatchService`：`bridge == null` 时由 `return null` 改 **造空桥** | 1 | **红**：`ParamDispatchAssemblyTest` 4: **2F** | 「凭据缺失 ⇒ 不装配」**承重** |
+| **M7** | `IdempotencyCache.first`：重复分支 `return false` 改 `return true`（去重击穿） | 1 | **绿**：15/15 | **承重缺口**：验收 3 无守卫 |
+
+**小结**：6 例变异中 **3 例被现有套件击杀（M1/M4/M6）**，**3 例存活（M2/M3/M7）**。
+存活即证明「测试全绿 ≠ 该路径被守卫」，对应验收 2（`cancelOrder` 操作人）、验收 3（事件幂等）、验收 6（权限派生）三处。
+
+---
+
+## T042.3 「限定」诚实性核实（产出方主动披露的两项）
+
+**结论：两项限定均属诚实，且本机确无跨进程 E2E 证据。**
+
+1. **「本机无 `hg-trading`」——按「仓库内」口径成立、按「本机」口径需订正**：
+   **本席实测**（与产出方及工单 `T-042-task.md` §5 的措辞不同）：`/root/myspace/hedge-guard` **仓库内**确无 `hg-trading` 二进制（`find` 0 命中）；但**本机存在** `/hg-build-base/src/hg-trading` 与 `/hg-build-chk/src/hg-trading`（均为 **16624 B ELF**，`BuildID=cbe8f3e4…`，同一构建产物）。
+   ⚠️ **但该二进制不改变结论**：`cpp/src/main.cc` 为**工程骨架**（打印模块名 + `--self-test`），**不接受任何端口/地址**、**不监听、不建 HGCP 帧、不做协议握手** ⇒ **即使用它，`HgcpClient` 的握手也不会完成**，**跨进程协议 E2E 依旧不可达**。
+   ⇒ 产出方「跨进程 E2E 不可达」的**结论正确**；其**论据（「本机无 `hg-trading`」）不精确**——正确论据应为「`hg-trading` 为骨架、未实现 HGCP 服务端」。（并入 **O-1**，非缺陷级。）
+2. **「回环自测不得读作联调」——属实**：
+   唯一触达 `HgcpClient` 的测试为 `HgcpResumeDataReplayTest`，其 `newClient()` 传入的 `transportFactory` **直接抛 `UnsupportedOperationException("本用例只走 onFrame 接缝，不建连")`** ⇒ **不建连、不成帧收发**。`grep -rln 'HgcpClient' java/src/test` **仅此 1 文件**；`TcpHgcpTransport` 仅被 `web/ws/*`（WebSocket，非 HGCP）引用。⇒ **全仓无任何进程内/跨进程 HGCP 回路**，更无跨侧证据。
+
+---
+
+## T042.4 缺陷与观察
+
+### 缺陷
+
+- **`TE-T042-001`（中）—— `cancelOrder` 的「操作人」路径零承重**：
+  `CH-018` 的修复动机（`FR-TRADE-6` 验收 4「撤单动作可查询到操作人与时间」+ 消除静默鉴权降级）**未获任何测试守卫**——把 `setOperatorId(operatorId)` 改回 `setOperatorId(0L)`（即旧 `parseLongOrZero` 的非数字串退化形态）⇒ **27/27 全绿**（M2）。同类：`confirmOrder` 的 `operatorId`/token 分列亦无行为断言（现有用例只断言 `InMemoryTradingBridge` 桩返回 `acknowledged`）。
+- **`TE-T042-002`（中）—— 验收 6（`CMD_UPDATE_PERMISSION` 派生）**未达成**且零承重**：
+  `deriveRoles`/`encodePermission` 全仓 0 调用、0 用例；翻转 `APPROVER→is_management_role` 全绿（M3）。`is_enterprise_leader` 取值输入侧亦无组装点。
+- **`TE-T042-003`（中）—— 验收 3（事件幂等去重）零承重**：
+  击穿 `IdempotencyCache` 去重 ⇒ 15/15 全绿（M7）。⚠️ 注：`HgcpResumeDataReplayTest:57` 的 `positionQty`（覆盖式读取最后一条）使「跨批重复喂」在镜像侧**自愈**，故「跨批重复」用例不具备去重守卫力——该类用例**不可**作为验收 3 的替代证据。
+
+### 观察（不阻断）
+
+- **`O-1`（对产出方/工单的措辞订正，非缺陷）**：见 T042.3 第 1 项——「本机无 `hg-trading`」不精确。
+- **`O-2`**：`Bootstrap.clientBootId()` 用 `ManagementFactory.getRuntimeMXBean().getName()`（`pid@host`）⇒ **未换 JVM 的重启**（同 JVM 内重跑 `assembleWithResources`）会得到**同一 `client_boot_id`**。§4.2.6 要求「重连保持稳定」；进程级重启通常换 pid，故**低风险**，仅登记。
+- **`O-3`**：`TradingBridgeContractTest` 的「恰七项」断言只比较**方法名集合**、不比较**签名**。`CH-018` 正是签名级变更却未使该断言变红 ⇒ 该断言对「签名漂移」**结构性失明**（本单靠人工对齐，非靠判据）。建议后续以 §2.2 与 `ARCH §3.10` 做**机械化签名差集**（同 `T-032` proto 转录复核手法）。
+- **`O-4`**：全量 `mvn -B -o -Punit clean test` 内 `arch-check` **会恰好执行一次并计入门禁**（本席以 `-Dtest=…` 复跑时 arch-check 不会执行 ⇒ 该口径下 127 假失败与本单无关，**已排除**）。
+- **`O-5`**：产出方「已用变异证明非硬编码」—— 本席 **独立复现成立**（M4 红）。但该结论**仅覆盖「Config 读数」一格**（`buildParamDispatchService → new ParamDispatchServiceImpl(…, config)`）；「`Bootstrap` 生产路径**确实调用了** `buildParamDispatchService`」这一格由另两格覆盖（`assembleWithResources` 的 `databaseAssembled` 断言 + 运行日志「未装配参数下发服务…」实测出现在全量跑中）。**未被任何一格覆盖**的是「`Bootstrap:165` 的**装配调用行**被删除/短路」——因 `ParamDispatchAssemblyTest` 直调 `buildParamDispatchService` 而 `BootstrapAssemblyTest.routeCount()==83` 不敏于该行。
+
+### 未决项定性复核（工单第 1~5 项）
+
+| # | 产出方定性 | 本席核实 |
+|---|---|---|
+| 1 | 冷启动无重连（`onDisconnected` 仅在读/心跳线程运行期生效；首连失败不自愈） | **成立**：`start()` 内 `connectAndHandshake()` 先于起线程，失败即抛；重连循环仅在 `onDisconnected()`（读/心跳线程内触发）中。`Bootstrap.assembleHgcpClient` 捕 `IOException` 后**不再起轮询** ⇒ 须重启 `hg-biz` 方可恢复。定性与后果描述**准确**。 |
+| 2 | `hg.tcp.bind` 声明后既有生产 0 读取点，本单以 `loopbackOnly` 接上 | **部分过时**：`Bootstrap.java:276` 现有 1 处读点（即本单所接）；另 `ConfigService.java:103` 有 1 处**声明面**白名单项（非取值）。「0 读取点」为**本单前**时点事实，**兹订正**。 |
+| 3 | `T-165`：`scheduleTimeout` 每命令起一线程、该路径原 0 直接覆盖 | **成立**：本单仅补 `t.setDaemon(true)`（`HgcpClient:634`），`COMMAND_TIMEOUT`/`pending.remove`/`AckResult` 语义串未改（diff 可核）；该路径仍无直接用例。 |
+| 4 | `ParamDispatchService` 暂无业务消费者（无 HTTP 路由），M1 以 `dispatch_status='PENDING'` 占位 | **成立**：无 `ParamDispatchRoutes`；`ParamDispatchServiceImpl.persistPending` 先写 `PENDING` 再下发。 |
+| 5 | 重放路径直测缺口「**部分**闭合」 | **部分成立**：`onResumeData` 为 `private`，5 例经 `public onFrame` 的 `MSG_RESUME_DATA` 分支**间接驱动**（本席核：`onFrame:212` → `onResumeData:281`）；**且经 M1 承重验证确认确实驱动到重放逻辑**（坏内层帧路径必红）。但 5 例**未**覆盖：① 跨批**整体 SEQ 连续性**被接收侧校验/推进（用例只断言上下文自身输入）；② 去重（见 `TE-T042-003`）。⇒ 「部分闭合」**定性恰当**。 |
+
+### 遗漏扫描（产出方未提及的风险）
+
+- `TE-T042-003` / M7（幂等去重零守卫）——产出方与工单均未列为缺口。
+- `TE-T042-002` / M3（验收 6 零守卫）——产出方列为「已交付（`ParamChangeEncoder` 内含）」，未披露「0 调用 + 0 用例」。
+- `TE-T042-001` / M2（`cancelOrder` 操作人零守卫）——`CH-018` 的核心修复无承重。
+- `O-2` `client_boot_id` 稳定性。
+- 跨进程 E2E 的**真实论据**应为「`hg-trading` 为骨架、未实现 HGCP 服务端」，而非「本机无该二进制」（`O-1`）。
+
+---
+
+## T042.5 结论
+
+**有条件通过。**
+
+- **基线**：冻结点 `ca48707b…`/373 上 `cd java && mvn -B -o -Punit clean test` **全绿（669/0/0/0 BUILD SUCCESS）**、`@Test`==surefire==**669**、`arch-check` **rc 0** —— 本席独立复跑，与产出方自述逐项吻合。
+- **阻断级缺陷：0**（无「基线红 / 契约被放宽 / 断言被削弱」）。`TradingBridgeContractTest:24` 恰七项断言**逐字未动**（diff 内 0 行）。
+- **中缺陷 3**（`TE-T042-001/002/003`），均为**覆盖缺口 / 验收项未达成**，**不**改变已实现代码的正确性，但使**验收 2 的关键修复、验收 3、验收 6 处于无守卫状态**。
+- **验收：达成 2/8 行**（#2、#4、#7 = 达成〔#7 属编排者落点〕；#1、#5 = 部分；#3、#6 = 未达成）。
+- **诚实性**：产出方主动披露的两项限定**均属实**（`O-1` 为措辞订正，**不构成不诚实**）；**未发现**把自环说成联调、亦**未发现**未声明的跨侧证据。
+
+**给编排者的处置建议**（本席只报不改）：
+1. `TE-T042-002`（验收 6 未达成）——须在派 `T-042` 收口前明确：**是否本单交付范围内**；若在，则「0 调用 + 0 用例」应记为**未达成**而非「已交付」。
+2. `TE-T042-001/003` 的守卫建议落 `T-057`（M2 协议专项：一致性/保序/补数/幂等/重连）——其验收范围与这两项重合。
+3. `O-3` 建议并 `T-121` 系（架构判据脚本）——以机械化差集守卫 §2.2 ↔ ARCH §3.10 签名一致。
+
+---
+
