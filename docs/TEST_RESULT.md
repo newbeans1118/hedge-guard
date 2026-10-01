@@ -12409,3 +12409,101 @@ TMPDIR=/ cmake --build /hg-build-base -j4
 3. **C++ 7 处测试夹具的「无一处应删」判定未经独立复核**（产出方自查，存在盲区风险）。
 4. **字段号线格式实证（`48 01`）未经编排者独立复现**（仅读其用例与自报）。
 5. **链 2 / 链 4 的一致性核**系编排者执行（非独立）；`E7` 对链 2/链 3/链 4 **均不覆盖**。
+---
+
+## 36(续). CH-019 独立复核证据章（te-verify-ch019c，2026-10-01）
+
+> 复核对象 = CH-019（M2 冻结复合类型 `PermissionEntry` 追加 `has_trading_post`(9:bool·必)；用户 2026-10-01 批准，L3）。
+> 复核基线 = `HEAD ecbfe91`。**证据栏分列「独立实测」vs「产出方自述」**；本章为**纯追加**。
+
+### E-1 锚点（独立实测，2026-10-01 21:4x–22:0x，取样于共享树 `/root/myspace/hedge-guard`）
+
+| 项 | 实测值 | 与编排者冻结点比对 |
+|---|---|---|
+| `HEAD` | `ecbfe91` | 一致 |
+| `docs/ARCHITECTURE.md` | `2b739a409328b5b8b61dcc6a0eae1700` / 3270 行 | 一致 |
+| `proto/hgcp.proto` | `a1762e53f51e937f0ec6975d45125c43` | 一致 |
+| `tools/arch-check/scan_hgcp_schema.py` | `c0cb3b860381cf52f48eea2bb10ae008` | 一致 |
+| `java/CONTRACTS.md` | `7848761497c0fe582a6a35194df895ae` / 872 行 | 一致 |
+| `Hgcp.java` | `ac15b67d451e27474f9bd99a95df03a4` / 67103 行 | 一致 |
+| `java/src` 树锚（`LC_ALL=C sort`） | `036e9240b4749298285b120da8b0f207` / 374 文件 | 一致 |
+| `cpp/src` 树锚 | `6e2a75bb26f07d5d43b7940695c1c63c` | 一致 |
+| `docs/TEST_RESULT.md` | 12411 行（复核追加前） | 一致 |
+
+### E-2 四链一致性（逐链独立实测）
+
+**链 1（ARCH §4.2.8 ↔ proto，E7 覆盖）—— 一致。**
+独立复跑 `bash tools/arch-check/arch-check.sh` ⇒ **E1–E7 全部退 0**（`ARCH_CHECK_RC=0`）；`python3 tools/arch-check/scan_hgcp_schema.py` 明细「字段合计：顶层 **214** + 复合 **67** = 281」。两侧 `PermissionEntry` 均为 9 字段、第 9 位 `has_trading_post / bool / 必`（目视 `proto:717–726`、`ARCH :1199`）。
+
+**链 2（Java 生成码 ↔ proto，E7 不覆盖）—— 一致。**
+独立重生成：`TMPDIR=/ protoc --java_out=/root/ch19verify-gen -I proto proto/hgcp.proto`（protoc `libprotoc 3.21.12`）⇒ `cmp` 与在树件 **IDENTICAL**，双侧 md5 均 `ac15b67d…`。
+
+**链 3（proto ↔ C++ 行为，E7 不覆盖）—— 一致。**
+① `/root/ch19b-build/src/hgcp/generated/hgcp.pb.h` 含 `has_trading_post` 20 处（字段声明 :10016–10021）。② **字段号 9 的独立实证**（自设探针，独立于产出方用例）：手造字节 `48 01` 经 `protoc --decode=hgcp.v1.PermissionEntry` ⇒ 解出 `has_trading_post: true`；负控 `48 00` ⇒ 空输出（proto3 缺省不编码）；邻位负控 `40 01` ⇒ 解出 `has_settle_role: true`（tag 0x40 = 8<<3）⇒ **9 号确属 `has_trading_post` 且 varint 形态**。③ 引擎三态用例（`risk_engine_permission_test.cc`）：`:127`/`:147`/`:169` 三例**目视核实** —— `:147` 工况确为「四冲突位（`is_responsible`/`is_management_role`/`has_risk_post`/`has_settle_role`）**逐一显式赋 false**、仅 `has_trading_post=false`」⇒ 断言 `kReject/kPermission/0x100B`，非依赖缺省值。
+
+**链 4（CONTRACTS §3.2.1 键 ↔ proto 字段，E7 不覆盖）—— 一致（本轮实测），守卫缺口已立 `T-170`。**
+键名集合与 proto 字段名集合**双向差集皆空**（9 = 9：`operator_id/sub_account_id/product_ids/quota_limit/is_enterprise_leader/is_management_role/has_risk_role/has_settle_role/has_trading_post`）；键名直接采用 §4.2.3 冻结名、无二次命名。
+
+### E-3 门禁复跑（冻结点上全绿，独立实测）
+
+- Java：`cd java && TMPDIR=/ mvn -B -o -Punit clean test` ⇒ **674/0/0/0**（surefire 汇总 674；`@Test` grep 计数 674 == surefire 674）。
+- C++：`cd /root/ch19b-build && ctest` ⇒ **35/35 通过**（桩轨）。
+- `arch-check`：rc 0（见 E-2 链 1）。
+
+### E-4 产出方关键声明逐条验证
+
+| # | 声明 | 独立验证结果 |
+|---|---|---|
+| 1 | 生成码「入仓件保真」（减字段重生成 ⇒ 与改动前 byte-identical） | **复现成立**：`git show 49faab4^:proto/hgcp.proto`（实测 0 处 `has_trading_post`）重命名后在临时目录重生成 ⇒ md5 `57496c95cf4de6b29fd9eac2e5e5bd2d`、67010 行，与 `git show 49faab4^:Hgcp.java` md5 **完全一致** |
+| 2 | 153 行删除全在 descriptor C 串字面量块 | **成立**：删除行 0 处含 `class`/`enum`/`public`/`private`/`static`；抽样目视均为 `"\001(\t\\"…`` 形态的 descriptor 串续行；且链 2 的「重生成 == 在树件」已整体性覆盖此点 |
+| 3 | `deriveRoles` 逐字节未动、未混入禁止类组 | **成立**：`git diff 49faab4^..HEAD -- ParamChangeEncoder.java` 中 `deriveRoles` 函数体零改动（仅 javadoc 新增）；`tradingPost` 以独立字段进 `PermissionInput`、由调用方派生，方向语义有显式注释钉住（准入类 vs 禁止类） |
+| 4 | C++ 条 3 用例「四冲突位显式 false」 | **目视核实成立**（见 E-2 链 3③） |
+| 5 | 7 处夹具「无一处应删」 | **反向核查成立**：全仓 `has_trading_post = true` 测试置位点共 **8** 处（7 处既有夹具 + 新增 `risk_engine_permission_test:177` 放行态），均为「构造特定工况」的正例夹具；新增的负例（`:133`/`:153`）与协议路径用例（`envelope_test` roundtrip true/false 两态）补齐了反向覆盖；未发现「该删而保留」者。⚠️ 但见 E-6 观察项 O-1 |
+| 6 | 变异 M-ENGINE 红 6 例 | **复现成立**：自设 MUT3（`risk_engine.cc:420` 短路 `&& false`）⇒ `risk_engine_permission_test` **38 checks / 6 failures**，与产出方声称一致 |
+
+### E-5 自设变异承重（全部「先证 build rc=0 → 看红 → 复位 diff 恒等」，隔离副本 `/root/ch19v-mut`，含 docs/java/cpp/tools/proto 五件）
+
+| 编号 | 变异点（自选） | 前置 | 结果 |
+|---|---|---|---|
+| MUT1 | `scan_hgcp_schema.py` `COMPOSITE_TOTAL 67→66`（实测目标串 count==1） | 副本 `arch-check rc 0` | `E7 退 1`：「复合字段合计 67 ≠ 66」；复位后 diff 恒等、rc 回 0 |
+| MUT2 | `proto` 字段号 `has_trading_post = 9 → 10`（count==1） | 同上 | `E7 退 1`：「ARCH 9 ≠ proto 10」（判定精确点名）；复位 diff 恒等 |
+| MUT3 | `risk_engine.cc:420` 短路 `!p->has_trading_post && false`（count==1；Edit 注入） | 副本 cmake+build `-j2` rc 0、ctest 35/35 绿（复位后复跑确认） | `risk_engine_permission_test` **6 failures**（:137/:138/:139/:161/:162/:163）＝「该位 false 应拒而未拒」双向击穿；复位 diff 恒等、重建后 35/35 回绿 |
+| MUT4 | `ParamChangeEncoder:231` `.setHasTradingPost(in.tradingPost)→(false)`（count==1） | 副本 Java 全量 **674/0/0/0 绿** | **全绿（674/0/0/0）** ⇒ **该编码点在 Java 测试面零覆盖**（见缺陷 TE-CH019-001）；复位 diff 恒等 |
+| MUT5 | `HgcpClient:312` 去重守卫 `idempotency.first(...)→(true || ...)`（count==1） | 副本绿 | `HgcpClientGuardTest.duplicatePositionChangeEventIsDiscarded` **红**（5 例中 1 红）⇒ **去重测试承重成立**（未决项 5 的承重检验通过）；复位 diff 恒等 |
+
+注：MUT1/MUT2 与产出方所做同点，系按工单要求「独立复现」；MUT3 虽与 M-ENGINE 同点但为自建副本自测（红 6 例独立复现）；**MUT4/MUT5 为本轮自设扫描面的增量**（产出方未做）。
+
+### E-6 缺陷与观察
+
+**缺陷：**
+
+- **TE-CH019-001（中）**：`ParamChangeEncoder.encodePermission` 的第 9 字段编码在 **Java 测试面零覆盖** —— 证据 = MUT4（`setHasTradingPost` 恒 `false`）后全量 **674/0/0/0 全绿**；且 `java/src/test` 中 `tradingPost`/`has_trading_post`/`HasTradingPost` **0 命中**、`encodePermission` 无任何测试调用者（`git log -S 'ParamChangeEncoder' -- java/src/test` 亦 0 命中，属存量缺口、非本 CH 新引入，但 `CH-019` 新增的承重点落在既有盲区上）。**不阻断**：C++ 侧 `envelope_test` 的 wire roundtrip 与 E7 链 1/链 2 已从两侧钉住字段承载；建议补 1 例 `encodePermission` 断言 `getHasTradingPost()` 的用例（可归 `T-168` 或另立）。
+
+**观察（不阻断）：**
+
+- **O-1**：7 处夹具中 `data_model_test.cc:147` 的 `resp`（`is_responsible=true` 且 `has_trading_post=true`）在语义上是一个「负责人持交易岗」的组合（NFR-SEC-5 场景里这是否合法态由夹具自定）；本轮不动、仅提示其非「生产可达态」的实证样本。
+- **O-2**：链 4 本轮实测一致，但**零持续守卫**属实 —— 本轮独立复核了编排者的 `T-170` 实证形态（`E7` 只覆盖链 1；判据脚本目录内无任何读取 `CONTRACTS.md` 键的脚本），与工单口径一致。
+- **O-3**：产出方披露「验收 1 仅达成（限同源）、跨进程 E2E 不可达」**属实** —— `cpp/src/main.cc` 自述为工程骨架（仅打印模块清单 + `--self-test`），本轮未发现任何把自环/同源证据升格为联调的表述。
+- **O-4**：`ee708ee`（T-038 验收 5 补第 5 位）为「只加不改」单行追加，含「有解析无装填（`putPermission` 生产 0 调用点）」的前提披露，与代码实测相符（`putPermission` 生产路径确 0 调用）。
+
+### E-7 未决项定性复核（对工单所列 5 项的恰当性核）
+
+1. 冷启动无重连 —— 定性恰当（本轮未测联调、无反证）。
+2. `hg.tcp.bind` 0 读取点 / `CFG-20` 待裁定 —— 与「装配即达标」的编排者裁定相容，恰当。
+3. `T-165` 线程模型 —— 未在本轮验证范围内，恰当留待该任务。
+4. `ParamDispatchService` 无业务消费者 —— 恰当（`T-168` 为承接号）。
+5. Java 重放/去重直测缺口 —— **已由本轮承重检验补证**：MUT5 证明 `HgcpClientGuardTest` 真驱动去重逻辑（改坏即红）；`HgcpResumeDataReplayTest` 在 MUT5 下不红属预期（其覆盖的是重放序与水位，不注入重复事件），两测试分工清楚、非冗余。
+
+### E-8 独立性声明
+
+**独立实测**：E-1 全部锚点；E-2 四链；E-3 三项门禁；E-4 第 1/2/3/6 条；E-5 全部五例变异（隔离副本）；E-6 O-2/O-3/O-4。
+**只能引述（未独立验证）**：用户批准的合规性事实本身；`/root/ch19b-build` 的构建历史（仅复用其产物跑 ctest，构建过程未重现）。
+**共享树零改动声明**：本轮对共享树唯一写入 = 本章追加（见 E-9）；全部变异均在 `/root/ch19v-mut` 与 `/root/ch19verify-gen`（临时目录）内完成并复位/清理。
+
+### E-9 本章自证（纯追加）
+
+- 追加前：`docs/TEST_RESULT.md` 12411 行，`head -12411 | md5sum` = `a06d5185a47f3b4b43dd747c5541ea91`。
+- 本章落笔后以实时 `md5sum` + `wc -l` 为准（自指值不写死）。
+
+**复核结论：有条件通过（0 阻断；1 缺陷 TE-CH019-001〔中，测试覆盖缺口〕+ 4 观察）。**
+
