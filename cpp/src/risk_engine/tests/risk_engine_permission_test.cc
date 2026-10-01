@@ -133,7 +133,57 @@ void test_no_trading_post() {
   p.has_trading_post = false;
   b.putPermission(7, p);
   HG_CHECK(bind(&st, &eng, b));
-  HG_CHECK_EQ(eng.check(baseOrder()).code, static_cast<std::uint32_t>(0x100B));
+  const RiskResult r = eng.check(baseOrder());
+  HG_CHECK_EQ(r.decision, RiskDecision::kReject);
+  HG_CHECK_EQ(r.rule, RuleId::kPermission);
+  HG_CHECK_EQ(r.code, static_cast<std::uint32_t>(0x100B));
+}
+
+// T-039 / CH-019：has_trading_post 的**缺陷精确形态** —— 该位位于 risk_engine.cc:420，
+//   排在 0x100F（负责人 / 管理层）与 0x100E（风控岗 / 结算岗）**两关之后**，是**第四分支**。
+//   ⇒ 必须构造「四冲突位全过（均显式 false）、仅 has_trading_post=false」的工况；
+//   否则「因该位被拒(0x100B)」与「因岗位 / 角色冲突被拒(0x100E/0x100F)」在断言上不可区分。
+//   本用例缺位即等于没测到本体。
+void test_no_trading_post_after_four_bools_pass() {
+  RiskState st;
+  FakeClock clk(20260101);
+  RiskEngine eng(&clk);
+  LoadBatch b = happyBatch(1);
+  PermissionEntry p = trading();
+  p.has_trading_post = false;    // 唯一拒绝动因
+  p.is_responsible = false;      // 四冲突位显式全过（不借缺省值）
+  p.is_management_role = false;
+  p.has_risk_post = false;
+  p.has_settle_role = false;
+  b.putPermission(7, p);
+  HG_CHECK(bind(&st, &eng, b));
+  const RiskResult r = eng.check(baseOrder());
+  HG_CHECK_EQ(r.decision, RiskDecision::kReject);
+  HG_CHECK_EQ(r.rule, RuleId::kPermission);
+  HG_CHECK_EQ(r.code, static_cast<std::uint32_t>(0x100B));
+}
+
+// T-039 / CH-019：同一位的**放行态** —— has_trading_post=true 且四冲突位全过 ⇒ 全链放行。
+//   显式构造（不经 trading()），使「该位为 true 才放行」自成闭环；与上两条构成
+//   同一位的三态（无记录 / 无交易岗 / 有交易岗）。
+void test_trading_post_record_passes() {
+  RiskState st;
+  FakeClock clk(20260101);
+  RiskEngine eng(&clk);
+  LoadBatch b = happyBatch(1);
+  PermissionEntry p;
+  p.allow_all_sub_accounts = true;
+  p.allow_all_products = true;
+  p.has_trading_post = true;
+  p.is_responsible = false;
+  p.is_management_role = false;
+  p.has_risk_post = false;
+  p.has_settle_role = false;
+  b.putPermission(7, p);
+  HG_CHECK(bind(&st, &eng, b));
+  const RiskResult r = eng.check(baseOrder());
+  HG_CHECK_EQ(r.decision, RiskDecision::kPass);
+  HG_CHECK_EQ(r.code, static_cast<std::uint32_t>(0));
 }
 
 void test_sub_account_not_authorized() {
@@ -189,6 +239,8 @@ int main() {
   test_risk_post_only_conflict();
   test_management_role_forbidden();
   test_no_trading_post();
+  test_no_trading_post_after_four_bools_pass();
+  test_trading_post_record_passes();
   test_sub_account_not_authorized();
   test_product_not_authorized();
   test_individual_quota_exceeded();

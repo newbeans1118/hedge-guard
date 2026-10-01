@@ -382,6 +382,23 @@ void test_can_trade_management_role_only() {
   HG_CHECK(s.canTrade(2, 100, 200));   // 对照
 }
 
+// T-039 / CH-019：`canTrade` 的 `has_trading_post` 判据（risk_snapshot.cc:164）——
+//   其顺序同样是「负责人 / 管理层 → 风控岗 / 结算岗 → 该位」之后，故须构造
+//   「四冲突位全 false、仅该位 false」的工况，方可确证拒绝源于该位而非岗位冲突。
+void test_can_trade_no_trading_post_only() {
+  RiskState st;
+  PermissionEntry p = tradableBase();
+  p.has_trading_post = false;       // 仅此一条置位
+  p.is_responsible = false;
+  p.is_management_role = false;
+  p.has_risk_post = false;
+  p.has_settle_role = false;
+  HG_CHECK(st.rebuild(singleConflictBatch(p)).ok);
+  const RiskSnapshot& s = st.snapshot();
+  HG_CHECK(!s.canTrade(1, 100, 200));  // 非交易岗 ⇒ 禁交易
+  HG_CHECK(s.canTrade(2, 100, 200));   // 对照：tradableBase（has_trading_post=true）⇒ 可交易
+}
+
 }  // namespace
 
 int main() {
@@ -390,5 +407,6 @@ int main() {
   test_can_trade_risk_post_only();
   test_can_trade_settle_role_only();
   test_can_trade_management_role_only();
+  test_can_trade_no_trading_post_only();
   return hg::risk_state::testutil::report("data_model_test");
 }

@@ -297,6 +297,69 @@ void test_meta_messages_roundtrip() {
   }
 }
 
+// T-039 / CH-019：`PermissionEntry.has_trading_post` 的**字段号 wire 实证**——
+//   `= 9` ⇒ tag = (9<<3)|0 = 72 = 0x48，varint 值 1 = 0x01；`false` 为 proto3 缺省值**不编码**。
+//   本用例独立于「生成码里字段名叫什么」，直接钉住**线格式上的字段号**（跨语言同源的硬约束）。
+void test_permission_entry_trading_post_wire_tag() {
+  {
+    pbv1::PermissionEntry e;
+    e.set_has_trading_post(true);
+    std::vector<std::uint8_t> b;
+    HG_CHECK(PbPayloadCodec::encode(e, &b));
+    HG_CHECK_EQ(b.size(), static_cast<std::size_t>(2));
+    if (b.size() == 2u) {
+      HG_CHECK_EQ(b[0], static_cast<std::uint8_t>(0x48));  // field 9, varint
+      HG_CHECK_EQ(b[1], static_cast<std::uint8_t>(0x01));
+    }
+  }
+  {
+    pbv1::PermissionEntry e;
+    e.set_has_trading_post(false);  // proto3 缺省值 ⇒ 不编码 ⇒ 空 body
+    std::vector<std::uint8_t> b;
+    HG_CHECK(PbPayloadCodec::encode(e, &b));
+    HG_CHECK(b.empty());
+  }
+}
+
+// T-039 / CH-019：`CmdUpdatePermission`（0x0116）整体往返 —— 该位经**协议路径**逐条承载，
+//   含 true / false 两态与其余 8 字段并存，且 `validate()` 认可为合法 payload。
+void test_cmd_update_permission_roundtrip() {
+  pbv1::CmdUpdatePermission m;
+  m.set_param_version(42u);
+  pbv1::PermissionEntry* e1 = m.add_entries();
+  e1->set_operator_id(9001u);
+  e1->set_sub_account_id(7u);
+  e1->add_product_ids(1u);
+  e1->add_product_ids(2u);
+  e1->set_quota_limit("500");
+  e1->set_is_enterprise_leader(false);
+  e1->set_is_management_role(false);
+  e1->set_has_risk_role(false);
+  e1->set_has_settle_role(false);
+  e1->set_has_trading_post(true);   // 交易岗
+  pbv1::PermissionEntry* e2 = m.add_entries();
+  e2->set_operator_id(9002u);
+  e2->set_sub_account_id(7u);
+  e2->add_product_ids(1u);
+  e2->set_has_trading_post(false);  // 非交易岗
+  std::vector<std::uint8_t> b;
+  HG_CHECK(PbPayloadCodec::encode(m, &b));
+  HG_CHECK(!b.empty());
+  const std::uint16_t kT = static_cast<std::uint16_t>(MessageType::kCmdUpdatePermission);
+  PbPayloadCodec c;
+  HG_CHECK(c.validate(kT, b));
+  pbv1::CmdUpdatePermission d;
+  HG_CHECK(PbPayloadCodec::decode(b, &d));
+  HG_CHECK_EQ(d.param_version(), 42u);
+  HG_CHECK_EQ(d.entries_size(), 2);
+  if (d.entries_size() == 2) {
+    HG_CHECK_EQ(d.entries(0).operator_id(), 9001u);
+    HG_CHECK_EQ(d.entries(0).product_ids_size(), 2);
+    HG_CHECK(d.entries(0).has_trading_post());    // 经协议路径承 true
+    HG_CHECK(!d.entries(1).has_trading_post());   // 经协议路径承 false
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -309,5 +372,7 @@ int main() {
   test_stream_reader_frame_boundary();
   test_payload_codec_seam();
   test_meta_messages_roundtrip();
+  test_permission_entry_trading_post_wire_tag();
+  test_cmd_update_permission_roundtrip();
   return hg::hgcp::testutil::report("envelope_test");
 }
