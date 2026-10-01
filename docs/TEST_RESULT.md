@@ -12331,3 +12331,81 @@ TMPDIR=/ cmake --build /hg-build-base -j4
 
 ---
 
+
+---
+
+# `CH-019` 变异承重与守卫强度 —— **编排者执行**（非独立复核；2026-10-01；纯追加）
+
+> ⚠️ **性质声明（必读，防误引）**：本章由**编排者**（`team-lead`）执行，**不是独立复核**。
+> 动因：独立复核席先后 **3 次**派发（`te-ch019-B` / `te-ch019-B2` / `te-ch019-B3`）**全部因 429 中断、零产出**；
+> 编排者遂自执行可机械化部分以推进工作。**编排者系本批工作的派发方，存在确认偏差**；
+> 依本项目 `DONE` 判据（**授权 + 独立验证**），**本章不构成 `CH-019` 的独立验证**。
+> 引用本章时**必须保留本声明**。
+
+## 冻结点
+
+| 项 | 值 |
+|---|---|
+| `HEAD` | `e9cb1b5` |
+| `cpp/src` 树锚 | `6e2a75bb26f07d5d43b7940695c1c63c` |
+| `java/src` 树锚（`LC_ALL=C sort`） | `036e9240b4749298285b120da8b0f207` / 374 |
+| 变异副本 | `/root/vmutA`（C++）、`/root/vmut3`（E7 脚本）、`/root/vmut`（proto） |
+| 共享树 | **零污染**（`grep MUT-A` 在生产 `risk_engine.cc` = 0 命中；两树锚与变异前一致） |
+
+## 变异清单（3 例，均「先证 build/build_rc=0 → 再证变红」）
+
+### MUT-A —— C++ 引擎第四分支短路
+
+- **改坏点**：`cpp/src/risk_engine/src/risk_engine.cc:420` 的 `} else if (!p->has_trading_post) {` → `} else if (false) {`
+  （**目标串唯一性预检**：`grep -c` = **1**，故不会误中别处）
+- **构建**：`cmake -S . -B build -DCMAKE_BUILD_TYPE=Release` ⇒ **rc 0**；`cmake --build -j2` ⇒ **rc 0**
+- **结果**：`ctest` ⇒ **35 项中仅 1 项 FAILED**：`risk_engine.risk_engine_permission_test`；其余 34 项全过 → **必红 ✅**
+- **失败明细（逐条）**：`risk_engine_permission_test: 38 checks, **6 failures**`，恰为：
+  - `:137/:138/:139`（条1 用例 `test_no_trading_post`）→ `kReject` / `kPermission` / `0x100B`
+  - `:161/:162/:163`（**条3 用例 `test_no_trading_post_after_four_bools_pass`**）→ 同上
+- **★判据价值**：MUT-A 精确验明 **「条3」（四布尔全过、仍因该位被拒）确实承重** ——
+  短路第四分支即红，说明该用例真正锁住了**第四分支的序**（这正是 `CH-019` 缺陷的精确形态）。
+- **与产出方自述比对**：产出方 `be-ch019b` 称「M-ENGINE ⇒ 新 :161/:162/:163 红 + 既有 :137-139 红（6 failures）」⇒ **逐字吻合**。
+
+### MUT-C —— `E7` 复合字段合计常量
+
+- **改坏点**：`tools/arch-check/scan_hgcp_schema.py` 的 `COMPOSITE_TOTAL = 67` → `66`（副本 `/root/vmut3`）
+- **结果**：`E7` **rc 1**，报「`[⑤] §4.2.8.6 复合字段合计 67 ≠ 66`」→ **必红 ✅**
+
+### MUT-D —— `proto` 字段号漂移
+
+- **改坏点**：`proto/hgcp.proto` 的 `has_trading_post = 9;` → `= 99;`（副本 `/root/vmut/hgcp.proto`）
+- **结果**：`E7` **rc 1**，报「`[②] PermissionEntry.has_trading_post` 字段号：ARCH 9 ≠ proto 99」→ **必红 ✅**
+  （且**精确指出是哪一侧、哪个字段**）
+
+## ★ 覆盖缺口：链 4 零守卫（决定性实证）
+
+`CH-019` 变更横跨四制品，但 `E7` **只覆盖「`ARCHITECTURE.md §4.2.8` ↔ `proto`」一条**。逐链探针结果：
+
+| 链 | 守卫情况 |
+|---|---|
+| 1. `ARCH §4.2.8` ↔ `proto` | **`E7` 覆盖且有牙**（MUT-C / MUT-D 均必红） |
+| 2. Java 生成码 ↔ `proto` | 无机械守卫，但可由「重生成 + `cmp`」廉价自证 —— **实测 byte-identical**（67103 行 / `ac15b67d…`） |
+| 3. `proto` ↔ C++ 行为 | **有单测覆盖**（MUT-A 必红，见上） |
+| 4. **`CONTRACTS §3.2.1` 键 ↔ `proto` 字段名** | **★ 零守卫** |
+
+**决定性实证（命令可复现）**：
+把 `java/CONTRACTS.md` 的 `entries[n].has_trading_post` 改错为 `entries[n].hasTradingPost`
+（**合法命名风格的错名**）⇒ `bash tools/arch-check/arch-check.sh` ⇒ **rc 0（未发现）**。
+
+**根因（查到「为何无判据」一级）**：**无任何测试或判据读取 `CONTRACTS.md` 的内容** ——
+`java/src/test` 内对 `CONTRACTS` 的 8 处引用**全为 javadoc / `@DisplayName` 注释提及**，
+无一处 `open`/`read` 该文件；`tools/arch-check/` 内仅 `scan_java_sql.sh` 提及 CONTRACTS（且非键校验）。
+
+⇒ 已立 **`T-170`**（P2，3 人时）：建议扩 `E7`（或新增 `E8`）做「`§3.2.1` 键 ↔ `proto` 字段名」**双向差集**；
+判据 = 「注入错键名 ⇒ 必红」。**系门禁覆盖缺口，非 `CH-019` 阻塞项**（`CH-019` 自身链 4 经实测一致：双向差集皆空）。
+
+## 未完成项（如实单列，不得并入「已完成」）
+
+1. **独立复核未取得结论** —— 复核席 3 次派发全因 429 中断、零产出；
+   本章系编排者自执行，**不构成独立验证** ⇒ `CH-019` **不置 `DONE`**。
+2. **产出方声称的另两组变异未复算**（M-SNAPSHOT `risk_snapshot.cc:164` / M-FIELD / M-NUM 的深层形态）；
+   本轮只复算了 MUT-A（对应 M-ENGINE）与两个 `E7` 侧变异。
+3. **C++ 7 处测试夹具的「无一处应删」判定未经独立复核**（产出方自查，存在盲区风险）。
+4. **字段号线格式实证（`48 01`）未经编排者独立复现**（仅读其用例与自报）。
+5. **链 2 / 链 4 的一致性核**系编排者执行（非独立）；`E7` 对链 2/链 3/链 4 **均不覆盖**。
