@@ -163,6 +163,13 @@ public final class ParamChangeEncoder {
      * <p>⚠️ {@code DATA_MODEL.md} <b>无</b> {@code is_enterprise_leader} /
      * {@code is_management_role} / {@code has_risk_role} / {@code has_settle_role} 四列
      * （既不在 {@code t_user} 也不在 {@code t_role}）⇒ <b>必须派生、不得直读</b>。
+     *
+     * <p>⚠️ {@code has_trading_post}（{@code CH-019}，{@code §4.2.8.6} 字段 9）<b>语义方向相反</b>：
+     * 它是<b>准入类</b>标记 —— {@code false} 即拒 {@code 0x100B}；
+     * 而同族 {@code is_management_role} / {@code has_risk_role} / {@code has_settle_role}
+     * 是<b>禁止类</b> —— {@code true} 即拒。故本类<b>不</b>将其并入
+     * {@link #deriveRoles} 返回的那组布尔（保持一致的方向语义）。
+     * 其取值由 L3 从 {@code t_user_role → t_role} 是否含交易岗（{@code TRADER}）派生后置入本字段。
      */
     public static final class PermissionInput {
         /** 操作人用户 ID。 */
@@ -181,6 +188,13 @@ public final class ParamChangeEncoder {
         public boolean riskRole;
         /** {@code t_user_role → t_role} 含 {@code SETTLER}。 */
         public boolean settleRole;
+        /**
+         * {@code CH-019}：该用户是否具交易岗（准入类，{@code false} 即拒 {@code 0x100B}）。
+         *
+         * <p>⚠️ 与 {@link #managementRole} / {@link #riskRole} / {@link #settleRole} 三类
+         * <b>禁止类</b>布尔<b>方向相反</b>，故<b>不由</b> {@link #deriveRoles} 派生。
+         */
+        public boolean tradingPost;
     }
 
     /**
@@ -193,6 +207,11 @@ public final class ParamChangeEncoder {
      *   <li>{@code APPROVER} → {@code is_management_role}</li>
      *   <li>{@code t_user.is_enterprise_leader} → {@code is_enterprise_leader}</li>
      * </ul>
+     *
+     * <p>⚠️ {@code CH-019} 新增第 9 字段 {@code has_trading_post}：<b>准入类</b>
+     * （{@code false} ⇒ 引擎在四布尔判定之后的第四分支拒 {@code 0x100B}），
+     * 与上列三类<b>禁止类</b>布尔方向相反，故<b>不经</b> {@link #deriveRoles}，
+     * 由调用方（L3）派生后置入 {@link PermissionInput#tradingPost}。
      *
      * @param paramVersion 参数版本
      * @param inputs       条目输入（每条 = 一个「操作人 × 子账户」）
@@ -208,7 +227,8 @@ public final class ParamChangeEncoder {
                     .setIsEnterpriseLeader(in.enterpriseLeader)
                     .setIsManagementRole(in.managementRole)
                     .setHasRiskRole(in.riskRole)
-                    .setHasSettleRole(in.settleRole);
+                    .setHasSettleRole(in.settleRole)
+                    .setHasTradingPost(in.tradingPost);
             for (Integer pid : in.productIds) {
                 e.addProductIds(pid);
             }

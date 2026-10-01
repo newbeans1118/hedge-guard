@@ -55136,6 +55136,16 @@ public final class Hgcp {
      * @return The hasSettleRole.
      */
     boolean getHasSettleRole();
+
+    /**
+     * <pre>
+     * 必
+     * </pre>
+     *
+     * <code>bool has_trading_post = 9;</code>
+     * @return The hasTradingPost.
+     */
+    boolean getHasTradingPost();
   }
   /**
    * <pre>
@@ -55361,6 +55371,21 @@ public final class Hgcp {
       return hasSettleRole_;
     }
 
+    public static final int HAS_TRADING_POST_FIELD_NUMBER = 9;
+    private boolean hasTradingPost_ = false;
+    /**
+     * <pre>
+     * 必
+     * </pre>
+     *
+     * <code>bool has_trading_post = 9;</code>
+     * @return The hasTradingPost.
+     */
+    @java.lang.Override
+    public boolean getHasTradingPost() {
+      return hasTradingPost_;
+    }
+
     private byte memoizedIsInitialized = -1;
     @java.lang.Override
     public final boolean isInitialized() {
@@ -55403,6 +55428,9 @@ public final class Hgcp {
       }
       if (hasSettleRole_ != false) {
         output.writeBool(8, hasSettleRole_);
+      }
+      if (hasTradingPost_ != false) {
+        output.writeBool(9, hasTradingPost_);
       }
       getUnknownFields().writeTo(output);
     }
@@ -55454,6 +55482,10 @@ public final class Hgcp {
         size += com.google.protobuf.CodedOutputStream
           .computeBoolSize(8, hasSettleRole_);
       }
+      if (hasTradingPost_ != false) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeBoolSize(9, hasTradingPost_);
+      }
       size += getUnknownFields().getSerializedSize();
       memoizedSize = size;
       return size;
@@ -55485,6 +55517,8 @@ public final class Hgcp {
           != other.getHasRiskRole()) return false;
       if (getHasSettleRole()
           != other.getHasSettleRole()) return false;
+      if (getHasTradingPost()
+          != other.getHasTradingPost()) return false;
       if (!getUnknownFields().equals(other.getUnknownFields())) return false;
       return true;
     }
@@ -55519,6 +55553,9 @@ public final class Hgcp {
       hash = (37 * hash) + HAS_SETTLE_ROLE_FIELD_NUMBER;
       hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
           getHasSettleRole());
+      hash = (37 * hash) + HAS_TRADING_POST_FIELD_NUMBER;
+      hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
+          getHasTradingPost());
       hash = (29 * hash) + getUnknownFields().hashCode();
       memoizedHashCode = hash;
       return hash;
@@ -55660,6 +55697,7 @@ public final class Hgcp {
         isManagementRole_ = false;
         hasRiskRole_ = false;
         hasSettleRole_ = false;
+        hasTradingPost_ = false;
         return this;
       }
 
@@ -55722,6 +55760,9 @@ public final class Hgcp {
         }
         if (((from_bitField0_ & 0x00000080) != 0)) {
           result.hasSettleRole_ = hasSettleRole_;
+        }
+        if (((from_bitField0_ & 0x00000100) != 0)) {
+          result.hasTradingPost_ = hasTradingPost_;
         }
       }
 
@@ -55802,6 +55843,9 @@ public final class Hgcp {
         if (other.getHasSettleRole() != false) {
           setHasSettleRole(other.getHasSettleRole());
         }
+        if (other.getHasTradingPost() != false) {
+          setHasTradingPost(other.getHasTradingPost());
+        }
         this.mergeUnknownFields(other.getUnknownFields());
         onChanged();
         return this;
@@ -55879,6 +55923,11 @@ public final class Hgcp {
                 bitField0_ |= 0x00000080;
                 break;
               } // case 64
+              case 72: {
+                hasTradingPost_ = input.readBool();
+                bitField0_ |= 0x00000100;
+                break;
+              } // case 72
               default: {
                 if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                   done = true; // was an endgroup tag
@@ -56357,6 +56406,50 @@ public final class Hgcp {
       public Builder clearHasSettleRole() {
         bitField0_ = (bitField0_ & ~0x00000080);
         hasSettleRole_ = false;
+        onChanged();
+        return this;
+      }
+
+      private boolean hasTradingPost_ ;
+      /**
+       * <pre>
+       * 必
+       * </pre>
+       *
+       * <code>bool has_trading_post = 9;</code>
+       * @return The hasTradingPost.
+       */
+      @java.lang.Override
+      public boolean getHasTradingPost() {
+        return hasTradingPost_;
+      }
+      /**
+       * <pre>
+       * 必
+       * </pre>
+       *
+       * <code>bool has_trading_post = 9;</code>
+       * @param value The hasTradingPost to set.
+       * @return This builder for chaining.
+       */
+      public Builder setHasTradingPost(boolean value) {
+        
+        hasTradingPost_ = value;
+        bitField0_ |= 0x00000100;
+        onChanged();
+        return this;
+      }
+      /**
+       * <pre>
+       * 必
+       * </pre>
+       *
+       * <code>bool has_trading_post = 9;</code>
+       * @return This builder for chaining.
+       */
+      public Builder clearHasTradingPost() {
+        bitField0_ = (bitField0_ & ~0x00000100);
+        hasTradingPost_ = false;
         onChanged();
         return this;
       }
@@ -66543,162 +66636,162 @@ public final class Hgcp {
       "\001(\t\022\016\n\006frozen\030\007 \001(\t\"f\n\022PositionLimitEntr" +
       "y\022\026\n\016sub_account_id\030\001 \001(\r\022\022\n\nproduct_id\030" +
       "\002 \001(\r\022\025\n\rinstrument_id\030\003 \001(\t\022\r\n\005limit\030\004 " +
-      "\001(\t\"\322\001\n\017PermissionEntry\022\023\n\013operator_id\030\001" +
+      "\001(\t\"\354\001\n\017PermissionEntry\022\023\n\013operator_id\030\001" +
       " \001(\004\022\026\n\016sub_account_id\030\002 \001(\r\022\023\n\013product_" +
       "ids\030\003 \003(\r\022\023\n\013quota_limit\030\004 \001(\t\022\034\n\024is_ent" +
       "erprise_leader\030\005 \001(\010\022\032\n\022is_management_ro" +
       "le\030\006 \001(\010\022\025\n\rhas_risk_role\030\007 \001(\010\022\027\n\017has_s" +
-      "ettle_role\030\010 \001(\010\"\213\002\n\rExposureEntry\022\026\n\016su" +
-      "b_account_id\030\001 \001(\r\022\022\n\nproduct_id\030\002 \001(\r\022%" +
-      "\n\tdirection\030\003 \001(\0162\022.hgcp.v1.Direction\022\037\n" +
-      "\027contract_unexecuted_qty\030\004 \001(\003\022\025\n\rinvent" +
-      "ory_qty\030\005 \001(\003\022\033\n\023production_plan_qty\030\006 \001" +
-      "(\003\022\021\n\ttotal_qty\030\007 \001(\003\022\023\n\013unit_factor\030\010 \001" +
-      "(\t\022\025\n\rsnapshot_time\030\t \001(\003\022\023\n\013snapshot_id" +
-      "\030\n \001(\004\"\234\004\n\016RiskThresholds\022\035\n\025scale_ratio" +
-      "_commodity\030\001 \001(\t\022\031\n\021scale_ratio_trade\030\002 " +
-      "\001(\t\022&\n\nscale_base\030\003 \001(\0162\022.hgcp.v1.ScaleB" +
-      "ase\022(\n\013scale_scope\030\004 \001(\0162\023.hgcp.v1.Scale" +
-      "Scope\022\027\n\017term_max_months\030\005 \001(\005\022\027\n\017term_g" +
-      "race_days\030\006 \001(\005\022(\n\013term_action\030\007 \001(\0162\023.h" +
-      "gcp.v1.TermAction\022&\n\nprice_base\030\010 \001(\0162\022." +
-      "hgcp.v1.PriceBase\022\026\n\016price_warn_pct\030\t \001(" +
-      "\t\022\027\n\017price_block_pct\030\n \001(\t\0227\n\023position_c" +
-      "heck_mode\030\013 \001(\0162\032.hgcp.v1.PositionCheckM" +
-      "ode\022\032\n\022freq_intraday_warn\030\014 \001(\005\022\033\n\023freq_" +
-      "intraday_block\030\r \001(\005\022\033\n\023freq_7d_rounds_w" +
-      "arn\030\016 \001(\005\022\032\n\022freq_min_hold_days\030\017 \001(\005\022\036\n" +
-      "\026margin_ratio_threshold\030\020 \001(\t\"\240\001\n\013Variet" +
-      "ySpec\022\022\n\nproduct_id\030\001 \001(\r\022\024\n\014product_cod" +
-      "e\030\002 \001(\t\022*\n\010category\030\003 \001(\0162\030.hgcp.v1.Prod" +
-      "uctCategory\022&\n\006status\030\004 \001(\0162\026.hgcp.v1.Pr" +
-      "oductStatus\022\023\n\013unit_factor\030\005 \001(\t\"=\n\016Whit" +
-      "elistEntry\022\026\n\016sub_account_id\030\001 \001(\r\022\023\n\013pr" +
-      "oduct_ids\030\002 \003(\r\"~\n\013TotalLimits\022\023\n\013total_" +
-      "limit\030\001 \001(\t\022\022\n\ntotal_used\030\002 \001(\t\022\024\n\014total" +
-      "_frozen\030\003 \001(\t\0220\n\nby_product\030\004 \003(\0132\034.hgcp" +
-      ".v1.TotalLimitByProduct\"V\n\023TotalLimitByP" +
-      "roduct\022\022\n\nproduct_id\030\001 \001(\r\022\r\n\005limit\030\002 \001(" +
-      "\t\022\014\n\004used\030\003 \001(\t\022\016\n\006frozen\030\004 \001(\t\"\276\001\n\021Annu" +
-      "alScaleFactor\022\022\n\nproduct_id\030\001 \001(\r\022&\n\nsco" +
-      "pe_type\030\002 \001(\0162\022.hgcp.v1.ScopeType\022\026\n\016sub" +
-      "_account_id\030\003 \001(\r\022\022\n\nscale_year\030\004 \001(\005\022\"\n" +
-      "\032expected_spot_business_qty\030\005 \001(\t\022\035\n\025acc" +
-      "umulated_hedge_qty\030\006 \001(\t*\310\007\n\007MsgType\022\022\n\016" +
-      "MSG_TYPE_UNSET\020\000\022\r\n\tMSG_HELLO\020\001\022\021\n\rMSG_H" +
-      "ELLO_ACK\020\002\022\021\n\rMSG_AUTH_FAIL\020\003\022\021\n\rMSG_HEA" +
-      "RTBEAT\020\004\022\025\n\021MSG_HEARTBEAT_ACK\020\005\022\013\n\007MSG_A" +
-      "CK\020\006\022\r\n\tMSG_ERROR\020\007\022\022\n\016MSG_RESUME_REQ\020\010\022" +
-      "\023\n\017MSG_RESUME_DATA\020\t\022\024\n\017CMD_PLACE_ORDER\020" +
-      "\201\002\022\026\n\021CMD_CONFIRM_ORDER\020\202\002\022\025\n\020CMD_CANCEL" +
-      "_ORDER\020\203\002\022\031\n\024CMD_LOAD_RISK_PARAMS\020\221\002\022\031\n\024" +
-      "CMD_UPDATE_WHITELIST\020\222\002\022\025\n\020CMD_UPDATE_QU" +
-      "OTA\020\223\002\022\036\n\031CMD_UPDATE_POSITION_LIMIT\020\224\002\022\036" +
-      "\n\031CMD_UPDATE_RISK_THRESHOLD\020\225\002\022\032\n\025CMD_UP" +
-      "DATE_PERMISSION\020\226\002\022\030\n\023CMD_UPDATE_EXPOSUR" +
-      "E\020\227\002\022\034\n\027CMD_SET_TRADING_SUSPEND\020\230\002\022\030\n\023CM" +
-      "D_SET_READY_STATE\020\231\002\022\017\n\nCMD_RELOAD\020\232\002\022\027\n" +
-      "\022CMD_TRIGGER_REPLAY\020\233\002\022\025\n\020CMD_QUERY_STAT" +
-      "US\020\234\002\022\026\n\021CMD_FUND_TRANSFER\020\235\002\022\032\n\025CMD_QUE" +
-      "RY_FUND_RESULT\020\236\002\022\027\n\022EVT_ORDER_ACCEPTED\020" +
-      "\201\004\022\031\n\024EVT_PRE_TRADE_REJECT\020\202\004\022\025\n\020EVT_ORD" +
-      "ER_REPORT\020\203\004\022\023\n\016EVT_TRADE_FILL\020\204\004\022\030\n\023EVT" +
-      "_POSITION_CHANGE\020\205\004\022\034\n\027EVT_ORDER_CANCEL_" +
-      "RESULT\020\206\004\022\026\n\021EVT_ORDER_EXPIRED\020\207\004\022\025\n\020EVT" +
-      "_COMMAND_FLOW\020\210\004\022\030\n\023EVT_REPLAY_PROGRESS\020" +
-      "\211\004\022\025\n\020EVT_SYSTEM_STATE\020\212\004\022\025\n\020EVT_FUND_RE" +
-      "CEIPT\020\213\004\022\025\n\020EVT_MARKET_QUOTE\020\214\004\022\022\n\rEVT_C" +
-      "TP_STATE\020\215\004\022\026\n\021EVT_TRADING_ALERT\020\216\004*\220\001\n\013" +
-      "ServerState\022\026\n\022SERVER_STATE_UNSET\020\000\022\032\n\026S" +
-      "ERVER_STATE_NOT_READY\020\001\022\032\n\026SERVER_STATE_" +
-      "REPLAYING\020\002\022\026\n\022SERVER_STATE_READY\020\003\022\031\n\025S" +
-      "ERVER_STATE_STOPPING\020\004*t\n\013TargetState\022\026\n" +
-      "\022TARGET_STATE_UNSET\020\000\022\026\n\022TARGET_STATE_RE" +
-      "ADY\020\001\022\031\n\025TARGET_STATE_STOPPING\020\002\022\032\n\026TARG" +
-      "ET_STATE_SUSPENDED\020\003*F\n\rComponentRole\022\030\n" +
-      "\024COMPONENT_ROLE_UNSET\020\000\022\r\n\tROLE_JAVA\020\001\022\014" +
-      "\n\010ROLE_CPP\020\002*\275\001\n\016ComponentState\022\031\n\025COMPO" +
-      "NENT_STATE_UNSET\020\000\022\034\n\030COMPONENT_STATE_ST" +
-      "ARTING\020\001\022\031\n\025COMPONENT_STATE_READY\020\002\022\034\n\030C" +
-      "OMPONENT_STATE_DEGRADED\020\003\022\034\n\030COMPONENT_S" +
-      "TATE_STOPPING\020\004\022\033\n\027COMPONENT_STATE_STOPP" +
-      "ED\020\005*i\n\017ProductCategory\022\032\n\026PRODUCT_CATEG" +
-      "ORY_UNSET\020\000\022\036\n\032PRODUCT_CATEGORY_COMMODIT" +
-      "Y\020\001\022\032\n\026PRODUCT_CATEGORY_TRADE\020\002*b\n\rProdu" +
-      "ctStatus\022\030\n\024PRODUCT_STATUS_UNSET\020\000\022\032\n\026PR" +
-      "ODUCT_STATUS_ENABLED\020\001\022\033\n\027PRODUCT_STATUS" +
-      "_DISABLED\020\002*[\n\tScopeType\022\024\n\020SCOPE_TYPE_U" +
-      "NSET\020\000\022\032\n\026SCOPE_TYPE_SUB_ACCOUNT\020\001\022\034\n\030SC" +
-      "OPE_TYPE_TOTAL_ACCOUNT\020\002*d\n\016InstrumentTy" +
-      "pe\022\031\n\025INSTRUMENT_TYPE_UNSET\020\000\022\033\n\027INSTRUM" +
-      "ENT_TYPE_FUTURES\020\001\022\032\n\026INSTRUMENT_TYPE_OP" +
-      "TION\020\002*G\n\tDirection\022\023\n\017DIRECTION_UNSET\020\000" +
-      "\022\021\n\rDIRECTION_BUY\020\001\022\022\n\016DIRECTION_SELL\020\002*" +
-      "m\n\nOffsetFlag\022\025\n\021OFFSET_FLAG_UNSET\020\000\022\024\n\020" +
-      "OFFSET_FLAG_OPEN\020\001\022\025\n\021OFFSET_FLAG_CLOSE\020" +
-      "\002\022\033\n\027OFFSET_FLAG_CLOSE_TODAY\020\003*N\n\tPriceT" +
-      "ype\022\024\n\020PRICE_TYPE_UNSET\020\000\022\024\n\020PRICE_TYPE_" +
-      "LIMIT\020\001\022\025\n\021PRICE_TYPE_MARKET\020\002*\216\002\n\017Trade" +
-      "ReasonCode\022\033\n\027TRADE_REASON_CODE_UNSET\020\000\022" +
-      "\"\n\036TRADE_REASON_CODE_NEW_EXPOSURE\020\001\022\'\n#T" +
-      "RADE_REASON_CODE_EXPOSURE_DECREASE\020\002\022$\n " +
-      "TRADE_REASON_CODE_PLAN_EXECUTION\020\003\022\036\n\032TR" +
-      "ADE_REASON_CODE_ROLLOVER\020\004\022#\n\037TRADE_REAS" +
-      "ON_CODE_RISK_DISPOSAL\020\005\022&\n\"TRADE_REASON_" +
-      "CODE_ERROR_CORRECTION\020\006*\223\002\n\023TradeReasonT" +
-      "imeDesc\022 \n\034TRADE_REASON_TIME_DESC_UNSET\020" +
-      "\000\022*\n&TRADE_REASON_TIME_DESC_CONTRACT_SIG" +
-      "NED\020\001\022*\n&TRADE_REASON_TIME_DESC_PRICE_TR" +
-      "IGGERED\020\002\022,\n(TRADE_REASON_TIME_DESC_MONT" +
-      "HLY_REBALANCE\020\003\022*\n&TRADE_REASON_TIME_DES" +
-      "C_EXPIRY_ROLLOVER\020\004\022(\n$TRADE_REASON_TIME" +
-      "_DESC_RISK_REQUIRED\020\005*\263\001\n\nLimitLayer\022\025\n\021" +
-      "LIMIT_LAYER_UNSET\020\000\022\033\n\027LIMIT_LAYER_SUB_P" +
-      "RODUCT\020\001\022\036\n\032LIMIT_LAYER_SUB_INSTRUMENT\020\002" +
-      "\022\037\n\033LIMIT_LAYER_ACCOUNT_PRODUCT\020\003\022\032\n\026LIM" +
-      "IT_LAYER_AUTH_QUOTA\020\004\022\024\n\020LIMIT_LAYER_NON" +
-      "E\020\005*]\n\014PositionType\022\027\n\023POSITION_TYPE_UNS" +
-      "ET\020\000\022\027\n\023POSITION_TYPE_TODAY\020\001\022\033\n\027POSITIO" +
-      "N_TYPE_YESTERDAY\020\002*\223\001\n\010FlowType\022\023\n\017FLOW_" +
-      "TYPE_UNSET\020\000\022\022\n\016FLOW_TYPE_SENT\020\001\022\026\n\022FLOW" +
-      "_TYPE_REPORTED\020\002\022\026\n\022FLOW_TYPE_REJECTED\020\003" +
-      "\022\025\n\021FLOW_TYPE_EXPIRED\020\004\022\027\n\023FLOW_TYPE_CAN" +
-      "CELLED\020\005*;\n\tScanScope\022\024\n\020SCAN_SCOPE_UNSE" +
-      "T\020\000\022\030\n\024SCAN_SCOPE_OPEN_ONLY\020\001*X\n\rFundDir" +
-      "ection\022\030\n\024FUND_DIRECTION_UNSET\020\000\022\025\n\021FUND" +
-      "_DIRECTION_IN\020\001\022\026\n\022FUND_DIRECTION_OUT\020\002*" +
-      "\207\001\n\nFundResult\022\025\n\021FUND_RESULT_UNSET\020\000\022\027\n" +
-      "\023FUND_RESULT_SUCCESS\020\001\022\024\n\020FUND_RESULT_FA" +
-      "IL\020\002\022\032\n\026FUND_RESULT_PROCESSING\020\003\022\027\n\023FUND" +
-      "_RESULT_UNKNOWN\020\004*Y\n\014ReplayResult\022\027\n\023REP" +
-      "LAY_RESULT_UNSET\020\000\022\024\n\020REPLAY_RESULT_OK\020\001" +
-      "\022\032\n\026REPLAY_RESULT_MISMATCH\020\002*s\n\tScaleBas" +
-      "e\022\024\n\020SCALE_BASE_UNSET\020\000\022\033\n\027SCALE_BASE_EX" +
-      "POSURE_QTY\020\001\022\026\n\022SCALE_BASE_REVENUE\020\002\022\033\n\027" +
-      "SCALE_BASE_PURCHASE_QTY\020\003*u\n\nScaleScope\022" +
-      "\025\n\021SCALE_SCOPE_UNSET\020\000\022\033\n\027SCALE_SCOPE_SU" +
-      "B_ACCOUNT\020\001\022\035\n\031SCALE_SCOPE_TOTAL_ACCOUNT" +
-      "\020\002\022\024\n\020SCALE_SCOPE_BOTH\020\003*}\n\nTermAction\022\025" +
-      "\n\021TERM_ACTION_UNSET\020\000\022\037\n\033TERM_ACTION_WAR" +
-      "N_THEN_BLOCK\020\001\022\025\n\021TERM_ACTION_BLOCK\020\002\022 \n" +
-      "\034TERM_ACTION_WARN_AND_APPROVE\020\003*\241\001\n\021Posi" +
-      "tionCheckMode\022\035\n\031POSITION_CHECK_MODE_UNS" +
-      "ET\020\000\022)\n%POSITION_CHECK_MODE_PRE_TRADE_AN" +
-      "D_EOD\020\001\022 \n\034POSITION_CHECK_MODE_ON_ORDER\020" +
-      "\002\022 \n\034POSITION_CHECK_MODE_EOD_ONLY\020\003*A\n\tP" +
-      "riceBase\022\024\n\020PRICE_BASE_UNSET\020\000\022\036\n\032PRICE_" +
-      "BASE_PREV_SETTLEMENT\020\001*l\n\nAlertLevel\022\025\n\021" +
-      "ALERT_LEVEL_UNSET\020\000\022\024\n\020ALERT_LEVEL_INFO\020" +
-      "\001\022\027\n\023ALERT_LEVEL_WARNING\020\002\022\030\n\024ALERT_LEVE" +
-      "L_CRITICAL\020\003*\265\002\n\013OrderStatus\022\026\n\022ORDER_ST" +
-      "ATUS_UNSET\020\000\022 \n\034ORDER_STATUS_PENDING_CON" +
-      "FIRM\020\001\022\"\n\036ORDER_STATUS_REJECTED_PRECHECK" +
-      "\020\002\022\032\n\026ORDER_STATUS_SUBMITTED\020\003\022\031\n\025ORDER_" +
-      "STATUS_SENT_CTP\020\004\022\037\n\033ORDER_STATUS_PARTIA" +
-      "L_FILLED\020\005\022\033\n\027ORDER_STATUS_ALL_FILLED\020\006\022" +
-      "\032\n\026ORDER_STATUS_CANCELLED\020\007\022\035\n\031ORDER_STA" +
-      "TUS_REJECTED_CTP\020\010\022\030\n\024ORDER_STATUS_EXPIR" +
-      "ED\020\tb\006proto3"
+      "ettle_role\030\010 \001(\010\022\030\n\020has_trading_post\030\t \001" +
+      "(\010\"\213\002\n\rExposureEntry\022\026\n\016sub_account_id\030\001" +
+      " \001(\r\022\022\n\nproduct_id\030\002 \001(\r\022%\n\tdirection\030\003 " +
+      "\001(\0162\022.hgcp.v1.Direction\022\037\n\027contract_unex" +
+      "ecuted_qty\030\004 \001(\003\022\025\n\rinventory_qty\030\005 \001(\003\022" +
+      "\033\n\023production_plan_qty\030\006 \001(\003\022\021\n\ttotal_qt" +
+      "y\030\007 \001(\003\022\023\n\013unit_factor\030\010 \001(\t\022\025\n\rsnapshot" +
+      "_time\030\t \001(\003\022\023\n\013snapshot_id\030\n \001(\004\"\234\004\n\016Ris" +
+      "kThresholds\022\035\n\025scale_ratio_commodity\030\001 \001" +
+      "(\t\022\031\n\021scale_ratio_trade\030\002 \001(\t\022&\n\nscale_b" +
+      "ase\030\003 \001(\0162\022.hgcp.v1.ScaleBase\022(\n\013scale_s" +
+      "cope\030\004 \001(\0162\023.hgcp.v1.ScaleScope\022\027\n\017term_" +
+      "max_months\030\005 \001(\005\022\027\n\017term_grace_days\030\006 \001(" +
+      "\005\022(\n\013term_action\030\007 \001(\0162\023.hgcp.v1.TermAct" +
+      "ion\022&\n\nprice_base\030\010 \001(\0162\022.hgcp.v1.PriceB" +
+      "ase\022\026\n\016price_warn_pct\030\t \001(\t\022\027\n\017price_blo" +
+      "ck_pct\030\n \001(\t\0227\n\023position_check_mode\030\013 \001(" +
+      "\0162\032.hgcp.v1.PositionCheckMode\022\032\n\022freq_in" +
+      "traday_warn\030\014 \001(\005\022\033\n\023freq_intraday_block" +
+      "\030\r \001(\005\022\033\n\023freq_7d_rounds_warn\030\016 \001(\005\022\032\n\022f" +
+      "req_min_hold_days\030\017 \001(\005\022\036\n\026margin_ratio_" +
+      "threshold\030\020 \001(\t\"\240\001\n\013VarietySpec\022\022\n\nprodu" +
+      "ct_id\030\001 \001(\r\022\024\n\014product_code\030\002 \001(\t\022*\n\010cat" +
+      "egory\030\003 \001(\0162\030.hgcp.v1.ProductCategory\022&\n" +
+      "\006status\030\004 \001(\0162\026.hgcp.v1.ProductStatus\022\023\n" +
+      "\013unit_factor\030\005 \001(\t\"=\n\016WhitelistEntry\022\026\n\016" +
+      "sub_account_id\030\001 \001(\r\022\023\n\013product_ids\030\002 \003(" +
+      "\r\"~\n\013TotalLimits\022\023\n\013total_limit\030\001 \001(\t\022\022\n" +
+      "\ntotal_used\030\002 \001(\t\022\024\n\014total_frozen\030\003 \001(\t\022" +
+      "0\n\nby_product\030\004 \003(\0132\034.hgcp.v1.TotalLimit" +
+      "ByProduct\"V\n\023TotalLimitByProduct\022\022\n\nprod" +
+      "uct_id\030\001 \001(\r\022\r\n\005limit\030\002 \001(\t\022\014\n\004used\030\003 \001(" +
+      "\t\022\016\n\006frozen\030\004 \001(\t\"\276\001\n\021AnnualScaleFactor\022" +
+      "\022\n\nproduct_id\030\001 \001(\r\022&\n\nscope_type\030\002 \001(\0162" +
+      "\022.hgcp.v1.ScopeType\022\026\n\016sub_account_id\030\003 " +
+      "\001(\r\022\022\n\nscale_year\030\004 \001(\005\022\"\n\032expected_spot" +
+      "_business_qty\030\005 \001(\t\022\035\n\025accumulated_hedge" +
+      "_qty\030\006 \001(\t*\310\007\n\007MsgType\022\022\n\016MSG_TYPE_UNSET" +
+      "\020\000\022\r\n\tMSG_HELLO\020\001\022\021\n\rMSG_HELLO_ACK\020\002\022\021\n\r" +
+      "MSG_AUTH_FAIL\020\003\022\021\n\rMSG_HEARTBEAT\020\004\022\025\n\021MS" +
+      "G_HEARTBEAT_ACK\020\005\022\013\n\007MSG_ACK\020\006\022\r\n\tMSG_ER" +
+      "ROR\020\007\022\022\n\016MSG_RESUME_REQ\020\010\022\023\n\017MSG_RESUME_" +
+      "DATA\020\t\022\024\n\017CMD_PLACE_ORDER\020\201\002\022\026\n\021CMD_CONF" +
+      "IRM_ORDER\020\202\002\022\025\n\020CMD_CANCEL_ORDER\020\203\002\022\031\n\024C" +
+      "MD_LOAD_RISK_PARAMS\020\221\002\022\031\n\024CMD_UPDATE_WHI" +
+      "TELIST\020\222\002\022\025\n\020CMD_UPDATE_QUOTA\020\223\002\022\036\n\031CMD_" +
+      "UPDATE_POSITION_LIMIT\020\224\002\022\036\n\031CMD_UPDATE_R" +
+      "ISK_THRESHOLD\020\225\002\022\032\n\025CMD_UPDATE_PERMISSIO" +
+      "N\020\226\002\022\030\n\023CMD_UPDATE_EXPOSURE\020\227\002\022\034\n\027CMD_SE" +
+      "T_TRADING_SUSPEND\020\230\002\022\030\n\023CMD_SET_READY_ST" +
+      "ATE\020\231\002\022\017\n\nCMD_RELOAD\020\232\002\022\027\n\022CMD_TRIGGER_R" +
+      "EPLAY\020\233\002\022\025\n\020CMD_QUERY_STATUS\020\234\002\022\026\n\021CMD_F" +
+      "UND_TRANSFER\020\235\002\022\032\n\025CMD_QUERY_FUND_RESULT" +
+      "\020\236\002\022\027\n\022EVT_ORDER_ACCEPTED\020\201\004\022\031\n\024EVT_PRE_" +
+      "TRADE_REJECT\020\202\004\022\025\n\020EVT_ORDER_REPORT\020\203\004\022\023" +
+      "\n\016EVT_TRADE_FILL\020\204\004\022\030\n\023EVT_POSITION_CHAN" +
+      "GE\020\205\004\022\034\n\027EVT_ORDER_CANCEL_RESULT\020\206\004\022\026\n\021E" +
+      "VT_ORDER_EXPIRED\020\207\004\022\025\n\020EVT_COMMAND_FLOW\020" +
+      "\210\004\022\030\n\023EVT_REPLAY_PROGRESS\020\211\004\022\025\n\020EVT_SYST" +
+      "EM_STATE\020\212\004\022\025\n\020EVT_FUND_RECEIPT\020\213\004\022\025\n\020EV" +
+      "T_MARKET_QUOTE\020\214\004\022\022\n\rEVT_CTP_STATE\020\215\004\022\026\n" +
+      "\021EVT_TRADING_ALERT\020\216\004*\220\001\n\013ServerState\022\026\n" +
+      "\022SERVER_STATE_UNSET\020\000\022\032\n\026SERVER_STATE_NO" +
+      "T_READY\020\001\022\032\n\026SERVER_STATE_REPLAYING\020\002\022\026\n" +
+      "\022SERVER_STATE_READY\020\003\022\031\n\025SERVER_STATE_ST" +
+      "OPPING\020\004*t\n\013TargetState\022\026\n\022TARGET_STATE_" +
+      "UNSET\020\000\022\026\n\022TARGET_STATE_READY\020\001\022\031\n\025TARGE" +
+      "T_STATE_STOPPING\020\002\022\032\n\026TARGET_STATE_SUSPE" +
+      "NDED\020\003*F\n\rComponentRole\022\030\n\024COMPONENT_ROL" +
+      "E_UNSET\020\000\022\r\n\tROLE_JAVA\020\001\022\014\n\010ROLE_CPP\020\002*\275" +
+      "\001\n\016ComponentState\022\031\n\025COMPONENT_STATE_UNS" +
+      "ET\020\000\022\034\n\030COMPONENT_STATE_STARTING\020\001\022\031\n\025CO" +
+      "MPONENT_STATE_READY\020\002\022\034\n\030COMPONENT_STATE" +
+      "_DEGRADED\020\003\022\034\n\030COMPONENT_STATE_STOPPING\020" +
+      "\004\022\033\n\027COMPONENT_STATE_STOPPED\020\005*i\n\017Produc" +
+      "tCategory\022\032\n\026PRODUCT_CATEGORY_UNSET\020\000\022\036\n" +
+      "\032PRODUCT_CATEGORY_COMMODITY\020\001\022\032\n\026PRODUCT" +
+      "_CATEGORY_TRADE\020\002*b\n\rProductStatus\022\030\n\024PR" +
+      "ODUCT_STATUS_UNSET\020\000\022\032\n\026PRODUCT_STATUS_E" +
+      "NABLED\020\001\022\033\n\027PRODUCT_STATUS_DISABLED\020\002*[\n" +
+      "\tScopeType\022\024\n\020SCOPE_TYPE_UNSET\020\000\022\032\n\026SCOP" +
+      "E_TYPE_SUB_ACCOUNT\020\001\022\034\n\030SCOPE_TYPE_TOTAL" +
+      "_ACCOUNT\020\002*d\n\016InstrumentType\022\031\n\025INSTRUME" +
+      "NT_TYPE_UNSET\020\000\022\033\n\027INSTRUMENT_TYPE_FUTUR" +
+      "ES\020\001\022\032\n\026INSTRUMENT_TYPE_OPTION\020\002*G\n\tDire" +
+      "ction\022\023\n\017DIRECTION_UNSET\020\000\022\021\n\rDIRECTION_" +
+      "BUY\020\001\022\022\n\016DIRECTION_SELL\020\002*m\n\nOffsetFlag\022" +
+      "\025\n\021OFFSET_FLAG_UNSET\020\000\022\024\n\020OFFSET_FLAG_OP" +
+      "EN\020\001\022\025\n\021OFFSET_FLAG_CLOSE\020\002\022\033\n\027OFFSET_FL" +
+      "AG_CLOSE_TODAY\020\003*N\n\tPriceType\022\024\n\020PRICE_T" +
+      "YPE_UNSET\020\000\022\024\n\020PRICE_TYPE_LIMIT\020\001\022\025\n\021PRI" +
+      "CE_TYPE_MARKET\020\002*\216\002\n\017TradeReasonCode\022\033\n\027" +
+      "TRADE_REASON_CODE_UNSET\020\000\022\"\n\036TRADE_REASO" +
+      "N_CODE_NEW_EXPOSURE\020\001\022\'\n#TRADE_REASON_CO" +
+      "DE_EXPOSURE_DECREASE\020\002\022$\n TRADE_REASON_C" +
+      "ODE_PLAN_EXECUTION\020\003\022\036\n\032TRADE_REASON_COD" +
+      "E_ROLLOVER\020\004\022#\n\037TRADE_REASON_CODE_RISK_D" +
+      "ISPOSAL\020\005\022&\n\"TRADE_REASON_CODE_ERROR_COR" +
+      "RECTION\020\006*\223\002\n\023TradeReasonTimeDesc\022 \n\034TRA" +
+      "DE_REASON_TIME_DESC_UNSET\020\000\022*\n&TRADE_REA" +
+      "SON_TIME_DESC_CONTRACT_SIGNED\020\001\022*\n&TRADE" +
+      "_REASON_TIME_DESC_PRICE_TRIGGERED\020\002\022,\n(T" +
+      "RADE_REASON_TIME_DESC_MONTHLY_REBALANCE\020" +
+      "\003\022*\n&TRADE_REASON_TIME_DESC_EXPIRY_ROLLO" +
+      "VER\020\004\022(\n$TRADE_REASON_TIME_DESC_RISK_REQ" +
+      "UIRED\020\005*\263\001\n\nLimitLayer\022\025\n\021LIMIT_LAYER_UN" +
+      "SET\020\000\022\033\n\027LIMIT_LAYER_SUB_PRODUCT\020\001\022\036\n\032LI" +
+      "MIT_LAYER_SUB_INSTRUMENT\020\002\022\037\n\033LIMIT_LAYE" +
+      "R_ACCOUNT_PRODUCT\020\003\022\032\n\026LIMIT_LAYER_AUTH_" +
+      "QUOTA\020\004\022\024\n\020LIMIT_LAYER_NONE\020\005*]\n\014Positio" +
+      "nType\022\027\n\023POSITION_TYPE_UNSET\020\000\022\027\n\023POSITI" +
+      "ON_TYPE_TODAY\020\001\022\033\n\027POSITION_TYPE_YESTERD" +
+      "AY\020\002*\223\001\n\010FlowType\022\023\n\017FLOW_TYPE_UNSET\020\000\022\022" +
+      "\n\016FLOW_TYPE_SENT\020\001\022\026\n\022FLOW_TYPE_REPORTED" +
+      "\020\002\022\026\n\022FLOW_TYPE_REJECTED\020\003\022\025\n\021FLOW_TYPE_" +
+      "EXPIRED\020\004\022\027\n\023FLOW_TYPE_CANCELLED\020\005*;\n\tSc" +
+      "anScope\022\024\n\020SCAN_SCOPE_UNSET\020\000\022\030\n\024SCAN_SC" +
+      "OPE_OPEN_ONLY\020\001*X\n\rFundDirection\022\030\n\024FUND" +
+      "_DIRECTION_UNSET\020\000\022\025\n\021FUND_DIRECTION_IN\020" +
+      "\001\022\026\n\022FUND_DIRECTION_OUT\020\002*\207\001\n\nFundResult" +
+      "\022\025\n\021FUND_RESULT_UNSET\020\000\022\027\n\023FUND_RESULT_S" +
+      "UCCESS\020\001\022\024\n\020FUND_RESULT_FAIL\020\002\022\032\n\026FUND_R" +
+      "ESULT_PROCESSING\020\003\022\027\n\023FUND_RESULT_UNKNOW" +
+      "N\020\004*Y\n\014ReplayResult\022\027\n\023REPLAY_RESULT_UNS" +
+      "ET\020\000\022\024\n\020REPLAY_RESULT_OK\020\001\022\032\n\026REPLAY_RES" +
+      "ULT_MISMATCH\020\002*s\n\tScaleBase\022\024\n\020SCALE_BAS" +
+      "E_UNSET\020\000\022\033\n\027SCALE_BASE_EXPOSURE_QTY\020\001\022\026" +
+      "\n\022SCALE_BASE_REVENUE\020\002\022\033\n\027SCALE_BASE_PUR" +
+      "CHASE_QTY\020\003*u\n\nScaleScope\022\025\n\021SCALE_SCOPE" +
+      "_UNSET\020\000\022\033\n\027SCALE_SCOPE_SUB_ACCOUNT\020\001\022\035\n" +
+      "\031SCALE_SCOPE_TOTAL_ACCOUNT\020\002\022\024\n\020SCALE_SC" +
+      "OPE_BOTH\020\003*}\n\nTermAction\022\025\n\021TERM_ACTION_" +
+      "UNSET\020\000\022\037\n\033TERM_ACTION_WARN_THEN_BLOCK\020\001" +
+      "\022\025\n\021TERM_ACTION_BLOCK\020\002\022 \n\034TERM_ACTION_W" +
+      "ARN_AND_APPROVE\020\003*\241\001\n\021PositionCheckMode\022" +
+      "\035\n\031POSITION_CHECK_MODE_UNSET\020\000\022)\n%POSITI" +
+      "ON_CHECK_MODE_PRE_TRADE_AND_EOD\020\001\022 \n\034POS" +
+      "ITION_CHECK_MODE_ON_ORDER\020\002\022 \n\034POSITION_" +
+      "CHECK_MODE_EOD_ONLY\020\003*A\n\tPriceBase\022\024\n\020PR" +
+      "ICE_BASE_UNSET\020\000\022\036\n\032PRICE_BASE_PREV_SETT" +
+      "LEMENT\020\001*l\n\nAlertLevel\022\025\n\021ALERT_LEVEL_UN" +
+      "SET\020\000\022\024\n\020ALERT_LEVEL_INFO\020\001\022\027\n\023ALERT_LEV" +
+      "EL_WARNING\020\002\022\030\n\024ALERT_LEVEL_CRITICAL\020\003*\265" +
+      "\002\n\013OrderStatus\022\026\n\022ORDER_STATUS_UNSET\020\000\022 " +
+      "\n\034ORDER_STATUS_PENDING_CONFIRM\020\001\022\"\n\036ORDE" +
+      "R_STATUS_REJECTED_PRECHECK\020\002\022\032\n\026ORDER_ST" +
+      "ATUS_SUBMITTED\020\003\022\031\n\025ORDER_STATUS_SENT_CT" +
+      "P\020\004\022\037\n\033ORDER_STATUS_PARTIAL_FILLED\020\005\022\033\n\027" +
+      "ORDER_STATUS_ALL_FILLED\020\006\022\032\n\026ORDER_STATU" +
+      "S_CANCELLED\020\007\022\035\n\031ORDER_STATUS_REJECTED_C" +
+      "TP\020\010\022\030\n\024ORDER_STATUS_EXPIRED\020\tb\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -66961,7 +67054,7 @@ public final class Hgcp {
     internal_static_hgcp_v1_PermissionEntry_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_PermissionEntry_descriptor,
-        new java.lang.String[] { "OperatorId", "SubAccountId", "ProductIds", "QuotaLimit", "IsEnterpriseLeader", "IsManagementRole", "HasRiskRole", "HasSettleRole", });
+        new java.lang.String[] { "OperatorId", "SubAccountId", "ProductIds", "QuotaLimit", "IsEnterpriseLeader", "IsManagementRole", "HasRiskRole", "HasSettleRole", "HasTradingPost", });
     internal_static_hgcp_v1_ExposureEntry_descriptor =
       getDescriptor().getMessageTypes().get(43);
     internal_static_hgcp_v1_ExposureEntry_fieldAccessorTable = new

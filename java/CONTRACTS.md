@@ -425,7 +425,23 @@ public interface ExposureDao extends BaseDao<Exposure, Long> {
 | | `reason` | 挂起/解冻原因（审计用） |
 | | `operator_id` | 操作人 |
 | **`CMD_UPDATE_QUOTA`**（`0x0113`） | `entries[n].<字段>` | `entries[]` 为**三层限额条目**，含 `limit_layer`（`SUB_PRODUCT`/`SUB_INSTRUMENT`/`ACCOUNT_PRODUCT`）、`sub_account_id`、`product_id`、`instrument_id`、`quota_limit`、`used`、`frozen`。**串行化约定：前缀索引 `entries[0].`、`entries[1].`…**（因 payload 为扁平字符串映射） |
+| **`CMD_UPDATE_PERMISSION`**（`0x0116`） | `entries[n].<字段>` | `entries[]` 为**权限条目**，字段见下。**串行化约定：前缀索引 `entries[0].`、`entries[1].`…**（同 `CMD_UPDATE_QUOTA`） |
+| | `entries[n].operator_id` | **必填**，被授权 / 被判定主体用户 ID（十进制字符串） |
+| | `entries[n].sub_account_id` | **必填** |
+| | `entries[n].product_ids` | **必填**，逗号分隔十进制 |
+| | `entries[n].quota_limit` | **选填** |
+| | `entries[n].is_enterprise_leader` | **必填**，`"true"`/`"false"` |
+| | `entries[n].is_management_role` | **必填**（禁止类：`"true"` 即拒） |
+| | `entries[n].has_risk_role` | **必填**（禁止类） |
+| | `entries[n].has_settle_role` | **必填**（禁止类） |
+| | **`entries[n].has_trading_post`** | **必填**（**`CH-019` 新增**；**准入类**标记 —— 不命中即拒 `0x100B`，与同族 4 个**禁止类**布尔**方向相反**） |
 | 通用 | `param_version` | **不放 payload** —— 用 `ParamChange.paramVersion` 专用字段承载 |
+
+> ⚠️ **`CMD_UPDATE_PERMISSION` 条目粒度 = `t_authorization` 行级 `(user_id, sub_account_id, product_id)`**，
+> 而引擎侧 `PermissionSnapshot` 用**单键** `unordered_map<uint32_t, PermissionEntry>`（键 = `operator_id`，**后写覆盖先写**）。
+> ⇒ **同一 `operator_id` 跨多个 `sub_account_id` 必须落在同一 entry 内**；
+> 若组装方按「一行一 entry」发出，多行会被**静默覆盖**（只剩最后一行生效）。**L3 组装方必须按 `operator_id` 聚合后再发。**
+> （`CH-019` 登记；`tl-t167` 裁定 2.2 特别点出，实现者极易踩。）
 
 **两阶段限额下调（`§9 RSK-04` ③ 的落地口径）**：
 1. 冻结 → `CMD_SET_TRADING_SUSPEND{sub_account_id=X, scan_scope=OPEN_ONLY, suspended="true"}`
@@ -782,6 +798,7 @@ instantiated OK        # 同时打印 SLF4J: Defaulting to no-operation (NOP) lo
 | 2026-10-01（`T-042` 缺口 A 登记） | 编排者（**代登记**；本制品唯一写者为 `backend-engineer#java`，可据实修订） | **已知偏离登记（非契约变更）**：§6 新增 **`D-20`** —— `TradingBridge.confirmOrder`/`cancelOrder` 的**线格式字段承载**缺口（A1 撤单未承载 `operator_id`；A2 确认令牌与操作人共用一个 `String` 槽位）。**本次仅登记，未改任何签名 / 字段 / 错误码 / 路径 / 端点**；修复方案另立 **`CH-018`** 提请用户批准（加参属 L3，见 §5.3） | **未升版**（`HGC-1.6` 不变） |
 | 2026-10-01（`T-042` 子步 S4） | `backend-engineer#java`（实例 `be-t042f`） | **跨侧契约登记（非契约变更）**：新增 **§3.2.3「`MsgResumeData` 跨侧契约（`CH-017` 生效）」** —— 登载 `from_seq` / `to_seq` 的**权威语义 = per-batch**（= 本批 `frames` 首 / 末帧通道 `SEQ`；整体区间解已否决）+ 三条不变式 + **空批口径**（`from_seq = to_seq =` 上一批末帧 `SEQ`，无上一批则 = `MsgResumeReq.last_received_seq`）+ `is_last` 500 / 501 边界 + Java 侧落地路径与两处**措辞澄清**。**依据** = `CH-017`（用户 **2026-09-22 批准 ⇒ 即日生效**；权威文本 `ARCHITECTURE.md` §4.2.8.5 注记）；**动因** = `E7` **显式不覆盖字段语义** ⇒ 跨侧（C++ ↔ Java）对齐须由本文件承载。**未改任何字段号 / 类型 / 必填性 / 消息集 / 错误码 / 路径 / 端点** ⇒ **未升版**（`HGC-1.6` 不变） | **未升版**（`HGC-1.6` 不变） |
 | 2026-10-01（`CH-018` 传导 · §2.2 落点） | 编排者（**代登记**；本制品唯一写者为 `backend-engineer#java`，可据实修订） | **契约变更落地（`CH-018`，L3 · 用户 2026-10-01 已批准）**：§2.2 的 `TradingBridge` 两条签名同步为批准后形态 —— `confirmOrder(long orderId, **long operatorId**, String confirmToken)`、`cancelOrder(long orderId, String reason, **long operatorId**)`。**动因** = `§6 D-20` 所载「线格式字段承载」缺口（A1 撤单无输入可填必填的 `operator_id`；A2 操作人与确认令牌共槽且旧路径可静默退化为 `0`）。**方法名集合仍为七项**（未加/未减方法）／**未增删改错误码**／**未动 REST 路径与端点**／**未改线格式**（`§4.2.3` 字段名·号·类型·必填性全不动）。**双落点提示**：同签名亦在 `docs/ARCHITECTURE.md` §3.10，须由架构席同批同步（**只改一处即新造一处不一致**）。**`@Override` 归实现侧、不属本文件**。 | **未升版**（`HGC-1.6` 不变；`§5.5` 升版义务射程为本文件自有冻结项，本次为按已批准 `CH-018` 落地既有条目的修正、未新增冻结对象） |
+| 2026-10-01（`CH-019` 交付 · §3.2.1 落点） | `backend-engineer#java`（实例 `be-ch019j`） | **契约增量登记（`CH-019`，L3 · 用户 2026-10-01 已批准）**：§3.2.1 **补登 `CMD_UPDATE_PERMISSION`（`0x0116`）payload 键** —— 此前该指令在表中**完全缺位**（`grep` 命中 0），本次按 `tl-t167` 裁定 2.2 补登 9 键（`entries[n].` 前缀索引：`operator_id` / `sub_account_id` / `product_ids` / `quota_limit` / `is_enterprise_leader` / `is_management_role` / `has_risk_role` / `has_settle_role` / **`has_trading_post`**）+ 一条**条目粒度注记**（`t_authorization` 行级 `(user_id, sub_account_id, product_id)` **vs** 引擎 `PermissionSnapshot` 单键 `unordered_map<uint32_t, PermissionEntry>`（键 = `operator_id`）⇒ **同一 `operator_id` 跨多子账户必须聚合在同一 entry 内**，否则**静默覆盖**）。**键名一律采用 `§4.2.3` 冻结协议字段名、无二次命名**（表头既有规则）。**冻结面判定（本席实测）**：**未新增冻结对象** —— `CMD_UPDATE_PERMISSION` 及字段 `1`~`8` 早已由 `§4.2.3` 冻结（本次 = 把缺位行补成与协议表一致），`has_trading_post`（字段 9）则**已由 `CH-019`（用户已批准、`proto` 已落提交 `49faab4`）**冻结；**未删改任何既有行**（`git diff --numstat` 删除列 = 0，纯追加）／**未改字段号·类型·必填性·消息集·错误码·路径·端点** ⇒ **未升版**（`HGC-1.6` 不变，同 `T-135`/`T-136`/`T-151` 口径） | **未升版**（`HGC-1.6` 不变） |
 
 ---
 
