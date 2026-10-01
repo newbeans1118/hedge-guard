@@ -148,11 +148,11 @@ class TradingBridgeContractTest {
     @DisplayName("确认/撤单返回回执（含 ackTime）")
     void confirmAndCancelReturnAck() throws Exception {
         InMemoryTradingBridge bridge = new InMemoryTradingBridge();
-        CompletableFuture<AckResult> c = bridge.confirmOrder(100001L, "zhangsan");
+        CompletableFuture<AckResult> c = bridge.confirmOrder(100001L, 1001L, "tok-abc");
         assertTrue(c.get().acknowledged);
         assertEquals(0, c.get().componentCode);
         assertEquals(19, c.get().ackTime.length(), "ackTime 应为 yyyy-MM-ddTHH:mm:ss（§4.1.1 时间格式）");
-        assertTrue(bridge.cancelOrder(100001L, "客户撤单").get().acknowledged);
+        assertTrue(bridge.cancelOrder(100001L, "客户撤单", 1001L).get().acknowledged);
     }
 
     private static PlaceOrderCmd cmd(String ref) {

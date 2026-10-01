@@ -79,6 +79,31 @@ public final class Config {
      */
     public static final String ENV_DB_PASSWORD = "HG_DB_PASSWORD";
 
+    /**
+     * HGCP 鉴权令牌的<b>唯一</b>来源环境变量名（{@code NFR-SEC-1} / {@code R-CONFIG-5}）。
+     *
+     * <p>与口令同姿态：{@code ARCHITECTURE.md} §4.2.6 明述「{@code auth_token} 零落盘——启动时由
+     * 系统管理员手工录入，<b>仅内存持有</b>」，故<b>不</b>新增 {@code hg.*} 属性键承载它
+     * （任何键名含 {@code token} 的属性文件项都会被 {@link #rejectSecrets} 拒绝）。
+     *
+     * <p>与 {@code CFG-20 hg.tcp.bind/port} 的既有先例一致：{@code hg.*} 只承载<b>非敏感</b>参数，
+     * 凭据一律经环境变量注入（见 {@link #secret(String)}）。
+     */
+    public static final String ENV_HGCP_AUTH_TOKEN = "HG_HGCP_AUTH_TOKEN";
+
+    /**
+     * HGCP 组件接口默认端口（{@code CFG-20 hg.tcp.port} 缺省值；见 {@link #tcpPort()}）。
+     */
+    public static final int DEFAULT_HGCP_PORT = 27400;
+
+    /**
+     * HGCP 协议令牌版本（{@code MsgHello.token_version}，{@code CH-013} {@code I-1}）。
+     *
+     * <p>本期不支持在线轮换（§4.2.6：两侧不一致即拒绝并要求重启），故为常量
+     * {@code 1}，<b>不</b>新增配置键。
+     */
+    public static final int HGCP_TOKEN_VERSION = 1;
+
     private final Properties properties;
 
     private Config(Properties properties) {
@@ -243,6 +268,35 @@ public final class Config {
      */
     public char[] databasePassword() {
         return secret(ENV_DB_PASSWORD);
+    }
+
+    /**
+     * HGCP 鉴权令牌：<b>只从环境变量 {@link #ENV_HGCP_AUTH_TOKEN} 读取</b>，零落盘。
+     *
+     * <p><b>刻意返回 {@code char[]} 而非 {@code String}</b>：{@code HgcpClient} 内部以
+     * {@code String} 持有令牌并填入 {@code MsgHello.auth_token}（{@code ARCHITECTURE.md} §4.2.6），
+     * 该形态不可更动；故此处与 {@code JdbcConnectionFactory} 同姿态——把明文
+     * <b>留在原生数组里</b>，由调用方在构造完成后立即 {@link java.util.Arrays#fill} 清零，
+     * 避免调用方另持一份不受控的 {@code String} 副本（{@code NFR-SEC-1}）。
+     *
+     * <p>调用方持有返回数组的所有权，用毕须清零。
+     *
+     * @return 令牌字符数组；<b>未设置</b>返回 {@code null}（装配侧据此判「未配置 ⇒ 不装配 HGCP 桥」）
+     */
+    public char[] hgcpAuthToken() {
+        return secret(ENV_HGCP_AUTH_TOKEN);
+    }
+
+    /**
+     * HGCP 组件通道监听端口（{@code CFG-20 hg.tcp.port}，默认 {@value #DEFAULT_HGCP_PORT}）。
+     *
+     * <p>取值<b>恒为回环</b>：地址侧复用 {@code CFG-20 hg.tcp.bind} 的既有回环守卫
+     * {@link #loopbackOnly(String)}，不再另设键。
+     *
+     * @return 端口
+     */
+    public int tcpPort() {
+        return getInt(KEY_TCP_PORT, DEFAULT_HGCP_PORT);
     }
 
     /**

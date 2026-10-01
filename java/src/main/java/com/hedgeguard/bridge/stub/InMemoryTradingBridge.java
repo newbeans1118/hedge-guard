@@ -114,12 +114,12 @@ public final class InMemoryTradingBridge implements TradingBridge {
     }
 
     @Override
-    public CompletableFuture<AckResult> confirmOrder(long orderId, String operator) {
+    public CompletableFuture<AckResult> confirmOrder(long orderId, long operatorId, String confirmToken) {
         return CompletableFuture.completedFuture(okAck());
     }
 
     @Override
-    public CompletableFuture<AckResult> cancelOrder(long orderId, String reason) {
+    public CompletableFuture<AckResult> cancelOrder(long orderId, String reason, long operatorId) {
         return CompletableFuture.completedFuture(okAck());
     }
 

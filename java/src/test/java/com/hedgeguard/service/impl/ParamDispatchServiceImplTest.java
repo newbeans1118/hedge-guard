@@ -490,12 +490,12 @@ class ParamDispatchServiceImplTest {
         }
 
         @Override
-        public CompletableFuture<AckResult> confirmOrder(long orderId, String operator) {
+        public CompletableFuture<AckResult> confirmOrder(long orderId, long operatorId, String confirmToken) {
             throw com.hedgeguard.testsupport.FakeDao.unsupported("confirmOrder");
         }
 
         @Override
-        public CompletableFuture<AckResult> cancelOrder(long orderId, String reason) {
+        public CompletableFuture<AckResult> cancelOrder(long orderId, String reason, long operatorId) {
             throw com.hedgeguard.testsupport.FakeDao.unsupported("cancelOrder");
         }
 

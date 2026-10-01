@@ -2,7 +2,11 @@ package com.hedgeguard.web;
 
 import com.hedgeguard.common.Clocks;
 import com.hedgeguard.common.Config;
+import com.hedgeguard.bridge.HgcpClient;
+import com.hedgeguard.bridge.TcpHgcpTransport;
+import com.hedgeguard.bridge.TradingBridge;
 import com.hedgeguard.common.SensitiveLog;
+import com.hedgeguard.dao.ParamDispatchDao;
 import com.hedgeguard.dao.impl.DmAccountSubjectDao;
 import com.hedgeguard.dao.impl.DmConfigChangeLogDao;
 import com.hedgeguard.dao.impl.DmConfigItemDao;
@@ -55,9 +59,11 @@ import com.hedgeguard.dao.pool.PoolConfig;
 import com.hedgeguard.dao.tx.TxTemplate;
 import com.hedgeguard.service.AuthService;
 import com.hedgeguard.service.ConfigService;
+import com.hedgeguard.service.ParamDispatchService;
 import com.hedgeguard.service.PlanService;
 import com.hedgeguard.service.SpotService;
 import com.hedgeguard.service.VarietyService;
+import com.hedgeguard.service.impl.ParamDispatchServiceImpl;
 import com.hedgeguard.web.handler.PingHandler;
 import com.hedgeguard.web.handler.auth.AuthRoutes;
 import com.hedgeguard.web.handler.config.ConfigRoutes;
@@ -65,6 +71,7 @@ import com.hedgeguard.web.handler.plan.PlanRoutes;
 import com.hedgeguard.web.handler.product.ProductRoutes;
 import com.hedgeguard.web.handler.spot.SpotRoutes;
 
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -131,6 +138,8 @@ public final class Bootstrap {
 
         DataSourcePool pool = null;
         JdbcConnectionFactory factory = null;
+        HgcpClient hgcpClient = null;
+        ParamDispatchService paramDispatchService = null;
         AuthFilter authFilter;
 
         // ---- 条件装配：仅当 hg.db.url 已配置时才接入数据库层 ----
@@ -147,12 +156,26 @@ public final class Bootstrap {
             }
             pool = new DataSourcePool(factory, poolConfig(config));
             TxTemplate tx = new TxTemplate(pool);
+            // HGCP 组件桥：与数据库层同姿态的「受配置保护装配」——凭据（HG_HGCP_AUTH_TOKEN）缺失即不装配。
+            // 刻意先于业务服务构造：ParamDispatchService 需要一个可观测其就绪状态的桥实例。
+            hgcpClient = assembleHgcpClient(config);
+            // M2 参数下发服务（T-042 S3）：唯一生产装配点，接 ParamDispatchDao + TxTemplate + 组件桥。
+            // 返回值**必须留存**（记入 Assembly.paramDispatch）：丢弃后「凭据缺失 ⇒ 未装配(null)」与
+            // 「已装配(实例)」在生产运行时外观完全相同、只剩一行日志可区分，即门禁判据要求的
+            // 「可观测性」。该字段亦供装配级用例断言，且为 M2 接线（T-046 等）的就绪接缝。
+            // （参数下发当下无 HTTP 路由，故暂无业务消费者——这不影响本条的可观测性要求。）
+            paramDispatchService = buildParamDispatchService(tx, new DmParamDispatchDao(tx), config,
+                    hgcpClient);
+            LOG.info(paramDispatchService == null
+                    ? "参数下发服务未装配（组件桥不可用）"
+                    : "参数下发服务已装配（回执超时取 CFG-28 " + ParamDispatchServiceImpl.KEY_CMD_TIMEOUT_MS
+                            + "）");
             AuthService authService = registerBusinessRoutes(router, tx, sessionStore, config);
             // 认证时经 AuthService.touchSession 续期 ⇒ 会话为「空闲 30 min」滑动超时（FR-AUTH-15 验收 2）
             authFilter = new SessionAuthFilter(sessionStore, config.sessionCookieName(),
                     authService::touchSession);
             LOG.info("已装配数据库层：url=" + factory.url() + "（口令不落盘、不入日志）；"
-                    + "业务服务 5 个已接线，路由总数=" + router.routes().size());
+                    + "业务服务 6 个已接线（含参数下发），路由总数=" + router.routes().size());
         } else {
             // 未配库：无服务可续期，认证过滤器回退为「只查不续期」（进程保持可用，不因缺配置而启动失败）
             authFilter = new SessionAuthFilter(sessionStore, config.sessionCookieName());
@@ -162,7 +185,8 @@ public final class Bootstrap {
         }
 
         RequestDispatcher dispatcher = new RequestDispatcher(router, staticHandler, authFilter);
-        return new Assembly(dispatcher, sessionStore, pool, factory, router.routes().size());
+        return new Assembly(dispatcher, sessionStore, pool, factory, hgcpClient,
+                paramDispatchService, router.routes().size());
     }
 
     /**
@@ -182,6 +206,108 @@ public final class Bootstrap {
         if (assembly.factory() != null) {
             assembly.factory().clearPassword();
         }
+        if (assembly.hgcpClient() != null) {
+            // HgcpClient 的全部线程均为守护线程（start()/restartReader() 显式 setDaemon），
+            // 故此处 close 只负责置 running=false 并让在途请求以「客户端已关闭」收口，不阻塞停机。
+            assembly.hgcpClient().close();
+        }
+    }
+
+
+
+    /**
+     * 构造参数下发服务（{@code T-042} S3；{@code ARCHITECTURE.md} §3.8）。
+     *
+     * <p>回执超时取自 {@code CFG-28 hg.cmd_timeout_ms}（经 {@link ParamDispatchServiceImpl} 的
+     * {@code Config} 构造），<b>不硬编码</b>。
+     *
+     * @param tx     事务模板
+     * @param dao    参数下发留痕 DAO（{@code t_param_dispatch}，单一写库入口）
+     * @param config 配置
+     * @param bridge 组件桥；{@code null}（凭据未配置）时返回 {@code null} ⇒ 参数下发保持不可用，
+     *               而非以空桥在首次调用时 NPE
+     * @return 参数下发服务；桥不可用时返回 {@code null}
+     */
+    static ParamDispatchService buildParamDispatchService(TxTemplate tx, ParamDispatchDao dao,
+                                                          Config config, TradingBridge bridge) {
+        if (bridge == null) {
+            LOG.info("未装配参数下发服务（" + Config.ENV_HGCP_AUTH_TOKEN
+                    + " 未设置）：HGCP 组件桥不装配，参数下发不可用");
+            return null;
+        }
+        return new ParamDispatchServiceImpl(tx, dao, bridge, config);
+    }
+
+    /**
+     * 装配 HGCP 组件桥（{@code T-042} S3）：<b>受配置保护 + 惰性连接</b>。
+     *
+     * <p>三条处置，对应本类既有的「不因缺配置/外部依赖不可达而启动失败」纪律：
+     * <ol>
+     *   <li><b>凭据缺失 ⇒ 不装配</b>：{@link Config#ENV_HGCP_AUTH_TOKEN} 未设置时返回 {@code null}
+     *       并记 {@code LOG.info} 说明原因。<b>不发明 token 来源、不硬编码、不落盘、不入日志</b>
+     *       （{@code NFR-SEC-1} / {@code R-CONFIG-5}；§4.2.6「启动时由系统管理员手工录入，仅内存持有」）。</li>
+     *   <li><b>组件不可达 ⇒ 装配成功、连接失败可诊断</b>：{@link HgcpClient#start()} 在
+     *       {@code hg-trading} 未启动时必然抛 {@code IOException}。此处<b>捕获并只记一条 info 日志</b>，
+     *       绝不外抛——否则本类在无 C++ 组件的环境（含整个单测套件）会装配失败。此后
+     *       {@link HgcpClient#isReady()} 恒 {@code false}，参数下发按
+     *       {@code ErrorCode.COMPONENT_UNAVAILABLE} <b>显式拒绝</b>（不静默丢弃）。</li>
+     *   <li><b>凭据最短生命周期</b>：{@code char[]} 在构造完成后立即清零，与
+     *       {@link Config#databasePassword()} 同姿态。{@code HgcpClient} 内部以 {@code String}
+     *       持有令牌是既有形态（不可更动，§4.2.6 明确要求填入 {@code MsgHello.auth_token}）。</li>
+     * </ol>
+     *
+     * <p><b>不在本方法内自动重连</b>：连接失败后不另外起线程轮询——{@code HgcpClient} 的重连循环
+     * 只在其读循环/心跳线程运行期间生效（{@code onDisconnected()}）。首次即不可达 ⇒ 保持未连接，
+     * 由运维重启进程恢复。这与「单例长时间运行」的完整语义差异已单列回报，超出 {@code T-042} 授权。
+     *
+     * @param config 配置
+     * @return 已启动的客户端；凭据未配置时返回 {@code null}
+     */
+    static HgcpClient assembleHgcpClient(Config config) {
+        char[] token = config.hgcpAuthToken();
+        if (token == null || token.length == 0) {
+            LOG.info("未装配 HGCP 组件桥（" + Config.ENV_HGCP_AUTH_TOKEN + " 未设置）："
+                    + "参数下发不可用；凭据须由系统管理员手工录入环境变量，零落盘（NFR-SEC-1）");
+            if (token != null) {
+                Arrays.fill(token, '\0');
+            }
+            return null;
+        }
+        String bind = config.loopbackOnly(Config.KEY_TCP_BIND);
+        int port = config.tcpPort();
+        String tokenStr;
+        try {
+            tokenStr = new String(token);
+        } finally {
+            Arrays.fill(token, '\0');
+        }
+        HgcpClient client = new HgcpClient("hg-biz", tokenStr, clientBootId(),
+                Config.HGCP_TOKEN_VERSION, () -> new TcpHgcpTransport(bind, port));
+        try {
+            client.start();
+            LOG.info("已装配 HGCP 组件桥并建连成功：component_id=hg-biz，通道=" + bind + ":" + port
+                    + "（令牌不落盘、不入日志）");
+        } catch (IOException e) {
+            // 组件不可达不是配置错误：装配照常完成，仅记录可诊断信息（不含任何凭据片段）
+            LOG.info("HGCP 组件桥已装配但建连失败（组件未就绪，可诊断）：通道=" + bind + ":" + port
+                    + "；原因=" + e.getClass().getSimpleName()
+                    + "；影响=组件未就绪，参数下发将被显式拒绝（不静默丢弃）；"
+                    + "处置=启动 hg-trading 后重启本进程");
+        }
+        return client;
+    }
+
+    /**
+     * 客户端启动标识（{@code MsgHello.client_boot_id}；重连期间须保持稳定）。
+     *
+     * <p>取「进程标识 + 启动时刻」：同一进程内恒定，进程重启即变化——符合 §4.2.6 对
+     * {@code client_boot_id}「重连时保持稳定」的口径。
+     *
+     * @return 启动标识
+     */
+    private static String clientBootId() {
+        String pid = java.lang.management.ManagementFactory.getRuntimeMXBean().getName();
+        return "hg-biz-" + pid + "-" + System.currentTimeMillis();
     }
 
     /** 由 {@code CFG-31 hg.db.pool.*} 构造池参数；缺省取 {@link PoolConfig} 默认值。 */
@@ -304,14 +430,20 @@ public final class Bootstrap {
         private final SessionStore sessionStore;
         private final DataSourcePool pool;
         private final JdbcConnectionFactory factory;
+        private final HgcpClient hgcpClient;
+        /** 参数下发服务（M2，{@code T-042} S3）；凭据缺失/桥未装配时为 {@code null}。 */
+        private final ParamDispatchService paramDispatchService;
         private final int routeCount;
 
         Assembly(RequestDispatcher dispatcher, SessionStore sessionStore, DataSourcePool pool,
-                 JdbcConnectionFactory factory, int routeCount) {
+                 JdbcConnectionFactory factory, HgcpClient hgcpClient,
+                 ParamDispatchService paramDispatchService, int routeCount) {
             this.dispatcher = dispatcher;
             this.sessionStore = sessionStore;
             this.pool = pool;
             this.factory = factory;
+            this.hgcpClient = hgcpClient;
+            this.paramDispatchService = paramDispatchService;
             this.routeCount = routeCount;
         }
 
@@ -329,6 +461,23 @@ public final class Bootstrap {
 
         JdbcConnectionFactory factory() {
             return factory;
+        }
+
+        /** HGCP 组件桥（未装配时为 {@code null}）；供 {@link #close(Assembly)} 释放。 */
+        HgcpClient hgcpClient() {
+            return hgcpClient;
+        }
+
+        /**
+         * 参数下发服务：装配成功返回实例，凭据缺失（桥未装配）返回 {@code null}。
+         *
+         * <p>使「是否真的装上」在生产运行时**可观测**（不再仅靠日志区分），
+         * 并为 M2 的下发接线（{@code T-046} 等）预置就绪接缝。
+         *
+         * @return 已装配实例；未装配时为 {@code null}
+         */
+        ParamDispatchService paramDispatchService() {
+            return paramDispatchService;
         }
 
         /** 已注册路由条数（含平台级 ping 的 GET/HEAD）。 */

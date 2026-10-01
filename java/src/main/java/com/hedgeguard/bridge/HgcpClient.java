@@ -38,7 +38,7 @@ import hgcp.v1.Hgcp;
  * <p>⚠️ <b>诚实披露</b>：本类的验证形态为「单测 + 内存 {@link HgcpTransport} 驱动」。
  * <b>跨进程与 C++ 侧的联调不在本类验证范围</b>（{@code T-057}）。
  */
-public final class HgcpClient implements AutoCloseable {
+public final class HgcpClient implements TradingBridge, AutoCloseable {
 
     private static final Logger LOG = Logger.getLogger(HgcpClient.class.getName());
 
@@ -459,6 +459,7 @@ public final class HgcpClient implements AutoCloseable {
      * @param cmd 指令
      * @return 受理结果
      */
+    @Override
     public CompletableFuture<PlaceOrderResult> placeOrder(PlaceOrderCmd cmd) {
         CompletableFuture<PlaceOrderResult> f = new CompletableFuture<>();
         if (!isReady()) {
@@ -509,16 +510,20 @@ public final class HgcpClient implements AutoCloseable {
     /**
      * 人工确认指令（人工确认是强制环节，§2.2）。
      *
-     * @param orderId   C++ 指令号
-     * @param operator  确认人（须与提交人一致，否则 {@code 0x0305}）
+     * <p>{@code operatorId} 直接传入线格式必填字段，<b>不再</b>经字符串解析——
+     * 消除"非数字操作人串静默退化为 0（= 系统）"的鉴权降级路径（{@code CH-018}）。
+     *
+     * @param orderId      C++ 指令号
+     * @param operatorId   操作人 ID（须与提交人一致，否则 {@code 0x0305}）
      * @param confirmToken 确认令牌
      * @return 回执
      */
-    public CompletableFuture<AckResult> confirmOrder(long orderId, String operator,
+    @Override
+    public CompletableFuture<AckResult> confirmOrder(long orderId, long operatorId,
                                                      String confirmToken) {
         Hgcp.CmdConfirmOrder body = Hgcp.CmdConfirmOrder.newBuilder()
                 .setOrderId(orderId)
-                .setOperatorId(parseLongOrZero(operator))
+                .setOperatorId(operatorId)
                 .setConfirmTsMs(Clocks.epochMilli())
                 .setConfirmToken(confirmToken == null ? "" : confirmToken)
                 .build();
@@ -528,15 +533,16 @@ public final class HgcpClient implements AutoCloseable {
     /**
      * 撤单。
      *
-     * @param orderId  C++ 指令号
-     * @param reason   撤单原因
-     * @param operator 操作人
+     * @param orderId    C++ 指令号
+     * @param reason     撤单原因
+     * @param operatorId 操作人
      * @return 回执
      */
-    public CompletableFuture<AckResult> cancelOrder(long orderId, String reason, long operator) {
+    @Override
+    public CompletableFuture<AckResult> cancelOrder(long orderId, String reason, long operatorId) {
         Hgcp.CmdCancelOrder body = Hgcp.CmdCancelOrder.newBuilder()
                 .setOrderId(orderId)
-                .setOperatorId(operator)
+                .setOperatorId(operatorId)
                 .setReason(reason == null ? "" : reason)
                 .build();
         return sendCommand(HgcpConstants.CMD_CANCEL_ORDER, body.toByteArray());
@@ -548,6 +554,7 @@ public final class HgcpClient implements AutoCloseable {
      * @param change 参数变更
      * @return 回执（{@code 10014 参数下发未生效} 的判定依据）
      */
+    @Override
     public CompletableFuture<AckResult> dispatch(ParamChange change) {
         int type = mapParamChangeType(change.type);
         byte[] body;
@@ -597,7 +604,7 @@ public final class HgcpClient implements AutoCloseable {
         if (p == null) {
             return;
         }
-        new Thread(() -> {
+        Thread t = new Thread(() -> {
             try {
                 Thread.sleep(HgcpConstants.COMMAND_TIMEOUT_MS);
             } catch (InterruptedException e) {
@@ -621,23 +628,30 @@ public final class HgcpClient implements AutoCloseable {
                 pr.message = r.message;
                 cur.placeOrderFuture.complete(pr);
             }
-        }, "hgcp-cmd-timeout-" + msgId).start();
+        }, "hgcp-cmd-timeout-" + msgId);
+        // 守护线程：close() 只 interrupt reader/heartbeat、不跟踪本类超时线程；非守护会阻止 JVM 退出
+        // （形态与同文件 reader/heartbeat/restartReader 三处一致）。其余行为一律未改。
+        t.setDaemon(true);
+        t.start();
     }
 
     // ==================== 状态查询 ====================
 
     /** 组件是否 READY（启动重放完成、风控参数已加载）。 */
+    @Override
     public boolean isReady() {
         return authState == AuthState.AUTHENTICATED
                 && mirror.readyState() == ReplayProgress.State.READY;
     }
 
     /** 启动重放进度。 */
+    @Override
     public ReplayProgress replayProgress() {
         return replayProgress;
     }
 
     /** 只读镜像状态（事中风控的数据来源；不可变快照）。 */
+    @Override
     public MirrorSnapshot mirror() {
         return mirror.snapshot();
     }
@@ -774,17 +788,6 @@ public final class HgcpClient implements AutoCloseable {
                 return HgcpConstants.CMD_RELOAD;
             default:
                 throw new IllegalArgumentException("未知参数变更类型：" + t);
-        }
-    }
-
-    private static long parseLongOrZero(String s) {
-        if (s == null) {
-            return 0L;
-        }
-        try {
-            return Long.parseLong(s.trim());
-        } catch (NumberFormatException e) {
-            return 0L;
         }
     }
 

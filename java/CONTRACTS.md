@@ -185,8 +185,8 @@ java/
 // —— J4 桥接层：只此七项，不得出现 preCheck（§3.0.3）——
 public interface TradingBridge {
     CompletableFuture<PlaceOrderResult> placeOrder(PlaceOrderCmd cmd);
-    CompletableFuture<AckResult>        confirmOrder(long orderId, String operator);
-    CompletableFuture<AckResult>        cancelOrder(long orderId, String reason);
+    CompletableFuture<AckResult>        confirmOrder(long orderId, long operatorId, String confirmToken);
+    CompletableFuture<AckResult>        cancelOrder(long orderId, String reason, long operatorId);
     CompletableFuture<AckResult>        dispatch(ParamChange change);
     boolean                             isReady();
     ReplayProgress                      replayProgress();
@@ -472,6 +472,26 @@ public interface ExposureDao extends BaseDao<Exposure, Long> {
 | **超时计时方** | **服务层**（`ParamDispatchServiceImpl`）。依据：`CFG-28 hg.cmd_timeout_ms = 3000`（命令超时）。实现用 `CompletableFuture.get(timeout)`；**桥接层不得吞掉超时**（否则服务层无法区分"C++ 无回执"与"桥接故障"，`10014` 的 `current` 就失真） |
 | **超时处置（`HGC-1.5` 明确字段值）** | 置 `dispatch_status="UNCONFIRMED"`、**`ack_time = NULL`**（超时**没有回执**；判定时刻由审计字段 `updated_time` 记录）、`ack_detail = "超时 <timeout>ms 未收到回执"`、`retry_count = 本次重试数`；并抛 `BizException.blocking(10014, ruleId="R-CONFIG-3", current="UNCONFIRMED", threshold=期望 param_version, nextStep=提示重试入口+告警)`；**不得**视为已生效（`R-CONFIG-3`）。<br>⚠️ **不得**把判定时刻写进 `ack_time`：该列语义是"**收到回执的时间**"，混用会让回执时延不可测；巡检凭 `dispatch_status='UNCONFIRMED'`（`findProblems()` 已覆盖） |
 | **可测性（`NFR-TEST-4`）** | `CompletableFuture.get(timeout)` 用**单调时钟**、不可注入 → 测试以**可控延迟的桩 future + 小超时**覆盖超时分支（`InMemoryTradingBridge` 需支持"永不回执/延迟回执"模式）；**若**要求"超时时长本身可注入"，须改用 `ScheduledExecutorService` + `Clocks` 实现 deadline（`#java2` 可提 `question` 决定） |
+
+#### 3.2.3 `MsgResumeData` 跨侧契约（`CH-017` 生效）
+
+> **来源与性质**：本节**只登载** `CH-017`（用户 2026-09-22 批准 ⇒ 即日生效）已冻结的字段语义，**不改任何字段号 / 类型 / 必填性 / 消息集 / 错误码**（不变量：消息 **40** / 错误码 **62** / 线格式 `VER` **`0x0100`** / `FR` **184** / 顶层字段号 **214** 均不变）。权威文本 = `ARCHITECTURE.md` §4.2.8.5 注记（另有 §4.2.6(3)「补数响应」行指针）。
+> **为何须在此登记**：`E7` 判据**显式不覆盖字段语义**（只核消息集 / 字段三元组 / 必填性 / 枚举 / 计数 / 命名派生）⇒ `from_seq` / `to_seq` 的含义**无任何机械守卫**；跨侧（C++ ↔ Java）对齐若只写在一侧，即等于没写。
+
+| 项 | 约定 |
+|---|---|
+| **消息** | `MsgResumeData`（type `0x0009`；`FLAGS.bit3` `IS_RESUME_DATA = 1`） |
+| **字段** | `from_seq`(1:uint64·必) / `to_seq`(2:uint64·必) / `is_last`(3:bool·必) / `frames`(4:repeated bytes·条件〔`is_last = false` 时非空〕) |
+| **权威语义 = per-batch（逐批）** | `from_seq` / `to_seq` = **本条消息 `frames` 的首帧 / 末帧通道 `SEQ`**（与同消息内 `frames` 同指一批）。**非**整体区间语义 `[last_received_seq + 1, 补数终点]` —— 该解**已被否决**。 |
+| **取值示例** | 单批 5 帧 ⇒ `from = 2` / `to = 6`；501 帧分两批 ⇒ 首批 `2 / 501`、次批 `502 / 502`。 |
+| **不变式** | ① 批内 `SEQ` 连续，且 `decode(frames[0]).seq == from_seq`、`decode(frames[last]).seq == to_seq`；② 跨批 `to_seq(i) + 1 == from_seq(i+1)`；③ `is_last = true` 批的 `to_seq` = **补数终点**（两侧 `last_received_seq` 收敛的终点）。 |
+| **`frames[k]` 元素形态** | **完整 wire 帧（含 `MAGIC`）**，帧头 **32B 全大端** ⇒ Java 侧可**逐元素**交给帧解码器（实测路径见下行 `Java 侧落地`）。 |
+| **空批口径** | `is_last = true` 且 `frames` 为空时：`from_seq = to_seq =` **上一批末帧 `SEQ`**；**无上一批**则 = `MsgResumeReq.last_received_seq`。**接收侧不得据 `from_seq` / `to_seq` 断言 `frames` 非空**（须以 `frames` 实际是否为空为准）。 |
+| **本实现边界** | **不产生空批**（`ARCHITECTURE.md` §4.2.8.5「末批可为空」为 **schema 允许、实现不产生** ⇒ 合规子集）；**不产生 `from > to`**；`is_last` 边界：**恰 500 帧 ⇒ 1 批 `true`**、**501 帧 ⇒ 2 批 `false` / `true`**（与「单批 ≤ 500 帧」一致）。 |
+| **Java 侧落地** | `com.hedgeguard.bridge.HgcpClient.onResumeData`（`java/src/main/java/com/hedgeguard/bridge/HgcpClient.java:281`）逐元素调 `HgcpFrame.decode`（**不经** `FrameStreamReader` —— 后者为字节流切帧器，用于连接读路径）。 |
+
+> ⚠️ **「可逐元素直喂 `FrameStreamReader`」措辞澄清（本席实测）**：`TASKS.md` 交付注记（`docs/TASKS.md:960`）原文作「Java **可逐元素直喂 `FrameStreamReader`**（实测复解 SEQ/type 正确）」。**Java 侧实测**：现用路径为逐元素 **`HgcpFrame.decode`**（`onResumeData` 调用，定义于 `HgcpFrame.java:220`），**非** `FrameStreamReader`；后者（`feed(byte[])` + `drain()`）**亦可**承载同一字节并解出等价结果 ⇒ 该句**成立于「字节流切帧器」口径**，但**并非**「Java 唯一 / 既定入口」。此处并列，以免下游误读入口。
+> ⚠️ **「实测复解」的出处（本席实测）**：该结论出自 **C++ 侧 `T-032` 残余收口**的跨侧注记（编排者登记，`docs/TASKS.md:960` / `docs/BOARD.md` 第 49 轮），**非 Java 侧独立实测**。本席实测：`java/src/test` 对 `MsgResumeData` / `onResumeData` **0 命中** ⇒ 本节**只担保语义登载准确**，**不主张 Java 重放路径已被测试覆盖**。
 
 ### 3.3 `com.hedgeguard.dao.entity`（共享表簇实体，20 个）
 
@@ -760,6 +780,8 @@ instantiated OK        # 同时打印 SLF4J: Defaulting to no-operation (NOP) lo
 | 2026-09-23（`T-146` 交付） | `backend-engineer#java2`（实例 `be-t146`） | **兼容性增量登记（`T-146`；`FR-AUTH-16` 处理规则「首次登录与重置后强制修改口令」，服务端强制点落地）**：① **§3.1 共享 DTO 字段级新增**（`§0③`「字段级新增可（向后兼容）」）—— `Session` 增 `boolean mustChangePassword`（新增 6 参构造 + 既有 5 参构造保留并委托；新增 `withMustChangePassword(boolean)` 复制方法）；`LoginHandler.LoginResponse` 增 `boolean mustChangePassword`（登录响应回传，供前端引导至改密界面；**不**承担门禁）。② **无新增 REST 路径 / 方法 / 错误码**：门禁复用既有业务码 **`10003`**（`FUNCTION_PERMISSION_DENIED`，403）——**未新增错误码**（`§1.3` 23 项不变）。③ **服务层新增方法**（`AuthService` 不在 `§2.2` 冻结接口）：`markPasswordChanged(String)`（改密成功后清除会话内标记）。④ **冻结面判定**：`§1.1` 信封 / 分页 / 幂等 / 鉴权、`§4.1.1` 路径与方法、`§1.3` 错误码集合 **均未变** ⇒ **未升版**（`HGC-1.6` 不变），**无需 `CH`**（同 `T-135`/`T-136` 口径）。⚠️ 前端同批（`web/js/**`）：`login.js`/`session.js`/`auth.js` 三处最小耦合（置位用户登录后引导至改密 tab）；`errmsg.js` 错误码映射**未改**（复用 `10003`）。 | **未升版**（`HGC-1.6` 不变） |
 | 2026-09-24（`T-151` 交付） | `backend-engineer#java2`（实例 `be-t151`） | **兼容性增量登记（`T-151`；`FR-PRODUCT-6` 读取面同族残留三端点，`NFR-SEC-7`；`ARCHITECTURE.md` §8.2③「其余读取面同须接同一过滤」）**：① **无新增 DAO 方法 / 无改路径 / 无改字段 / 无改错误码** —— `GET /product/{id}/contracts`、`GET /product/change-log?productId=`、`GET /product/mapping?productId=` 三端点读取面补**子账户可见性强制**（复用 `T-106` 的 `ProductDao.findByIdScoped` 白名单子查询 + `VarietyService.getProduct(id, operatorId)`；**不可见 ≡ 不存在** ⇒ 统一错误 `10001`，不泄露存在性）。② **补登记 `T-106` 遗留**：`VarietyService.quotaPanorama(int, long)` → **`quotaPanorama(int, long, long)`**（增 `operatorId`，读取面可见性断言）—— `VarietyService` **不在** §2.2 冻结公共接口 ⇒ 属兼容变更（`§0③` / `§5.3`）。③ §2.2.1 描述性 bullet 同步为含**第 4 法**（`ProductDao.findByIdScoped`，`T-106`）。④ **★路由注册序修复（`ProductRoutes`）**：`GET /product/{id}` 由"首个"改为**最后**注册 —— `Router.match` 为**注册序首次命中**，原序使 `/product/quota`、`/product/mapping`、`/product/change-log`、`/product/export` 四条**同段数静态 GET** 被占位符抢占（生产装配下不可达）；**未改 `web/Router.java`**（框架类属 `#java` 域）。**冻结面判定**：§1 信封 / 分页 / 幂等 / 鉴权、§4.1.1 路径与方法、§1.3 错误码集合 **均未变** ⇒ **未升版**（`HGC-1.6` 不变），**无需 `CH`**（同 `T-135`/`T-136`/`T-146` 口径）。 | **未升版**（`HGC-1.6` 不变） |
 | 2026-10-01（`T-042` 缺口 A 登记） | 编排者（**代登记**；本制品唯一写者为 `backend-engineer#java`，可据实修订） | **已知偏离登记（非契约变更）**：§6 新增 **`D-20`** —— `TradingBridge.confirmOrder`/`cancelOrder` 的**线格式字段承载**缺口（A1 撤单未承载 `operator_id`；A2 确认令牌与操作人共用一个 `String` 槽位）。**本次仅登记，未改任何签名 / 字段 / 错误码 / 路径 / 端点**；修复方案另立 **`CH-018`** 提请用户批准（加参属 L3，见 §5.3） | **未升版**（`HGC-1.6` 不变） |
+| 2026-10-01（`T-042` 子步 S4） | `backend-engineer#java`（实例 `be-t042f`） | **跨侧契约登记（非契约变更）**：新增 **§3.2.3「`MsgResumeData` 跨侧契约（`CH-017` 生效）」** —— 登载 `from_seq` / `to_seq` 的**权威语义 = per-batch**（= 本批 `frames` 首 / 末帧通道 `SEQ`；整体区间解已否决）+ 三条不变式 + **空批口径**（`from_seq = to_seq =` 上一批末帧 `SEQ`，无上一批则 = `MsgResumeReq.last_received_seq`）+ `is_last` 500 / 501 边界 + Java 侧落地路径与两处**措辞澄清**。**依据** = `CH-017`（用户 **2026-09-22 批准 ⇒ 即日生效**；权威文本 `ARCHITECTURE.md` §4.2.8.5 注记）；**动因** = `E7` **显式不覆盖字段语义** ⇒ 跨侧（C++ ↔ Java）对齐须由本文件承载。**未改任何字段号 / 类型 / 必填性 / 消息集 / 错误码 / 路径 / 端点** ⇒ **未升版**（`HGC-1.6` 不变） | **未升版**（`HGC-1.6` 不变） |
+| 2026-10-01（`CH-018` 传导 · §2.2 落点） | 编排者（**代登记**；本制品唯一写者为 `backend-engineer#java`，可据实修订） | **契约变更落地（`CH-018`，L3 · 用户 2026-10-01 已批准）**：§2.2 的 `TradingBridge` 两条签名同步为批准后形态 —— `confirmOrder(long orderId, **long operatorId**, String confirmToken)`、`cancelOrder(long orderId, String reason, **long operatorId**)`。**动因** = `§6 D-20` 所载「线格式字段承载」缺口（A1 撤单无输入可填必填的 `operator_id`；A2 操作人与确认令牌共槽且旧路径可静默退化为 `0`）。**方法名集合仍为七项**（未加/未减方法）／**未增删改错误码**／**未动 REST 路径与端点**／**未改线格式**（`§4.2.3` 字段名·号·类型·必填性全不动）。**双落点提示**：同签名亦在 `docs/ARCHITECTURE.md` §3.10，须由架构席同批同步（**只改一处即新造一处不一致**）。**`@Override` 归实现侧、不属本文件**。 | **未升版**（`HGC-1.6` 不变；`§5.5` 升版义务射程为本文件自有冻结项，本次为按已批准 `CH-018` 落地既有条目的修正、未新增冻结对象） |
 
 ---
 
@@ -818,7 +840,7 @@ instantiated OK        # 同时打印 SLF4J: Defaulting to no-operation (NOP) lo
 ---
 
 | **D-19** | **装配待办（HTTP/REST + DB 面）**：`#java2` 的 5 个 `*Routes.register(...)` 与 DAO/DB 层（连接池 / 事务模板 / 5 个 service）待 `Bootstrap` 调用 | ✅ **已闭环（2026-09-20 23:48）**：`Bootstrap.assemble` 已按 `Config.databaseConfigured()`（`CFG-31 hg.db.url`）**受配置保护装配**——为假时进程保持可用（业务路由不注册），为真时接线连接池 + 事务模板 + 5 service + 5 注册器；口令零落盘、`close` 于停机钩子释放；`DmUserRoleDao`/`DmPositionConflictDao` 两个缺失实现已补 | 实现与用例见 §4.3「装配状态」。⚠️ **`WsServer` 接线不属本条 DB 前置**，改由 `A-2`/`T-040` 承接（§4.3） |
-| **D-20** | **`TradingBridge` 确认/撤单的「线格式字段承载」缺口**（`T-042` 实测发现，登记于 2026-10-01）—— 冻结接口（`§2.2` / `ARCHITECTURE.md` §3.10）与 M2 冻结线格式（`§4.2.3` / `proto/hgcp.proto`）在两条指令上不自洽：<br>**A1 · `cancelOrder(long orderId, String reason)` 未承载 `operator_id`** —— 线格式 `CMD_CANCEL_ORDER`(`0x0103`) 字段为 `order_id` / **`operator_id`(必)** / `reason`；`operator_id` 的冻结语义为「用于**权限与岗位分离校验**」（§4.2.4 `:873`），且 `FR-TRADE-6 @ REQUIREMENTS/TRADE.md:188` 验收 4 要求「撤单动作在审计中可查询到**操作人与时间**」⇒ **Java 侧按现行签名无输入可填该必填字段**。<br>**A2 · `confirmOrder(long orderId, String operator, …)` 把「操作人」与「确认令牌」挤进同一个 `String` 槽位** —— 线格式 `CMD_CONFIRM_ORDER`(`0x0102`) 含 `operator_id`(必) + `confirm_token`(必)；实测实现以 `parseLongOrZero(operator)` 填 `operator_id`，**该函数对非数字串静默返回 `0`**（`0` 在旧口径下语义为「系统」）⇒ 传「zhangsan」类中文名**静默退化为 `0`**；另据 `R-RISK-8` / `0x1018`，`confirm_token` **仅在价格偏离告警区间时**为业务必填 ⇒ 二者共槽必然歧义 | ⚠️ **未决**（**仅登记，未改契约**）。处置路径 = **`CH-018`** 提案待用户批准（形态 = 为两者补显式 `operatorId`）；批准前 `T-042` 以「操作人经内部接缝提供」形式实现（**不改签名**），A1 据此为**部分闭合**。**本行须于 `CH-018` 批准后回填结论** | **上游同步责任**：`docs/ARCHITECTURE.md` §3.10（**同一签名两处写**，须架构席同步）＋ `java/CONTRACTS.md` §2.2（批准后同步）；**达成路径**：`FR-TRADE-6` 验收 4 的审计留痕须在 `T-046`（TradeService）落点闭合 |
+| **D-20** | **`TradingBridge` 确认/撤单的「线格式字段承载」缺口**（`T-042` 实测发现，登记于 2026-10-01）—— 冻结接口（`§2.2` / `ARCHITECTURE.md` §3.10）与 M2 冻结线格式（`§4.2.3` / `proto/hgcp.proto`）在两条指令上不自洽：<br>**A1 · `cancelOrder(long orderId, String reason)` 未承载 `operator_id`** —— 线格式 `CMD_CANCEL_ORDER`(`0x0103`) 字段为 `order_id` / **`operator_id`(必)** / `reason`；`operator_id` 的冻结语义为「用于**权限与岗位分离校验**」（§4.2.4 `:873`），且 `FR-TRADE-6 @ REQUIREMENTS/TRADE.md:188` 验收 4 要求「撤单动作在审计中可查询到**操作人与时间**」⇒ **Java 侧按现行签名无输入可填该必填字段**。<br>**A2 · `confirmOrder(long orderId, String operator, …)` 把「操作人」与「确认令牌」挤进同一个 `String` 槽位** —— 线格式 `CMD_CONFIRM_ORDER`(`0x0102`) 含 `operator_id`(必) + `confirm_token`(必)；实测实现以 `parseLongOrZero(operator)` 填 `operator_id`，**该函数对非数字串静默返回 `0`**（`0` 在旧口径下语义为「系统」）⇒ 传「zhangsan」类中文名**静默退化为 `0`**；另据 `R-RISK-8` / `0x1018`，`confirm_token` **仅在价格偏离告警区间时**为业务必填 ⇒ 二者共槽必然歧义 | **✅ 已闭环（2026-10-01）** —— 处置路径 **`CH-018`** 经**用户批准（L3，2026-10-01）**，形态 = 为两者补显式 `operatorId`。**落地**：`java/CONTRACTS.md` §2.2 已同步（见 §5.1 本日行）；实现侧 `HgcpClient implements TradingBridge` 并就 `parseLongOrZero` 静默退化路径**已删除**（该函数全仓 0 调用）。**残留**：`docs/ARCHITECTURE.md` §3.10 的同签名须由架构席同批同步（**本席写域外，已在 §5.1 行点名**）；`FR-TRADE-6` 验收 4 的审计留痕落点归 `T-046`。 | **上游同步责任**：`docs/ARCHITECTURE.md` §3.10（**同一签名两处写**，须架构席同步）＋ `java/CONTRACTS.md` §2.2（批准后同步）；**达成路径**：`FR-TRADE-6` 验收 4 的审计留痕须在 `T-046`（TradeService）落点闭合 |
 ## 7. `#java2` 开工检查清单
 
 - [ ] `mvn -q compile` 通过（JDK 11，零警告）

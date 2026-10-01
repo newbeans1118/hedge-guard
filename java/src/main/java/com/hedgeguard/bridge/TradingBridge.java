@@ -31,20 +31,29 @@ public interface TradingBridge {
     /**
      * 人工确认指令（人工确认是强制环节，{@code §2.2}）。
      *
-     * @param orderId  C++ 指令号
-     * @param operator 确认人（须与提交人一致，否则 {@code 0x0305}）
+     * <p>{@code operatorId} 为线格式 {@code CmdConfirmOrder.operator_id}（<b>必填</b>）的逐字段承载；
+     * 与 {@code confirmToken} 分列两个参数，避免"操作人"与"确认令牌"挤入同一 {@code String}
+     * （{@code CH-018}）。
+     *
+     * @param orderId      C++ 指令号
+     * @param operatorId   操作人 ID（须与提交人一致，否则 {@code 0x0305}）
+     * @param confirmToken 确认令牌（线格式 {@code confirm_token}，<b>必填</b>）
      * @return 回执
      */
-    CompletableFuture<AckResult> confirmOrder(long orderId, String operator);
+    CompletableFuture<AckResult> confirmOrder(long orderId, long operatorId, String confirmToken);
 
     /**
      * 撤单。
      *
-     * @param orderId C++ 指令号
-     * @param reason  撤单原因
+     * <p>{@code operatorId} 为线格式 {@code CmdCancelOrder.operator_id}（<b>必填</b>）的逐字段承载
+     * （{@code FR-TRADE-6} 验收 4「撤单动作可查询到操作人与时间」；{@code CH-018}）。
+     *
+     * @param orderId    C++ 指令号
+     * @param reason     撤单原因
+     * @param operatorId 操作人 ID
      * @return 回执
      */
-    CompletableFuture<AckResult> cancelOrder(long orderId, String reason);
+    CompletableFuture<AckResult> cancelOrder(long orderId, String reason, long operatorId);
 
     /**
      * 参数下发（改 Java 侧 → 下发 C++ → 等回执 → 留痕的统一入口，{@code §3.8 ParamDispatchService}）。
