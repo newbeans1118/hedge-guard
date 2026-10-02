@@ -12752,3 +12752,58 @@ TMPDIR=/ cmake --build /hg-build-base -j4
 
 本席为 `T-170` 产出方；**不自评 DONE**，待独立复核。全部证据为实跑输出；变异均在隔离副本 `/root/t170iso` 施行并复位（共享树被judged对象零改动）；本证据章为 `docs/TEST_RESULT.md` 唯一写入（**纯追加**，起于 12679 行之后）。
 
+---
+
+## REV-BATCH-20260930 B1 独立复核（席 te-revbatch-b1）
+
+- **复核时点**：2026-10-02 11:00–12:10；**复核席**：`test-engineer` 实例 `te-revbatch-b1`（REV-BATCH-20260930 第 1 批 / 共 3 批）
+- **复核对象**：`T-005` / `T-006` / `T-007` / `T-008` / `T-009`（原负责人 `backend-engineer#java2`；「已完成，待独立复核」，`docs/TASKS.md:50–54`）
+- **冻结点（编排者 2026-10-02 10:55 交底，本席逐项独立重测吻合）**：
+  - `HEAD` = `afaa458`；`java/src` 树锚（`find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum`）= `71493848730e341f5b0b13c4a2267fb3` / **377 文件**（共享树复核前/后两次实测一致 ⇒ 复核期间无并发写入本席复核对象）；
+  - `docs/TEST_RESULT.md` 追加前 = **12754 行**，`head -12754 | md5sum` = `bc6d1ba1f0122d04fe4282f258b4f287`（⚠️ 编排者交底称 12679 行，系其交底后又有他席追加 75 行，本席以追加前实时实测值为准）。
+- **门禁判据 = 冻结点上全量绿**（非用例数）：
+  - **隔离副本** `/root/revbatch_b1/`（五件齐：`docs/java/cpp/tools/proto`；`TMPDIR=/`；树锚与共享树逐字节同 `71493848…`/377）；
+  - **独立实测**：`cd java && TMPDIR=/ mvn -B -o -Punit clean test` ⇒ **690/0/0/0、BUILD SUCCESS**（复核初期与全部变异复位后各跑一轮，均同值）；
+  - `@Test` 注解计数 == surefire 总数 == **690**（两法计数一致）；
+  - `bash tools/arch-check/arch-check.sh` ⇒ **rc 0（E1–E8 八判据全 0）**；
+  - **产出方自述**（TASKS.md 状态栏：108 用例 0 失败）为**历史时点快照**，本席不采信为判据。
+- **证据栏分列**（纪律 1）：
+
+| 判据 | 独立实测（本席） | 产出方/PM 自述（TASKS.md） |
+|---|---|---|
+| PRODUCT 8 表 DDL ↔ DATA_MODEL §2.3 逐列 | ✅ 本席自撰解析器（`revbatch_b1_dmmd3.py`）26 表两向差集=∅（仅 1 处自家解析器假阳性：`sample_start_date / sample_end_date` 同格双列，`m1_plan.sql:139–140` 两列俱全 ⇒ 非缺陷） | PM 旁证复算 8 表/120 列 |
+| SPOT 10 表 DDL ↔ DATA_MODEL §2.4 | ✅ 同上，差集=∅ | PM 旁证 10 表/181 列 |
+| PLAN 8 表 DDL ↔ DATA_MODEL §2.5 | ✅ 同上，差集=∅ | PM 旁证 8 表/163 列 |
+| DAO COLUMNS ↔ DDL 双向一致 | ✅ 本席独立重写比对器（`revbatch_b1_dao_check.py`，非复用 `DaoColumnAlignmentTest` 代码）：**45 个 Dm*Dao 全查、0 问题** | `DaoColumnAlignmentTest` 绿 |
+| `t_spot_price` 唯一约束 = 品种+日期（GLOBAL） | ✅ `m1_spot.sql:271` `uk_spot_price_global UNIQUE (product_id, price_date, is_shared)`（`is_shared` 恒 'Y' 域内即品种+日期；`sub_account_id` 仅录入归属、未入唯一键） | 验收 3 |
+| `t_spot_change_log.change_type` 含 `COMPONENT_RECALC` | ✅ `m1_spot.sql` `ck_spot_chg_type` 枚举含 `COMPONENT_RECALC`（DC-033） | 验收 4 |
+| `t_exposure` 根实体三类分量 + 时点列 | ✅ `contract_unexecuted_qty`/`inventory_qty`/`production_plan_qty` + `snapshot_time`/`price_as_of`/`snapshot_as_of` 全在；条件非空按现行 DATA_MODEL（v1.3.3 哨兵 0 形态）`ck_exposure_product_unmapped`/`ck_exposure_spot_category_scope` 与文档表达式逐字一致 | 验收 2 + TB-SPOT-8 共享裁定 |
+| `t_custom_hedge_rule` 命中排序字段 | ✅ 字段全 + `DmCustomHedgeRuleDao:111` `ORDER BY ratio_cap ASC, priority ASC, id ASC`（CFG-06） | 验收 3 |
+| 子账户生命周期（创建/停用/分类变更） | ✅ `ConfigService.java:402/443/496`；停用四条件阻断 10012 四项齐备、无物理删除方法（全类 0 `delete` 入口）、分类变更双人复核 + `t_config_change_log` 留痕 | T-008 验收 1/2/4 |
+| 零落盘（结构面） | ✅ `t_config_item` 无 password/auth 列；DB 级 `ck_config_item_sensitive CHECK (is_sensitive='N' OR config_value IS NULL)`（`m1_config_auth.sql:114`）；服务层敏感项存值 10020（主机制=`is_sensitive='Y'` 标记路径，有测试承重）；属性文件装载守卫 `Config.rejectSecrets` + `loopbackOnly` 拒绝启动 | T-009 验收 2/3 |
+| 绑定仅回环（启动期+变更期） | ✅ 启动期 `Config.loopbackOnly`（非回环抛 `IllegalStateException` 拒绝启动）+ 变更期 `ConfigService.requireLoopbackBind`（`hg.tcp.bind`/`hg.web.bind` 双键）；6 例测试承重 | T-009 验收 3 |
+
+- **自设变异/探针（隔离副本内，全部先证注入 count==1 → build rc=0 → 观察 test rc → 复位 diff 恒等）**：
+
+| # | 目标 | 变异形态 | 结果 |
+|---|---|---|---|
+| M1 | `DmPurchaseContractDao` COLUMNS `contract_no`→`contract_no_x` | 列名改错 | ✅ 红：`DaoColumnAlignmentTest` 1 失败（3 run/1F） |
+| M2 | `DmCustomHedgeRuleDao:111` `ratio_cap ASC`→`DESC` | 命中排序反转 | ⚠️ **全量 690 存活（0 红）** ⇒ `findEffective` 的真实 DAO SQL **无任何测试经引擎/实 DAO 执行**（服务层测试以假 DAO 预排序列，自承「模拟 DAO 已按…排序」，`PlanServiceTest:189`）——见观察 O-1 |
+| M3 | `ConfigService` 删 `createSubAccount` 重复编码守卫（count==1 预检过） | 守卫删除 | ✅ 红：`ConfigServiceTest.createSubAccountForcesEnabledAndLogs`（10010 断言） |
+| M4 | `ConfigService` 删停用四条件 `!pass` 阻断（count==1） | 预检门禁删除 | ✅ 红：`disableIsBlockedWhenPrecheckFails` + `disableEndpointBlocksWhenPrecheckFails` 2 例 |
+| M5 | `isSensitiveKey` 标记匹配 `return true`→`break`（键名标记路径失效） | 纵深防线删除 | ⚠️ **全量 690 存活（0 红）** ⇒ 全部敏感夹具均置 `isSensitive="Y"`（`ConfigServiceTest:435`），键名标记路径为**无测试承重的冗余防线**——见观察 O-2 |
+| M6 | `requireLoopbackBind` 白名单判断 `if(!contains)`→`if(true)` | 回环守卫失效 | ✅ 红：`loopbackBindWhitelistIsEnforced` |
+| M7 | `m1_spot.sql` 删 `ck_spot_price_positive` CHECK 行 | DDL 约束漂移 | ✅ 红：`M1ProductSpotPlanSchemaTest.ddlMatchesDataModel` |
+
+- **逐单结论**：
+  - **T-005（PRODUCT 8 表 DDL+DAO）：通过**。8 表 DDL ↔ DATA_MODEL §2.3 差集 ∅；8 个 `DmProduct*/Whitelist/InstrumentQuota` DAO COLUMNS 与 DDL 双向一致（独立重写比对器 45 DAO 全查 0 问题）；M1/M7 变异证明判据有牙。DM8 实机建表未执行系已登记环境前置（归 T-052），不阻断本批判据（本环境无 DM8，与产出方同）。
+  - **T-006（SPOT 10 表 DDL+DAO）：通过**。10 表差集 ∅；验收 2/3/4 逐条独立实证（见上表）；TB-SPOT-8 裁定按现行 DATA_MODEL v1.3.3 哨兵 0 形态落地（`ck_exposure_product_unmapped` 表达式与文档 §2.4 备注逐字一致；TASKS.md 状态栏旧「NULL 条件非空」表述系裁定前历史快照，现行权威 = DATA_MODEL）。
+  - **T-007（PLAN 8 表 DDL+DAO）：通过**。8 表差集 ∅；`t_custom_hedge_rule` 字段/索引/`ORDER BY` 形态齐备（CFG-06）；跨模块外键 `strategy_id` 以 ALTER TABLE 声明（已登记偏离）。
+  - **T-008（子账户全生命周期）：通过**。验收 1–4 逐条独立实测通过；M3/M4 变异证明 10010 与 10012 两守卫有测试承重；无物理删除接口（全类 0 删除入口 + 接口面自检用例 `ConfigServiceTest:402`）。
+  - **T-009（系统配置 + 零落盘）：有条件通过**。验收 1/2/3/4 独立实测通过（CRUD 端点齐、零落盘结构面+DB CHECK+双层回环守卫、变更留痕前后值+下发结果 UNCONFIRMED 诚实口径）；**条件 = 验收 5 未达成**：`t_dict_item`/`t_config_item`/`t_report_period_config` 三项 CONFIG 播种 **0 INSERT**（`data-init.sql` §② 状态仍「待 CONFIG」，本席 `grep` 全 schema 目录实测仅 5 张表有 INSERT：`t_sub_account/t_product/t_position_group/t_role/t_position_conflict`），且 `data-init.sql:84–86` 披露表与 TASKS.md:381 待核项口径一致 ⇒ **该缺口是「已披露的未完成项」而非隐瞒**，但验收 5 明文要求「本模块承接项完成播种并测试断言」⇒ 未满足。缺陷登记 **TE-T009-001（中）**：CONFIG 三项播种零落地、验收 5 不满足；建议承接（编排者裁定：由 T-009 退回补种或另立号，本席只报不改）。
+- **观察（不阻断，只报不改）**：
+  - **O-1（`te-revbatch-b1`，M2 变异存活）**：`DmCustomHedgeRuleDao.findEffective` 的 `ORDER BY ratio_cap ASC, priority ASC, id ASC`（CFG-06 命中排序）**无任何测试经真实 DAO/引擎执行**；服务层测试以假 DAO 预排序替代。排序逻辑退化的唯一防线是静态 SQL 字符串（`DaoColumnAlignmentTest` 不覆盖 SQL 语义）。建议：补一例经 `InMemoryDmEngine` 的排序断言（引擎已支持 ORDER BY，`InMemoryDmEngine:678–700`）。语义面当前无缺陷（SQL 实文正确），属**测试盲区**非产品缺陷。
+  - **O-2（`te-revbatch-b1`，M5 变异存活）**：敏感键名标记路径 `isSensitiveKey`（对未标 `is_sensitive='Y'` 但键名含 password/auth_code/fund_password/auth_token 的项兜底拒存）**无测试承重**；全部夹具显式置 `isSensitive="Y"`。主机制（标记路径 10020）有 3 例承重、结构面（DB CHECK + 实体无敏感字段 + 属性文件装载拒绝）另有防线 ⇒ 非缺陷，属**纵深防线零覆盖**。
+- **独立性声明**：本席未参与 T-005~T-009 任何产出；复核在隔离副本 `/root/revbatch_b1/`（五件齐、树锚与共享树逐字节同）进行，全部变异仅存在于副本；共享树 `java/src` 树锚复核前后均 `71493848…`/377 逐字节未变，本席对共享树唯一写入 = 本证据章纯追加。判据未复用产出方测试代码（列对齐比对器为独立重写）；变异脚本未复用产出方 A/B/C/D。
+- **未决 / 范围外**：① `T-009` 验收 5 的承接裁定（编排者）；② `T-008` 备注「跨栈依赖：额度/白名单变更经 T-011 下发」未在本批复核范围（T-011 属 B2 批）；③ 编排者交底 TEST_RESULT 行数（12679）与实测（12754）有 75 行差，系他席并行追加，不影响本章（以追加前实时 md5 为锚）。
+
