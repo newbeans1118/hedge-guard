@@ -12807,3 +12807,67 @@ TMPDIR=/ cmake --build /hg-build-base -j4
 - **独立性声明**：本席未参与 T-005~T-009 任何产出；复核在隔离副本 `/root/revbatch_b1/`（五件齐、树锚与共享树逐字节同）进行，全部变异仅存在于副本；共享树 `java/src` 树锚复核前后均 `71493848…`/377 逐字节未变，本席对共享树唯一写入 = 本证据章纯追加。判据未复用产出方测试代码（列对齐比对器为独立重写）；变异脚本未复用产出方 A/B/C/D。
 - **未决 / 范围外**：① `T-009` 验收 5 的承接裁定（编排者）；② `T-008` 备注「跨栈依赖：额度/白名单变更经 T-011 下发」未在本批复核范围（T-011 属 B2 批）；③ 编排者交底 TEST_RESULT 行数（12679）与实测（12754）有 75 行差，系他席并行追加，不影响本章（以追加前实时 md5 为锚）。
 
+## REV-BATCH-20260930 B2 独立复核（席 te-revbatch-b2）
+
+- **复核时点**：2026-10-02 21:10–22:50；**复核席**：`test-engineer` 实例 `te-revbatch-b2`（REV-BATCH-20260930 第 2 批 / 共 3 批）
+- **复核对象**：`T-011` / `T-012` / `T-013` / `T-014` / `T-015`（原负责人 `backend-engineer#java2`；「已完成，待独立复核」，`docs/TASKS.md:56–60`）
+- **冻结点（编排者 2026-10-02 13:20 交底，本席逐项独立重测吻合）**：
+  - `HEAD` = `9cc8456`；`java/src` 树锚 = `71493848730e341f5b0b13c4a2267fb3` / **377 文件**（`find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum`；共享树复核前/后两次实测一致 ⇒ 复核期间无并发写入本席复核对象）；
+  - `docs/TEST_RESULT.md` 追加前 = **12809 行**，`head -12809 | md5sum` = `8b77e645d913a735ff0a0f961564a822`。
+- **门禁判据 = 冻结点上全量绿**（非用例数）：
+  - **隔离副本** `/root/hg_b2rev/`（五件齐：`docs/java/cpp/tools/proto`；`TMPDIR=/`；副本树锚与共享树逐字节同 `71493848…`/377）；
+  - **独立实测**：`cd java && TMPDIR=/ mvn -B -o clean test` ⇒ **690/0/0/0、BUILD SUCCESS**（复核初期与全部变异复位后各跑一轮，均同值；`skipped=0` 逐 XML 复核）；
+  - `@Test`==surefire==**690**；`bash tools/arch-check/arch-check.sh` ⇒ **rc 0（E1–E8 八判据全 0，共享树实测）**。
+- **证据栏分列**（纪律 1）：
+
+| 判据（工单验收标准） | 独立实测（本席） | 产出方自述 |
+|---|---|---|
+| T-011 验收 1「统一流程供 5 模块共用」 | ✅ 接口 52 行 + 实现 835 行唯一实现；M1 口径 = Variety 白名单/额度写 `dispatch_status='PENDING'` 落库占位（`:585/:603/:724/:767`），下发接线归 M2（与工单备注「M1 仅落库占位」一致）；生产唯一装配点 `Bootstrap:171`；**`T-168`/`T-167` 扩展未破坏 `T-011` 原验收**（原 4 参构造保留、`dispatch`/`requireEffective`/两阶段语义均未改） | 接口 javadoc 自称 5 模块复用 |
+| T-011 验收 2「param_version 单调 + 落 `t_param_dispatch`」 | ✅ `allocateParamVersion`（Impl `:660`）= 进程内 AtomicLong，首次经 `maxParamVersion()+1` 播种（`DmParamDispatchDao:117` = `SELECT COALESCE(MAX(param_version),0)`）；`persistPending` 先落 PENDING 再下发；并发用例 12 线程两两不同且连续（`ParamDispatchServiceImplTest:149`） | 同左 |
+| T-011 验收 3「超时 3000 ms（CFG-28）未生效+告警+不得视为已生效」 | ✅ 超时 → `UNCONFIRMED` 且 ack_time=null（`settle:742`）+ `LOG.warning`（`:753`）+ `requireEffective` 抛 10014 阻断四项齐备（ruleId=`R-CONFIG-3`）；超时取自 `hg.cmd_timeout_ms`（`:326` 实测 1234 ms 生效、缺省 3000） | 同左 |
+| T-011 验收 4「限额下调两阶段（RSK-04）」 | ✅ `decreaseQuotaTwoPhase:470`：①冻结（OPEN_ONLY）→②换快照（CMD_UPDATE_QUOTA，层③哨兵 0）→③按**同一 suspendId** 撤挂起；②失败立即撤下挂起不留半生效；配对计数归零才发解冻 | 同左 |
+| T-012 验收 1「增删改启停+换算+合约+映射」 | ✅ `createProduct:278`/`disableProduct:319`/`enableProduct:374`/`putUnit:405`（换算 `:445`，无生效关系拒 10015）/`putContract:469`（OPTION 三必填下沉校验）/`putSpotMapping:512` | 同左 |
+| T-012 验收 2「白名单按子账户+三层额度（CFG-16）」 | ✅ `putWhitelist:565`（哨兵 0 拒绝、复用同一行留历史）；`putQuota:676`（层①须真实子账户、层③**强制 coerce 哨兵 0**、取值域齐）；`putInstrumentQuota:751`（层②）；层③不套子账户写面强制（`CH-012` 既定口径） | 同左 |
+| T-012 验收 3「CSV 全量预校验后一次性插入、明确报错」 | ✅ `importProducts:834`：缺列/越域/币种/文件内重复/库内重复**汇总全部问题**抛 10019、零部分写入（`importRejectsInvalidFileAtomically` 断言前后行数相等） | 同左 |
+| T-012 验收 4「导出可用+变更落 `t_product_change_log`」 | ✅ `exportProducts:922`（可见性过滤+创建时间倒序+逗号转义）；`writeLog` 14 处调用点全覆盖 | 同左 |
+| T-013 验收 1「四类单据 CRUD 携带 NOT NULL 子账户标识」 | ✅ 语义面：5 个 create 全 `requireSubAccount`+`requireSubAccountWritable`（`:264/:298/:449/:492/:542`）；⚠️ Integer null 拆箱 NPE 呈现缺陷 = `T-113`（TODO，已立号承接，本席不重复立项） | — |
+| T-013 验收 2「三种录入方式+唯一口径」 | ✅ 单条 `putSpotPrice:541`（>0、不晚于当日、来源取值域、覆盖须显式确认+原值留痕）；批量粘贴/CSV = `importSpotPrices:978`（表头完整性、行号定位、全量预校验整体不导入；`SpotT109FixTest` 22 例承重 ⇒ `TE-T109-001` 闭合实证）；唯一键 `uk_spot_price_global(product_id, price_date, is_shared)`（`m1_spot.sql:271`）——见观察 O-2 | — |
+| T-013 验收 3「缺口处置按用途分流（CFG-12/12b）」 | ✅ `resolvePrice:614`：RATIO 缺价一律 10015 拒绝；VALUATION 沿用最近一期且 `price_as_of`/`nonCurrentPriceFlag` 联动（`applyValuation:1397`）；`priceGapDisposition:261` 三向断言 | 同左 |
+| T-013 验收 4「草稿可物理删除、非草稿仅状态流转」 | ✅ `deleteDraftPurchaseContract:421` 仅 DRAFT 可删（留痕后 `deleteById`）；非草稿 10009（`SpotServiceTest:161`） | 同左 |
+| T-014 验收 1「三分量+同事务计算与合计」 | ✅ 头行三分量列+合计齐（`Exposure:34–40`）；头+明细同一 `tx.inTransaction`（`:792–804`）；CFG-17 三分量全开语义达成 | 同左 |
+| T-014 验收 2「Σ分量≠合计写入侧拒绝、不静默覆盖」 | ✅ `computeExposure:757` 拒绝且零落库（`SpotServiceTest:290`）；**MUT-T014-A 击红实证** | 同左 |
+| T-014 验收 3「展示侧重算+告警+COMPONENT_RECALC 留痕+不回写」 | ✅ `recalcForDisplay:807`：逐分量对账、按明细来源去重留痕 `COMPONENT_RECALC`、`writtenBack=false` 显式声明（`SpotServiceTest:435/:441` 承重）；⚠️ 端点**无子账户可见性强制** = `T-114`（TODO，已立号） | 同左 |
+| T-014 验收 4「快照含 `snapshot_time`+比率用途缺价一律拒绝」 | ✅ `snapshotTime=Clocks.now()`（`:769`）；RATIO 拒绝同 T-013 验收 3 | 同左 |
+| T-015 验收 1「三档均可用」 | ✅ `calcSimple:259`/`calcMinVariance:294`/`calcCustomRule:361`；(0,1] 域校验、失败置 0+failDetail 不抛裸异常 | 同左 |
+| T-015 验收 2「样本≥30（CFG-06b）、不足明确提示不静默降级；≥30 可算 ρ/σ」 | ✅ `MIN_VARIANCE_MIN_SAMPLES=30`（`PlanService:85`），不足 → `INSUFFICIENT_SAMPLE` 且不返回比率（**MUT-T015-B 击红实证**）；**数值探针**：32 点 y=2x+1 序列反射调私有算法，实测 ρ=1.000000、σS=9.233093、σF=18.466185、h=0.500000 与本席独立手算逐位吻合；ρ=−1 序列 → 负值被域校验拒绝（**不会**截断为合法值） | 同左 |
+| T-015 验收 3「ratio_cap↑→priority↑→id↑ 取一（TB-PLAN-8）」 | ✅ 语义面：`DmCustomHedgeRuleDao:111` ORDER BY 三键升序（count==1 实测）；服务层 `get(0)` 取最严 + `EXCEEDS_CUSTOM_CAP` 拒超上限；⚠️ 排序无引擎级测试承重（观察 O-1，与 B1 章 O-1 同点、本席独立复证） | 同左 |
+| T-015 验收 4「每次计算留痕 `t_hedge_ratio_calc`」 | ✅ `persist:1578` 每次调用必写（含失败路径共 5 处）；`PlanServiceTest:147` 断言两次计算含失败共 2 条 | 同左 |
+
+- **自设变异/探针**（隔离副本内；全部先证目标串 count==1 → build rc=0 → 观察 test rc → 复位 `diff` 恒等；复位后副本树锚 `71493848…`/377 与共享树逐字节同，全量 690/0/0/0 复跑确认）：
+
+| # | 目标 | 变异形态 | 结果 |
+|---|---|---|---|
+| MUT-T011-A | `ParamDispatchServiceImpl:752` 超时分支 → `complete(row,"SUCCESS",…)` | 超时误判已生效（验收 3 反向） | ✅ 红：3 失败（`timeoutIsNotEffective`/`timeoutLeavesAckTimeNull`/`inspectProblemsDelegates`） |
+| MUT-T011-B | `releaseOpenOnly` `int remaining = decrementSuspends(…)` → `int remaining = 0` | 配对计数失效（提前解冻） | ✅ 红：6 失败（`suspendPairingUsesOutstandingCount`/`pairingRequiresSameSuspendId`/`releaseRejectsUnknownSuspendId`/`twoPhaseQuotaDecrease`/`twoPhaseAbortsAndReleases` 等） |
+| MUT-T012-A | `VarietyService:698` 层③哨兵 coerce 条件对 subAccountId==7 恒假 | 层③不再收敛哨兵 0 | ✅ 红：`VarietyServiceTest` 2 错误（`quotaLayerSentinel:285`/`quotaPanorama:322`，经写面强制 10004 暴露） |
+| MUT-T013-A | `SpotService:619` `if (purpose == RATIO)` → `if (false && …)` | 比率用途缺价改走沿用（CFG-12 失效） | ✅ 红：`priceGapDisposition` 1 失败 |
+| MUT-T014-A | `SpotService:757` Σ≠合计判断 → `if (false)` | 写入侧守卫删除（Q-17 ②） | ✅ 红：`exposureRejectsComponentMismatch` 1 失败 |
+| MUT-T014-B | `SpotService:857` `writtenBack,false` → `true` + 回写分量 + updateById | 展示侧回写落库（CFG-17b 反向） | ✅ 红：`SpotServiceTest` 1 错误（`FakeExposureDao.updateById` 桩未实现抛出，`:441` 断言链） |
+| MUT-T015-A | `DmCustomHedgeRuleDao:111` `ratio_cap ASC` → `DESC` | 取严排序反转 | ⚠️ **全量 690 存活（0 红）** ⇒ 真实 DAO 排序无引擎级测试（服务层假 DAO 预排序自承「模拟 DAO 已按…排序」，`PlanServiceTest:189`）——见 O-1 |
+| MUT-T015-B | `PlanService` `samples < 30` → `… && spotSeries.isEmpty()` | 样本下限对非空序列失效 | ✅ 红：`minVariance` 1 失败 |
+| 探针-P1 | 数值探针：反射调 `correlation`/`stddev`，独立手算对拍 | h=ρ×σS/σF 数值正确性 | ✅ 32 点 y=2x+1：ρ=1.000000、σS=9.233093、σF=18.466185、h=0.500000 逐位吻合；ρ=−1 序列被域校验拒绝 |
+
+- **逐单结论**：
+  - **T-011（参数下发编排）：通过**（1 低缺陷 + 3 观察）。四条验收逐条独立实测通过；`T-168`/`T-167` 对其邻域的扩展**未破坏**原交付；MUT-T011-A/B 证明「超时不视为已生效」「配对撤销」两机制有测试承重。
+  - **T-012（品种管理与白名单/额度）：通过**。四条验收逐条通过；CFG-16 三层口径与 `CH-012` 裁定一致；MUT-T012-A 证明哨兵 coerce 有承重。
+  - **T-013（现货管理服务）：通过**（2 观察）。四条验收语义面逐条通过；`TE-T109-001`（import 输入契约）已由 `SpotT109FixTest` 22 例实证闭合、`TE-T109-002`（export 越权）可见性强制未回潮（本席确认）；Integer null 拆箱 NPE 呈现缺陷 = `T-113`（已立号承接，非本席新发现）。
+  - **T-014（实货敞口计算）：通过**。四条验收逐条通过；MUT-T014-A/B 双向证明「写入侧拒绝」「展示侧不回写」均有承重；`recalcForDisplay` 可见性缺口 = `T-114`（已立号）。
+  - **T-015（套保比率三档）：通过**（1 观察）。四条验收逐条通过；数值探针独立对拍正确、域校验真实拒负；MUT-T015-B 证明样本下限有承重。
+- **缺陷登记（只报不改）**：
+  - **TE-T011-001（低·文档陈旧·不阻断）**：`ParamDispatchServiceImpl` 类 javadoc「⚠️ 已知偏离」块（`:73–79`）仍声称「`ParamDispatchDao` 未提供 max 查询、以 count+1 播种、已投 question 待收口」，但实现 `:664` **已调用** `paramDispatchDao.maxParamVersion()+1` 且 `DmParamDispatchDao:117` 已实现 `SELECT COALESCE(MAX(param_version),0)` —— javadoc 未随实现更新，构成**不实的历史陈述**（与 DAO 侧「不得用行数代替」口径叙述相抵触）。行为正确、并发用例承重 ⇒ 不阻断；建议产出方删除或改写该块（本席写域受限不改）。
+- **观察（不阻断，只报不改）**：
+  - **O-1（MUT-T015-A 存活）**：`DmCustomHedgeRuleDao.findEffective` 的 ORDER BY 三键升序（T-015 验收 3 / TB-PLAN-8 / CFG-06）无任何测试经真实 DAO/InMemoryDmEngine 执行；服务层以假 DAO 预排序替代。与 **B1 章 O-1 同点**，本席以同形变异（DESC）在全量 690 绿下独立复证存活。属**测试盲区**非产品缺陷（SQL 实文正确）；建议补一例引擎级排序断言（一次同时覆盖 T-007 与 T-015 的该判据）。
+  - **O-2（文本与 DDL 口径差）**：T-013 验收 2 与 `RSK-05` 文本均表述唯一口径含「**来源标注**」，实现唯一键 = `(product_id, price_date, is_shared)`（`source_type` 不入键；同日异源走覆盖确认+原值留痕）。实现按 `Q-ARCH-001`/`CH-003` GLOBAL 单值口径自洽（现货价=市场数据，来源属录入描述非身份维度），但 **TASKS 验收 2 / RSK-05 / DDL 注释三处表述未统一**；建议编排者裁定一次文本订正（勘误类免 CH，须留动因）。
+  - **O-3（twoPhase 标识回读竞态·自披露）**：`decreaseQuotaTwoPhase:478–479` 用 3 参 `suspendOpenOnly`+`peekSuspendId`（LIFO 回读）获取撤下标识——同子账户并发两笔 twoPhase 时 `peek` 可能取到对方标识（javadoc `:318–323` 已自披露该重载「并发下存在竞态」；而 twoPhase 恰属**需精确配对**的场景，按其自述应改 4 参主入口）。当前被「计数归零才解冻」守卫兜底（误取他方标识至多少发一次解冻、不会误放行），M1 无生产调用方 ⇒ **不阻断**；建议 M2 接线时改 4 参形态。
+- **独立性声明**：本席未参与 T-011~T-015 任何产出；复核在隔离副本 `/root/hg_b2rev/`（五件齐、树锚与共享树逐字节同）进行，全部变异与探针仅存在于副本；共享树 `java/src` 树锚复核前后均 `71493848…`/377 逐字节未变，本席对共享树唯一写入 = 本证据章纯追加。判据未采信产出方自述；变异目标与形态均本席自设（MUT-T015-A 与 B1 M2 为同一自然变异点位——同文件同判据下同一点，本席独立选择并在 O-1 标注复证关系）。数值探针对拍参照值为本席独立手算，未引用任何在库断言值。
+- **未决 / 范围外**：① `TE-T011-001` javadoc 收口（产出方）；② `T-113`/`T-114` 状态推进（编排者）；③ O-2 文本统一裁定（编排者，勘误类）；④ O-1 引擎级排序断言承接（可与 B1 O-1 合并处置）；⑤ 复核期间 `HEAD` 恒 `9cc8456`、TEST_RESULT 行数与交底一致，无他席并行追加干扰。
