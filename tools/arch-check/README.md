@@ -1,6 +1,6 @@
 # `tools/arch-check` —— 架构合规检查
 
-> 承载：`docs/ARCHITECTURE.md` **§3.0.2**（工程化手段 `E1`–`E7`）与 **§3.13**（支撑：架构合规检查）。
+> 承载：`docs/ARCHITECTURE.md` **§3.0.2**（工程化手段 `E1`–`E8`）与 **§3.13**（支撑：架构合规检查）。
 > 目的：把「靠人审查」的边界纪律固化为**可执行、可 CI 化**的判据脚本。
 >
 > **`E1`–`E6` 六个判据脚本由 `T-090`~`T-093` 与既有任务交付，形态经三轮独立复核收口（`T-095`）**；
@@ -29,7 +29,8 @@
 | `strip_java_comments.awk` | `E5` | Java 注释预处理器（`scan_java_sql.sh` 调用） |
 | `check_frontend.sh` | `E6` | 前端零构建链 + 无直连扫描 |
 | `scan_hgcp_schema.py` | `E7` | HGCP 字段级 schema：`ARCHITECTURE.md §4.2.8` ↔ `proto/hgcp.proto` 一致性（`T-121`；**单文件 Python3、无第三方依赖**） |
-| `arch-check.sh` | **聚合入口** | 调用 E1–E7，任一非 0 ⇒ 整体非 0（本 README §2） |
+| `scan_contracts_payload.py` | `E8` | `java/CONTRACTS.md §3.2.1` payload 键 ↔ `proto/hgcp.proto` 字段名一致性（`T-170`；**单文件 Python3、无第三方依赖**） |
+| `arch-check.sh` | **聚合入口** | 调用 E1–E8，任一非 0 ⇒ 整体非 0（本 README §2） |
 | `README.md` | — | 本文件 |
 
 **统一退出码语义（各判据脚本，`T-095` 收口）**：
@@ -68,7 +69,7 @@ bash tools/arch-check/arch-check.sh -h    # 帮助
 
 | 码 | 条件 |
 |----|------|
-| `0` | 七个脚本全部返回 `0` |
+| `0` | 八个脚本全部返回 `0` |
 | `1` | 无脚本返回 `2`，但至少一个返回 `1`（架构偏离） |
 | `2` | 至少一个脚本返回 `2`（用法/前置错误 —— 判据未能真正执行，属更严重缺口） |
 
@@ -245,6 +246,42 @@ bash tools/arch-check/arch-check.sh -h    # 帮助
 | `B3` `§4.2.8.9` 定稿表（`G-7` 行）改字 | **不**参与 | **0** |
 | `B4` `§4.2.4` 字段级说明（枚举取值）改字 | **不**参与 | **0** |
 （复位后复跑 ⇒ **0**。⚠️ 变异定位时 `§4.2.8.x` 的锚点串在**附录 C** 有同形副本 ⇒ 探针须限定「取附录 C **之前**」的命中。）
+
+### E8 `scan_contracts_payload.py`（`T-170`）
+
+- **用法**：`scan_contracts_payload.py [--contracts <file>] [--proto <file>]`
+  - `--contracts`：Java 契约文档（默认 `java/CONTRACTS.md`）；`--proto`：线格式定义（默认 `proto/hgcp.proto`）
+- **立项理由**：`CH-019` 横跨四制品，而 `E7` 只覆盖「`ARCHITECTURE.md` §4.2.8 ↔ proto」一条链。
+  「`CONTRACTS.md` §3.2.1 payload 键 ↔ proto 字段名」链**零守卫**——实测把 §3.2.1 表内
+  `entries[n].has_trading_post` 改为合法命名风格的错名 `entries[n].hasTradingPost` ⇒
+  `bash tools/arch-check/arch-check.sh` **rc 0（未发现）**（2026-10-01 `T-170` 立项实证）。
+  根因：全仓无任何测试或判据读取 `CONTRACTS.md` 的表体内容。§3.2.1 明文冻结
+  「键名一律直接采用 §4.2.3 冻结的协议字段名，不做二次命名」⇒ 本判据把该冻结固化为持续性门禁。
+- **判据（双向差集）**：按**章节锚点** `^#### 3.2.1 ` 求段（禁固定行号），解析三条指令的
+  payload 键集合，与 proto 对应 message 字段名集合做双向差集，两侧皆须为空：
+  ① `CMD_SET_TRADING_SUSPEND` ↔ `CmdSetTradingSuspend`；② `CMD_UPDATE_QUOTA` ↔ `QuotaEntry`；
+  ③ `CMD_UPDATE_PERMISSION` ↔ `PermissionEntry`（`param_version` 不经 payload，两侧排除）。
+- **⚠️ 多锚点守卫**：`CONTRACTS.md` 内 `#### 3.2.1` 标题**存在两处**（前一处 = 「HGC-1.1 历史版，
+  已被取代」，含已废止旧键 `scope`/`suspend`/`suspend_id`）⇒ 判据取**最后一处**为现行权威段，
+  并以「段内须出现 `CMD_UPDATE_PERMISSION`」作形态守卫（锚到历史段 ⇒ 退 `2`，不静默锚错）。
+- **显式不覆盖（N1–N5，详见脚本头）**：取值/必填性语义；§3.2 旧版表（已废止键不被拦下）；
+  字段号/类型/必填性（归 `E7`）；说明列散文（唯 `CMD_UPDATE_QUOTA` 行说明列字段名清单参与）；
+  表内新增未登记指令 ⇒ 退 `2`（判据须随表扩展，不得静默跳过）。
+- **自测（2026-10-01 `T-170` 实测，隔离副本）**：
+
+| # | 场景 | 期望 | 实测 `rc` | 关键输出 |
+|---|------|------|-----------|----------|
+| 1 | 现行制品（负控） | 通过 | **0** | `E8 通过：§3.2.1 payload 键与 proto 字段名逐条一致（CMD_SET_TRADING_SUSPEND=5 键; CMD_UPDATE_PERMISSION=9 键; CMD_UPDATE_QUOTA=7 键）` |
+| 2 | 正控：§3.2.1 键 `has_trading_post` → `hasTradingPost` | 命中 | **1** | ``[CMD_UPDATE_PERMISSION] proto 字段 `has_trading_post`（PermissionEntry）在 CONTRACTS §3.2.1 无对应 payload 键`` |
+| 3 | 反向变异：proto `has_trading_post` → `has_trading_post_x` | 命中 | **1** | 双向各 1 处（proto 有而 CONTRACTS 无 + CONTRACTS 有而 proto 无） |
+| 4 | 形态护栏：`--contracts /no/such/…`（显式路径不存在） | 前置错误 | **2** | `错误：--contracts 路径不存在（显式路径）` |
+| 5 | 形态护栏：`#### 3.2.1` 章节标题全部改名 | 前置错误 | **2** | `未找到章节锚点「#### 3.2.1 」` |
+| 6 | 形态护栏：表内指令名换成未登记指令 | 前置错误 | **2** | `出现本判据未登记的指令「UNKNOWN_CMD_XXX」⇒ 判据须扩展（N5）` |
+| 7 | 形态护栏：删除现行段 `CMD_UPDATE_PERMISSION` 指令行 | 前置错误 | **2** | `表内未找到指令「CMD_UPDATE_PERMISSION」的行（判据无法执行，N5）` |
+| 8 | 形态护栏：现行段标题改名使「最后一处 §3.2.1」= 历史版段 | 前置错误 | **2** | `段（锚点行 374 起）内未出现 CMD_UPDATE_PERMISSION —— 可能锚到历史版段` |
+| 9 | 默认路径不存在（空目录内执行） | `SKIP` | **0** | `SKIP: 默认路径 java/CONTRACTS.md 不存在（组件未铺开）` |
+
+（各场景变异后均复位并复跑 ⇒ `0`；被变异制品 md5 复位前后逐字节一致。）
 
 ---
 

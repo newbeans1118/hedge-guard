@@ -12677,3 +12677,78 @@ TMPDIR=/ cmake --build /hg-build-base -j4
 
 本席未参与 T-165 实现；全部证据（冻结点 md5/树锚、全量、arch-check、语义比对、5 例变异）为独立实测，未采信产出方自评；隔离副本 `/root/t165v` 五件齐（docs/java/cpp/tools/proto），变异未触碰共享树；共享树 `java/` 本席零改动，本证据章为唯一写入（纯追加）。
 
+
+---
+
+## T-170 交付证据（`tl-t170`，2026-10-01；**纯追加**）
+
+**任务**：`T-170`（P2，3 人时）—— 补齐「`java/CONTRACTS.md` §3.2.1 payload 键 ↔ `proto/hgcp.proto` 字段名」门禁守卫（**`E8` 判据**）。
+
+### 1. 基线（开工前实测）
+
+| 项 | 值 |
+|---|---|
+| `HEAD` | `100da423a7d73766bb9ddf18dcce4bd6a7bdd9d3` |
+| `java/src` 树锚 | 内容级 `261cf67126d20fa6e29ecb4c3058802c` / **377 文件**（`LC_ALL=C sort \| xargs md5sum \| md5sum`；派单所载 `71493848…` 系**路径级**口径，两口径均 377 文件，交付前后未变） |
+| `java/CONTRACTS.md` | `7848761497c0fe582a6a35194df895ae` / 872 行 |
+| `proto/hgcp.proto` | `a1762e53f51e937f0ec6975d45125c43` |
+| `tools/arch-check/scan_hgcp_schema.py` | `c0cb3b860381cf52f48eea2bb10ae008` / 810 行（派单写 807，以实时为准） |
+| `tools/arch-check/arch-check.sh` | `5b691dc2202a7b6164ff2ecae46ddd13` / 138 行 |
+
+### 2. 裁定
+
+- **形态裁定 = 新增 `E8`**（独立脚本 `tools/arch-check/scan_contracts_payload.py`）。依据：`E7` 职责单一（§4.2.8 ↔ proto、六类判据 + N1–N8 不覆盖声明 + 多锚点守卫，810 行）；`CONTRACTS` 键校验的**被judged对象、章节锚点体例（`^#### 3.2.1 ` vs `^##### 4.2.8.x`）、不覆盖清单**均不同，塞入 `E7` 会纠缠；先例 `E2`/`E5` 拆分、`E7` 独立——单文件单职责。`E8` 与 `E7` 解析器无复用（proto 侧解析粒度不同：`E7` 需字段号/类型/必填性三元组，`E8` 仅字段名集合）。
+- **范围裁定 = 全表校验**（三条指令，非仅 PERMISSION 行）。依据：`proto` 侧 `CmdSetTradingSuspend`/`QuotaEntry`/`PermissionEntry` 三个 message 字段集实测齐全；§3.2.1 表结构规整（指令列非空 = 指令行）；全表可机械比对且拦截面更大。`param_version` 两侧排除（§3.2.1 明载「不放 payload」）。
+- **多锚点发现（重要）**：`CONTRACTS.md` 内 `#### 3.2.1` 标题**存在两处**（`:374` = 「HGC-1.1 历史版，已被取代」，含已废止旧键 `scope`/`suspend`/`suspend_id`；`:415` = 现行冻结版）⇒ `E8` 取**最后一处**为权威段 + 「段内须出现 `CMD_UPDATE_PERMISSION`」形态守卫（锚到历史段 ⇒ 退 `2`，不静默锚错）。
+
+### 3. 判据有牙证明（隔离副本 `/root/t170iso`，五件齐 docs/java/tools/proto/web + cpp；基线聚合 rc 0）
+
+| # | 场景 | 期望 | 实测 `rc` | 关键输出 |
+|---|------|------|-----------|----------|
+| 1 | **负控**（现行制品） | 0 | **0** | `E8 通过：…（CMD_SET_TRADING_SUSPEND=5 键; CMD_UPDATE_PERMISSION=9 键; CMD_UPDATE_QUOTA=7 键）` |
+| 2 | **正控**：§3.2.1 键 `entries[n].has_trading_post` → `entries[n].hasTradingPost` | 1 | **1** | `[CMD_UPDATE_PERMISSION] proto 字段 `has_trading_post`（PermissionEntry）在 CONTRACTS §3.2.1 无对应 payload 键` |
+| 3 | **反向变异**：proto `has_trading_post` → `has_trading_post_x` | 1 | **1** | 双向各 1 处（proto 有而 CONTRACTS 无 + CONTRACTS 有而 proto 无） |
+| 4 | 护栏：`--contracts /no/such/…` | 2 | **2** | `错误：--contracts 路径不存在（显式路径）` |
+| 5 | 护栏：`#### 3.2.1` 章节标题全部改名 | 2 | **2** | `未找到章节锚点「#### 3.2.1 」` |
+| 6 | 护栏：表内指令名 → `UNKNOWN_CMD_XXX`（未登记） | 2 | **2** | `出现本判据未登记的指令「UNKNOWN_CMD_XXX」⇒ 判据须扩展（N5）` |
+| 7 | 护栏：删除现行段 `CMD_UPDATE_PERMISSION` 指令行 | 2 | **2** | `表内未找到指令「CMD_UPDATE_PERMISSION」的行（判据无法执行，N5）` |
+| 8 | 护栏：现行段标题改名使「最后一处 §3.2.1」= 历史版段 | 2 | **2** | `段（锚点行 374 起）内未出现 CMD_UPDATE_PERMISSION —— 可能锚到历史版段` |
+| 9 | 默认路径不存在 | 0+SKIP | **0** | `SKIP: 默认路径 java/CONTRACTS.md 不存在（组件未铺开）` |
+
+各场景变异后**复位复跑 ⇒ `0`**；`proto/hgcp.proto`（`a1762e53…`）、`java/CONTRACTS.md`（`78487614…`）复位后 md5 与基线逐字节一致。键数吻合旁证：Suspend 6 字段−`param_version`=5、QuotaEntry=7、PermissionEntry=9。
+
+### 4. 接线与计数连锁
+
+- `tools/arch-check/arch-check.sh`：`CHECKS` 追加 `E8` 行（`E1`–`E7` 条目逐字节未动）+ 头注/usage/汇总计数「七个」→「八个」（diff 见 `git diff tools/arch-check/arch-check.sh`）。
+- `tools/arch-check/README.md`：§1 清单加 `E8` 行、§2 聚合「七个脚本」→「八个」、§3 新增 `E8` 段（用法/判据/多锚点守卫/N1–N5 不覆盖/自测 9 场景表）。
+- **计数连锁穷举**：`grep -rn "E1–E7\|E1-E7\|七大\|七个判据\|7 个判据" docs/ tools/ java/ cpp/` ⇒ 活文件 live 陈述共 9 处（`ARCHITECTURE.md` §3.0.2 题头/状态块/退出码块/§3.13 两行/§8.3 + `arch-check.sh` 3 处 + README 2 处）已改；**其余命中全为历史留痕**（`TEST_RESULT.md` 各任务证据章、「编写时间」修订记录行、`README.md` E7 登记叙事段——只加不改体例，不动）。
+- **`java/pom.xml:190` / `cpp/CMakeLists.txt:72`** 的「聚合 E1–E6」陈旧注释：**非本席写域且系 `T-123` 承接项**，不动（只报）；两者只调聚合入口、不枚举判据 ⇒ `E8` 无需接线即生效（`mvn validate`/`ctest` 前置自动覆盖）。
+- **`ARCHITECTURE.md` 升版判定 = 升 `v1.5.20`**（先例：`E7` 登记升 `v1.5.16` 同形态——判据表新增行 + 计数连锁 + §13 登记行）。
+
+### 5. 门禁实测（共享树 `/root/myspace/hedge-guard`）
+
+- `bash tools/arch-check/arch-check.sh` ⇒ **rc 0**（`E1..E8` 退出码全 0；末行 `arch-check 通过：八个判据脚本全部通过（退出码 0）`）。
+- `python3 tools/arch-check/scan_hgcp_schema.py` ⇒ 退 0，判定段输出与改前一致（`E7 通过：§4.2.8 与 proto 逐条一致（消息 40+10、字段 214+67、枚举 28）`）——`E7` 行为不受影响（`scan_hgcp_schema.py` 本身零改动，md5 `c0cb3b86…` 未变）。
+- `java/src` 树锚交付后复测 = `261cf671…` / 377（未变）；`java/**`、`proto/**`、`cpp/**`、`java/CONTRACTS.md` 零改动。
+
+### 6. 交付物与锚点（落笔后实测）
+
+| 文件 | 状态 | md5 | 行数 |
+|---|---|---|---|
+| `tools/arch-check/scan_contracts_payload.py` | **新增** | `432fd7081d4d9fe518477ffb8e894e84`（落盘时点；以实时为准） | 362 |
+| `tools/arch-check/arch-check.sh` | 修改（+7/−5） | 以实时为准 | 140 |
+| `tools/arch-check/README.md` | 修改（+40/−3） | 以实时为准 | 400 |
+| `docs/ARCHITECTURE.md` | 修改（+11/−8）：§3.0.2 题头「七大」→「八大」+ 判据表 `E8` 行 + 状态块 + 退出码块 + §3.13 两行 + §8.3 + 头部版本 `v1.5.20` + 「编写时间」追加段 + §13 `v1.5.20` 行 | `be7a415ce3a32aa9709004990d85871b` / 3273 行（落笔时点；**自指口径**——本单元格置 32 个 `0` 后随全档实测） | 3273 |
+
+`git diff --numstat`（本任务域）：`11 8 docs/ARCHITECTURE.md`、`40 3 tools/arch-check/README.md`、`7 5 tools/arch-check/arch-check.sh`、新文件 `tools/arch-check/scan_contracts_payload.py`（未跟踪）。（`dev-team/agents/*.md` 两笔系编排侧改动，非本席。）
+
+### 7. 范围外发现（只报不改）
+
+- `java/pom.xml:190` 与 `cpp/CMakeLists.txt:72` 注释仍写「聚合 E1–E6 六判据脚本」——系 `T-123` 已承接的陈旧注释，非本席写域，未动。
+- `CONTRACTS.md` §3.2.1 现行表**无其它键名错误**（负控 rc 0 旁证 + 双向差集为空）；§3.2 旧版表（`:385-403`）含已废止键 `scope`/`suspend`/`suspend_id`，属「已废止但保留原文」体例（§3.2.1 下方明载现行以 §3.2.1 为准），`E8` 显式不覆盖（N2）。
+- 派单基线两处与实测不符：`scan_hgcp_schema.py` 807 行（实 810）、`java/src` 树锚 `71493848…`（实为路径级口径；内容级 `261cf671…`，文件数一致）。
+
+### 8. 独立性声明
+
+本席为 `T-170` 产出方；**不自评 DONE**，待独立复核。全部证据为实跑输出；变异均在隔离副本 `/root/t170iso` 施行并复位（共享树被judged对象零改动）；本证据章为 `docs/TEST_RESULT.md` 唯一写入（**纯追加**，起于 12679 行之后）。
+

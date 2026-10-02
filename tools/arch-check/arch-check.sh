@@ -11,6 +11,7 @@
 #   E3 `scan_cpp11.sh`（T-091）         E4 `scan_lock_free.sh`（T-092）
 #   E5 `scan_java_sql.sh` + `strip_java_comments.awk`（既有）
 #   E6 `check_frontend.sh`（T-093）     E7 `scan_hgcp_schema.py`（T-121）
+#   E8 `scan_contracts_payload.py`（T-170）
 #
 # 调用口径：
 #   · 先 **cd 到仓库根**（由本脚本位置推导 `../..`），再以**各脚本的默认扫描根**
@@ -23,8 +24,8 @@
 #     依据 `docs/ARCHITECTURE.md §3.0.2` 的 `E4` 脚注）；**三目录全部不存在**时才 SKIP。
 #     本入口**仍不传 `--root`**（上述口径不变），故 `E4` 现在**实际扫描**而非 `SKIP`。
 #   · 判据脚本的**解释器按扩展名分派**（`T-121` 起）：`*.py` ⇒ `python3`，其余 ⇒ `bash`。
-#     E1–E6 全部为 `*.sh` ⇒ **调用形态与参数逐字节不变**；`E7` 为单文件 Python3
-#     （`scan_hgcp_schema.py`，无第三方依赖）。分派只影响「用哪个解释器」，
+#     E1–E6 全部为 `*.sh` ⇒ **调用形态与参数逐字节不变**；`E7`/`E8` 为单文件 Python3
+#     （`scan_hgcp_schema.py`（`T-121`）/ `scan_contracts_payload.py`（`T-170`），均无第三方依赖）。分派只影响「用哪个解释器」，
 #     不改任何判据的入参、默认根或退出码语义。
 #   · 退出码语义沿用各脚本统一口径（`T-095`）：
 #       0 = 通过 / **默认路径**不存在（SKIP）；1 = 命中（架构偏离）；2 = 用法/前置错误
@@ -48,7 +49,7 @@ set -u
 usage() {
   cat <<'USAGE'
 用法：arch-check.sh
-  聚合 E1–E7 七个架构判据脚本（各用默认路径，从仓库根调用），
+  聚合 E1–E8 八个架构判据脚本（各用默认路径，从仓库根调用），
   任一脚本非 0 ⇒ 整体非 0。
   -h, --help   显示本帮助
 退出码：0 全部通过；1 存在架构偏离（无用法错误）；2 存在用法/前置错误
@@ -75,13 +76,14 @@ CHECKS=(
   "E5|scan_java_sql.sh|Java「dao 之外不得出现 SQL」扫描"
   "E6|check_frontend.sh|前端零构建链 + 无直连扫描"
   "E7|scan_hgcp_schema.py|HGCP 字段级 schema：ARCHITECTURE.md §4.2.8 ↔ proto/hgcp.proto"
+  "E8|scan_contracts_payload.py|CONTRACTS §3.2.1 payload 键 ↔ proto 字段名（T-170）"
 )
 
 echo "############################################################################"
 echo "# 架构合规聚合检查 arch-check（ARCHITECTURE.md §3.13；任一非 0 ⇒ 整体非 0）"
 echo "# 仓库根：${REPO_ROOT}"
 echo "# 判据脚本目录：${SCRIPT_DIR}"
-echo "# 判据：E1–E7（E7 = HGCP §4.2.8 ↔ proto/hgcp.proto，T-121 新增）"
+echo "# 判据：E1–E8（E7 = HGCP §4.2.8 ↔ proto/hgcp.proto，T-121；E8 = CONTRACTS §3.2.1 payload 键 ↔ proto 字段名，T-170）"
 echo "############################################################################"
 
 declare -a CODES=()
@@ -131,7 +133,7 @@ done
 echo "############################################################################"
 
 if [ "${max_code}" -eq 0 ]; then
-  echo "arch-check 通过：七个判据脚本全部通过（退出码 0）"
+  echo "arch-check 通过：八个判据脚本全部通过（退出码 0）"
   exit 0
 fi
 echo "arch-check 失败：存在非 0 判据（整体退出码 ${max_code}）" >&2
