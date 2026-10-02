@@ -45,8 +45,8 @@
 |------|------|---------|--------|--------|------|------|------|------|
 | T-001 | 落地数据模型 v1.3.1 一致性订正 | SIGN-OFF §5（N-1~N-4, PI-21） | tech-lead | P0 | — | 4 人时 | SIGN-OFF | DONE |
 | T-002 | 定点再验证 v1.3.1 订正结果（只验变更行与受影响计数） | SIGN-OFF §5 | test-manager | P0 | T-001 | 4 人时 | SIGN-OFF | DONE（结论由两席追认承接，2026-09-21） |
-| T-003 | 搭建 Java 业务组件工程骨架与 HTTP 服务基座 | FR-CONFIG-1, NFR-MAINT-1/3/5, NFR-SEC-6/7, NFR-DEPLOY-1 | backend-engineer#java | P0 | T-002 | 16 人时 | 初版 | 已完成，待独立复核 |
-| T-004 | 实现 DAO 基座并交付 CONFIG+AUTH 20 张表 DDL | FR-CONFIG-1/3/4, FR-AUTH-1/14, NFR-MAINT-3, NFR-COMPAT-5, NFR-SEC-8 | backend-engineer#java | P0 | T-003 | 24 人时 | 初版 | 已完成，待独立复核 |
+| T-003 | 搭建 Java 业务组件工程骨架与 HTTP 服务基座 | FR-CONFIG-1, NFR-MAINT-1/3/5, NFR-SEC-6/7, NFR-DEPLOY-1 | backend-engineer#java | P0 | T-002 | 16 人时 | 初版 |   **有条件通过（REV-BATCH B3b 批复核，席 te-revbatch-b3b）：0 缺陷 / 1 观察〔O-1：验收 5「显式公布」对外动作无制品内承载 ⇒ 建议转 DONE 时以「CONTRACTS.md 在树 + T-017/T-053 复核引用」作旁证口径闭环，无需返工〕；当下树演进面纳入验收〔BUG-004 后路由可达性、ping GET/HEAD、静态白名单、ErrorMapper、最小依赖 0 违规〕；变异 2 例全红；2026-10-02）** |
+| T-004 | 实现 DAO 基座并交付 CONFIG+AUTH 20 张表 DDL | FR-CONFIG-1/3/4, FR-AUTH-1/14, NFR-MAINT-3, NFR-COMPAT-5, NFR-SEC-8 | backend-engineer#java | P0 | T-003 | 24 人时 | 初版 |   **DONE（授权 + 独立验证：REV-BATCH B3b 批复核通过/0 缺陷；列级对拍 20/20 全对上 + 108 CONSTRAINT + 36 INDEX 0 缺失 + 类型抽检 205 列 0 失配〔自写对拍器独立实现〕；乐观锁/只增不改口径核符；变异 2 例全红；观察：DM8 实机建表 T-052 承接面欠一笔；席 te-revbatch-b3b；2026-10-02）** |
 | T-005 | 交付 PRODUCT 模块 8 张表 DDL 与 DAO | FR-PRODUCT-1~14 | backend-engineer#java2 | P0 | T-004 | 16 人时 | 初版 | **DONE（授权 + 独立验证：REV-BATCH-20260930 B1 批复核通过/0 缺陷，席 te-revbatch-b1；2026-10-02）** |
 | T-006 | 交付 SPOT 模块 10 张表 DDL 与 DAO | FR-SPOT-1~18 | backend-engineer#java2 | P0 | T-004 | 16 人时 | 初版 | **DONE（授权 + 独立验证：REV-BATCH-20260930 B1 批复核通过/0 缺陷，席 te-revbatch-b1；2026-10-02）** |
 | T-007 | 交付 PLAN 模块 8 张表 DDL 与 DAO | FR-PLAN-1~20 | backend-engineer#java2 | P0 | T-004 | 16 人时 | 初版 | **DONE（授权 + 独立验证：REV-BATCH-20260930 B1 批复核通过/0 缺陷，席 te-revbatch-b1；2026-10-02）** |
@@ -103,7 +103,7 @@
 | T-058 | 执行 M2 端到端（模拟盘期货+期权/零 DB/加总/划拨） | PROJECT §9 M2 验收, §10-1/21/23/30/35/36/37 | test-engineer | P0 | T-046~T-049, T-052, T-057 | 32 人时 | 初版 | BLOCKED |
 | T-059 | 执行 C++ ctest 单测（风控/指令/流水/协议） | NFR-TEST-1, PROJECT §10-8 | test-engineer | P0 | T-035~T-041 | 24 人时 | 初版 | BLOCKED |
 | T-060 | 执行 M2 代码与架构合规审查（E1~E6 全量） | NFR-SEC-9, NFR-MAINT-4/6, PROJECT §10-6/29 | code-reviewer | P0 | T-041, T-049, T-055 | 16 人时 | 初版 | BLOCKED |
-| T-061 | 交付 RISK 首增量 `t_param_dispatch` 单表 DDL 与 DAO（原 11 张表范围已收窄） | FR-RISK-1~19 | backend-engineer#java | P0 | T-004 | 2 人时 | 初版（2026-09-20 范围收窄） | 已完成，待独立复核 |
+| T-061 | 交付 RISK 首增量 `t_param_dispatch` 单表 DDL 与 DAO（原 11 张表范围已收窄） | FR-RISK-1~19 | backend-engineer#java | P0 | T-004 | 2 人时 | 初版（2026-09-20 范围收窄） |   **DONE（授权 + 独立验证：REV-BATCH B3b 批复核通过/0 缺陷；19 列/3 CHECK/3 索引/FK 逐项对拍一致；★守卫图谱事实：MUT-T061-B 实证 T-168 用例对列绑定不承重，DaoColumnAlignmentTest 是列绑定唯一在测守卫；席 te-revbatch-b3b；2026-10-02）** |
 | T-062 | 交付 AUDIT 模块 8 张表 DDL 与 DAO | FR-AUDIT-1~13 | backend-engineer#java2 | P0 | T-004 | 16 人时 | 初版 | TODO |
 | T-063 | 实现风控阈值配置与下发闭环（合规下限校验） | FR-RISK-1~10, CFG-01~05/15/16/21, R-CONFIG-8 | backend-engineer#java | P0 | T-038, T-061, T-094 | 20 人时 | 初版 | TODO |
 | T-064 | 实现事后风控与风险报表落库 | FR-RISK-17/18, PROJECT §10-26 | backend-engineer#java | P0 | T-047, T-061, T-094 | 24 人时 | 初版 | TODO |
