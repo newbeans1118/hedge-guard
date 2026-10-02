@@ -12598,3 +12598,82 @@ TMPDIR=/ cmake --build /hg-build-base -j4
 - **独立实测**：冻结点全部 md5/树锚/行数、两单 `git show --stat`、全量 687/0/0/0、arch-check（含 E7 214+67）、7 例变异（build→红→复位 diff 恒等）、引擎判定逻辑（`risk_engine.cc:399-437`/`load_batch.h:96`/`model.h:220-243`）、契约 ⚠️ 块、`findEffective` SQL、`HgcpClient` 吞异常面、`TradingBridge` 零改动、`has_trading_operation` 权威口径（ARCH v1.5.19）。
 - **只能引述（未独立复跑）**：C++ ctest 三轨（本两单未触 cpp/**，不涉）、DM8 真库行为（全量基于 InMemoryDmEngine/Fake DAO，引擎级 SQL 语义未在真 DM8 复验——沿用项目既定 dev/test 口径）。
 
+
+---
+
+## T-165 独立复核（席 te-verify-t165）
+
+- **日期**：2026-10-02
+- **复核对象**：提交 `610dcd9`（+244/−29，2 文件：`HgcpClient.java` 46/29、新增 `HgcpClientTimeoutTest.java` 198 行）
+- **复核性质**：独立复核（scheduleTimeout 线程池化 + 超时路径直接测试；T-042 整体转 DONE 前最后一道）
+
+### 1. 冻结点（独立实测，2026-10-02 09:26–09:5x）
+
+| 项 | 编排者自述 | 本席独立实测 | 判定 |
+|---|---|---|---|
+| `HEAD` | `610dcd9` | `610dcd936fe0520c888f0a85af36586f8fa1ffb1` | 一致 |
+| `java/src` 树锚（`LC_ALL=C sort` 口径） | `71493848730e341f5b0b13c4a2267fb3`/377 | 同值/377（命令：`find java/src -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum`） | 一致 |
+| `HgcpClient.java` md5 | `ec8bd3a2d419994e15402c3f1697957b` | 同值 | 一致 |
+| `HgcpClientTimeoutTest.java` md5 | `972d41f780a2f2ea007f533f7ee0d8d8` | 同值 | 一致 |
+| `docs/TEST_RESULT.md` 行数 | 12600 | 12600（追加前） | 一致 |
+| `HgcpConstants.java` | 零改动 | `git log -1` = `ac5d74f`（T-042 期），本单 diff 不含该文件；`COMMAND_TIMEOUT_MS = 3000L`（`:118`）实测 | 一致 |
+| 全量 `mvn -B -o -Punit clean test`（隔离副本） | 690/0/0/0 | **690/0/0/0 BUILD SUCCESS**（`/root/t165v`，五件齐） | 一致 |
+| `@Test` vs surefire | 690==690 | `grep -rc '@Test'` 合计 690 == surefire 690 | 一致 |
+| arch-check | rc 0 | rc 0（E1–E7 全 0，隔离副本含 `proto/`，E7 实扫非 SKIP 假绿） | 一致 |
+
+### 2. 语义等价六条逐条裁定
+
+原裸线程形态（`git show 30ef077:...HgcpClient.java` `:607-636`）逐条对照池化后代码：
+
+| # | 不变量 | 对应物与证据 | 裁定 |
+|---|---|---|---|
+| 1 | 超时值 = `COMMAND_TIMEOUT_MS`（3000，CFG-28），值不改 | 调度延时改为 `commandTimeoutMs`（`HgcpClient.java:649`），缺省 = `HgcpConstants.COMMAND_TIMEOUT_MS`（`:98`）；lambda 内 message 拼接仍用 `HgcpConstants.COMMAND_TIMEOUT_MS`（`:638`）；全仓 grep：`commandTimeoutMs` 无任何生产赋值点（唯一写入 = 测试反射注入） | **等价** |
+| 2 | 触发时 `pending.remove(msgId)`，`cur==null ⇒ return` 短路 | lambda 首两行逐字保留（`:632-636`） | **等价** |
+| 3 | `AckResult`：`acknowledged=false`、message 含 3000 与「标记未生效」 | `:637-639` 与原文逐字一致（仅缩进重排） | **等价** |
+| 4 | `cur.future ⇒ complete(r)`；`cur.placeOrderFuture ⇒ complete(PlaceOrderResult{accepted=false, clientOrderRef, message})` | `:640-648` 与原文逐字一致 | **等价** |
+| 5 | 守护属性（防阻止 JVM 退出） | 线程工厂 `t.setDaemon(true)`（`:90`）；M2 变异（删 `setDaemon`）全量仍绿 ⇒ **该属性无测试守卫**（见 §4/观察 O-2），但属性本身在代码中保持 | **等价（无守卫，如实披露）** |
+| 6 | `InterruptedException ⇒ interrupt() + return` | 原裸线程该分支处理的是 **`Thread.sleep` 被中断**；池化后 sleep 职责移交 `ScheduledThreadPoolExecutor`，lambda 内无阻塞调用 ⇒ 不存在可中断点，该分支**无对应物也不再需要**。池线程被 `shutdownNow()` 中断时，正在执行的任务会看到中断标志，但 lambda 无 sleep/wait ⇒ 行为不变（执行完当前 lambda）。原语义「close 前已排队任务仍会触发一次」两侧一致 | **等价（形态变化：中断点由 sleep 移除，非语义丢失）** |
+
+### 3. 三专项核验
+
+**① RejectedExecutionException 防护**：
+- 只包在唯一 `schedule` 调用处（`:630-651`）；全文件 `scheduleTimeout` 调用点 2 处（`:518` sendCommand 通用路径、`:608` placeOrder），均经 `scheduleTimeout` 单点进入，无漏包。
+- 静默吞掉的安全性独立判定：close 后迟到注册 ⇒ 请求既不超时也不 complete，pending 项残留表中。这与 `close()` 已 `failAllPending` 的语义并不矛盾——close 时点已在途的请求被关闭结果 complete；close 之后新发起的请求本就不该再得到超时/回执语义。用例 3 第三断言（pending 非空）正是对这一残留的诚实断言。**判定：自洽，非缺陷**（「close 后所有入口直接拒」若要做属语义增强，编排者已留痕不立号，本席不推翻）。
+- M5 变异（删 REJ 捕获）⇒ 用例 3 红（`RejectedExecutionException` 冒泡，`HgcpClientTimeoutTest.java:188`）⇒ **防护有守卫**。
+
+**② 可注入超时最小性**：`volatile`（`:98`）；缺省 = 常量；全仓 grep 生产路径 0 赋值点；javadoc 声明「包内可注入仅为测试确定性（T-165），生产一律用缺省值」（`:94-97`）；`HgcpConstants.java` 零改动（见 §1）。**判定：最小**。
+
+**③ 用例观察手段**：
+- 用例 2 反射读 `pending`（`HgcpClientTimeoutTest.java:88-98`）：实现为 `f.get(client)` 取字段引用后仅调用 `isEmpty()` 断言（`:150/:156/:162`），**只读、无 put/remove/clear 写入**。属实。
+- 用例 3「等 200ms 仍 isDone=false」的确定性判定：close ⇒ `shutdownNow()` ⇒ 后续 `schedule` 抛 REJ（已被防护捕获）⇒ 返回的 future 是 `sendCommand` 新建的 `CompletableFuture`，**从未被任何调度持有**；唯一可能 complete 它的路径是回执（onFrame ACK）或 `failAllPending`——夹具 close 后无 reader 线程喂帧、`failAllPending` 仅在 close 内已执行过 ⇒ **该 future 永不 complete 在本夹具下是确定性的，非时序碰巧**。M1 变异（删 `shutdownNow`）⇒ 该用例红（`:194`）双向证实断言有守卫力。**判定：确定性成立**。
+
+### 4. 变异承重（本席自设 5 例，隔离副本 `/root/t165v`，均「build 先证 → 红 → 复位 diff 恒等 → 终态全绿 690/0/0/0」）
+
+| # | 改坏点 | 结果 | 红例 | 复位 |
+|---|---|---|---|---|
+| M1 | 删 `close()` 的 `timeoutPool.shutdownNow()` | 红 | 用例 3（`:194` expected false but was true） | diff 恒等 |
+| M2 | 删线程工厂 `t.setDaemon(true)` | **全绿**（无守卫，见 O-2） | — | diff 恒等 |
+| M3 | 超时 lambda `pending.remove` → `pending.get` | 红 | 用例 1（`:143` 在途表须为空） | diff 恒等 |
+| M4 | `commandTimeoutMs` 缺省改 1ms | **全绿**（无用例锚定 3000 实际等待值，见 O-3） | — | diff 恒等 |
+| M5 | 删 REJ 防护（unwrap schedule） | 红 | 用例 3（`:188` RejectedExecutionException） | diff 恒等 |
+
+### 5. 结论
+
+**有条件通过 / 0 缺陷 / 3 观察**。
+
+- 语义等价 6 条逐条成立（第 5 条属性在但无测试守卫、第 6 条形态变化但语义等价，均如实披露）；
+- 变异 5 例中 3 例必红证守卫、2 例全绿如实报（非假绿：断言面对该点确无守卫力）；
+- 门禁三项（全量 690/0/0/0、`@Test`==surefire、arch-check rc 0）全部独立复跑成立。
+
+**条件**：无阻断性条件；O-1~O-3 交编排者裁量（均不阻断 T-042 收口）。
+
+### 6. 观察（只报不改）
+
+- **O-1** `close()` 时序：`timeoutPool.shutdownNow()`（`:173`）先于 `failAllPending`（`:174`）。若未来把「shutdownNow」与「排空」改为 `awaitTermination` 类语义需重审顺序；当前形态无问题。
+- **O-2** 守护属性（不变量 5）无测试守卫：M2 全绿。如需守卫可用反射断言线程工厂产物 `isDaemon()`，是否补由编排者裁量。
+- **O-3** 无用例锚定 `COMMAND_TIMEOUT_MS=3000` 的实际等待值（M4 全绿；用例 1 的 message 断言锚定的是**文案中出现的值**而非真实等待 3s）。可注入超时的测试确定性设计与「值本身不改」的回归守卫之间留了空隙；现状可接受（值由 `HgcpConstants` 单点承载、本单零改动）。
+
+### 7. 独立性声明
+
+本席未参与 T-165 实现；全部证据（冻结点 md5/树锚、全量、arch-check、语义比对、5 例变异）为独立实测，未采信产出方自评；隔离副本 `/root/t165v` 五件齐（docs/java/cpp/tools/proto），变异未触碰共享树；共享树 `java/` 本席零改动，本证据章为唯一写入（纯追加）。
+
