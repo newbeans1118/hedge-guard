@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -77,6 +79,23 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
     private volatile Thread heartbeatThread;
     private volatile int heartbeatMisses;
     private volatile ReplayProgress replayProgress = new ReplayProgress();
+
+    /**
+     * 命令回执超时调度池（共享单线程、守护线程工厂）。每命令一线程改为共享池（{@code T-165}）；
+     * {@code close()} 经 {@link #timeoutPool} 关停，close 后不再有悬挂超时任务。
+     */
+    private final ScheduledExecutorService timeoutPool =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "hgcp-cmd-timeout-pool");
+                t.setDaemon(true);
+                return t;
+            });
+
+    /**
+     * 命令回执超时值（ms）。缺省 {@value HgcpConstants#COMMAND_TIMEOUT_MS}；包内可注入仅为测试确定性（{@code T-165}），
+     * 生产一律用缺省值，{@code HgcpConstants.COMMAND_TIMEOUT_MS} 本身不改。
+     */
+    volatile long commandTimeoutMs = HgcpConstants.COMMAND_TIMEOUT_MS;
 
     /**
      * 构造。
@@ -151,6 +170,7 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
         if (heartbeatThread != null) {
             heartbeatThread.interrupt();
         }
+        timeoutPool.shutdownNow();
         failAllPending(new HgcpProtocolException("客户端已关闭"));
     }
 
@@ -604,35 +624,32 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
         if (p == null) {
             return;
         }
-        Thread t = new Thread(() -> {
-            try {
-                Thread.sleep(HgcpConstants.COMMAND_TIMEOUT_MS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            }
-            PendingRequest cur = pending.remove(msgId);
-            if (cur == null) {
-                return;
-            }
-            AckResult r = new AckResult();
-            r.acknowledged = false;
-            r.message = "命令回执超时（" + HgcpConstants.COMMAND_TIMEOUT_MS + " ms），标记未生效";
-            if (cur.future != null) {
-                cur.future.complete(r);
-            }
-            if (cur.placeOrderFuture != null) {
-                PlaceOrderResult pr = new PlaceOrderResult();
-                pr.accepted = false;
-                pr.clientOrderRef = cur.clientOrderRef;
-                pr.message = r.message;
-                cur.placeOrderFuture.complete(pr);
-            }
-        }, "hgcp-cmd-timeout-" + msgId);
-        // 守护线程：close() 只 interrupt reader/heartbeat、不跟踪本类超时线程；非守护会阻止 JVM 退出
-        // （形态与同文件 reader/heartbeat/restartReader 三处一致）。其余行为一律未改。
-        t.setDaemon(true);
-        t.start();
+        // 共享单线程调度池（T-165，替换原「每命令一线程」）：守护属性由线程工厂保持；
+        // 超时值 / pending.remove 短路 / AckResult 与 PlaceOrderResult 内容一律未改。
+        // close() 已关停池 ⇒ 拒绝调度且不 complete（close 后不再有超时触发）。
+        try {
+            timeoutPool.schedule(() -> {
+                PendingRequest cur = pending.remove(msgId);
+                if (cur == null) {
+                    return;
+                }
+                AckResult r = new AckResult();
+                r.acknowledged = false;
+                r.message = "命令回执超时（" + HgcpConstants.COMMAND_TIMEOUT_MS + " ms），标记未生效";
+                if (cur.future != null) {
+                    cur.future.complete(r);
+                }
+                if (cur.placeOrderFuture != null) {
+                    PlaceOrderResult pr = new PlaceOrderResult();
+                    pr.accepted = false;
+                    pr.clientOrderRef = cur.clientOrderRef;
+                    pr.message = r.message;
+                    cur.placeOrderFuture.complete(pr);
+                }
+            }, commandTimeoutMs, TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.RejectedExecutionException closed) {
+            // 池已关停（close 后迟到注册）：不调度、不 complete，静默返回
+        }
     }
 
     // ==================== 状态查询 ====================
