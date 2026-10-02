@@ -12871,3 +12871,64 @@ TMPDIR=/ cmake --build /hg-build-base -j4
   - **O-3（twoPhase 标识回读竞态·自披露）**：`decreaseQuotaTwoPhase:478–479` 用 3 参 `suspendOpenOnly`+`peekSuspendId`（LIFO 回读）获取撤下标识——同子账户并发两笔 twoPhase 时 `peek` 可能取到对方标识（javadoc `:318–323` 已自披露该重载「并发下存在竞态」；而 twoPhase 恰属**需精确配对**的场景，按其自述应改 4 参主入口）。当前被「计数归零才解冻」守卫兜底（误取他方标识至多少发一次解冻、不会误放行），M1 无生产调用方 ⇒ **不阻断**；建议 M2 接线时改 4 参形态。
 - **独立性声明**：本席未参与 T-011~T-015 任何产出；复核在隔离副本 `/root/hg_b2rev/`（五件齐、树锚与共享树逐字节同）进行，全部变异与探针仅存在于副本；共享树 `java/src` 树锚复核前后均 `71493848…`/377 逐字节未变，本席对共享树唯一写入 = 本证据章纯追加。判据未采信产出方自述；变异目标与形态均本席自设（MUT-T015-A 与 B1 M2 为同一自然变异点位——同文件同判据下同一点，本席独立选择并在 O-1 标注复证关系）。数值探针对拍参照值为本席独立手算，未引用任何在库断言值。
 - **未决 / 范围外**：① `TE-T011-001` javadoc 收口（产出方）；② `T-113`/`T-114` 状态推进（编排者）；③ O-2 文本统一裁定（编排者，勘误类）；④ O-1 引擎级排序断言承接（可与 B1 O-1 合并处置）；⑤ 复核期间 `HEAD` 恒 `9cc8456`、TEST_RESULT 行数与交底一致，无他席并行追加干扰。
+
+---
+
+## REV-BATCH-20260930 B3b 独立复核（席 te-revbatch-b3b）
+
+- **日期**：2026-10-02 ｜ **复核对象**：`T-003`（工程骨架+HTTP 基座）、`T-004`（DAO 基座+CONFIG+AUTH 20 张表 DDL）、`T-061`（`t_param_dispatch` 单表 DDL 与 DAO）
+- **冻结点（本席独立实测，2026-10-02）**：`HEAD` 起点为 `9cc8456`（复核完成落章时前移至 `ec30dae`，系 B2 批台账回写，`java/src` 树锚不受影响）；Java 全量（隔离副本 `mvn -B -o -Punit clean test`）= **690/0/0/0 / BUILD SUCCESS**；`arch-check` rc 0（**E1–E8 八判据**）；`java/src` 树锚（`find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum`）= `71493848730e341f5b0b13c4a2267fb3` / **377**（落章前复测恒同）；`DATA_MODEL.md` `d17bce0c…`/5252（v1.3.5，DDL 对拍权威面）。隔离副本 `/root/rev_b3b_iso/`（五件齐 docs/java/cpp/tools/proto）。
+- **结论**：`T-003` **有条件通过**（1 观察，0 缺陷）；`T-004` **通过**（0 缺陷，2 观察）；`T-061` **通过**（0 缺陷，1 观察）。
+
+### 一、T-003 工程骨架与 HTTP 服务基座 —— 有条件通过
+
+| 验收项 | 独立实测 | 产出方自述 |
+|---|---|---|
+| ① 分层包结构 + JDK 11 + 最小依赖 | `java/src/main/java/com/hedgeguard/{web,service,dao,bridge,risk_intraday,job,common}` 全在；`pom.xml` `maven.compiler.source/target=11`；compile 依赖实测仅 protobuf-java/Gson/DmJdbcDriver18(provided) 四类清单内，**0 处** HikariCP/SLF4J/BCrypt/Mockito（`grep pom.xml` 实测） | 同 |
+| ② `/api/v1/ping` 信封 | `Bootstrap.java:140-141` 注册 GET/HEAD + `PingHandler`；`RouterTest:34`、`BootstrapAssemblyTest.withoutDatabaseProcessStaysUsable`（断言未配库时恰好注册 ping 的 GET/HEAD 两条）覆盖 | 同 |
+| ③ 静态托管白名单 | `StaticHandler.java:32-33` 白名单 7 扩展名逐字对齐验收；`StaticHandlerTest` 5 例（白名单内 MIME/白名单外与无扩展名 404） | 同 |
+| ④ 统一错误映射 | `ErrorMapper.java:39-42,81-84` 阻断类必含 ruleId/current/threshold/nextStep/traceId 校验；`ErrorMapperTest` 覆盖 | 同 |
+| ⑤ WS 约定冻结 | `java/CONTRACTS.md` + `WS_T028_ACCEPTANCE.md` + `SELECTION_HTTP_WS.md` 在树（A′ 裁定、E1–E13 判据，M2 门禁已会签通过） | 同 |
+| 路由可达性（当下树增量） | `RouteReachabilityBug004Test`/`RouteReachabilityExhaustiveTest`/`RouteReachabilityProductionParityTest`/`BootstrapAssemblyTest` 全绿（BUG-004 修复后 83 路由判据在测） | — |
+| **O-1（观察，非缺陷）** | `T-003` 验收 5 冻结物「**显式公布**供 T-017/T-053 共用」的**公布动作**无制品内承载（CONTRACTS 在树即满足「冻结」，但「显式公布」是对外动作，`TEST_RESULT.md` 无 T-003 视角的对应记录）。建议转 DONE 时由编排者在台账注明「公布以 CONTRACTS.md 在树 + T-017/T-053 复核引用为旁证」即可闭环，无需返工 | — |
+
+**变异（先证 build_rc=0 → 红 → 复位 diff 恒等；均在本席隔离副本）**：
+- **MUT-T003-A**：删 `Bootstrap.java:140` 的 `GET …PING` 注册（注入前 `grep -c` 实测 ==1）。build_rc=0 ⇒ `BootstrapAssemblyTest` **4 例红**（含 `withoutDatabaseProcessIsUsable`「expected: <2> but was: <1>」）。复位后逐字节恒等。
+- **MUT-T003-B**：`StaticHandler.java` 白名单 `.woff2` → `.woff2x`（`grep -c '".woff2"'` 注入前 ==2，取首个替换）。build_rc=0 ⇒ `StaticHandlerTest` **1 例红**（5 例中 4 绿——.woff2 的 MIME 断言仅 1 例承重）。复位恒等。
+
+### 二、T-004 DAO 基座 + CONFIG+AUTH 20 张表 DDL —— 通过
+
+| 验收项 | 独立实测 | 产出方自述 |
+|---|---|---|
+| ① 20 张 DDL 逐列一致 | 本席自写对拍器（独立于 `DaoColumnAlignmentTest` 的实现）：DATA_MODEL §2.1/§2.2（20 节、199 业务列 + 组合单元格展开）vs `m1_config_auth.sql`（20 CREATE TABLE）：**列级 20/20 全对上**（含 emoji 前缀单元格 `🔴子`/`🔴类别` 的 `sub_account_id`×4、`category`×1 均在 DDL 实测 PRESENT）；索引/具名约束对拍 **0 缺失**（DDL 108 CONSTRAINT + 36 INDEX）；类型抽检 205 列 0 真实失配（唯一告警 `reject_code` 系本席脚本末节未截断把 TB-TRADE-6/TB-RISK-1 的同名列误入 TB-AUTH-13 区段——TB-AUTH-13 实文 `:966` VARCHAR(32) == DDL `:747` VARCHAR(32)，**误报已排除**） | 同（自检用例） |
+| ①' DM8 实机建表 | 环境无 DM8 实例（`m1_config_auth.sql` 头注自述「未在 DM8 实机执行」）；该前提本席核实属实，判**诚实披露**非缺陷；`InMemoryDmEngine` 装配级测试（`M1EndToEndAcceptanceTest` 等）为当下可得最强旁证 | 同 |
+| ② Pool/Tx/Dialect | `dao/pool/{DataSourcePool,ConnectionFactory,JdbcConnectionFactory,PoolConfig,PoolExhaustedException}`、`dao/tx/{TxTemplate,TxCallback}`、`dao/dialect/{Dialect,DmDialect}` 全在且被 `AbstractDmDao` 消费（分页/日期经 Dialect） | 同 |
+| ③ 审计字段+编号生成 | `AbstractDmDao.java:267-295`：insert 硬写 created_by/created_time/row_version，update 推进 updated_*/row_version+1；`AuditFields.applyInsert`；`M1DaoMappingAndWriteTest`（insert 列序↔绑定一致、审计填充、自增回填）覆盖；`BizNoGenerator` 应用层取号在树 | 同 |
+| ④ E5 + DM-SPECIFIC | `arch-check` E1–E8 全 0（含 E5 SQL 落点、E1）；两 DDL 文件 `-- DM-SPECIFIC:` 紧邻标注逐处目视（IDENTITY/CURRENT_TIMESTAMP） | 同 |
+| ⑤ WS 约定同批冻结 | 同 T-003 ⑤（CONTRACTS 同一冻结清单） | 同 |
+| ⑥ 接口↔实现一一对应 | `dao/` 接口 54 个 vs `dao/impl/Dm*Dao` 47 实现；逐接口核验未发现「无实现且未登记」者——`DaoColumnAlignmentTest.everyDaoTableExistsInDdl` + `M1DaoMappingAndWriteTest`（26 DAO 列序对齐）机器判据在测；延后实现类均在 TASKS/CONTRACTS 有登记（如 `DeletableDao` 草稿类例外） | 同 |
+| 乐观锁 | `AbstractDmDao` update SQL = `WHERE id=? AND row_version=?`；「只增不改」表（`DmConfigChangeLogDao`/`DmLoginLogDao`/`DmPermissionChangeLogDao`/`DmUnauthorizedAttemptDao`/`DmPasswordHistoryDao`）`updateById` **显式抛 UnsupportedOperationException**（CONTRACTS §2.3/D-14 口径，D-14 三表保留 `updated_*` 恒 NULL 属裁定预期） | 同 |
+
+**变异**：
+- **MUT-T004-A**：`m1_config_auth.sql:83` `t_config_item.config_key` → `config_key_mut`（注入前实文 count ==1）。build_rc=0 ⇒ `DaoColumnAlignmentTest.daoColumnsMatchDdlBusinessColumns` **红**（DDL 有而 DAO 无）。复位恒等。
+- **MUT-T004-B（守卫力声明验证）**：`DaoColumnAlignmentTest` 的「有牙」性由 MUT-T004-A 直接证明（该测试为 B1 席验过的跨模块判据，本席复用并独立注入证明其在本批三单的承重点上必红）。
+
+### 三、T-061 `t_param_dispatch` 单表 DDL 与 DAO —— 通过
+
+| 验收项 | 独立实测 | 产出方自述 |
+|---|---|---|
+| ① 单表 DDL 逐列一致 | `m3_risk.sql` CREATE TABLE == 1（实文实测）；对拍 DATA_MODEL §2.8 TB-RISK-2：19 列（13 业务+6 审计）、3 CHECK（type/status/batch 成对）、3 普通索引、FK→t_sub_account 逐项一致；「增量交付声明」诚实标注在文件头（待续 10 表 + 哨兵 CHECK 逐字警示） | 同 |
+| ② DAO 交付 | `ParamDispatchDao`（maxParamVersion/findByVersion/isBatchComplete/findProblems/findBySubAccount/updateAck）↔ `DmParamDispatchDao` 13 业务列 COLUMNS 与 DDL 逐列一致（`DaoColumnAlignmentTest` 承重）；`param_version` 无 UNIQUE ⇒ 服务层串行取号纪律已在 javadoc 契约化（D-16/CONTRACTS §3.2.2） | 同 |
+| ③ 范围不含其余 10 表 | `m3_risk.sql` 实测仅 1 CREATE TABLE；余表归 `T-094`（TASKS 在册） | 同 |
+| T-168 消费面 | `ParamDispatchServiceImpl` 调 `insert`（`:732`）/ `updateAck`（`:769`）写 PENDING→SUCCESS；`PermissionSnapshotDispatchTest.persistsDispatchTrail:219`（T-168 用例 5）对服务层留痕承重（注意：该用例用假 DAO 断言行内容，DAO↔DDL 列绑定承重在 `DaoColumnAlignmentTest`，两者互补不重复） | — |
+
+**变异**：
+- **MUT-T061-A**：`m3_risk.sql:40` `dispatch_status` → `dispatch_status_mut`（实文 count ==1）。build_rc=0 ⇒ `DaoColumnAlignmentTest` **红**。复位恒等。
+- **MUT-T061-B**：`DmParamDispatchDao` COLUMNS 数组 `"dispatch_status"` → `"dispatch_status_x"`（注入前 count ==2，取限定串替换）。build_rc=0 ⇒ `DaoColumnAlignmentTest` **红**（DAO 有而 DDL 无）；同时 `PermissionSnapshotDispatchTest` 7 例仍绿——实证该用例（假 DAO）对列绑定**不承重**，`DaoColumnAlignmentTest` 才是本单列绑定的唯一在测守卫。复位恒等。
+
+### 四、总判据与独立性声明
+
+- **判据达成**：冻结点上隔离副本全量 **690/0/0/0**（变异复位后复跑 86 个测试类报告 0 FAILURE）、`arch-check` rc 0（E1–E8）。三单合计变异 6 例，注入前均验 count、先证 build_rc=0 再看 test_rc、复位后 `diff -r` 逐字节恒等；共享树 `java/src` 树锚起点/落章 `71493848730e341f5b0b13c4a2267fb3`/377 恒同，共享 `docs/` 除本章外零改动（副本 `docs` 备份与共享树 diff 为空）。
+- **独立性声明**：本席未参与 T-003/T-004/T-061 任何产出；不采信产出方自述（上表两栏分列）；对拍器与变异形态均为本席自设（对拍器独立实现，未复制 `DaoColumnAlignmentTest` 代码）；T-003/T-004 按工单要求**从严**执行（含当下树演进面：BUG-004 路由可达性、E8 八判据、ParamDispatchService 8 参装配均纳入验收面而非仅对 09-24 时点取证）。
+- **未决 / 范围外（只报不改）**：① `T-003` O-1「显式公布」动作的旁证口径，请编排者裁定（判据级收口，非返工）；② T-004 验收 1 的「DM8 实机建表」在环境无实例前提下只能以静态对拍+引擎级测试代偿，若后续取得 DM8 实例，实机建表验证仍欠一笔（`T-052` 部署清单承接面）；③ `PermissionSnapshotDispatchTest.persistsDispatchTrail` 用假 DAO——属分层测试设计（服务层归其管、列绑定归 `DaoColumnAlignmentTest`），不判缺陷，登记为测试资产图谱事实。
+
