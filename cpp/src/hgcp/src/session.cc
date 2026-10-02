@@ -28,6 +28,14 @@ std::vector<std::uint8_t> EmptyTransportPolicy::resume_data_body(
     const std::vector<std::vector<std::uint8_t> >& /*frames*/) const {
   return std::vector<std::uint8_t>();  // 占位：见 pb_transport_policy.h（真实字段编码）
 }
+std::string EmptyTransportPolicy::hello_auth_token(
+    const std::vector<std::uint8_t>& /*hello_body*/) const {
+  return std::string();  // 占位：见 pb_transport_policy.h（真实字段解析）
+}
+std::vector<std::uint8_t> EmptyTransportPolicy::auth_fail_body(
+    std::uint32_t /*reason_code*/) const {
+  return std::vector<std::uint8_t>();  // 占位：见 pb_transport_policy.h（真实字段编码）
+}
 
 HgcpSession::HgcpSession()
     : hb_(kHeartbeatIntervalMs, kHeartbeatMissThreshold),

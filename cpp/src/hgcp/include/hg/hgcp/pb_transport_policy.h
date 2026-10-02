@@ -41,6 +41,11 @@ class PbTransportPolicy : public TransportPolicy {
   virtual std::vector<std::uint8_t> resume_data_body(
       std::uint64_t from_seq, std::uint64_t to_seq, bool is_last,
       const std::vector<std::vector<std::uint8_t> >& frames) const;
+  // T-171：入站 `MsgHello.auth_token` 解析（§4.2.8.2）；不可解析 ⇒ 空串。
+  virtual std::string hello_auth_token(
+      const std::vector<std::uint8_t>& hello_body) const;
+  // T-171：`MsgAuthFail{reason_code}` 编码（§4.2.8.2）；detail 不承载令牌信息。
+  virtual std::vector<std::uint8_t> auth_fail_body(std::uint32_t reason_code) const;
 
  private:
   PbTransportPolicy(const PbTransportPolicy&);

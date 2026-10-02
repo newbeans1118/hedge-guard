@@ -36,6 +36,8 @@ HgcpServerLoop::HgcpServerLoop(const TcpConfig& cfg)
     : cfg_(cfg),
       conn_fd_(-1),
       policy_(&default_policy_),
+      token_verifier_(0),
+      auth_audit_sink_(0),
       accepted_(0),
       duplicates_(0),
       frames_in_(0),
@@ -60,8 +62,16 @@ void HgcpServerLoop::set_policy(const TransportPolicy* p) {
   policy_ = (p != 0) ? p : &default_policy_;
 }
 
+void HgcpServerLoop::set_token_verifier(const TokenVerifier* v) {
+  token_verifier_ = v;
+}
+
+void HgcpServerLoop::set_auth_audit_sink(AuthAuditSink* s) {
+  auth_audit_sink_ = s;
+}
+
 void HgcpServerLoop::configure(std::int64_t heartbeat_interval_ms, int heartbeat_miss,
-                               std::size_t resume_capacity) {
+std::size_t resume_capacity) {
   session_.configure(heartbeat_interval_ms, heartbeat_miss, resume_capacity);
 }
 
@@ -82,12 +92,13 @@ int HgcpServerLoop::pump(int timeout_ms, std::int64_t now_ms, std::vector<Frame>
       raw_send(c, mt(MessageType::kMsgError), fl(kFlagIsError), reject_seq_++, reject_mid_++,
                policy_->duplicate_connection_body());
       close_fd(c);
-    } else {
-      conn_fd_ = c;
-      session_.on_connected(now_ms);
-      handshaken_ = false;
-      ++accepted_;
-    }
+        } else {
+          conn_fd_ = c;
+          session_.on_connected(now_ms);
+          handshaken_ = false;
+          peer_ = peer;
+          ++accepted_;
+        }
   }
 
   // 2) 读循环：增量切帧（半包保留 / 粘包逐取）+ 帧级握手门禁。
@@ -199,20 +210,35 @@ ReplayStatus HgcpServerLoop::send_resume(std::uint64_t last_received_seq) {
 }
 
 void HgcpServerLoop::handle_inbound(const Frame& f, std::int64_t now_ms) {
-  // 帧级握手门禁（§4.2.6）：握手前仅接受 MSG_HELLO，否则按 §4.3.2 0x0107 拒并断连。
-  // ⚠️ 令牌校验（HELLO.auth_token）属接收侧语义（§4.2.8 必填性 + §4.2.6 鉴权约定），
-  //    此处仅做帧级握手门禁；线上 ERROR 帧经接缝编码 `MsgError{err_code}`（CH-013 / §4.2.8）。
-  if (!handshaken_) {
-    if (f.header.type == mt(MessageType::kMsgHello)) {
-      handshaken_ = true;
-      send_frame(mt(MessageType::kMsgHelloAck), fl(kFlagIsReply), empty_body());
-    } else {
-      send_frame(mt(MessageType::kMsgError), fl(kFlagIsError),
-                 policy_->error_body(static_cast<std::uint32_t>(ErrorCode::kErrNotHandshaken)));
-      close_conn();
-    }
-    return;
-  }
+// 帧级握手门禁（§4.2.6）：握手前仅接受 MSG_HELLO，否则按 §4.3.2 0x0107 拒并断连。
+// 令牌校验（T-171 / FR-CONFIG-9 验收 4）：HELLO 到达且已注入 `TokenVerifier` ⇒
+//   经 `TransportPolicy` 接缝取 `MsgHello.auth_token`（本层不解释字段）→
+//   `verify_audited`（SHA-256 + 常量时间比较 + 失败留痕，均在该组件内）⇒
+//   失败回 `MSG_AUTH_FAIL`(0x0003，body 经接缝编码 `MsgAuthFail{reason_code}`，§4.2.8.2)
+//   + **立即关闭连接**（§4.2.6 `:956`）；verifier 为 null ⇒ 维持既有帧级门禁（不因
+//   未配置令牌而拒连，向后兼容）。本层**不**重复留痕、不记录令牌信息（NFR-SEC-1）。
+if (!handshaken_) {
+if (f.header.type == mt(MessageType::kMsgHello)) {
+if (token_verifier_ != 0) {
+const std::string token = policy_->hello_auth_token(f.body);
+const AuthResult ar =
+token_verifier_->verify_audited(token, auth_audit_sink_, peer_, now_ms);
+if (ar != AuthResult::kAccepted) {
+send_frame(mt(MessageType::kMsgAuthFail), fl(kFlagIsError),
+policy_->auth_fail_body(error_code_for(ar)));
+close_conn();
+return;
+}
+}
+handshaken_ = true;
+send_frame(mt(MessageType::kMsgHelloAck), fl(kFlagIsReply), empty_body());
+} else {
+send_frame(mt(MessageType::kMsgError), fl(kFlagIsError),
+policy_->error_body(static_cast<std::uint32_t>(ErrorCode::kErrNotHandshaken)));
+close_conn();
+}
+return;
+}
   if (f.header.type == mt(MessageType::kMsgHeartbeatAck)) {
     session_.on_heartbeat_ack(now_ms);
   }

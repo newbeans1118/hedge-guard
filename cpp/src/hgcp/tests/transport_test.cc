@@ -32,6 +32,7 @@
 #include <string>
 #include <vector>
 
+#include "hg/hgcp/auth.h"
 #include "hg/hgcp/payload_codec.h"
 #include "hg/hgcp/pb_transport_policy.h"
 #include "hgcp_test_util.h"
@@ -213,6 +214,15 @@ class TestPolicy : public TransportPolicy {
     v.push_back(static_cast<std::uint8_t>(frames.size() & 0xFFu));
     return v;
   }
+  // T-171 入站侧接缝：测试策略返回空串（不供真实 token）；无 token 语义的
+  // 既有用例不配 verifier ⇒ 恒不触达。
+  virtual std::string hello_auth_token(
+      const std::vector<std::uint8_t>& /*hello_body*/) const {
+    return std::string();
+  }
+  virtual std::vector<std::uint8_t> auth_fail_body(std::uint32_t /*reason_code*/) const {
+    return std::vector<std::uint8_t>(1, 0x41);  // 'A' 占位标记
+  }
 };
 
 // 辅助：启动生产侧服务端循环（端口 0）并返回其端口。
@@ -338,6 +348,172 @@ void test_not_handshaken_rejected() {
   HG_REQUIRE(PbPayloadCodec::decode(err.body, &em));
   HG_CHECK_EQ(em.err_code(), 0x0107u);
   HG_CHECK_EQ(static_cast<std::uint32_t>(ErrorCode::kErrNotHandshaken), 0x0107u);
+  cli.close();
+}
+
+// --- T-171（FR-CONFIG-9 验收 4）：服务端令牌校验接线 ---
+
+// 测试审计接收方：只记「结果 / 对端 / 时刻」，不承载令牌信息（对齐 §4.2.6 `:947`）。
+class RecordingAuditSink : public hg::hgcp::AuthAuditSink {
+ public:
+  RecordingAuditSink() : calls(0), last_result(hg::hgcp::AuthResult::kAccepted) {}
+  virtual void on_auth_result(hg::hgcp::AuthResult result, const std::string& peer,
+                              std::int64_t now_ms) {
+    ++calls;
+    last_result = result;
+    last_peer = peer;
+    last_now_ms = now_ms;
+  }
+  int calls;
+  hg::hgcp::AuthResult last_result;
+  std::string last_peer;
+  std::int64_t last_now_ms;
+};
+
+// 辅助：组一帧真实 `MsgHello`（CH-013 / §4.2.8.2）并上线发送。
+bool send_hello(TestClient* cli, const std::string& token) {
+  pbv1::MsgHello h;
+  h.set_proto_version(hg::hgcp::kWireVersion);
+  h.set_component_id("hg-biz");
+  h.set_component_role(pbv1::ROLE_JAVA);
+  h.set_auth_token(token);
+  h.set_client_boot_id("boot-t171");
+  h.set_last_received_seq(0u);
+  h.set_token_version(1u);
+  std::vector<std::uint8_t> body;
+  if (!PbPayloadCodec::encode(h, &body)) {
+    return false;
+  }
+  std::vector<std::uint8_t> w;
+  if (hg::hgcp::make_frame(mt(MessageType::kMsgHello), 0u, 1u, 1u, body, &w) !=
+      FrameStatus::kOk) {
+    return false;
+  }
+  return cli->send_wire(w);
+}
+
+// 用例 1：错 token ⇒ `MSG_AUTH_FAIL`(0x0003, body=MsgAuthFail{0x0201}) + 断连 + 审计留痕。
+void test_auth_bad_token_rejected() {
+  HgcpServerLoop srv(any_port_cfg());
+  const hg::hgcp::TokenVerifier verifier = hg::hgcp::TokenVerifier::from_token("s3cret-token");
+  RecordingAuditSink sink;
+  srv.set_token_verifier(&verifier);
+  srv.set_auth_audit_sink(&sink);
+  const std::uint16_t port = start_loop(&srv);
+  HG_REQUIRE(port != 0);
+  TestClient cli(connect_client(port));
+  HG_REQUIRE(cli.valid());
+
+  std::vector<Frame> in;
+  HG_REQUIRE_EQ(srv.pump(1000, 0, &in), 0);  // accept
+  HG_REQUIRE(send_hello(&cli, "wrong-token"));
+  in.clear();
+  // HELLO（计 1 帧）+ AUTH_FAIL 回发（尽力发，本回环下可达 ⇒ 也可能计 2）
+  const int d = srv.pump(300, 0, &in);
+  HG_REQUIRE(d == 1 || d == 2);
+  HG_CHECK(!srv.has_connection());  // 已断连（§4.2.6 `:956` 立即关闭）
+  HG_CHECK_EQ(srv.disconnects(), 1);
+
+  Frame fail;
+  HG_REQUIRE(cli.recv_frame(1000, &fail));
+  HG_CHECK_EQ(fail.header.type, mt(MessageType::kMsgAuthFail));
+  HG_CHECK((fail.header.flags & fl(hg::hgcp::kFlagIsError)) != 0u);
+  pbv1::MsgAuthFail af;
+  HG_REQUIRE(PbPayloadCodec::decode(fail.body, &af));
+  HG_CHECK_EQ(af.reason_code(), 0x0201u);  // ERR_AUTH_FAILED（error_code_for(kBadToken)）
+  HG_CHECK(af.detail().find("s3cret") == std::string::npos);   // 令牌不落 detail（NFR-SEC-1）
+  HG_CHECK(af.detail().find("wrong-token") == std::string::npos);
+
+  // 审计留痕：verify_audited 失败落痕一次；结果/对端/时刻由 sink 承载。
+  HG_CHECK_EQ(sink.calls, 1);
+  HG_CHECK(sink.last_result == hg::hgcp::AuthResult::kBadToken);
+  HG_CHECK(!sink.last_peer.empty());
+  cli.close();
+}
+
+// 用例 2：缺 token（空串）⇒ `MSG_AUTH_FAIL`(`MsgAuthFail{0x0202}`) + 断连。
+void test_auth_missing_token_rejected() {
+  HgcpServerLoop srv(any_port_cfg());
+  const hg::hgcp::TokenVerifier verifier = hg::hgcp::TokenVerifier::from_token("s3cret-token");
+  RecordingAuditSink sink;
+  srv.set_token_verifier(&verifier);
+  srv.set_auth_audit_sink(&sink);
+  const std::uint16_t port = start_loop(&srv);
+  HG_REQUIRE(port != 0);
+  TestClient cli(connect_client(port));
+  HG_REQUIRE(cli.valid());
+
+  std::vector<Frame> in;
+  HG_REQUIRE_EQ(srv.pump(1000, 0, &in), 0);  // accept
+  HG_REQUIRE(send_hello(&cli, ""));          // auth_token 为空（schema 允许，鉴权判缺）
+  in.clear();
+  HG_REQUIRE_EQ(srv.pump(300, 0, &in), 1);
+  HG_CHECK(!srv.has_connection());
+  HG_CHECK_EQ(srv.disconnects(), 1);
+
+  Frame fail;
+  HG_REQUIRE(cli.recv_frame(1000, &fail));
+  HG_CHECK_EQ(fail.header.type, mt(MessageType::kMsgAuthFail));
+  pbv1::MsgAuthFail af;
+  HG_REQUIRE(PbPayloadCodec::decode(fail.body, &af));
+  HG_CHECK_EQ(af.reason_code(), 0x0202u);  // ERR_AUTH_TOKEN_MISSING（error_code_for(kMissingToken)）
+  HG_CHECK_EQ(sink.calls, 1);
+  HG_CHECK(sink.last_result == hg::hgcp::AuthResult::kMissingToken);
+  cli.close();
+}
+
+// 用例 3：正确 token ⇒ `HelloAck`、连接保持；审计**不**落痕（成功不留痕）。
+void test_auth_good_token_accepted() {
+  HgcpServerLoop srv(any_port_cfg());
+  const hg::hgcp::TokenVerifier verifier = hg::hgcp::TokenVerifier::from_token("s3cret-token");
+  RecordingAuditSink sink;
+  srv.set_token_verifier(&verifier);
+  srv.set_auth_audit_sink(&sink);
+  const std::uint16_t port = start_loop(&srv);
+  HG_REQUIRE(port != 0);
+  TestClient cli(connect_client(port));
+  HG_REQUIRE(cli.valid());
+
+  std::vector<Frame> in;
+  HG_REQUIRE_EQ(srv.pump(1000, 0, &in), 0);  // accept
+  HG_REQUIRE(send_hello(&cli, "s3cret-token"));
+  in.clear();
+  HG_REQUIRE_EQ(srv.pump(300, 0, &in), 1);
+  HG_CHECK(srv.has_connection());  // 未断连
+  HG_CHECK_EQ(srv.disconnects(), 0);
+
+  Frame ack;
+  HG_REQUIRE(cli.recv_frame(1000, &ack));
+  HG_CHECK_EQ(ack.header.type, mt(MessageType::kMsgHelloAck));
+  HG_CHECK((ack.header.flags & fl(hg::hgcp::kFlagIsReply)) != 0u);
+  HG_CHECK_EQ(sink.calls, 0);  // 成功不落痕（§4.2.6 `:947` / auth.h 契约）
+  cli.close();
+}
+
+// 用例 4（回归守卫）：未配置 verifier ⇒ 维持既有帧级门禁（不透明 body 的 HELLO 也放行）。
+void test_auth_unconfigured_keeps_frame_gate() {
+  HgcpServerLoop srv(any_port_cfg());
+  // **不**调 set_token_verifier（缺省 null = 不启用）；审计 sink 同理。
+  const std::uint16_t port = start_loop(&srv);
+  HG_REQUIRE(port != 0);
+  TestClient cli(connect_client(port));
+  HG_REQUIRE(cli.valid());
+
+  std::vector<Frame> in;
+  HG_REQUIRE_EQ(srv.pump(1000, 0, &in), 0);  // accept
+  // 既有形态：HELLO body 不透明（test_handshake_and_loopback 同构），无 token 语义 ⇒ 放行
+  const std::vector<std::uint8_t> hello = {0xAA, 0xBB, 0xCC};
+  std::vector<std::uint8_t> w;
+  HG_REQUIRE(hg::hgcp::make_frame(mt(MessageType::kMsgHello), 0u, 1u, 7u, hello, &w) ==
+             FrameStatus::kOk);
+  HG_REQUIRE(cli.send_wire(w));
+  in.clear();
+  HG_REQUIRE_EQ(srv.pump(300, 0, &in), 1);
+  HG_CHECK(srv.has_connection());
+  HG_CHECK_EQ(srv.disconnects(), 0);
+  Frame ack;
+  HG_REQUIRE(cli.recv_frame(1000, &ack));
+  HG_CHECK_EQ(ack.header.type, mt(MessageType::kMsgHelloAck));
   cli.close();
 }
 
@@ -824,5 +1000,9 @@ int main() {
   test_reconnect_backoff();
   test_resume_batches();
   test_resume_data_body_schema();
+  test_auth_bad_token_rejected();
+  test_auth_missing_token_rejected();
+  test_auth_good_token_accepted();
+  test_auth_unconfigured_keeps_frame_gate();
   return hg::hgcp::testutil::report("transport_test");
 }

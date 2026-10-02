@@ -53,6 +53,19 @@ class TransportPolicy {
   virtual std::vector<std::uint8_t> resume_data_body(
       std::uint64_t from_seq, std::uint64_t to_seq, bool is_last,
       const std::vector<std::vector<std::uint8_t> >& frames) const = 0;
+
+  // ---------------------------------------------------------------------------
+  // 入站侧（T-171 / FR-CONFIG-9 验收 4）：与出站 body 同为**本接缝**的两个方向，
+  // 不新增第二套符号。状态机（本层）仍不解释字段 —— 字段级解析仍由实现方完成。
+  // ---------------------------------------------------------------------------
+
+  // 从入站 `MSG_HELLO` 的 body 中取 `auth_token`（§4.2.8.2 `MsgHello.auth_token`）。
+  // body 不可解析 ⇒ 返回空串（由鉴权判 `kMissingToken` 拒绝，不在此回 `0x0104`）。
+  virtual std::string hello_auth_token(
+      const std::vector<std::uint8_t>& hello_body) const = 0;
+  // 鉴权失败（`0x0003`）时的回发 body —— §4.2.8.2 `MsgAuthFail{reason_code, detail}`。
+  // `detail` 只承载固定提示文案；**不得**含令牌本体 / 长度 / 片段（NFR-SEC-1 / §4.2.6）。
+  virtual std::vector<std::uint8_t> auth_fail_body(std::uint32_t reason_code) const = 0;
 };
 
 // 占位策略：全部返回空 body（**仅测试/无 schema 场景**使用；生产缺省见 `server_loop.h`）。
@@ -67,6 +80,9 @@ class EmptyTransportPolicy : public TransportPolicy {
   virtual std::vector<std::uint8_t> resume_data_body(
       std::uint64_t /*from_seq*/, std::uint64_t /*to_seq*/, bool /*is_last*/,
       const std::vector<std::vector<std::uint8_t> >& /*frames*/) const;
+  virtual std::string hello_auth_token(
+      const std::vector<std::uint8_t>& /*hello_body*/) const;
+  virtual std::vector<std::uint8_t> auth_fail_body(std::uint32_t /*reason_code*/) const;
 };
 
 // 连接会话：帧级 / 序号 / 心跳 / 退避 / 补数 / 单连接。

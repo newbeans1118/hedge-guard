@@ -28,6 +28,29 @@ std::vector<std::uint8_t> encode_error(std::uint32_t err_code) {
 
 PbTransportPolicy::PbTransportPolicy() {}
 
+std::string PbTransportPolicy::hello_auth_token(
+    const std::vector<std::uint8_t>& hello_body) const {
+  pbv1::MsgHello m;
+  if (!PbPayloadCodec::decode(hello_body, &m)) {
+    return std::string();  // 不可解析 ⇒ 空串（由鉴权判 kMissingToken 拒绝）
+  }
+  return m.auth_token();
+}
+
+std::vector<std::uint8_t> PbTransportPolicy::auth_fail_body(
+    std::uint32_t reason_code) const {
+  // §4.2.8.2 `MsgAuthFail{reason_code(必), detail(可)}`；reason_code = §4.3.2 0x02xx。
+  // detail 用**固定文案**：不得含令牌本体/长度/片段（NFR-SEC-1 / §4.2.6）。
+  pbv1::MsgAuthFail m;
+  m.set_reason_code(reason_code);
+  m.set_detail("authentication failed; connection closed (FR-CONFIG-9 acceptance 4)");
+  std::vector<std::uint8_t> body;
+  if (!PbPayloadCodec::encode(m, &body)) {
+    return empty();
+  }
+  return body;
+}
+
 std::vector<std::uint8_t> PbTransportPolicy::heartbeat_body(
     std::int64_t now_ms, std::uint64_t last_received_seq) const {
   pbv1::MsgHeartbeat m;
