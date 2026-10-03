@@ -13004,3 +13004,85 @@ TMPDIR=/ cmake --build /hg-build-base -j4
 | 树锚 | `cpp/src` 起点/落章恒 `6e2a75bb26f07d5d43b7940695c1c63c`/115；`java/src` 落章时 `71493848730e341f5b0b13c4a2267fb3`/377（实读） |
 | 写域 | 仅追加本章（`head -12809 | md5sum` = 追加前基线 `8b77e645d913a735ff0a0f961564a822` 逐字节同）；其余全程只读 |
 | 独立性 | 本席未参与 T-032/T-089 产出；不采信产出方/编排者自述（证据表两栏分列）；变异形态自设 |
+
+############################################################################
+## T-171 独立复核（席 te-verify-t171）
+############################################################################
+
+- 复核时点：2026-10-03 00:5x–01:1x（UTC+8，容器时区）；复核对象：提交 e6ee493（HEAD -> master 实测）
+- 追加前基线：head -13006 docs/TEST_RESULT.md | md5sum = 745491619e1cbdc40e525fff9331299d（= 追加前全文件 md5，逐字节可复现）
+- ⚠️ 编排者冻结点称 12934 行 —— 实时实测 13006 行（期间有他席追加），本章以实时为准
+
+### 一、冻结点复核（两栏分列）
+
+| 项 | 产出方/编排者自述 | 本席独立实测 | 判 |
+|---|---|---|---|
+| HEAD | e6ee493 | e6ee493（git log 实读） | 一致 |
+| cpp/src 树锚 | 1a1cb8b2…/115（LC_ALL=C sort 口径） | 1a1cb8b255c13ba198bd3b1ed13299b0/115（LC_ALL=C find cpp/src -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum） | 一致 |
+| ctest | 35/35（桩轨） | 35/35（隔离副本 /root/vt171-build 重建后实跑；transport_test 直跑 3021 checks, 0 failures -> PASS） | 一致 |
+| arch-check | rc 0（E1–E8） | rc 0（隔离副本，E1–E8 全 0；副本含 proto/ 五件齐） | 一致 |
+| 改动范围 | 7 文件 +297/−23 全在 cpp/src/hgcp | git show --numstat 实读 7 文件同值；git diff e6ee493^ e6ee493 -- auth.h auth.cc 为空（auth 组件零改动证实） | 一致 |
+| docs/TEST_RESULT.md | 12934 行 | 13006 行（他席并发追加所致，非本单问题） | 实时为准 |
+
+### 二、语义等价四条逐条（A 项核心）
+
+| # | 改前契约 | 改后对应物 | 判 |
+|---|---|---|---|
+| 1 | HELLO ⇒ handshaken_=true + HelloAck（改前 :202-215） | server_loop.cc:220-235：HELLO 且 verifier null ⇒ 直落 handshaken_=true + send_frame(kMsgHelloAck, kFlagIsReply, empty_body())——与改前逐 token 同；HELLO 且 verifier 非空且 kAccepted ⇒ 同上（新增前置门，通过后行为不变） | 等价 |
+| 2 | 非 HELLO（握手前）⇒ 0x0107 error_body + close_conn | server_loop.cc:236-239：else 分支逐 token 与改前相同（error_body(kErrNotHandshaken) + close_conn()） | 等价 |
+| 3 | verifier null ⇒ 行为与改前完全一致（向后兼容） | null 时新分支整体跳过（if (token_verifier_ != 0)），控制流汇入原路径；用例 4（transport_test.cc:494-522，不透明 body {0xAA,BB,CC} 的 HELLO ⇒ HelloAck + 不断连）为回归守卫 | 等价 |
+| 4 | handle_inbound 其余分支零改动 | if (!handshaken_) return; 之后仅 kMsgHeartbeatAck 一分支（:241-243），diff 中未触碰 | 等价 |
+
+附：diff 中 configure 签名行与 pump else 块的重排（:92-101）为纯空白/缩进级变化，语义无改（本席逐行目视核）。
+
+### 三、接缝形态核（B 项）
+
+1. TransportPolicy 实现**共 3 个**（本席全仓 grep class.*TransportPolicy 实测：EmptyTransportPolicy（session.h:72）/ PbTransportPolicy（pb_transport_policy.h:32）/ TestPolicy（transport_test.cc:180，测试内）），三者均已补齐 2 纯虚（session.cc:31-38 / pb_transport_policy.cc:31-43 / transport_test.cc:216-224）——**无第 3 个实现类漏补**（纯虚 ⇒ 编译期强制，隔离副本 build rc 0 双重证实）。
+2. server_loop.h:15-23 头注已如实更新（「单一接缝」+ 入站侧归属 T-171 + 决策/接线分工 + 向后兼容语义），与本席实读一致。
+3. TokenVerifier/AuthAuditSink 本体零改动：git diff e6ee493^ e6ee493 -- …/auth.h …/auth.cc 输出为空（独立实测）。
+
+### 四、安全核（C 项，NFR-SEC-1 / §4.2.6）
+
+1. MsgAuthFail.detail = 固定文案 "authentication failed; connection closed (FR-CONFIG-9 acceptance 4)"（pb_transport_policy.cc:46 实读），不含 token 本体/长度/片段。
+2. 全 diff 中无任何日志/字符串拼接含 token 变量（git show e6ee493 逐行核：token 变量仅出现于取值/verify/verify_audited 传参三处，无外流）。server_loop 层不重复留痕（审计仅经 verify_audited → sink，auth.cc:73-78 实读）。
+3. verify_audited 为唯一留痕点成立。
+
+### 五、变异承重（自设，非复跑产出方 A/B/编排者 MUT-C）
+
+| # | 改坏点 | build 预检 | 结果 | 复位 |
+|---|---|---|---|---|
+| MUT-D | 删 AUTH_FAIL 路径 close_conn()（:229 → (void)0;） | rc 0 | 红 4 例（含 :452 srv.disconnects()==1、!has_connection()）——断连语义有守卫 | diff -r 逐字节恒等（RESET-IDENTICAL） |
+| MUT-E | AUTH_FAIL body 换成原样回发 hello body（模拟 detail/token 泄漏路径，:227-228） | rc 0（首版误改出 4 参编译错，rc=2 时未采信测试输出、重写后再跑） | 红 2 例（:423/:459 reason_code 断言；body 解不出 MsgAuthFail ⇒ HG_REQUIRE decode 失败中断）——detail-无-token 断言（:424-425）在该变异下未被执行（见六-1 覆盖缺口） | RESET-IDENTICAL |
+| MUT-F | verify_audited(token, sink, peer, now) 换 verify(token)（丢审计，:224-225） | rc 0 | 红 5 例（sink.calls==1 / last_result==kMissingToken 等）——审计留痕有守卫 | RESET-IDENTICAL |
+| MUT-G | error_code_for(ar) → 常量 0x0201u（丢 reason_code 区分度，:228） | rc 0 | 红 1 例（:459 reason_code()==0x0202）——缺 token 专用码有守卫 | RESET-IDENTICAL |
+
+每例均遵守「先证 build_rc=0 → 再看测试红 → 复位 diff -r 逐字节恒等 → 终态全量 35/35 回绿」；count==1 预检在每例施变前实测。过程诚实留痕：MUT-E/MUT-F 首版 sed 行号错位造成编译错（rc=2），均未采信旧 binary 的测试输出，修正后重跑得真红。
+
+### 六、覆盖缺口（如实报）
+
+1. detail-无-token 断言（transport_test.cc:424-425）的承重为间接：MUT-E 泄漏形态下 body 无法解码为 MsgAuthFail，HG_REQUIRE(decode) 中断用例 ⇒ :424-425 未执行；「detail 真含 token」的合法注入路径在现结构下不可达（token 不在 auth_fail_body 作用域）。该断言实际守卫力 = 拒绝特定子串（"s3cret"/"wrong-token"），非「detail 与 token 无关」的全称守卫。风险低（detail 为编译期固定文案），但不虚报为已承重。
+2. verifier 配置 + sink=null 组合无用例：verify_audited 内部有 sink != 0 守卫（auth.cc:74）安全，但该组合无测试覆盖（三个 auth 用例均同时配 sink）。
+3. kBadToken/kMissingToken 之外的 AuthResult 无用例（现枚举仅 3 值，kAccepted 由用例 3 覆盖，实际无缺口——仅列明枚举穷尽性依赖）。
+
+### 七、定级意见复核（D 项）
+
+独立读 session.h:25-52（出站单一接缝条款）+ §4.2.6 鉴权约定（ARCHITECTURE.md:942-958）+ FR-CONFIG-9 验收 4（REQUIREMENTS/CONFIG.md:234）+ ARCHITECTURE.md grep TransportPolicy\|PayloadCodec\|接缝 = 0 命中（独立实测），本席**同意产出方定级**：接缝增 2 纯虚 = 模块内接缝演进，登记即可、免 CH。判据：① ARCH 对 seam 无登记面（0 命中 ⇒ 无「已登记形态被破坏」可言）；② T-032 resume_data_body 同形先例（git log 可查）；③ 线格式/消息集/错误码/FR 均不变（proto/ 未触碰，E7 输入无变化）；④ 行为面是 ARCHITECTURE.md:956 已冻结条款「MSG_AUTH_FAIL + 立即关闭 + 审计留痕」的兑现。边界说明：若未来接缝方法改变线格式语义或引入新线上消息，则越出本先例、须重判。
+
+### 八、缺陷与观察
+
+**缺陷：无**（TE-T171-NNN 未启用）。
+
+**观察**：
+- O-1：server_loop.cc:212-240 新接线块（含注释）共 30 行顶格无缩进（本席 cat -A 实测 8 处行首 if/}），与文件其余部分风格断裂，可读性受损；建议架构席或后续单收口（非语义问题）。
+- O-2：auth.h:12 头注「MSG_AUTH_FAIL 帧属 T-032 缺口」过时（产出方已自报，本席确认仍在）——建议架构席勘误。
+- O-3：server_loop.h:10-11 头注「帧级握手门禁」条目未列令牌校验（产出方已自报，:15-23 已补说明，本席确认两处并存）。
+- O-4：MsgHello 其余必填字段（proto_version/component_role/token_version 等）服务端不校验——FR-CONFIG-9 验收 4 仅涉 token，范围外如实列明（产出方已自报）。
+- O-5：HgcpClient.java 收 AUTH_FAIL 只置状态不解析 body（Java 侧范围外）。
+- O-6：六-1/六-2 两项覆盖缺口（detail 断言间接承重 / sink=null 组合无用例）。
+
+### 九、独立性声明与结论
+
+- 本席未参与 T-171 产出（be-t171）与编排者承重；不采信产出方/编排者自述（上文两栏分列）；变异形态自设 4 例（MUT-D/E/F/G），非复跑产出方 A/B 或编排者 MUT-C。
+- 判据 = 冻结点上全量绿：隔离副本 35/35 + transport_test 3021 checks 0 failures + arch-check rc 0（E1–E8），全部本席独立实跑。
+- **结论：通过（0 缺陷；6 观察，均不阻断）**。本席不自评 DONE，结论由编排者裁定。
+- 写域：仅追加本章（head -13006 基线可复核）；cpp/java/proto/tools 全程只读；变异仅在隔离副本 /root/vt171（五件齐），共享树零污染（终态 diff -r 恒等 + 共享树 grep MUT- = 0）。
