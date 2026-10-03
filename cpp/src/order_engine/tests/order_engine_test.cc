@@ -331,6 +331,157 @@ void test_ctp_reject_releases_freeze() {
   HG_CHECK_EQ(r.eng.frozenOf(1, 1, 10), 0);  // 拒单释放冻结
 }
 
+// TE-T036-002 守卫：撤单完成（'5' = THOST_FTDC_OST_Canceled，无 ErrorID）⇒
+// kCancelled + EVT_ORDER_CANCEL_RESULT，且冻结释放保留（复核 V-3）。
+void test_ctp_cancel_completed_classified_cancelled() {
+  Rig r;
+  const AcceptResult a = r.eng.accept(baseInput("HG1"), 1000);
+  HG_CHECK(r.eng.confirm(1, 7, a.confirm_token, 1001).sent);
+  hg::ctp_adapter::CtOrderEvent ev;
+  ev.kind = hg::ctp_adapter::CtOrderEventKind::kOrderReturn;
+  ev.client_order_ref = "HG1";
+  ev.order_sys_id = "SYS-7";
+  ev.status = '5';  // THOST_FTDC_OST_Canceled（撤单完成，无错误）
+  ev.ctp_error_id = 0;
+  ev.volume_total = 10;
+  ev.volume_traded = 0;
+  ev.volume_left = 10;
+  ev.report_ts_ms = 1100;
+  EngineEvent out;
+  HG_CHECK(r.eng.onOrderEvent(ev, &out));
+  HG_CHECK_EQ(r.eng.find(1)->status, OrderStatus::kCancelled);
+  HG_CHECK(out.kind == EngineEvent::Kind::kCancelResult);  // EVT_ORDER_CANCEL_RESULT
+  HG_CHECK_EQ(out.cancel_out.order_id, 1);
+  HG_CHECK_EQ(out.cancel_out.cancelled_volume, 10);
+  HG_CHECK_EQ(out.cancel_out.result, 0);
+  HG_CHECK_EQ(r.eng.frozenOf(1, 1, 10), 0);   // 释放不丢（V-3）
+  HG_CHECK_EQ(r.eng.frozenOf(2, 1, 100), 0);
+  HG_CHECK_EQ(r.eng.frozenOf(3, 0, 10), 0);
+  // 终态守卫联动：同形回报重复推送 ⇒ 幂等跳过，状态不再变更。
+  EngineEvent dup;
+  HG_CHECK(!r.eng.onOrderEvent(ev, &dup));
+  HG_CHECK_EQ(r.eng.find(1)->status, OrderStatus::kCancelled);
+}
+
+// TE-T036-001 守卫：累计成交单调 + 终态后委托回报只记流水（不迁移状态、不释放、
+// 不回退快照）。覆盖缺陷链：成交回报计满 ⇒ 随附最终委托回报（AllTraded '0'）。
+void test_report_monotonic_and_post_terminal_guard() {
+  Rig r;
+  const AcceptResult a = r.eng.accept(baseInput("HG1"), 1000);
+  HG_CHECK(r.eng.confirm(1, 7, a.confirm_token, 1001).sent);
+
+  hg::ctp_adapter::CtOrderEvent fill;
+  fill.kind = hg::ctp_adapter::CtOrderEventKind::kTradeReturn;
+  fill.client_order_ref = "HG1";
+  fill.trade_id = "TR-1";
+  fill.price = 1.0;
+  fill.trade_volume = 4;
+  fill.report_ts_ms = 1100;
+  EngineEvent fo;
+  HG_CHECK(r.eng.onOrderEvent(fill, &fo));
+  HG_CHECK_EQ(r.eng.find(1)->status, OrderStatus::kPartiallyFilled);
+
+  // 迟到/乱序委托回报（非终态）：traded=0 的早期形态 ⇒ 不得回退累计成交（V-1）。
+  hg::ctp_adapter::CtOrderEvent stale;
+  stale.kind = hg::ctp_adapter::CtOrderEventKind::kOrderReturn;
+  stale.client_order_ref = "HG1";
+  stale.order_sys_id = "SYS-9";
+  stale.status = '3';
+  stale.volume_total = 10;
+  stale.volume_traded = 0;
+  stale.volume_left = 10;
+  stale.report_ts_ms = 1150;
+  EngineEvent so;
+  HG_CHECK(r.eng.onOrderEvent(stale, &so));
+  HG_CHECK_EQ(r.eng.find(1)->status, OrderStatus::kPartiallyFilled);  // 不回退 kSubmitted
+  HG_CHECK_EQ(r.eng.find(1)->volume_traded, 4);
+  HG_CHECK_EQ(r.eng.find(1)->volume_left, 6);
+  HG_CHECK_EQ(r.eng.frozenOf(1, 1, 10), 10 * 10000);  // 仍冻结
+
+  // 全成 ⇒ kFilled + 冻结释放。
+  hg::ctp_adapter::CtOrderEvent fill2 = fill;
+  fill2.trade_id = "TR-2";
+  fill2.trade_volume = 6;
+  fill2.report_ts_ms = 1200;
+  EngineEvent fo2;
+  HG_CHECK(r.eng.onOrderEvent(fill2, &fo2));
+  HG_CHECK_EQ(r.eng.find(1)->status, OrderStatus::kFilled);
+  HG_CHECK_EQ(r.eng.frozenOf(1, 1, 10), 0);
+
+  // 终态后回报①：随附的最终委托回报（AllTraded '0'，缺陷链触发形态）⇒ 只记流水，
+  // 不产事件、不二次释放（TE-T036-001）。
+  hg::ctp_adapter::CtOrderEvent fin;
+  fin.kind = hg::ctp_adapter::CtOrderEventKind::kOrderReturn;
+  fin.client_order_ref = "HG1";
+  fin.order_sys_id = "SYS-9";
+  fin.status = '0';  // THOST_FTDC_OST_AllTraded
+  fin.volume_total = 10;
+  fin.volume_traded = 10;
+  fin.volume_left = 0;
+  fin.report_ts_ms = 1300;
+  EngineEvent out1;
+  HG_CHECK(!r.eng.onOrderEvent(fin, &out1));
+  HG_CHECK(out1.kind == EngineEvent::Kind::kNone);
+  HG_CHECK_EQ(r.eng.find(1)->status, OrderStatus::kFilled);
+  HG_CHECK_EQ(r.eng.find(1)->volume_traded, 10);
+  HG_CHECK_EQ(r.eng.frozenOf(1, 1, 10), 0);   // 三层账本均不被二次释放
+  HG_CHECK_EQ(r.eng.frozenOf(2, 1, 100), 0);
+  HG_CHECK_EQ(r.eng.frozenOf(3, 0, 10), 0);
+
+  // 终态后回报②：迟到早期形态（traded=0）⇒ 不得回退累计成交/状态。
+  hg::ctp_adapter::CtOrderEvent late = fin;
+  late.status = '3';
+  late.volume_traded = 0;
+  late.volume_left = 10;
+  late.report_ts_ms = 1400;
+  EngineEvent out2;
+  HG_CHECK(!r.eng.onOrderEvent(late, &out2));
+  HG_CHECK_EQ(r.eng.find(1)->status, OrderStatus::kFilled);
+  HG_CHECK_EQ(r.eng.find(1)->volume_traded, 10);
+  HG_CHECK_EQ(r.eng.find(1)->volume_left, 0);
+
+  // 终态后回报③：撤单完成 '5' 迟到 ⇒ 不得改判 kCancelled（状态不迁移）。
+  hg::ctp_adapter::CtOrderEvent lateCancel = fin;
+  lateCancel.status = '5';
+  lateCancel.ctp_error_id = 0;
+  lateCancel.report_ts_ms = 1500;
+  EngineEvent out3;
+  HG_CHECK(!r.eng.onOrderEvent(lateCancel, &out3));
+  HG_CHECK_EQ(r.eng.find(1)->status, OrderStatus::kFilled);
+  HG_CHECK_EQ(r.eng.frozenOf(1, 1, 10), 0);
+}
+
+// MUT-A 守卫（复核：confirm 跳过「再跑完整风控」原存活）：确认期状态变化
+// （昨结算价上移 10% > 5% block 阈值）⇒ 确认时再校验必须拒绝且不发 CTP。
+void test_confirm_reruns_full_risk() {
+  Rig r;
+  const AcceptResult a = r.eng.accept(baseInput("HG1"), 1000);
+  HG_CHECK(a.accepted);
+  r.eng.setPrevSettlement("cu2601", 1100000);  // 确认期：偏离 10% > block 5%
+  const ConfirmResult c = r.eng.confirm(1, 7, a.confirm_token, 1001);
+  HG_CHECK(!c.sent);
+  HG_CHECK_EQ(c.reason_code, 0x1010);
+  HG_CHECK(c.risk.rule == RuleId::kPriceDeviation);
+  HG_CHECK_EQ(r.eng.find(1)->status, OrderStatus::kRejected);  // 再校验拒绝 ⇒ 终态
+  HG_CHECK_EQ(r.eng.frozenOf(1, 1, 10), 0);                    // 冻结释放
+  HG_CHECK_EQ(r.gw.submit_calls, 0);                           // 不发 CTP
+}
+
+// MUT-B 守卫（复核：confirm 跳过账本复核扣自身原存活）：账本已含本单冻结时，
+// confirm 复核须扣除自身，否则 60+60 > 100 误拒。
+void test_confirm_ledger_excludes_self_freeze() {
+  Rig r;  // 三层限额各 100 手
+  OrderInput in = baseInput("HG1");
+  in.volume = 60;
+  const AcceptResult a = r.eng.accept(in, 1000);
+  HG_CHECK(a.accepted);
+  const ConfirmResult c = r.eng.confirm(1, 7, a.confirm_token, 1001);
+  HG_CHECK(c.sent);  // 自扣后 0 + 0(快照) + 60 ≤ 100 ⇒ 不得误拒 0x1017
+  HG_CHECK_EQ(c.reason_code, 0);
+  HG_CHECK_EQ(r.eng.find(1)->status, OrderStatus::kSubmitted);
+  HG_CHECK_EQ(r.gw.submit_calls, 1);
+}
+
 void test_cancel_paths() {
   Rig r;
   HG_CHECK_EQ(r.eng.cancel(42, 7, "", 1000, nullptr).reason_code, 0x2001);  // 不存在
@@ -412,6 +563,10 @@ int main() {
   test_confirm_ctp_not_connected_retry();
   test_report_and_partial_fill();
   test_ctp_reject_releases_freeze();
+  test_ctp_cancel_completed_classified_cancelled();
+  test_report_monotonic_and_post_terminal_guard();
+  test_confirm_reruns_full_risk();
+  test_confirm_ledger_excludes_self_freeze();
   test_cancel_paths();
   test_expire_pending_sweep();
   test_flow_store_primitive();

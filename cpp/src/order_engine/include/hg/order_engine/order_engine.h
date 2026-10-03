@@ -238,7 +238,13 @@ class OrderEngine {
 
   // ---- CTP 回报消费（T4 从 orderEventQueue 取出后调用；§3.2 onOrderEvent）-----
   // 幂等：同 (order_sys_id, status, traded, left) / 同 trade_id 重复回报不重复变更。
-  // 返回 false = 无匹配指令 / 幂等跳过（out 不产生事件）。
+  // 终态守卫（TE-T036-001）：已终态（FILLED/REJECTED/CANCELLED/EXPIRED）指令的委托
+  // 回报只记流水——不迁移状态、不覆写快照、不调 releaseFor（阻断「成交回报计满 ⇒
+  // 随附最终委托回报」二次释放与迟到回报回退累计成交）。
+  // 撤单完成分类（TE-T036-002）：OrderStatus '5' = THOST_FTDC_OST_Canceled（官方
+  // SDK 无 THOST_FTDC_OST_Rejected）⇒ kCancelled + EVT_ORDER_CANCEL_RESULT；
+  // 伴 ErrorID 的拒单回报 ⇒ kRejected。
+  // 返回 false = 无匹配指令 / 幂等跳过 / 终态后回报忽略（out 不产生事件）。
   bool onOrderEvent(const hg::ctp_adapter::CtOrderEvent& ev, EngineEvent* out);
 
   // ---- 超时失效扫描（R-TRADE-6 / CFG-28）-------------------------------------
@@ -271,8 +277,10 @@ class OrderEngine {
   risk_engine::OrderRequest buildRequest(const OrderRecord& rec) const;
 
   // 冻结 / 释放（三层键各一份；只动账本，不动快照）。
+  // releaseFor 释放后**清零档案冻结份额**（剪枝；TE-T036-001：终态后回报若重复进入
+  // 释放路径，`>0` 守卫使二次释放成为空操作，冻结账本不会被侵蚀为负）。
   void freezeFor(OrderRecord* rec);
-  void releaseFor(const OrderRecord& rec);
+  void releaseFor(OrderRecord* rec);
 
   // 冻结账本参与的超额守卫（与 evalQuota 同式：used+frozen+账本+本次 > limit ⇒ 拒）。
   // 快照不可变 ⇒ 待确认冻结不可见风控 ⇒ 由本守卫补账，防「同键并行受理超额冻结」。

@@ -60,6 +60,14 @@ flow_store::FlowKind flowKindOfStatus(order_engine::OrderStatus st) {
   }
 }
 
+// 终态判定（TE-T036-001 终态守卫）。
+bool isTerminalStatus(order_engine::OrderStatus s) {
+  return s == order_engine::OrderStatus::kFilled ||
+         s == order_engine::OrderStatus::kRejected ||
+         s == order_engine::OrderStatus::kCancelled ||
+         s == order_engine::OrderStatus::kExpired;
+}
+
 }  // namespace
 
 const char* orderStatusName(OrderStatus s) {
@@ -186,11 +194,22 @@ void OrderEngine::freezeFor(OrderRecord* rec) {
   if (rec->frozen_l3 > 0) frozen_l3_[k3] += rec->frozen_l3;
 }
 
-void OrderEngine::releaseFor(const OrderRecord& rec) {
-  const OrderInput& in = rec.input;
-  if (rec.frozen_l1 > 0) frozen_l1_[packKey(in.sub_account_id, in.product_id)] -= rec.frozen_l1;
-  if (rec.frozen_l2 > 0) frozen_l2_[packKey(in.sub_account_id, in.instrument_key)] -= rec.frozen_l2;
-  if (rec.frozen_l3 > 0) frozen_l3_[packKey(kAccountKey, in.product_id)] -= rec.frozen_l3;
+void OrderEngine::releaseFor(OrderRecord* rec) {
+  const OrderInput& in = rec->input;
+  // 释放后清零档案冻结份额（剪枝；TE-T036-001）：即便终态后回报重复进入释放路径，
+  // `>0` 守卫亦使其成为空操作，冻结账本不会转负。
+  if (rec->frozen_l1 > 0) {
+    frozen_l1_[packKey(in.sub_account_id, in.product_id)] -= rec->frozen_l1;
+    rec->frozen_l1 = 0;
+  }
+  if (rec->frozen_l2 > 0) {
+    frozen_l2_[packKey(in.sub_account_id, in.instrument_key)] -= rec->frozen_l2;
+    rec->frozen_l2 = 0;
+  }
+  if (rec->frozen_l3 > 0) {
+    frozen_l3_[packKey(kAccountKey, in.product_id)] -= rec->frozen_l3;
+    rec->frozen_l3 = 0;
+  }
 }
 
 bool OrderEngine::quotaLedgerViolation(const OrderInput& in, risk_engine::RiskResult* out,
@@ -271,7 +290,7 @@ bool OrderEngine::appendFlow(flow_store::FlowKind kind, const OrderRecord& rec,
 void OrderEngine::markTerminal(OrderRecord* rec, OrderStatus st, std::int64_t now_ms,
                                const char* detail) {
   rec->status = st;
-  releaseFor(*rec);
+  releaseFor(rec);
   appendFlow(flowKindOfStatus(st), *rec, now_ms, detail != nullptr ? detail : "");
 }
 
@@ -539,7 +558,7 @@ bool OrderEngine::onOrderEvent(const hg::ctp_adapter::CtOrderEvent& ev, EngineEv
     rec->volume_left = rec->volume_total - rec->volume_traded;
     if (rec->volume_left <= 0) {
       rec->status = OrderStatus::kFilled;
-      releaseFor(*rec);  // 全成：冻结转已用（账本释放；快照侧经 CMD_UPDATE_QUOTA 回路）
+      releaseFor(rec);  // 全成：冻结转已用（账本释放；快照侧经 CMD_UPDATE_QUOTA 回路）
     } else {
       rec->status = OrderStatus::kPartiallyFilled;
     }
@@ -564,6 +583,16 @@ bool OrderEngine::onOrderEvent(const hg::ctp_adapter::CtOrderEvent& ev, EngineEv
   }
 
   if (ev.kind == hg::ctp_adapter::CtOrderEventKind::kOrderReturn) {
+    // 终态守卫（TE-T036-001）：已终态指令的委托回报只记流水——不迁移状态、不覆写
+    // 快照、不调 releaseFor。阻断「成交回报计满 ⇒ 随附最终委托回报（AllTraded '0'）
+    // 二次 releaseFor 侵蚀冻结账本」与迟到/乱序回报回退累计成交两条缺陷链。
+    if (isTerminalStatus(rec->status)) {
+      if (flow_ != nullptr) {
+        appendFlow(flow_store::FlowKind::kReported, *rec, ev.report_ts_ms,
+                   "post-terminal order report ignored");
+      }
+      return false;  // 不产事件（与幂等跳过同形）
+    }
     // 委托回报（幂等键 order_sys_id + status，§4.2.3；同形重复不重复变更）。
     if (!ev.order_sys_id.empty()) rec->order_sys_id = ev.order_sys_id;
     if (!ev.order_local_id.empty()) rec->order_local_id = ev.order_local_id;
@@ -577,19 +606,37 @@ bool OrderEngine::onOrderEvent(const hg::ctp_adapter::CtOrderEvent& ev, EngineEv
     rec->last_report_status = ev.status;
 
     rec->volume_total = ev.volume_total > 0 ? ev.volume_total : rec->volume_total;
-    rec->volume_traded = ev.volume_traded;
-    rec->volume_left = ev.volume_left;
+    // 累计成交单调守卫（TE-T036-001 / 复核 V-1 同根）：CTP 累计成交非降，
+    // 迟到回报不得回退；volume_left 与单调后的 traded 保持自洽。
+    if (ev.volume_traded > rec->volume_traded) rec->volume_traded = ev.volume_traded;
+    rec->volume_left = rec->volume_total - rec->volume_traded;
 
-    // CTP 拒单（status '5' = REJECTED，CTP THOST_FTDC_OST_Rejected）。
-    if (ev.status == '5' || ev.ctp_error_id != 0) {
+    // CTP 拒单：伴 ErrorID 的回报（OnRspOrderInsert / OnErrRtnOrderInsert）。
+    if (ev.ctp_error_id != 0) {
       rec->status = OrderStatus::kRejected;
-      releaseFor(*rec);
+      releaseFor(rec);
       if (flow_ != nullptr) {
         appendFlow(flow_store::FlowKind::kRejected, *rec, ev.report_ts_ms, ev.ctp_error_msg);
       }
+    } else if (ev.status == '5') {
+      // 撤单完成（TE-T036-002：'5' = THOST_FTDC_OST_Canceled，官方 SDK
+      // ThostFtdcUserApiDataType.h:587；原注释所引 THOST_FTDC_OST_Rejected 不存在）。
+      // 释放冻结保留（复核 V-3：修正分类不得丢释放）。
+      rec->status = OrderStatus::kCancelled;
+      releaseFor(rec);
+      if (flow_ != nullptr) {
+        appendFlow(flow_store::FlowKind::kCancelled, *rec, ev.report_ts_ms,
+                   "cancelled (CTP OST_Canceled)");
+      }
+      out->kind = EngineEvent::Kind::kCancelResult;  // EVT_ORDER_CANCEL_RESULT
+      out->cancel_out.order_id = rec->order_id;
+      out->cancel_out.cancelled_volume = rec->volume_left;
+      out->cancel_out.result = 0;
+      out->cancel_out.reason_code = 0;
+      return true;
     } else if (rec->volume_left <= 0 && rec->volume_traded > 0) {
       rec->status = OrderStatus::kFilled;
-      releaseFor(*rec);
+      releaseFor(rec);
     } else if (rec->volume_traded > 0) {
       rec->status = OrderStatus::kPartiallyFilled;
     } else {
