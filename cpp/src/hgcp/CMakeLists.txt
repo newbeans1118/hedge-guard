@@ -67,6 +67,7 @@ add_library(hg_hgcp STATIC
   src/tcp.cc
   src/session.cc
   src/server_loop.cc
+  src/command_handler.cc
   "${HGCP_PB_GEN_DIR}/hgcp.pb.cc")
 # 承载层 = `tcp`（回环 socket 原语）+ `session`（schema-free 连接状态机）
 #        + `server_loop`（两者的**生产侧装配**：accept/读/握手门禁/心跳/退避/补数/单连接）。
@@ -81,7 +82,7 @@ set_target_properties(hg_hgcp PROPERTIES
 
 # HGCP 帧载荷依赖 protobuf（§3.6 / §7.2.1）；
 # 供给由双轨决定：CTP_USE_FETCH_DEPS=ON → FetchContent；OFF → 系统包。
-target_link_libraries(hg_hgcp PUBLIC hg_deps::protobuf)
+target_link_libraries(hg_hgcp PUBLIC hg_deps::protobuf hg::risk_state)
 
 # -----------------------------------------------------------------------------
 # 单测（ctest）：帧 / 信封 + payload 编解码 / 鉴权 / 心跳退避 / 补数缓冲 / 回环绑定
@@ -95,7 +96,8 @@ set(HGCP_UNIT_TESTS
   resume_buffer_test
   endpoint_test
   session_test
-  transport_test)
+  transport_test
+  command_handler_test)
 
 foreach(_t ${HGCP_UNIT_TESTS})
   add_executable(hgcp_${_t} "tests/${_t}.cc")
@@ -109,4 +111,10 @@ foreach(_t ${HGCP_UNIT_TESTS})
   set_tests_properties("hgcp.${_t}" PROPERTIES
     FIXTURES_REQUIRED hg_arch_check
     TIMEOUT 60)
+endforeach()
+
+# -----------------------------------------------------------------------------
+# T-038：command_handler_test 需要引擎联动（把装填后的快照喂给 RiskEngine 判定）。
+foreach(_t command_handler_test)
+  target_link_libraries(hgcp_${_t} PRIVATE hg::risk_engine)
 endforeach()

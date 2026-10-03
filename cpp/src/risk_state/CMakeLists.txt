@@ -19,7 +19,8 @@ add_library(hg_risk_state STATIC
   src/risk_snapshot.cc
   src/load_batch.cc
   src/snapshot_manager.cc
-  src/risk_state.cc)
+  src/risk_state.cc
+  src/rebuild.cc)
 add_library(hg::risk_state ALIAS hg_risk_state)
 target_include_directories(hg_risk_state PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 set_target_properties(hg_risk_state PROPERTIES
@@ -36,7 +37,8 @@ set(RISK_STATE_UNIT_TESTS
   snapshot_manager_test
   risk_state_test
   rsk04_conservative_test
-  diagnostic_accessor_test)
+  diagnostic_accessor_test
+  rebuild_test)
 
 foreach(_t ${RISK_STATE_UNIT_TESTS})
   add_executable(risk_state_${_t} "tests/${_t}.cc")
