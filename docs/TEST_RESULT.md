@@ -13086,3 +13086,63 @@ TMPDIR=/ cmake --build /hg-build-base -j4
 - 判据 = 冻结点上全量绿：隔离副本 35/35 + transport_test 3021 checks 0 failures + arch-check rc 0（E1–E8），全部本席独立实跑。
 - **结论：通过（0 缺陷；6 观察，均不阻断）**。本席不自评 DONE，结论由编排者裁定。
 - 写域：仅追加本章（head -13006 基线可复核）；cpp/java/proto/tools 全程只读；变异仅在隔离副本 /root/vt171（五件齐），共享树零污染（终态 diff -r 恒等 + 共享树 grep MUT- = 0）。
+
+## T-038 独立复核（席 te-verify-t038）
+
+- **时点**：2026-10-03 20:01（取样时刻）；对象 = 提交 `2cf8d1f`（实现）、`HEAD 54607c7`（复核时）。
+- **冻结点独立实测**：`find cpp/src -type f | LC_ALL=C sort | xargs md5sum | md5sum` = `774cd0c8018f042a112918bf48ee39cc` / **121 文件**（与编排者实测一致）；`head -13088 docs/TEST_RESULT.md | md5sum` = `2e0c8f1cef5a0e94d101cbbf992dffcd`（追加前基线）。
+- **文件锚（实测 md5）**：command_handler.cc `2c696f08…` / command_handler.h `03d12b03…` / rebuild.cc `b56646fc…` / rebuild.h `eb6a85b4…` / command_handler_test.cc `22a27a68…`（142 checks）/ rebuild_test.cc `ef8784ab…`（48 checks）。
+- **门禁（独立实跑，非复述）**：共享树 `ctest`（/root/t038v-build2，源 = 共享树）**37/37**、`rebuild_test 48 checks/0 fail`、`command_handler_test 142 checks/0 fail`；`arch-check.sh` 聚合 **rc 0**（E1–E8 全 0；E4 实扫 **50 文件 / 命中 0**，WARN 3 = 既有 `new` 信息性提示，非本批新增）。隔离副本（/root/t038v-verify，五件齐 docs/java**/cpp/tools/proto**）基线同 **37/37**。
+
+### A. 17 指令消费盘点（验收 1）—— 独立复算
+- 解析面：`payload_codec.cc` 控制指令 17 case（:33–:51 逐条目视 + grep 计数 17）。
+- 消费面（command_handler.cc `handle` dispatch，逐指令）：12 个独立 case（LOAD_RISK_PARAMS:537 / UPDATE_WHITELIST:561 / UPDATE_QUOTA:577 / UPDATE_POSITION_LIMIT:596 / UPDATE_RISK_THRESHOLD:615 / UPDATE_PERMISSION:635 / UPDATE_EXPOSURE:656 / SET_TRADING_SUSPEND:675 / SET_READY_STATE:692 / RELOAD:704 / TRIGGER_REPLAY:714 / QUERY_STATUS:724）+ 5 个交易路径 fallthrough case（PLACE_ORDER/CONFIRM/CANCEL/FUND_TRANSFER/QUERY_FUND_RESULT :740–:744，内层再按 type 逐个 decode 五种 pb 消息）= **17/17**（逐 case 消费去向全部有回执路径）。
+- 受理型 5 指令 ACK detail："accepted (path pending T-036)"（command_handler.cc:777）——**诚实边界属实**（未产出订单生命周期事件，EVT_ORDER_* 未伪造）；未就绪时 0x0401 门卫（:771）独立证实。
+- `test_all_17_consumed` 用例：cmds[] 数组独立数 = **17 项**逐枚举列出 + 恒断言 consumed=true + 有回执；另 2 负例（HELLO / EVT_SYSTEM_STATE 不消费）。
+- **⚠️ 生产装配面缺口（如实报，判归属而非缺陷）**：`CommandHandler` 在 `server_loop.cc`（`handle_inbound` :212–:246）**0 调用点**——生产接线不在本批；T-038 验收标准未点名装配（消费主体=组件级），且 T-036/T-039（事件流/生命周期）均 TODO ⇒ **判定 = 归属下游/T-036~T-039 集成面，非本单缺陷**；但须登记：**当前生产进程仍不消费任何控制指令**（组件级 17/17 ≠ 端到端 17/17）。
+
+### B. 五布尔映射（验收 5 + CH-019）—— 独立证实
+1. `command_handler.h:30-38` 映射表 5 行与工单验收 5（第 156 轮扩为 5 位）逐字段对拍一致；`map_permission_entry`（command_handler.cc:441–459）实现与表一致：5→is_responsible / 6→is_management_role / 7→has_risk_post / 8→has_settle_role / 9→has_trading_post。
+2. **方向纪律**：`permissionLeaderForbidden`/`permissionPostConflict`（risk_engine model 纯函数）均不消费 has_trading_post；canTrade（risk_snapshot.cc:154–171）与 evalPermission（risk_engine.cc:405–420）第四分支 `!p->has_trading_post ⇒ 0x100B` 独立目视；**未发现把 has_trading_post 并入禁止组的错误**。
+3. `test_permission_single_key_override`（test:198–218）：同 op=88 两条（品种 10→20），断言覆盖后 products 恰 1 且 20 在 / 10 不在——**真锁定覆盖语义**（非追加）。
+4. `test_permission_engine_integration`（test:476–514）：装填后经 `st.snapshot().canTrade` 消费——55（四禁类过+无交易岗）拒 / 66 过 / 77（risk）拒 / 88（mgmt）拒 / 999 无记录拒（安全默认）；MUT-3（装填反转）变异下 :508/:509 双红 ⇒ **装填→判定链路有牙**。
+
+### C. param_version 门卫（验收 2）—— 独立证实
+- 会话层 `versionStrictlyNewer`（rebuild.cc:11）：`v > s.param_version()`；`submitIncremental`/`submitLoadBatch` 首批均先过门卫；==/< 用例双覆盖（rebuild_test:44–66 / command_handler_test:220–245）。
+- 底层 `RiskState::rebuild` 既有 `< cur_ver ⇒ kRebuildVersionNotMonotonic`（risk_state.cc:32，即 >= 放行）**未动**：`git diff 337fd35..2cf8d1f` 文件清单 = 8 个新/改文件，**不含 risk_state.cc/risk_state.h**——分层清晰，无重复校验。
+- MUT-6（> 改 >=）⇒ 2 测试红（rebuild_test + command_handler_test）。
+
+### D. 分批（验收 3）—— 独立证实
+- batch_index 连续性（rebuild.cc ④ `batch_index != next_index_ ⇒ kSessionBatchMissing`）、批内版本漂移/total 变化（③）、越界/batch_total=0（①）独立目视 + 用例覆盖（rebuild_test:106–150）。
+- **影子预演**：收齐才在影子 RiskState 全量预演（发布 N-1 次不触生产），全绿后对生产重放同序列；失败 ⇒ 会话复位 + 快照不变（rebuild_test:152–176 独立证实：负额度批 ⇒ kSessionRebuildFailed + param_version 未变 + 第 0 批也未发布）。MUT-1（改逐批即时生效）⇒ 3 红。
+- EVT_SYSTEM_STATE(READY)：仅 `r.applied` 时发（command_handler.cc:556–558），字段 state=READY / param_version_applied / ts_ms 齐备且用例断言三字段值（test:277–281）。
+- 每批 MSG_ACK：分批中段每批回 ACK 且 applied 时才带 applied_version（test:251–255 断言中间批无事件）。
+
+### E. R-CONFIG-8（验收 4）—— 独立证实
+- `map_thresholds`（command_handler.cc:330–349）：commodity < ratioFromPpm(900000) / trade < ratioFromPpm(800000) ⇒ 拒绝；0x0104 为 §4.3.2 冻结 62 码之一（protocol.h:118 `kErrPayloadInvalid = 0x0104`），未新造。边界用例：0.850 拒 / 0.790 拒 / 0.900+0.800 过且快照生效（test:290–330）。
+- MUT-5（commodity 下限删除）⇒ 4 红。
+
+### 变异承重（6 例，自设，隔离副本 /root/t038v-verify；每例先证 build_rc=0 再看测试；复位后 diff 逐字节恒等）
+| # | 变异点 | 结果 | 红例数 |
+|---|--------|------|--------|
+| MUT-1 | 影子预演改「逐批即时生效」（rebuild.cc 收齐块前插生产 rebuild） | 必红 | 3（rebuild_test :85/:170/:171） |
+| MUT-2 | 删 batch_index 连续性守卫（`false &&`） | **全绿（37/37）——覆盖缺口 O-3** | 0 |
+| MUT-3 | has_trading_post 装填反转 | 必红 | 3（含 canTrade 交叉 :508/:509） |
+| MUT-4 | 删交易路径 0x0401 门卫 | 必红 | 2（test :431/:432） |
+| MUT-5 | 删 commodity 0.90 下限 | 必红 | 4 |
+| MUT-6 | 版本门卫 > 改 >= | 必红 | 2 测试红（8 checks） |
+- MUT-2 补充探针（自建 zz_mutprobe）：守卫禁用后「批 0 → 批 2（跳 1）→ 批 1」三批均被受理且收齐时照常生效（最终集正确、影子预演兜底）⇒ 缺陷形态 = **kSessionBatchMissing 语义无人守卫**（既有用例只测「跳批后被拒前先测版本漂移」「补正后通过」两形态，均不触守卫）；因收齐才生效的影子预演兜底，**实际危害低**（乱序批最坏 = 等齐才生效），判观察非缺陷。
+
+### 覆盖缺口 / 观察（如实报）
+- **O-1**（中，归属裁定）：`CommandHandler` 生产装配 0 调用点（server_loop 未接线）——组件级 17/17 ≠ 端到端 17/17；T-038 验收未点名装配、集成归 T-036/T-039，**不阻断本单**，但请编排者显式登记该口径（防「控制指令消费已闭环」被超读）。
+- **O-2**（低）：§6.3 ⑤「校验 state == READY」未在 CMD_UPDATE_* 增量路径实现（仅交易路径有 0x0401 门卫）——参数面在 NOT_READY 时增量更新仍受理（首批评测用例即在 NOT_READY 态全量加载通过，符合启动时序 ④）；§6.3 该行语义宜由架构席澄清（对 UPDATE_* 是否要求 READY）。
+- **O-3**（低）：MUT-2 存活——batch_index 连续性守卫无既有用例承重（见上表）。
+- **O-4**（低）：`map_trading_suspend` 的 `scan_scope` 字段未消费（丢弃）——T-050 事中风控承接面，实现侧已有诚实注释。
+- **O-5**（低）：`test_all_17_consumed` 对 12 个参数/状态指令用空 body（proto3 全默认）——覆盖「可解析」但未覆盖各指令字段级回执形态；字段级已由其余 9 用例分散承载，判可接受。
+- **O-6**（低）：`parse_fixed_str` 对超长小数静默截断（frac 位超 scale 后丢弃而非拒收）——当前协议 string 比例精度 ≤ scale，无实害；精度增长时会静默失真。
+
+### 结论
+- **有条件通过 / 0 阻断 / 0 缺陷 / 6 观察**。条件 = O-1 的口径登记（生产接线归下游集成面，不随本单 DONE 被读成端到端闭环）。判据 = 冻结点上全量绿已独立达成（37/37 + arch rc 0 + 五件齐隔离副本同绿）。
+- 本席未参与 T-038 产出；不采信产出方自述，上文逐项「独立实测」；变异 6 例自设（非复跑产出方 MUT-1/2/3）。
+- 写域：仅追加本章；cpp/java/proto/tools 只读；变异仅在隔离副本，共享树零污染（终态锚 `774cd0c8…`/121 与开工时一致）。
+
