@@ -82,7 +82,7 @@ set_target_properties(hg_hgcp PROPERTIES
 
 # HGCP 帧载荷依赖 protobuf（§3.6 / §7.2.1）；
 # 供给由双轨决定：CTP_USE_FETCH_DEPS=ON → FetchContent；OFF → 系统包。
-target_link_libraries(hg_hgcp PUBLIC hg_deps::protobuf hg::risk_state)
+target_link_libraries(hg_hgcp PUBLIC hg_deps::protobuf hg::risk_state hg::order_engine hg::flow_store)
 
 # -----------------------------------------------------------------------------
 # 单测（ctest）：帧 / 信封 + payload 编解码 / 鉴权 / 心跳退避 / 补数缓冲 / 回环绑定
@@ -97,7 +97,8 @@ set(HGCP_UNIT_TESTS
   endpoint_test
   session_test
   transport_test
-  command_handler_test)
+  command_handler_test
+  order_path_test)
 
 foreach(_t ${HGCP_UNIT_TESTS})
   add_executable(hgcp_${_t} "tests/${_t}.cc")
@@ -115,6 +116,9 @@ endforeach()
 
 # -----------------------------------------------------------------------------
 # T-038：command_handler_test 需要引擎联动（把装填后的快照喂给 RiskEngine 判定）。
-foreach(_t command_handler_test)
+# T-036：order_path_test 同形（交易路径接缝集成，复用 risk_engine testutil）。
+foreach(_t command_handler_test order_path_test)
   target_link_libraries(hgcp_${_t} PRIVATE hg::risk_engine)
+  target_include_directories(hgcp_${_t} PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../risk_engine/tests")
 endforeach()

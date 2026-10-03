@@ -5,6 +5,7 @@
 
 #include "hg/hgcp/protocol.h"
 #include "hg/hgcp/payload_codec.h"
+#include "hg/order_engine/order_engine.h"
 #include "hgcp.pb.h"
 
 namespace hg {
@@ -514,12 +515,379 @@ void map_trading_suspend(const pbv1::CmdSetTradingSuspend& in, LoadBatch* b) {
   }
 }
 
+// ============================= T-036 交易路径接缝 =============================
+
+// 五笔受理型的可解析性预检（引擎注入后仍先过此门）。
+bool parseable_check(std::uint16_t type, const std::vector<std::uint8_t>& body) {
+  switch (type) {
+    case mt(MessageType::kCmdPlaceOrder): {
+      pbv1::CmdPlaceOrder m;
+      return PbPayloadCodec::decode(body, &m);
+    }
+    case mt(MessageType::kCmdConfirmOrder): {
+      pbv1::CmdConfirmOrder m;
+      return PbPayloadCodec::decode(body, &m);
+    }
+    case mt(MessageType::kCmdCancelOrder): {
+      pbv1::CmdCancelOrder m;
+      return PbPayloadCodec::decode(body, &m);
+    }
+    case mt(MessageType::kCmdFundTransfer): {
+      pbv1::CmdFundTransfer m;
+      return PbPayloadCodec::decode(body, &m);
+    }
+    default: {
+      pbv1::CmdQueryFundResult m;
+      return PbPayloadCodec::decode(body, &m);
+    }
+  }
+}
+
+// 定点 → 十进制字符串（EvtPreTradeReject.current/threshold_value；§4.2.5 金额/价格
+//   线上为十进制字符串）。scale = 定点分母（1e4 数量 / 1e6 金额 / 1 整数）。
+std::string fixed_to_str(Fixed v, std::int64_t scale) {
+  if (scale <= 1) return std::to_string(v);
+  const bool neg = v < 0;
+  Fixed a = neg ? -v : v;
+  const std::int64_t ip = a / scale;
+  std::int64_t frac = a % scale;
+  std::string fs;
+  std::int64_t s = scale;
+  s /= 10;
+  while (s > 0) {
+    fs.push_back(static_cast<char>(48 + (frac / s) % 10));
+    s /= 10;
+  }
+  // 去尾零（保留至少一位小数位，形态对齐十进制字符串约定）。
+  std::size_t keep = fs.size();
+  while (keep > 1 && fs[keep - 1] == 48) --keep;
+  fs.resize(keep);
+  return (neg ? std::string("-") : std::string()) + std::to_string(ip) + "." + fs;
+}
+
+std::string fixed_to_str_engine_scaled(Fixed v, hg::risk_engine::ValueScale s) {
+  switch (s) {
+    case hg::risk_engine::ValueScale::kQty: return fixed_to_str(v, kQtyScale);
+    case hg::risk_engine::ValueScale::kAmount:
+    case hg::risk_engine::ValueScale::kRatio: return fixed_to_str(v, 1000000);
+    default: return std::to_string(v);
+  }
+}
+
+pbv1::LimitLayer limit_layer_to_pb(hg::risk_engine::LimitLayer l) {
+  switch (l) {
+    case hg::risk_engine::LimitLayer::kSubProduct: return pbv1::LIMIT_LAYER_SUB_PRODUCT;
+    case hg::risk_engine::LimitLayer::kSubInstrument: return pbv1::LIMIT_LAYER_SUB_INSTRUMENT;
+    case hg::risk_engine::LimitLayer::kAccountProduct:
+      return pbv1::LIMIT_LAYER_ACCOUNT_PRODUCT;
+    case hg::risk_engine::LimitLayer::kAuthQuota: return pbv1::LIMIT_LAYER_AUTH_QUOTA;
+    default: return pbv1::LIMIT_LAYER_NONE;
+  }
+}
+
+pbv1::OrderStatus order_status_to_pb(hg::order_engine::OrderStatus s) {
+  switch (s) {
+    case hg::order_engine::OrderStatus::kPendingConfirm:
+      return pbv1::ORDER_STATUS_PENDING_CONFIRM;
+    case hg::order_engine::OrderStatus::kSubmitted: return pbv1::ORDER_STATUS_SENT_CTP;
+    case hg::order_engine::OrderStatus::kPartiallyFilled:
+      return pbv1::ORDER_STATUS_PARTIAL_FILLED;
+    case hg::order_engine::OrderStatus::kFilled: return pbv1::ORDER_STATUS_ALL_FILLED;
+    case hg::order_engine::OrderStatus::kCancelled: return pbv1::ORDER_STATUS_CANCELLED;
+    case hg::order_engine::OrderStatus::kExpired: return pbv1::ORDER_STATUS_EXPIRED;
+    case hg::order_engine::OrderStatus::kRejected: return pbv1::ORDER_STATUS_REJECTED_CTP;
+    default: return pbv1::ORDER_STATUS_UNSET;
+  }
+}
+
+// CMD_PLACE_ORDER → 引擎受理入参（§4.4.1 对账映射约定：instrument_id 非数字串 ⇒ 拒收）。
+bool map_place_order(const pbv1::CmdPlaceOrder& m, hg::order_engine::OrderInput* in,
+                     std::string* why) {
+  in->client_order_ref = m.client_order_ref();
+  in->trade_plan_id = m.trade_plan_id();
+  in->exposure_id = m.exposure_id();
+  in->sub_account_id = m.sub_account_id();
+  in->product_id = m.product_id();
+  in->instrument_id = m.instrument_id();
+  if (!parse_u32_str(m.instrument_id(), &in->instrument_key)) {
+    *why = "instrument_id not numeric";
+    return false;
+  }
+  in->is_option = m.instrument_type() == pbv1::INSTRUMENT_TYPE_OPTION;
+  in->direction = m.direction() == pbv1::DIRECTION_SELL
+                      ? hg::risk_engine::OrderDirection::kSell
+                      : hg::risk_engine::OrderDirection::kBuy;
+  in->offset = m.offset_flag() == pbv1::OFFSET_FLAG_OPEN
+                   ? hg::risk_engine::OffsetFlag::kOpen
+                   : hg::risk_engine::OffsetFlag::kClose;  // CLOSE/CLOSE_TODAY 均按平仓收敛
+  in->price_type = m.price_type() == pbv1::PRICE_TYPE_MARKET
+                       ? hg::risk_engine::PriceType::kMarket
+                       : hg::risk_engine::PriceType::kLimit;
+  if (!parse_fixed_str(m.limit_price(), 1000000, &in->limit_price)) {
+    if (m.price_type() != pbv1::PRICE_TYPE_MARKET) {
+      *why = "limit_price unparseable";
+      return false;
+    }
+    in->limit_price = 0;  // 市价单无数值价
+  }
+  in->volume = m.volume();
+  in->operator_id = m.operator_id();
+  in->strategy_id = m.strategy_id();
+  in->leg_no = m.leg_no();
+  in->related_plan_id = m.related_plan_id();
+  in->related_exposure_id = m.related_exposure_id();
+  in->client_ts_ms = m.client_ts_ms();
+  return true;
+}
+
+// 指令要素摘要（EvtPreTradeReject.order_digest，§4.2.4「供审计还原」）。
+std::string order_digest_of(const pbv1::CmdPlaceOrder& m) {
+  return "ref=" + m.client_order_ref() + ";plan=" + std::to_string(m.trade_plan_id()) +
+         ";expo=" + std::to_string(m.exposure_id()) +
+         ";sub=" + std::to_string(m.sub_account_id()) +
+         ";prod=" + std::to_string(m.product_id()) + ";inst=" + m.instrument_id() +
+         ";dir=" + std::to_string(static_cast<int>(m.direction())) +
+         ";off=" + std::to_string(static_cast<int>(m.offset_flag())) +
+         ";px=" + m.limit_price() + ";vol=" + std::to_string(m.volume()) +
+         ";op=" + std::to_string(m.operator_id());
+}
+
+// 引擎档案形态的摘要（确认期再校验拒绝时以受理档案还原要素）。
+std::string order_digest_of(const hg::order_engine::OrderInput& in) {
+  return "ref=" + in.client_order_ref + ";plan=" + std::to_string(in.trade_plan_id) +
+         ";expo=" + std::to_string(in.exposure_id) +
+         ";sub=" + std::to_string(in.sub_account_id) +
+         ";prod=" + std::to_string(in.product_id) + ";inst=" + in.instrument_id +
+         ";dir=" + std::to_string(static_cast<int>(in.direction)) +
+         ";off=" + std::to_string(static_cast<int>(in.offset)) +
+         ";px=" + std::to_string(in.limit_price) + ";vol=" + std::to_string(in.volume) +
+         ";op=" + std::to_string(in.operator_id);
+}
+
+ReplyFrame encode_pre_trade_reject(const std::string& client_order_ref, std::uint32_t sub,
+                                   std::uint32_t product, const std::string& instrument,
+                                   std::uint64_t operator_id, const std::string& digest,
+                                   const hg::risk_engine::RiskResult& rr,
+                                   std::int64_t reject_ts_ms) {
+  pbv1::EvtPreTradeReject e;
+  e.set_client_order_ref(client_order_ref);
+  e.set_sub_account_id(sub);
+  e.set_product_id(product);
+  e.set_instrument_id(instrument);
+  e.set_rule_id(hg::risk_engine::ruleIdName(rr.rule));
+  e.set_reason_code(rr.code);
+  e.set_limit_layer(limit_layer_to_pb(rr.limit_layer));
+  if (rr.entry_count > 0) {
+    e.set_current_value(
+        fixed_to_str_engine_scaled(rr.entries[0].current, rr.entries[0].current_scale));
+    e.set_threshold_value(
+        fixed_to_str_engine_scaled(rr.entries[0].threshold, rr.entries[0].threshold_scale));
+  } else {
+    e.set_current_value("-");
+    e.set_threshold_value("-");
+  }
+  e.set_order_digest(digest);
+  e.set_operator_id(operator_id);
+  e.set_reject_ts_ms(reject_ts_ms);
+  ReplyFrame f;
+  f.type = mt(MessageType::kEvtPreTradeReject);
+  f.flags = 0;
+  PbPayloadCodec::encode(e, &f.body);
+  return f;
+}
+
+ReplyFrame encode_pre_trade_reject(const pbv1::CmdPlaceOrder& m,
+                                   const hg::risk_engine::RiskResult& rr,
+                                   std::int64_t reject_ts_ms) {
+  return encode_pre_trade_reject(m.client_order_ref(), m.sub_account_id(), m.product_id(),
+                                 m.instrument_id(), m.operator_id(), order_digest_of(m), rr,
+                                 reject_ts_ms);
+}
+
+ReplyFrame encode_engine_event(const hg::order_engine::EngineEvent& ev) {
+  ReplyFrame f;
+  switch (ev.kind) {
+    case hg::order_engine::EngineEvent::Kind::kReport: {
+      pbv1::EvtOrderReport e;
+      e.set_order_id(ev.report.order_id);
+      if (!ev.report.order_sys_id.empty()) e.set_order_sys_id(ev.report.order_sys_id);
+      if (!ev.report.order_local_id.empty()) e.set_order_local_id(ev.report.order_local_id);
+      e.set_status(order_status_to_pb(ev.report.status));
+      e.set_volume_total(ev.report.volume_total);
+      e.set_volume_traded(ev.report.volume_traded);
+      e.set_volume_left(ev.report.volume_left);
+      if (ev.report.ctp_error_id != 0) e.set_ctp_error_id(ev.report.ctp_error_id);
+      if (!ev.report.ctp_error_msg.empty()) e.set_ctp_error_msg(ev.report.ctp_error_msg);
+      e.set_report_ts_ms(ev.report.report_ts_ms);
+      f.type = mt(MessageType::kEvtOrderReport);
+      PbPayloadCodec::encode(e, &f.body);
+      break;
+    }
+    case hg::order_engine::EngineEvent::Kind::kFill: {
+      pbv1::EvtTradeFill e;
+      e.set_trade_id(ev.fill.trade_id);
+      e.set_order_id(ev.fill.order_id);
+      e.set_order_sys_id(ev.fill.order_sys_id);
+      e.set_instrument_id(ev.fill.instrument_id);
+      e.set_direction(ev.fill.is_sell ? pbv1::DIRECTION_SELL : pbv1::DIRECTION_BUY);
+      e.set_offset_flag(ev.fill.is_close ? pbv1::OFFSET_FLAG_CLOSE : pbv1::OFFSET_FLAG_OPEN);
+      e.set_price(fixed_to_str(ev.fill.price, 1000000));
+      e.set_volume(ev.fill.volume);
+      e.set_trade_ts_ms(ev.fill.trade_ts_ms);
+      e.set_sub_account_id(ev.fill.sub_account_id);
+      e.set_trade_plan_id(ev.fill.trade_plan_id);
+      e.set_exposure_id(ev.fill.exposure_id);
+      f.type = mt(MessageType::kEvtTradeFill);
+      PbPayloadCodec::encode(e, &f.body);
+      break;
+    }
+    case hg::order_engine::EngineEvent::Kind::kExpired: {
+      pbv1::EvtOrderExpired e;
+      e.set_order_id(ev.expired.order_id);
+      e.set_client_order_ref(ev.expired.client_order_ref);
+      e.set_expired_ts_ms(ev.expired.expired_ts_ms);
+      e.set_timeout_ms(ev.expired.timeout_ms);
+      f.type = mt(MessageType::kEvtOrderExpired);
+      PbPayloadCodec::encode(e, &f.body);
+      break;
+    }
+    case hg::order_engine::EngineEvent::Kind::kCancelResult: {
+      pbv1::EvtOrderCancelResult e;
+      e.set_order_id(ev.cancel_out.order_id);
+      e.set_cancelled_volume(ev.cancel_out.cancelled_volume);
+      e.set_result(ev.cancel_out.result);
+      if (ev.cancel_out.result != 0) e.set_reason_code(ev.cancel_out.reason_code);
+      f.type = mt(MessageType::kEvtOrderCancelResult);
+      PbPayloadCodec::encode(e, &f.body);
+      break;
+    }
+    default:
+      break;
+  }
+  return f;
+}
+
+// =========================== T-036 接缝（完） ===========================
+
 }  // namespace
 
 CommandHandler::CommandHandler(hg::risk_state::RiskState* state)
     : state_(state), session_(state) {}
 
 bool CommandHandler::system_ready() const { return state_->ready(); }
+
+void CommandHandler::set_order_engine(hg::order_engine::OrderEngine* engine) {
+  engine_ = engine;
+}
+
+// 交易路径三指令消费（T-036）：engine_ 注入后由 handle() 分派至此。
+CommandOutcome CommandHandler::handleTradePath(std::uint16_t type,
+                                               const std::vector<std::uint8_t>& body,
+                                               std::uint64_t ack_msg_id, std::int64_t now_ms) {
+  CommandOutcome out;
+  out.consumed = true;
+
+  // 惰性超时扫描（R-TRADE-6 / CFG-28）：任一交易指令到达前先清过期待确认单，
+  // 产出 EVT_ORDER_EXPIRED（不发 CTP 由引擎保证）。容量 8 = 单帧事件批量上限。
+  hg::order_engine::EngineEvent evs[8];
+  const std::size_t nexp = engine_->expirePending(now_ms, evs, 8);
+  for (std::size_t k = 0; k < nexp; ++k) {
+    out.events.push_back(encode_engine_event(evs[k]));
+  }
+
+  switch (type) {
+    case mt(MessageType::kCmdPlaceOrder): {
+      pbv1::CmdPlaceOrder m;
+      if (!PbPayloadCodec::decode(body, &m)) {
+        out.reply = invalid_payload(ack_msg_id, "unparseable");
+        return out;
+      }
+      hg::order_engine::OrderInput in;
+      std::string why;
+      if (!map_place_order(m, &in, &why)) {
+        out.reply = invalid_payload(ack_msg_id, why);
+        return out;
+      }
+      const hg::order_engine::AcceptResult a = engine_->accept(in, now_ms);
+      if (a.accepted) {
+        // 回执 = MSG_ACK（order_id + confirm_token 承载，§4.2.4 :892「服务端签发」）
+        //       + EVT_ORDER_ACCEPTED。
+        std::string detail = "order_id=" + std::to_string(a.order_id) +
+                             ";confirm_token=" + a.confirm_token +
+                             ";timeout_ms=" + std::to_string(a.effective_timeout_ms);
+        if (a.duplicate) detail += ";duplicate=true";
+        if (a.warn) detail += ";warn=0x1018";
+        out.reply = make_ack_with_detail(ack_msg_id, detail);
+        pbv1::EvtOrderAccepted e;
+        e.set_order_id(a.order_id);
+        e.set_client_order_ref(m.client_order_ref());
+        e.set_risk_passed(true);
+        e.set_effective_timeout_ms(a.effective_timeout_ms);
+        e.set_accepted_ts_ms(a.accepted_ts_ms);
+        ReplyFrame f;
+        f.type = mt(MessageType::kEvtOrderAccepted);
+        f.flags = 0;
+        PbPayloadCodec::encode(e, &f.body);
+        out.events.push_back(f);
+      } else {
+        // 拒绝 = MSG_ERROR（同步错误面）+ EVT_PRE_TRADE_REJECT（落库记录面，FR-TRADE-17）。
+        out.reply = make_error(ack_msg_id, a.risk.code, a.risk.entry_count > 0
+                                                     ? a.risk.entries[0].detail
+                                                     : "pre-trade check rejected");
+        out.events.push_back(encode_pre_trade_reject(m, a.risk, now_ms));
+      }
+      return out;
+    }
+    case mt(MessageType::kCmdConfirmOrder): {
+      pbv1::CmdConfirmOrder m;
+      if (!PbPayloadCodec::decode(body, &m)) {
+        out.reply = invalid_payload(ack_msg_id, "unparseable");
+        return out;
+      }
+      // 预取受理档案（确认期再校验拒绝时还原 EVT_PRE_TRADE_REJECT 要素）。
+      const hg::order_engine::OrderRecord* rec = engine_->find(m.order_id());
+      const hg::order_engine::OrderInput snap = rec != nullptr ? rec->input
+                                                               : hg::order_engine::OrderInput();
+      const hg::order_engine::ConfirmResult c =
+          engine_->confirm(m.order_id(), m.operator_id(), m.confirm_token(), now_ms);
+      if (c.sent) {
+        out.reply = make_ack_with_detail(ack_msg_id, "submitted to CTP");
+        // EVT_ORDER_REPORT 经回报路径异步产出（onOrderEvent → 事件流，T-039 承接发送）。
+      } else if (c.risk.decision == hg::risk_engine::RiskDecision::kReject) {
+        // 确认期再校验拒绝：MSG_ERROR + EVT_PRE_TRADE_REJECT（要素取受理档案快照）。
+        out.reply = make_error(ack_msg_id, c.reason_code, c.detail);
+        if (rec != nullptr) {
+          out.events.push_back(encode_pre_trade_reject(
+              snap.client_order_ref, snap.sub_account_id, snap.product_id, snap.instrument_id,
+              snap.operator_id, order_digest_of(snap), c.risk, now_ms));
+        }
+      } else {
+        out.reply = make_error(ack_msg_id, c.reason_code, c.detail);
+      }
+      return out;
+    }
+    default: {  // CMD_CANCEL_ORDER
+      pbv1::CmdCancelOrder m;
+      if (!PbPayloadCodec::decode(body, &m)) {
+        out.reply = invalid_payload(ack_msg_id, "unparseable");
+        return out;
+      }
+      hg::order_engine::EngineEvent cev;
+      const hg::order_engine::CancelResult r =
+          engine_->cancel(m.order_id(), m.operator_id(), m.reason(), now_ms, &cev);
+      if (r.cancelled || r.requested) {
+        out.reply = make_ack_with_detail(
+            ack_msg_id, r.cancelled ? "cancelled (no CTP order)" : "cancel requested");
+        if (cev.kind == hg::order_engine::EngineEvent::Kind::kCancelResult) {
+          out.events.push_back(encode_engine_event(cev));
+        }
+      } else {
+        out.reply = make_error(ack_msg_id, r.reason_code, r.detail);
+      }
+      return out;
+    }
+  }
+}
 
 CommandOutcome CommandHandler::handle(std::uint16_t type,
                                       const std::vector<std::uint8_t>& body,
@@ -742,35 +1110,7 @@ CommandOutcome CommandHandler::handle(std::uint16_t type,
     case mt(MessageType::kCmdCancelOrder):
     case mt(MessageType::kCmdFundTransfer):
     case mt(MessageType::kCmdQueryFundResult): {
-      bool parseable = false;
-      switch (type) {
-        case mt(MessageType::kCmdPlaceOrder): {
-          pbv1::CmdPlaceOrder m;
-          parseable = PbPayloadCodec::decode(body, &m);
-          break;
-        }
-        case mt(MessageType::kCmdConfirmOrder): {
-          pbv1::CmdConfirmOrder m;
-          parseable = PbPayloadCodec::decode(body, &m);
-          break;
-        }
-        case mt(MessageType::kCmdCancelOrder): {
-          pbv1::CmdCancelOrder m;
-          parseable = PbPayloadCodec::decode(body, &m);
-          break;
-        }
-        case mt(MessageType::kCmdFundTransfer): {
-          pbv1::CmdFundTransfer m;
-          parseable = PbPayloadCodec::decode(body, &m);
-          break;
-        }
-        default: {
-          pbv1::CmdQueryFundResult m;
-          parseable = PbPayloadCodec::decode(body, &m);
-          break;
-        }
-      }
-      if (!parseable) {
+      if (!parseable_check(type, body)) {
         out.reply = invalid_payload(ack_msg_id, "unparseable");
         return out;
       }
@@ -780,6 +1120,12 @@ CommandOutcome CommandHandler::handle(std::uint16_t type,
                                static_cast<std::uint32_t>(ErrorCode::kErrSystemNotReady),
                                "system not ready");
         return out;
+      }
+      // T-036 交易路径接缝：引擎注入 ⇒ 三笔交易指令交引擎生效。
+      if (engine_ != nullptr && (type == mt(MessageType::kCmdPlaceOrder) ||
+                                 type == mt(MessageType::kCmdConfirmOrder) ||
+                                 type == mt(MessageType::kCmdCancelOrder))) {
+        return handleTradePath(type, body, ack_msg_id, now_ms);
       }
       out.reply = make_ack_with_detail(ack_msg_id, "accepted (path pending T-036)");
       return out;

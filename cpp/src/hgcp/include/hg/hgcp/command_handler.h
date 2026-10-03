@@ -51,6 +51,9 @@
 #include "hg/risk_state/risk_state.h"
 
 namespace hg {
+namespace order_engine {
+class OrderEngine;  // 前置声明（T-036 交易路径消费接缝；可空持有）
+}  // namespace order_engine
 namespace hgcp {
 
 // 一条回执帧：类型 + FLAGS + 编码好的 body。
@@ -84,9 +87,23 @@ class CommandHandler {
   // 就绪观测（CMD_QUERY_STATUS 用；= RiskState::ready）。
   bool system_ready() const;
 
+  // ---- 交易路径消费接缝（T-036）----------------------------------------------
+  // 注入指令生命周期引擎。可空持有（调用方所有、不析构）；**缺省 null = 维持
+  // T-038 受理形态**（可解析性 + 就绪门卫 + "accepted (path pending T-036)" 回执）。
+  // 注入后：CMD_PLACE_ORDER / CONFIRM / CANCEL 交由引擎生效（风控前置 → 冻结 →
+  // 待确认 → 确认再校验 → 落流水 → 发 CTP），并产出 EVT_ORDER_* 事件帧。
+  // 其余两笔受理型（FUND_TRANSFER / QUERY_FUND_RESULT）仍为受理回执（生效主体归
+  // T-033 银期轨 / T-039，不在本接缝）。
+  void set_order_engine(hg::order_engine::OrderEngine* engine);
+
  private:
   hg::risk_state::RiskState* state_;
   hg::risk_state::ParamRebuildSession session_;
+  hg::order_engine::OrderEngine* engine_ = nullptr;
+
+  // 交易路径三指令的消费体（T-036；engine_ 注入后由 handle() 分派）。
+  CommandOutcome handleTradePath(std::uint16_t type, const std::vector<std::uint8_t>& body,
+                                 std::uint64_t ack_msg_id, std::int64_t now_ms);
 
   CommandHandler(const CommandHandler&);
   CommandHandler& operator=(const CommandHandler&);
