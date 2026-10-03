@@ -210,35 +210,35 @@ ReplayStatus HgcpServerLoop::send_resume(std::uint64_t last_received_seq) {
 }
 
 void HgcpServerLoop::handle_inbound(const Frame& f, std::int64_t now_ms) {
-// 帧级握手门禁（§4.2.6）：握手前仅接受 MSG_HELLO，否则按 §4.3.2 0x0107 拒并断连。
-// 令牌校验（T-171 / FR-CONFIG-9 验收 4）：HELLO 到达且已注入 `TokenVerifier` ⇒
-//   经 `TransportPolicy` 接缝取 `MsgHello.auth_token`（本层不解释字段）→
-//   `verify_audited`（SHA-256 + 常量时间比较 + 失败留痕，均在该组件内）⇒
-//   失败回 `MSG_AUTH_FAIL`(0x0003，body 经接缝编码 `MsgAuthFail{reason_code}`，§4.2.8.2)
-//   + **立即关闭连接**（§4.2.6 `:956`）；verifier 为 null ⇒ 维持既有帧级门禁（不因
-//   未配置令牌而拒连，向后兼容）。本层**不**重复留痕、不记录令牌信息（NFR-SEC-1）。
-if (!handshaken_) {
-if (f.header.type == mt(MessageType::kMsgHello)) {
-if (token_verifier_ != 0) {
-const std::string token = policy_->hello_auth_token(f.body);
-const AuthResult ar =
-token_verifier_->verify_audited(token, auth_audit_sink_, peer_, now_ms);
-if (ar != AuthResult::kAccepted) {
-send_frame(mt(MessageType::kMsgAuthFail), fl(kFlagIsError),
-policy_->auth_fail_body(error_code_for(ar)));
-close_conn();
-return;
-}
-}
-handshaken_ = true;
-send_frame(mt(MessageType::kMsgHelloAck), fl(kFlagIsReply), empty_body());
-} else {
-send_frame(mt(MessageType::kMsgError), fl(kFlagIsError),
-policy_->error_body(static_cast<std::uint32_t>(ErrorCode::kErrNotHandshaken)));
-close_conn();
-}
-return;
-}
+  // 帧级握手门禁（§4.2.6）：握手前仅接受 MSG_HELLO，否则按 §4.3.2 0x0107 拒并断连。
+  // 令牌校验（T-171 / FR-CONFIG-9 验收 4）：HELLO 到达且已注入 `TokenVerifier` ⇒
+  //   经 `TransportPolicy` 接缝取 `MsgHello.auth_token`（本层不解释字段）→
+  //   `verify_audited`（SHA-256 + 常量时间比较 + 失败留痕，均在该组件内）⇒
+  //   失败回 `MSG_AUTH_FAIL`(0x0003，body 经接缝编码 `MsgAuthFail{reason_code}`，§4.2.8.2)
+  //   + **立即关闭连接**（§4.2.6 `:956`）；verifier 为 null ⇒ 维持既有帧级门禁（不因
+  //   未配置令牌而拒连，向后兼容）。本层**不**重复留痕、不记录令牌信息（NFR-SEC-1）。
+  if (!handshaken_) {
+    if (f.header.type == mt(MessageType::kMsgHello)) {
+      if (token_verifier_ != 0) {
+        const std::string token = policy_->hello_auth_token(f.body);
+        const AuthResult ar =
+        token_verifier_->verify_audited(token, auth_audit_sink_, peer_, now_ms);
+        if (ar != AuthResult::kAccepted) {
+          send_frame(mt(MessageType::kMsgAuthFail), fl(kFlagIsError),
+          policy_->auth_fail_body(error_code_for(ar)));
+          close_conn();
+          return;
+        }
+      }
+      handshaken_ = true;
+      send_frame(mt(MessageType::kMsgHelloAck), fl(kFlagIsReply), empty_body());
+    } else {
+      send_frame(mt(MessageType::kMsgError), fl(kFlagIsError),
+      policy_->error_body(static_cast<std::uint32_t>(ErrorCode::kErrNotHandshaken)));
+      close_conn();
+    }
+    return;
+  }
   if (f.header.type == mt(MessageType::kMsgHeartbeatAck)) {
     session_.on_heartbeat_ack(now_ms);
   }
