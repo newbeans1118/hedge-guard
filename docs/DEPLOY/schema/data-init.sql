@@ -8,6 +8,10 @@
 --        （第 ② 段插 t_product，故 m1_product.sql 必须先执行）。
 --  执行者：DBA（应用账号禁 INSERT 之外的 DDL；本脚本仅 INSERT）。
 --
+--  版本说明：v2（T-009 承接，2026-10-03）——追加第 ④ 段 CONFIG 模块播种
+--        （t_dict_item 2 行 / t_report_period_config 6 行 / t_config_item 65 键），
+--        §② 表对应三行状态同步更新；第 ①/②/③ 段原文未改动。
+--
 --  ⚠️ 脚本纪律：不含存储过程 / 触发器 / 自定义函数（PROJECT.md §6 永久禁止）。
 -- =============================================================================
 
@@ -81,9 +85,9 @@ SET IDENTITY_INSERT t_product OFF;
 --   | 2 | `t_role` | 六类业务角色 + SYS_ADMIN（is_preset='Y'） | TB-AUTH-2 备注 | AUTH 模块任务 | ✅ **已交付：见第 ③ 段（T-010）** |
 --   | 3 | `t_position_conflict` | 默认互斥集（两两互斥 + 资金岗/交易岗互斥） | TB-AUTH-6 备注 | AUTH 模块任务 | ✅ **已交付：见第 ③ 段（T-010）** |
 --   | 4 | `t_account_subject` | 套期会计常用科目模板（is_template_default='Y'） | TB-CONFIG-5 / Q-9 | ACCT 模块任务 | 待 ACCT |
---   | 5 | `t_report_period_config` | 六类报告的周期与提醒角色 | TB-CONFIG-6 | CONFIG 模块任务 | 待 CONFIG |
---   | 6 | `t_dict_item` | 业务枚举字典（TRADE_REASON / UNIT_LABEL / EXPOSURE_DIRECTION 等） | TB-CONFIG-4 | CONFIG 模块任务 | 待 CONFIG |
---   | 7 | `t_config_item` | `ARCHITECTURE.md` §11 的全部 CFG-*（默认值 = 已确认口径） | §11 / R-CONFIG-8 | CONFIG 模块任务 | 待 CONFIG |
+--   | 5 | `t_report_period_config` | 六类报告的周期与提醒角色 | TB-CONFIG-6 | CONFIG 模块任务 | ✅ **已交付：见第 ④ 段（T-009 承接）** |
+--   | 6 | `t_dict_item` | 业务枚举字典（TRADE_REASON / UNIT_LABEL / EXPOSURE_DIRECTION 等） | TB-CONFIG-4 | CONFIG 模块任务 | ✅ **已交付：见第 ④ 段（T-009 承接）** |
+--   | 7 | `t_config_item` | `ARCHITECTURE.md` §11 的全部 CFG-*（默认值 = 已确认口径） | §11 / R-CONFIG-8 | CONFIG 模块任务 | ✅ **已交付：见第 ④ 段（T-009 承接）** |
 --
 --   ✅ 已解决（v1.3.3 / DC-041）：`t_product` 保留系统行 `id=0` **已在本脚本第 ①-bis 段落盘**
 --      （由 `#java2` 的 `question` 触发：`t_exposure.product_id = 0` 需要该行作外键目标）。
@@ -174,3 +178,341 @@ WHERE NOT EXISTS (
     SELECT 1 FROM t_position_conflict c WHERE c.group_a_id = a.id AND c.group_b_id = b.id
 );
 
+-- -----------------------------------------------------------------------------
+-- ④ CONFIG 模块任务播种（**T-009** 承接；`FR-CONFIG-14` / `FR-CONFIG-15` / `R-CONFIG-8`）
+--
+--  依据：DATA_MODEL.md §2.1 TB-CONFIG-4（枚举字典）/ TB-CONFIG-2（配置项载体）/
+--        TB-CONFIG-6（报告周期）+ ARCHITECTURE.md §11.1（CFG-01~18，默认值 = 已确认口径）/
+--        §11.2（CFG-19~33 基础设施）/ §11.3（分类与持久化属性，persist_scope / dispatch_to_ctp 逐项核对）+
+--        REQUIREMENTS/INDEX.md §9.1（R-CONFIG-8：默认值不得低于确认口径）。
+--
+--  ⚠️ 幂等：每段 INSERT 均带 `WHERE NOT EXISTS`（按自然键 dict_type+item_code / config_key /
+--     report_type 去重），重复执行不产生重复行。
+--  ⚠️ 敏感项：§11.2 中零落盘/部署时填写项**不播种**——`CFG-19`（hg.security.sensitive_fields，
+--     仅内存）、`CFG-31`（hg.db.*，部署时填写、密码不落盘）、`CFG-32` 的 `hg.web.ws.port`
+--     （部署时填写）不含明文凭证；其余 `hg.*` 为非敏感基础设施参数（回环地址 / 端口 / 超时）。
+--  ⚠️ `t_dict_item` 粒度：**只播代码实际消费的枚举域**（当前 = `EXPOSURE_DIRECTION` 的
+--     `BUY`/`SELL`，消费点 `SpotService` 与 6 张 SPOT 表的 `ck_*_direction` CHECK；
+--     `TRADE_REASON` / `UNIT_LABEL` 尚无代码消费面〔前者由 `TB-TRADE-4` 结构化 CHECK 承载、
+--     `t_trade_*` 表属 M2〕，不预造「将来可能用」的行，避免口径漂移）。
+--  ⚠️ `t_report_period_config.remind_role_codes`：逗号分隔、均为 `t_role` 已播种角色编码
+--     （`FIN_RISK`/`TRADER`/`SETTLER`/`APPROVER`/`AUDITOR`，见第 ③ 段）；提醒角色映射依据
+--     `Q-14`（INDEX.md §9.1）与 `R-SETTLE-6`/`R-SETTLE-11`；`remind_advance_days` 无权威取值源，
+--     取保守默认 0（到期即提醒，不提前）；`MAJOR_EVENT` 为事件触发（`CFG-26`），按每日评估
+--     触发条件落 `DAY/1`，`is_mandatory='Y'`（`R-CONFIG-7` 精神：重大事项报告不得关闭）。
+--  ⚠️ 仅 INSERT，不含存储过程 / 触发器 / 自定义函数（PROJECT.md §6）。
+-- -----------------------------------------------------------------------------
+
+-- ④-1 枚举字典 t_dict_item（2 行：EXPOSURE_DIRECTION BUY/SELL）
+INSERT INTO t_dict_item (
+    dict_type, item_code, item_name, item_desc, sort_no, status, is_system,
+    created_by, created_time, row_version
+)
+SELECT src.dt, src.code, src.name, src.descr, src.sort, 'ENABLED', 'Y', 0, CURRENT_TIMESTAMP, 0
+FROM (
+    SELECT 'EXPOSURE_DIRECTION' AS dt, 'BUY' AS code, '买入' AS name,
+           '买入套保方向：对应采购/原料侧实货敞口（exposure_direction=BUY，ck_*_direction 取值域）' AS descr, 1 AS sort
+    UNION ALL SELECT 'EXPOSURE_DIRECTION', 'SELL', '卖出',
+           '卖出套保方向：对应销售/产成品侧实货敞口（exposure_direction=SELL，ck_*_direction 取值域）', 2
+) src
+WHERE NOT EXISTS (
+    SELECT 1 FROM t_dict_item d WHERE d.dict_type = src.dt AND d.item_code = src.code
+);
+
+-- ④-2 报告周期配置 t_report_period_config（6 行；角色映射依据 Q-14 / R-SETTLE-6 / R-SETTLE-11）
+INSERT INTO t_report_period_config (
+    report_type, period_unit, period_value, remind_advance_days, remind_role_codes,
+    is_mandatory, is_enabled, created_by, created_time, row_version
+)
+SELECT src.rt, src.pu, 1, 0, src.roles, 'Y', 'Y', 0, CURRENT_TIMESTAMP, 0
+FROM (
+    SELECT 'DAILY_SETTLE' AS rt, 'DAY' AS pu, 'SETTLER,FIN_RISK' AS roles
+    UNION ALL SELECT 'DAILY_RISK', 'DAY', 'FIN_RISK'
+    UNION ALL SELECT 'MONTHLY_CHECK', 'MONTH', 'FIN_RISK,TRADER,SETTLER'
+    UNION ALL SELECT 'QUARTERLY_REPORT', 'QUARTER', 'FIN_RISK,TRADER,APPROVER'
+    UNION ALL SELECT 'ANNUAL_REPORT', 'YEAR', 'AUDITOR'
+    UNION ALL SELECT 'MAJOR_EVENT', 'DAY', 'FIN_RISK,APPROVER,AUDITOR'
+) src
+WHERE NOT EXISTS (
+    SELECT 1 FROM t_report_period_config r WHERE r.report_type = src.rt
+);
+
+-- ④-3 配置项 t_config_item（65 键：ARCHITECTURE.md §11.1 全部 37 键 + §11.2 可持久化 28 键）
+--     列映射：persist_scope / dispatch_to_ctp 按 §11.3 逐项；related_question_no = §11.1 来源 Q-n；
+--     config_value = default_value = 已确认口径默认值（R-CONFIG-8：不得低于 INDEX.md §9.1）。
+INSERT INTO t_config_item (
+    config_key, config_category, config_value, value_type, enum_scope,
+    min_value, max_value, default_value, is_sensitive, sensitive_state,
+    persist_scope, dispatch_to_ctp, double_review_required, related_question_no,
+    description, created_by, created_time, row_version
+)
+SELECT src.k, src.cat, src.val, src.vt, src.scope,
+       src.lo, src.hi, src.val, 'N', NULL,
+       src.ps, src.dsp, src.rev, src.qno,
+       src.dscr, 0, CURRENT_TIMESTAMP, 0
+FROM (
+    SELECT 'hedge.scale.base' AS k, 'RISK_PARAM' AS cat, 'EXPOSURE_QTY' AS val, 'ENUM' AS vt,
+           'EXPOSURE_QTY,REVENUE,PURCHASE_QTY' AS scope, NULL AS lo, NULL AS hi,
+           'LOCAL_ADMIN' AS ps, 'Y' AS dsp, 'Y' AS rev, 'Q-1' AS qno,
+           'CFG-01 规模红线基数口径：年度现货敞口累计量（实物量），不用营业收入' AS dscr
+    UNION ALL SELECT 'hedge.scale.scope', 'RISK_PARAM', 'BOTH', 'ENUM',
+           'SUB_ACCOUNT,TOTAL_ACCOUNT,BOTH', NULL, NULL,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-1',
+           'CFG-02 规模红线计算范围：子账户与全账户双算、取严者'
+    UNION ALL SELECT 'hedge.scale.ratio_commodity', 'RISK_PARAM', '0.90', 'DECIMAL',
+           NULL, 0, 1,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-2',
+           'CFG-02b 商品类规模红线比例 90%'
+    UNION ALL SELECT 'hedge.scale.ratio_trade', 'RISK_PARAM', '0.80', 'DECIMAL',
+           NULL, 0, 1,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-2',
+           'CFG-02b 贸易类规模红线比例 80%'
+    UNION ALL SELECT 'sub_account.category', 'SUB_ACCOUNT', 'COMMODITY', 'ENUM',
+           'COMMODITY,TRADE', NULL, NULL,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-2',
+           'CFG-02c 子账户分类默认商品类，允许品种级覆盖；变更风控岗发起+财务负责人审批'
+    UNION ALL SELECT 'risk.term.max_months', 'RISK_PARAM', '12', 'INT',
+           NULL, 1, 120,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-4',
+           'CFG-03 期限红线：建仓日 + N 个月'
+    UNION ALL SELECT 'risk.term.grace_days', 'RISK_PARAM', '30', 'INT',
+           NULL, 0, 180,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-4',
+           'CFG-03 实货合同到期宽限天数'
+    UNION ALL SELECT 'risk.term.action', 'RISK_PARAM', 'WARN_THEN_BLOCK', 'ENUM',
+           'WARN_THEN_BLOCK,BLOCK,WARN_AND_APPROVE', NULL, NULL,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-4',
+           'CFG-03b 超期限处置：剩余<=30天告警，超期未审批阻断新开仓；不阻断平仓与展期置换'
+    UNION ALL SELECT 'risk.position.check_mode', 'RISK_PARAM', 'PRE_TRADE_AND_EOD', 'ENUM',
+           'PRE_TRADE_AND_EOD,ON_ORDER,EOD_ONLY', NULL, NULL,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-3',
+           'CFG-04 时点净持仓校验时点：下单瞬间硬阻断+日终复核，不做盘中逐笔重算'
+    UNION ALL SELECT 'exposure.snapshot.mode', 'RISK_PARAM', 'LATEST_SNAPSHOT_OF_DAY', 'ENUM',
+           'LATEST_SNAPSHOT_OF_DAY,CONTRACT_REMAINING', NULL, NULL,
+           'LOCAL_ADMIN', 'N', 'N', 'Q-3',
+           'CFG-04b 校验用敞口时点：当日最新快照，须记录快照时点'
+    UNION ALL SELECT 'risk.freq.intraday_warn', 'RISK_PARAM', '6', 'INT',
+           NULL, 1, 100,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-5',
+           'CFG-05 频繁开平仓：日内滚动窗开平合计告警阈值'
+    UNION ALL SELECT 'risk.freq.intraday_block', 'RISK_PARAM', '10', 'INT',
+           NULL, 1, 100,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-5',
+           'CFG-05 频繁开平仓：日内滚动窗开平合计限制新开仓阈值'
+    UNION ALL SELECT 'risk.freq.7d_rounds_warn', 'RISK_PARAM', '5', 'INT',
+           NULL, 1, 100,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-5',
+           'CFG-05b 7 日滚动开平回合告警阈值'
+    UNION ALL SELECT 'risk.freq.min_hold_days', 'RISK_PARAM', '3', 'INT',
+           NULL, 1, 60,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-5',
+           'CFG-05b 平均持仓天数告警线（<3 且回合>=5 告警）'
+    UNION ALL SELECT 'plan.ratio.custom.mode', 'RISK_PARAM', 'FIXED_RATIO_CAP_WITH_CONDITIONS', 'ENUM',
+           'FIXED_RATIO_CAP_WITH_CONDITIONS', NULL, NULL,
+           'LOCAL_ADMIN', 'N', 'N', 'Q-6',
+           'CFG-06 自定义规则法：固定比例上限+适用条件，不做表达式引擎；规则实体化 TB-PLAN-8'
+    UNION ALL SELECT 'plan.ratio.minvar_min_samples', 'RISK_PARAM', '30', 'INT',
+           NULL, 10, 250,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-06b 最小方差法最小样本（交易日）'
+    UNION ALL SELECT 'accounting.effectiveness.observers', 'RISK_PARAM', 'PRODUCT_LINKAGE,DIRECTION,TERM±3M', 'STRING',
+           NULL, NULL, NULL,
+           'LOCAL_ADMIN', 'N', 'Y', 'Q-7',
+           'CFG-07 有效性三项定性观察点（三项均满足即有效）'
+    UNION ALL SELECT 'accounting.effectiveness.monitor_threshold', 'RISK_PARAM', '0.50', 'DECIMAL',
+           NULL, 0, 5,
+           'LOCAL_ADMIN', 'N', 'Y', 'Q-7',
+           'CFG-07b 量化监测指标：偏离1超±50%提示复核；仅监测不判定有效性'
+    UNION ALL SELECT 'accounting.rebalance.exposure_delta_pct', 'RISK_PARAM', '0.20', 'DECIMAL',
+           NULL, 0, 1,
+           'LOCAL_ADMIN', 'N', 'Y', 'Q-8',
+           'CFG-08 再平衡触发：敞口变动阈值（敞口侧）'
+    UNION ALL SELECT 'accounting.rebalance.ratio_deviation_pct', 'RISK_PARAM', '0.20', 'DECIMAL',
+           NULL, 0, 1,
+           'LOCAL_ADMIN', 'N', 'Y', 'Q-8',
+           'CFG-08 再平衡触发：套期比率偏离阈值（工具侧）'
+    UNION ALL SELECT 'accounting.subject.template', 'DICT_SUBJECT', 'HEDGE_TEMPLATE', 'STRING',
+           NULL, NULL, NULL,
+           'LOCAL_ADMIN', 'N', 'Y', 'Q-9',
+           'CFG-09 科目表：含套期会计常用科目模板，企业可增删改（t_account_subject 载体）'
+    UNION ALL SELECT 'accounting.voucher.mode', 'DICT_SUBJECT', 'DRAFT_ONLY', 'STRING',
+           NULL, NULL, NULL,
+           'LOCAL_ADMIN', 'N', 'Y', 'Q-9',
+           'CFG-09 凭证模式：草稿含科目建议，不做总账过账，标注待企业财务复核入账'
+    UNION ALL SELECT 'sub_account.lifecycle', 'SUB_ACCOUNT', 'DISABLE_ONLY', 'ENUM',
+           'DISABLE_ONLY', NULL, NULL,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-10',
+           'CFG-10 子账户生命周期纪律：不可物理删除仅停用，历史永久只读且仍参与加总对账'
+    UNION ALL SELECT 'settle.aggregation.block_scope', 'RISK_PARAM', 'DIFF_SUB_NON_CLOSE', 'ENUM',
+           'DIFF_SUB_NON_CLOSE,DIFF_SUB,ALL_SUB', NULL, NULL,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-11',
+           'CFG-11 加总不一致阻断范围：仅差异所属子账户新开仓/资金划拨/日终关账；不阻断平仓'
+    UNION ALL SELECT 'spot.price.gap_calc', 'RISK_PARAM', 'REJECT', 'ENUM',
+           'REJECT,INTERPOLATE_MAX_3D', NULL, NULL,
+           'LOCAL_ADMIN', 'N', 'Y', 'Q-12',
+           'CFG-12 现货价缺口（套保比率计算用途）：拒绝计算并明确报错；插值可选默认关闭'
+    UNION ALL SELECT 'spot.price.gap_valuation', 'RISK_PARAM', 'CARRY_FORWARD_LABELED', 'ENUM',
+           'CARRY_FORWARD_LABELED,REJECT', NULL, NULL,
+           'LOCAL_ADMIN', 'N', 'Y', 'Q-12',
+           'CFG-12b 现货价缺口（实货盈亏/敞口估值用途）：沿用最近一期但必须标注 price_as_of'
+    UNION ALL SELECT 'trade.reason.mode', 'RISK_PARAM', 'STRUCTURED_MANDATORY', 'ENUM',
+           'STRUCTURED_MANDATORY', NULL, NULL,
+           'LOCAL_ADMIN', 'N', 'N', 'Q-13',
+           'CFG-13 交易理由形式：关联类型+关联对象+时点说明三项必填，校验不通过即拒绝'
+    UNION ALL SELECT 'settle.sign.roles', 'REPORT_PERIOD', 'RISK,TRADE,FINANCE', 'STRING',
+           NULL, NULL, NULL,
+           'LOCAL_ADMIN', 'N', 'Y', 'Q-14',
+           'CFG-14 核对任务应签角色：月度三方各自签署；季度 RISK+TRADE 后 MANAGE 签收；年度 AUDITOR'
+    UNION ALL SELECT 'settle.sign.deadline_days', 'REPORT_PERIOD', '30', 'INT',
+           NULL, 1, 120,
+           'LOCAL_ADMIN', 'N', 'Y', 'Q-14',
+           'CFG-14 签署截止：期间结束后 N 天内'
+    UNION ALL SELECT 'risk.price.base', 'RISK_PARAM', 'PREV_SETTLEMENT', 'ENUM',
+           'PREV_SETTLEMENT', NULL, NULL,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-15',
+           'CFG-15 价格偏离基准：昨结算价（CTP 提供）；市价单不适用并标注'
+    UNION ALL SELECT 'risk.price.warn_pct', 'RISK_PARAM', '0.02', 'DECIMAL',
+           NULL, 0, 1,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-15',
+           'CFG-15 价格偏离告警线：(2%,5%] 告警+二次确认（0x1018）'
+    UNION ALL SELECT 'risk.price.block_pct', 'RISK_PARAM', '0.05', 'DECIMAL',
+           NULL, 0, 1,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-15',
+           'CFG-15 价格偏离阻断线：>5% 阻断（0x1010）；品种级可覆盖'
+    UNION ALL SELECT 'risk.limit.layers', 'RISK_PARAM', 'SUB_PRODUCT,SUB_INSTRUMENT,ACCOUNT_PRODUCT', 'LIST',
+           'SUB_PRODUCT,SUB_INSTRUMENT,ACCOUNT_PRODUCT', NULL, NULL,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-16',
+           'CFG-16 限额三层全保留：层①主维度/层②可选/层③总账户防串用；层①不可关闭'
+    UNION ALL SELECT 'exposure.components', 'RISK_PARAM', 'CONTRACT_UNEXECUTED,INVENTORY,PRODUCTION_PLAN', 'LIST',
+           'CONTRACT_UNEXECUTED,INVENTORY,PRODUCTION_PLAN', NULL, NULL,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-17',
+           'CFG-17 实货敞口默认口径（组合，含生产计划）：三分量全开；快照必须存三类分量'
+    UNION ALL SELECT 'exposure.component.gap_calc', 'RISK_PARAM', 'REJECT', 'ENUM',
+           'REJECT,CARRY_FORWARD_LABELED', NULL, NULL,
+           'LOCAL_ADMIN', 'Y', 'Y', 'Q-17',
+           'CFG-17b 敞口分量缺失/不一致：写入侧拒绝；展示侧重算+告警+留痕；比率计算一律拒绝'
+    UNION ALL SELECT 'audit.chain.inflight_max_cycles', 'RISK_PARAM', '1', 'INT',
+           NULL, 1, 3,
+           'LOCAL_ADMIN', 'N', 'Y', NULL,
+           'CFG-17c 追溯链在途时窗上限（结算周期数）：逾时 UNKNOWN+告警，再逾则 HAS_BREAK'
+    UNION ALL SELECT 'spot.price.scope', 'RISK_PARAM', 'GLOBAL', 'ENUM',
+           'GLOBAL', NULL, NULL,
+           'LOCAL_ADMIN', 'Y', 'N', NULL,
+           'CFG-18 现货价子账户口径：唯一取值 GLOBAL（CH-003 收敛）；PER_SUB_ACCOUNT 已废弃禁止启用'
+    -- ---- §11.2 基础设施配置（可持久化项；CFG-19/31 与 hg.web.ws.port 不播种，见段头说明） ----
+    UNION ALL SELECT 'hg.tcp.bind', 'COMPONENT_COMM', '127.0.0.1', 'STRING',
+           NULL, NULL, NULL,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-20 HGCP 组件通道绑定地址：bind 白名单仅 127.0.0.1（R-CONFIG-5）'
+    UNION ALL SELECT 'hg.tcp.port', 'COMPONENT_COMM', '27400', 'INT',
+           NULL, 1, 65535,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-20 HGCP 组件通道端口'
+    UNION ALL SELECT 'risk.margin_ratio_warn', 'RISK_PARAM', '0.70', 'DECIMAL',
+           NULL, 0, 1,
+           'LOCAL_ADMIN', 'Y', 'N', NULL,
+           'CFG-21 风险度告警阈值'
+    UNION ALL SELECT 'risk.margin_ratio_critical', 'RISK_PARAM', '0.90', 'DECIMAL',
+           NULL, 0, 1,
+           'LOCAL_ADMIN', 'Y', 'N', NULL,
+           'CFG-21 保证金占用率严重阈值'
+    UNION ALL SELECT 'risk.limit_usage_hint', 'RISK_PARAM', '0.80', 'DECIMAL',
+           NULL, 0, 1,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-21b 限额使用率提示线'
+    UNION ALL SELECT 'risk.limit_usage_warn', 'RISK_PARAM', '0.95', 'DECIMAL',
+           NULL, 0, 1,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-21b 限额使用率警告线'
+    UNION ALL SELECT 'hg.ctp.env_type', 'CTP_CONN', 'SIMULATION', 'ENUM',
+           'SIMULATION,PRODUCTION', NULL, NULL,
+           'LOCAL_ADMIN', 'Y', 'Y', NULL,
+           'CFG-22 模拟盘/实盘显式标识；切为 PRODUCTION 须二次确认+双人复核（R-CONFIG-9）'
+    UNION ALL SELECT 'hg.auth.login_fail_limit', 'SYSTEM', '5', 'INT',
+           NULL, 1, 20,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-23 登录失败锁定阈值（FR-AUTH-17）'
+    UNION ALL SELECT 'hg.auth.login_lock_minutes', 'SYSTEM', '5', 'INT',
+           NULL, 1, 1440,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-23 登录失败锁定时长（分钟）'
+    UNION ALL SELECT 'hg.auth.session_idle_minutes', 'SYSTEM', '30', 'INT',
+           NULL, 5, 120,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-23b 会话空闲超时（分钟）'
+    UNION ALL SELECT 'hg.auth.password_min_length', 'SYSTEM', '12', 'INT',
+           NULL, 8, 64,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-23b 口令强度最小长度'
+    UNION ALL SELECT 'hg.auth.password_history_size', 'SYSTEM', '5', 'INT',
+           NULL, 0, 24,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-23b 口令历史重用检查深度'
+    UNION ALL SELECT 'plan.expiry_remind_days', 'REPORT_PERIOD', '30', 'INT',
+           NULL, 1, 180,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-24 计划到期提前提醒期'
+    UNION ALL SELECT 'fund.quota.alert_levels', 'RISK_PARAM', '0.80,0.95,1.00', 'STRING',
+           NULL, NULL, NULL,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-25 资金额度告警级别阈值（递增序列）'
+    UNION ALL SELECT 'audit.major_event.loss_threshold', 'REPORT_PERIOD', '100000', 'INT',
+           NULL, 1, NULL,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-26 重大事项触发：单笔/当日亏损阈值（元）；触发 MAJOR_EVENT 报告'
+    UNION ALL SELECT 'settle.stress.scenarios', 'REPORT_PERIOD', '-3%,-5%,-10%;+10%', 'STRING',
+           NULL, NULL, NULL,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-27 压力测试情景参数'
+    UNION ALL SELECT 'hg.tcp.heartbeat_ms', 'COMPONENT_COMM', '1000', 'INT',
+           NULL, NULL, NULL,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-28 HGCP 心跳间隔（毫秒）'
+    UNION ALL SELECT 'hg.cmd_timeout_ms', 'COMPONENT_COMM', '3000', 'INT',
+           NULL, NULL, NULL,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-28 命令超时（毫秒）'
+    UNION ALL SELECT 'hg.trade.confirm_timeout_ms', 'COMPONENT_COMM', '60000', 'INT',
+           NULL, NULL, NULL,
+           'LOCAL_ADMIN', 'Y', 'N', NULL,
+           'CFG-28 人工确认超时（毫秒）'
+    UNION ALL SELECT 'hg.flow.dir', 'COMPONENT_COMM', './data/flow', 'STRING',
+           NULL, NULL, NULL,
+           'LOCAL_ADMIN', 'Y', 'N', NULL,
+           'CFG-29 指令流水目录（非敏感，不得存放明文凭证）'
+    UNION ALL SELECT 'hg.flow.fsync_mode', 'COMPONENT_COMM', 'BATCH', 'STRING',
+           NULL, NULL, NULL,
+           'LOCAL_ADMIN', 'Y', 'N', NULL,
+           'CFG-29 指令流水 fsync 模式'
+    UNION ALL SELECT 'hg.flow.retain_days', 'COMPONENT_COMM', '90', 'INT',
+           NULL, NULL, NULL,
+           'LOCAL_ADMIN', 'Y', 'N', NULL,
+           'CFG-29 指令流水保留天数'
+    UNION ALL SELECT 'hg.web.root', 'SYSTEM', './web', 'STRING',
+           NULL, NULL, NULL,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-30 前端静态资源目录'
+    UNION ALL SELECT 'hg.web.ws.heartbeat_ms', 'COMPONENT_COMM', '30000', 'INT',
+           NULL, 1000, NULL,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-32 Java WebSocket 心跳间隔（毫秒，>=1000，RFC 6455 原生 ping/pong）'
+    UNION ALL SELECT 'hg.web.ws.max_connections', 'COMPONENT_COMM', '200', 'INT',
+           NULL, 1, NULL,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-32 Java WebSocket 最大连接数'
+    UNION ALL SELECT 'hg.web.bind', 'COMPONENT_COMM', '127.0.0.1', 'STRING',
+           NULL, NULL, NULL,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-33 Java 前端 HTTP 绑定地址：白名单仅 127.0.0.1，取其它值拒绝启动（FR-CONFIG-9）'
+    UNION ALL SELECT 'hg.web.port', 'COMPONENT_COMM', '27402', 'INT',
+           NULL, 1, 65535,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-33 Java 前端 HTTP 端口（与 hg.web.ws.port / hg.tcp.port 分离）'
+    UNION ALL SELECT 'hg.web.threads', 'COMPONENT_COMM', '16', 'INT',
+           NULL, 1, NULL,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-33 Java 前端 HTTP 处理线程数（取 T-003 实测实现值，可调）'
+) src
+WHERE NOT EXISTS (
+    SELECT 1 FROM t_config_item c WHERE c.config_key = src.k
+);
