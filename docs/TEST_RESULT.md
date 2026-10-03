@@ -13146,3 +13146,54 @@ TMPDIR=/ cmake --build /hg-build-base -j4
 - 本席未参与 T-038 产出；不采信产出方自述，上文逐项「独立实测」；变异 6 例自设（非复跑产出方 MUT-1/2/3）。
 - 写域：仅追加本章；cpp/java/proto/tools 只读；变异仅在隔离副本，共享树零污染（终态锚 `774cd0c8…`/121 与开工时一致）。
 
+
+---
+## T-036 实现交付（席 be-t036）
+
+- **时点**：2026-10-04；**基线对账**：派单冻结树锚 `774cd0c8018f042a112918bf48ee39cc`/121（全文件口径）与本席实测**逐字节一致**后开工；唯一漂移 = HEAD 标签 `afaa458`→`8770078`（T-171/T-038/T-009 落库提交，恰为派单点名消费的上游资产；本席写域 `order_engine`/`flow_store` 该区间零改动）。
+- **交付物**（共享树实测 md5，`find … | LC_ALL=C sort | xargs md5sum | md5sum`）：
+  - `cpp/src/order_engine/**` + `cpp/src/flow_store/**` = **13 文件**，域锚 `f54475138deed0673365233c0a7603d2`；新增：`order_engine.h` / `order_engine.cc`（状态机）/ `trade_gateway.h` / `trade_gateway.cc`（发送面接缝）/ `flow_store.h` / `flow_store.cc`（append+fsync 原语）/ `tests/order_engine_test.cc`；改：两处 `CMakeLists.txt`。
+  - 消费接线（hgcp）：`command_handler.h/.cc`（`set_order_engine` 接缝 + `handleTradePath` 三指令消费 + EVT_ORDER_* 编码）+ `tests/order_path_test.cc`；`hgcp/CMakeLists.txt`（链 `hg::order_engine hg::flow_store`）。
+  - `cpp/src` 全域锚（交付后）：`7aaa95186daab4554490f5f7cf46ad23` / **129 文件**（121+8）。
+- **门禁（本席实测，构建树 `/root/t036v`，`-j2`/`TMPDIR=/`）**：全量构建 `rc 0`、告警 **0**；`ctest` **39/39 通过**（冻结基线 37 + 新增 `order_engine.order_engine` 122 checks / `hgcp.order_path` 46 checks，T-038 `command_handler_test` 142 checks 回归绿）；`tools/arch-check/arch-check.sh` **rc 0**（E1–E8 全 0；E4 实扫含新增 `order_engine` 源，命中 0，WARN 3 处为既有 `risk_state.cc` 信息性提示）。
+- **变异承重（隔离副本 `/root/t036-mut`，基线五件齐；每例「count==1 预检 → build rc 0 → 红 → 复位 `diff -r` 恒等 → 复位后绿」）4/4 全杀**：
+  - MUT-1 落流水先于发单旁路（`if (false && !appendFlow(kSent…))`）→ 红（`flow_count_at_submit==2` 落空，§4.2.6(4) ⑨→⑩不变量被守卫）；
+  - MUT-2 超时失效跳过释放/流水（`markTerminal`→裸置状态）→ 红 2（冻结未释放）；
+  - MUT-3 摘除 0x0305 代确认判定（仅留 `operator_id==0`）→ 红 7（级联暴露）；
+  - MUT-4 冻结账本超额守卫旁路（accept 侧 `false &&`）→ 红 14（`0x1017` 层② 首中断言落空）；
+  - 终态：复位后 `diff -r /root/t036-mut /root/t036-mut-orig` **rc 0（逐字节恒等）**，两新测试复位后 PASS。
+- **接缝裁定（派单要求，理由留痕）**：`CommandHandler` 持 `OrderEngine*` 可空指针（setter 注入、调用方所有、null=维持 T-038 受理旧行为并设回归守卫）。①`TransportPolicy` 是 server_loop 头注明载的「单一接缝，不新增第二套符号」帧级/schema 缝，业务消费塞入违反其自身章程；②CommandHandler 头注自任「schema 侧唯一映射点」（pb→LoadBatch 先例），pb→OrderInput 映射归它同构；③OrderEngine 本体零 protobuf 依赖；④独立工厂为无主增益的间接层。
+- **写入时机裁定**：按 §4.2.6(4) 第⑨→⑩步：`flow_store.append(+fsync)` 在确认通过后、`submitOrder` 之前（测试以假网关记录「发单时刻流水条数=2」守卫该顺序）；append 为同步原语（flow_store 不在 E4 扫描根，v1.5.12 明文排除），「异步线程」卸载归 T-039/T-041 接线，本单不做。
+- **实证偏差（只报不改）**：
+  1. `flow_store` 交付前为纯骨架（仅 `module_name`）——派单资产表「已有 append+fsync 原语」不实；本单已按 §3.5 最小实现（`FlowStore::open/append/state`，行格式五字段定列 + 消毒；重放归 T-037）。
+  2. **`0x1020` 跨引用缺口**：§4.2.4 `:864`/`:866` 载「trade_plan_id=0/sub_account_id=0 → 拒 `0x1020`」，但 §4.3.2 冻结 **62 码表无此码**（`0x10xx` 段止于 `0x1019`）。本席不新造未注册码：R-TRADE-1 前置校验沿用 risk_engine 入参非法约定（`RuleId::kInput` + `0x3003` + reason 串）；补注册须动冻结计数 62 ⇒ **CH 级，请裁定**。
+  3. **昨结算价无参数面数据集**：`RiskSnapshot`/`CmdLoadRiskParams` 均无 `prev_settlement`，唯一线上来源 = `EVT_MARKET_QUOTE.pre_settlement`（可）。引擎持 `setPrevSettlement` 显式缓存；缺位 ⇒ `OrderRequest.prev_settlement_price=0` ⇒ risk_engine 诚实拒 `0x1015`（无可用基准价）。行情消费接线归 T-039。
+  4. 快照不可变（T-034）⇒ 「下单冻结」不能就地改快照：引擎自持三层键冻结增量账本（T4 独占、无锁），与快照 `used+frozen` 同式叠加（`evalQuota` 口径镜像，层②>层①>层③ 首中上报），confirm 复核时扣除本单自身防自计双算；失效/撤单/CTP 拒单/全成时释放。MUT-4 即守卫此账本。
+- **§3.2 签名普查（验收 5；落点 `docs/ARCHITECTURE.md` 须授权，本席只报不改）**：草图 `accept(const OrderRequest&)`/`confirm(orderId)`/`cancel(orderId)`/`onOrderEvent(const OrderEvent&)` vs 真实 `accept(const OrderInput&, int64 now_ms)`/`confirm(orderId, operatorId, confirmToken, now_ms)`/`cancel(orderId, operatorId, reason, now_ms, out)`/`onOrderEvent(const CtOrderEvent&, out)`——四处均**元数不同 ⇒ 按验收 5 口径判 (A) 会误导，建议随本单订正**（confirm/cancel 元数与 `CH-018` TradingBridge 批准后签名同构，可互为依据）；返回类别同为聚合体 ⇒ (B)；内部结构 OrderMap/PendingConfirmMap 以 `orders_` + 档案内 deadline 字段承载 ⇒ (C)。
+- **范围外观察（只报不改）**：①hgcp→order_engine 形成 M6→M2 链接边（接缝裁定④的物理代价；架构 E1–E8 无 C++ 模块依赖方向判据，未违反成文红线，建议架构席知悉）；②确认成功后 `EVT_ORDER_REPORT` 走回报异步路径（`onOrderEvent`→事件流），§4.2.3 CMD_CONFIRM_ORDER 回执列「MSG_ACK+EVT_ORDER_REPORT」中后者非同步产出（与异步受理语义一致，请复核席知悉）；③`CMD_FUND_TRANSFER`/`CMD_QUERY_FUND_RESULT` 仍为受理回执（生效主体归 T-033 银期轨/T-039，未越界）；④confirm_token 经 MSG_ACK detail 回带（`EvtOrderAccepted` 无 token 字段可承载；若裁定要求独立协议字段则属 CH）。
+- **状态**：**已完成（待独立复核，不自评 DONE）**；写域自查：`git status` 中本席改动全部落在 `cpp/src/{order_engine,flow_store,hgcp}/**`，`docs/**` 仅本证据章追加；`dev-team/agents/*.md` 与 `.verify/` 的在库改动**非本席所为**（并列披露）。
+
+
+---
+## T-036 独立复核（席 te-verify-t036）
+
+- **时点**：2026-10-04；**结论**：**有条件通过**（0 阻断；**2 缺陷**〔中×2〕+ **5 观察**；是否阻断 DONE 由编排者裁定）。追加前基线 `head -13174 docs/TEST_RESULT.md | md5sum` = `51d22b0cc96e76314f82a7be4ae0a588`（追加前实测两时点一致）。
+- **冻结点独立实测（与编排者冻结点逐项比对）**：`HEAD=7e31515` 一致；`cpp/src` 树锚（`LC_ALL=C sort` 口径）= `7aaa95186daab4554490f5f7cf46ad23`/129 一致；域锚 order_engine+flow_store = `f54475138deed0673365233c0a7603d2`/13 一致；`docs/TEST_RESULT.md` = 13174 行。
+- **门禁独立复现（不采信产出方自述）**：①编排者构建树 `/root/t036v-build` 直跑 `ctest` = **39/39**（复现）；②本席自建隔离副本 `/root/t036-mv`（docs/java/cpp/tools/proto 五件齐，副本 `cpp/src` 锚与共享树逐字节一致）全新 configure+build（`Release`/`-j2`/`TMPDIR=/`）：build rc 0、告警 0、ctest **39/39**；③`arch-check.sh` rc 0（E1–E8 全 0）；④E4 实扫面直测 = **55 文件**（含 `order_engine` 三目录并集，非空转）。
+- **状态机分支覆盖核（逐段找到实现+用例）**：①正常链路 accept（R-TRADE-1 `0x3003` 前置〔`order_engine.cc` accept 头段〕→ 8 规则 `risk_->check` → `quotaLedgerViolation` 补账守卫 → `freezeFor` 三层冻结 → FNV-1a confirm_token）→ confirm 门卫序 = `0x2001`→`0x2002`→**超时 `0x2003`+markTerminal(Expired)**→`0x0305`→`0x0307`→**再跑完整风控**→账本复核（exclude=自身）→ flow 开门卫 `0x0401` → `appendFlow(kSent)`→`submitOrder`（⑨→⑩）→ token 消费 → kSubmitted——逐段有实现且有用例（`test_confirm_guards`/`test_confirm_happy_flow_before_submit`/`order_path_test` §5）；②超时失效：`test_confirm_guards`（60s+1 ⇒ 0x2003/释放/不发 CTP）+ `test_expire_pending_sweep`（批量 2、边界 deadline==now 不误杀）+ `order_path_test` §7（惰性扫描产出 EVT_ORDER_EXPIRED）；③撤单双轨：待确认直撤（`test_cancel_paths` + `order_path_test` §6）与 CTP 轨请求（`cancel_calls==1`）均有；④回报：部分成交/同 trade_id 幂等/全成释放/同形委托回报幂等/CTP 拒单（status '5'+ctp_error_id）释放（`test_report_and_partial_fill`/`test_ctp_reject_releases_freeze`）——**枚举内分支全有承重**；枚举外两序列见缺陷。
+- **五布尔权限链核（B 项）**：结构链实测贯通 `command_handler.map_update_permission→putPermission→RiskState.rebuild→RiskSnapshot.findPermission→risk_engine::evalPermission`（`risk_engine.cc:399-440`，`!has_trading_post ⇒ 0x100B`）；**本席自写探针**（副本追加用例后实证）：同 operator_id=7 二次 `putPermission(has_trading_post=false)` 覆盖装填后，订单链 accept 实拒 `kPermission/0x100B`——**B-1 装填消费与 B-3 单键覆盖在订单链上机制成立**；但存量用例无任何一例在订单链上覆盖（夹具 happyBatch 恒 `has_trading_post=true`），见缺口 O-3。
+- **冻结账本核（C 项）**：①线程安全声明：`order_engine.h` 明载「T4 单线程独占；非线程安全」；`server_loop.h:25` 头注「无内部线程」+ T4 单线程事件循环口径成立；**但 `CommandHandler` 当前无生产装配点**（`server_loop.cc` 0 引用，仅测试驱动），「T4 独占」现阶段为设计约束非运行事实（接线归 T-039，产出方已披露，本席认定诚实）；②confirm 扣自身防双算：`quotaLedgerViolation(rec->input,&guard,rec)` 的 `exclude` 逐层减自身冻结，语义正确（accept 侧 exclude=nullptr 含账本全量、confirm 侧扣自身防自计双算）；③失效/撤单/CTP 拒单/全成释放均有用例（`frozenOf→0` 断言 ×4 处）；④**终态后回报无守卫 ⇒ 双释放转负**，见 TE-T036-001。
+- **flow_store 核（D 项）**：`open`（O_APPEND|O_CREAT）→ `append`（拼行 + 单次 `::write` 循环补写 + `::fsync` 成功才 true）语义正确；`|`/换行消毒保五字段定列（`test_flow_store_primitive` 承重）；落流水时机 = confirm 内 `appendFlow(kSent)` 先于 `trade_->submitOrder`（`order_engine.cc` §4.2.6(4) ⑨→⑩），以假网关 `flow_count_at_submit==2` 观测（MUT-1 类被守卫）；**无 replay 越界**（`kReplaying` 仅枚举预留，头注诚实声明归 T-037）。
+- **接缝核（E 项）**：①null 回归守卫在（`test_legacy_when_engine_null`：「accepted (path pending T-036)」）；②接缝裁定本席独立认可：`server_loop.h:16`「单一接缝，不新增第二套符号」条款原文在案，TransportPolicy 为帧级/schema 缝、交易受理属业务消费，CommandHandler 头注自任 schema 唯一映射点（pb→LoadBatch 先例同构）；③hgcp→order_engine 链接边（M6→M2）：E1–E8 无 C++ 模块依赖方向判据（逐一核对 `tools/arch-check/`），**不违反成文判据**——维持「请架构席知悉」定性；④`0x1020` 缺口主张独立证实：`ARCHITECTURE.md:864/:866` 引用、`proto/hgcp.proto` 0 命中、§4.3.2 码表止于 `0x1019`（`:1409` 计 25）——产出方「kInput+0x3003+reason 替代 + 补注册须 CH」处置成立；⑤`§3.2` 草图签名偏差主张证实（`ARCHITECTURE.md:423-426` 四方法元数与实现全不同；实现与 `CH-018` 批准后 Java 签名同构）。
+- **变异承重（本席自设 5 例，隔离副本；每例 count==1 预检 → build rc 0 → ctest → 复位 `diff -r /root/t036-mv /root/t036-mv-orig` rc 0 逐字节恒等 → 复位后 39/39 绿；未复跑产出方 MUT-1~4）**：
+  - **MUT-A**（confirm 跳过再跑完整风控：`if (false && rr.decision==kReject)`）⇒ **存活（39/39 仍全绿）** ⇒「再跑完整风控」设计主张 **0 用例守卫**（缺口 O-1）；
+  - **MUT-B**（confirm 跳过账本复核扣自身：`if (false && quotaLedgerViolation(...,rec))`）⇒ **存活（39/39 仍全绿）** ⇒ confirm 侧防双算 **0 用例守卫**（产出方 MUT-4 仅杀 accept 侧；缺口 O-2）；
+  - MUT-C（prev_settlement 缺位兜底改限价 ⇒ 摘 `0x1015`）⇒ **杀**（红 1：`order_engine.order_engine`）；
+  - MUT-D（摘「待确认直撤」：`if (false && rec.status==kPendingConfirm)`）⇒ **杀**（红 2：`order_engine.order_engine` + `hgcp.order_path`）；
+  - MUT-E（探针非变异）：权限后条覆盖（has_trading_post=false）订单链贯通 ⇒ **绿**（机制成立、无存量守卫，O-3）。
+- **缺陷（只报不改）**：
+  - **TE-T036-001（中，偏高·冻结账本侵蚀）**：`onOrderEvent` kOrderReturn 分支无「已终态」守卫且 `releaseFor` 不清档案冻结字段 ⇒ **CTP 标准序列**（成交回报计满 → 随附的最终委托回报 AllTraded '0'）命中 `left<=0&&traded>0` ⇒ 二次 `releaseFor` ⇒ **冻结账本转负**。本席探针实测：`status_after=FILLED frozen_l1=-100000`（−10 手·1e4 定点）。负账本使同键后续订单 `quotaLedgerViolation` 头寸虚增 ⇒ 事前风控限额被侵蚀，持续至进程重启。存量用例只测「拒单/全成一次释放」，未覆盖终态后回报。修复方向（供裁定）：kOrderReturn 入口对 `kFilled/kCancelled/kExpired/kRejected` 只记流水不迁移不释放，或 `releaseFor` 后清档案字段并按 0 剪枝。
+  - **TE-T036-002（中·撤单完成误分类）**：`order_engine.cc` kOrderReturn 注释「status '5' = REJECTED，CTP THOST_FTDC_OST_Rejected」——**该常量在官方 SDK 不存在**；实测 `sdk/v6.7.13_20260225_api/.../ThostFtdcUserApiDataType.h:587` = `THOST_FTDC_OST_Canceled '5'`。后果：CTP 轨撤单完成回报被归类 `kRejected`（`kCancelled` 在 CTP 轨不可达），且回报轨**永不产出 `kCancelResult`**（探针实测 `ev_kind=1`=kReport）——与 `order_engine.h` CancelResult 头注「EVT_ORDER_CANCEL_RESULT 由回报驱动」的自身承诺不符；冻结释放恰好发生（'5' 分支亦 releaseFor）故资金面未损，但事件面/终态语义错。真拒单经 `ctp_error_id` 判定仍有效。
+- **覆盖缺口（如实报，三项设计主张守卫强度）**：**O-1**「confirm 再跑完整风控」0 守卫（MUT-A 存活）；**O-2**「confirm 侧账本复核扣自身」0 守卫（MUT-B 存活）；**O-3** 权限装填→订单链消费（B-1/B-3）机制成立但 0 存量用例（本席探针自证）。
+- **观察**：**V-1** kOrderReturn `volume_traded=ev.volume_traded` 快照覆写可回退成交回报累计值（仅精确四元组幂等，滞后回报未防；CTP 时序下低概率，与 TE-T036-001 同根可一并收口）；**V-2** `expirePending` 产出事件容量截断（`max_events` 后仍计数、事件丢弃）——调用方容量 8，超 8 笔同刻过期时事件面静默截断（状态迁移仍正确）；**V-3** CTP 轨撤单完成被 '5' 分支释放冻结属「误分类下的巧合正确」，TE-T036-002 修复时须保持释放语义；**V-4** 测试夹具流水落 `/root/t036-flow*.log` 固定绝对路径（测试工件写出构建树外，沿 risk_engine 夹具旧例，非本单引入）；**V-5** 确认成功后 EVT_ORDER_REPORT 走回报异步路径非同步产出（产出方观察②，本席复核与实现相符）。
+- **独立性声明**：本席未参与 T-036 产出；不采信产出方自述，上文门禁/锚点/变异/探针均为本席独立实测；变异 5 例自设（与产出方 MUT-1~4 零重叠）；SDK 常量以仓库内官方头文件为准；共享树零污染（变异与探针仅在三份隔离副本 `/root/t036-mv*`，终态 `diff -r` rc 0 ×4 次、共享树 `cpp/src` 锚 `7aaa9518…`/129 追加前复验一致；写域仅本章追加）。
