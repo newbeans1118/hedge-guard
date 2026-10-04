@@ -13631,3 +13631,76 @@ TMPDIR=/ cmake --build /hg-build-base -j4
 
 （席 te-verify-t039；2026-10-04；本章纯追加，止于下一分隔线前）
 
+
+---
+
+## T-039b delta 复检（席 te-verify-t039b2）—— O-1 条件闭环裁定
+
+> 对象：提交链 `0467c5e`（T-039 交付）→ `0bdcf5c`（首轮复核证据章）→ `d030ef4`（**现行 HEAD**，T-039b 补测，`1 file/+61`）。
+> 任务：裁定首轮复核唯一条件 **O-1**（5 个「补齐编码」类型化包装器零覆盖 + 变异 MUT-J 存活）是否闭环，并给 T-039 是否转 `DONE` 的建议。
+> 授权：本席仅写 `docs/TEST_RESULT.md`（纯追加）与一次复核提交；**未改动任何源码**。
+
+### 0. 结论（先行）
+
+**O-1 闭环成立**：新增用例 `test_typed_wrapper_wire_types` 逐一经 5 个**类型化包装器**出站并对帧头 `wire type` 作一一对应断言；重注入 **MUT-J 判红**（`event_emitter_test.cc:852`），另设 **MUT-K**（另一包装器类型实参错）亦判红。**0 新缺陷**、4 观察（不阻断）。⇒ **建议 T-039 转 `DONE`**。
+
+### 1. 冻结链与锚点（开工实时复测，全部吻合）
+
+| 项 | 声明值 | 独立实测 |
+|----|--------|----------|
+| HEAD | `d030ef4` | **`d030ef4`**（`git log --oneline -1`） |
+| `git show --stat d030ef4` | 1 file +61 | **`cpp/src/hgcp/tests/event_emitter_test.cc \| 61 +`** |
+| `cpp/src` 树锚 | `29b06295…/136` | **`29b06295…/136`**（口径 = `cd cpp/src && find . -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum`；⚠️ 前缀带 `cpp/src/` 得 `00b3d0ee…`，故以 `cd + find .` 相对路径口径为准） |
+| `event_emitter_test.cc` | `93b6a3aa…/873` | **`93b6a3aa…/873`** |
+| `event_emitter.cc` | `0fbae230…/221` | **`0fbae230…/221`**（本 delta 未改） |
+| `event_emitter.h` | `c216312c…/186` | **`c216312c…/186`**（本 delta 未改） |
+| delta 前态 test 文件 | `fdb01637…/812` | **`fdb01637…/812`**（`git show 0bdcf5c:` 实测） |
+| `docs/TEST_RESULT.md` 追加前 | 13633 行 | **13633 行，md5 `8e2e9f2d…`**（=`0bdcf5c` 时点值，逐字节同 ⇒ `d030ef4` 未触证据章） |
+
+### 2. 新增用例源码分析（`event_emitter_test.cc:813-873`，三问）
+
+**① 是否真经 5 个类型化包装器（非通用 `emit()` 绕过）——是。** 五处调用点为 `emit_command_flow(cf)` / `emit_fund_receipt(fr)` / `emit_market_quote(mq)` / `emit_ctp_state(cs)` / `emit_trading_alert(ta)`（`:841-845`），均直接调用包装器成员函数，无一经 `emit(type, body)`。
+
+**② `validate(want[i], f.body)` 是否构成「类型↔载荷」双断言——是双断言，但第二断言并非充分守卫。** `PbPayloadCodec::validate`（`payload_codec.cc:29`）按 `type` 选 message 后 `ParseFromArray`（`:17-22`）。因 protobuf 线格式解析**跨消息宽容**，「body 被**他**类型编码」仍可能解析成功 ⇒ `validate` 只能证「body 非空且可按期望类型解析」，**不能**反证「body 恰由该类型编码」。**真正的守卫是帧头断言** `HG_REQUIRE_EQ(f.header.type, want[i])`（`:852`）——它直接绑定包装器实参，MUT 实证见 §3。
+
+**③ 顺序对应断言的稳健性——稳健，无重排风险。** `bring_up`（`:171`）建连 + 帧级握手后，5 次出站均在**已连接**路径：`emit_reliable` 命中 `has_connection()` 即同步 `send_frame` 返回 `kSent`（`event_emitter.cc:78-82`），`emit_quote` 同（`:64-68`）；**保留队列（`queue_`/`head_`）仅在断连路径参与**，本用例不触发。单线程 `pump` + 同连接 TCP 字节流有序 ⇒ 捕获顺序 = 调用顺序，不会重排致假红/假绿。
+
+### 3. 变异台账（纪律：注入前 `grep -c` 预检 → `touch` 强制重编 → build rc=0 先证 → 判红/存活 → 复位 `diff -r` 逐字节 + 复绿）
+
+| # | 变异（落点） | 注入核验 | build | 结果 | 复位 |
+|---|--------------|----------|-------|------|------|
+| **MUT-J**（复现首轮） | `event_emitter.cc:147` `emit_ctp_state` 实参 `kEvtCtpState`→`kEvtTradingAlert` | count==1 | rc 0 | **红**于 `event_emitter_test.cc:852`，`95858 checks / 1 failure`（循环 i=3 ctp_state 位） | `diff -r` 逐字节恒等 |
+| **MUT-K**（本席新设） | `event_emitter.cc:138` `emit_command_flow` 实参 `kEvtCommandFlow`→`kEvtFundReceipt` | count==1 | rc 0 | **红**于 `:852`，`95849 checks / 1 failure`（i=0 首位） | `diff -r` 逐字节恒等 |
+| **MUT-L**（本席新设·覆盖面证伪） | `event_emitter.cc:144` `emit_market_quote` 实参 `kEvtMarketQuote`→`kEvtCommandFlow` | 行内替换 | rc 0 | **存活**（`95862/0` PASS） | 复位恒等 |
+
+- **MUT-J 守卫力**：新用例为唯一守卫（`95858 = 95841 + 17`，仅新用例内 i=3 的 eq 判红；其余 8 用例全绿）。与产出方自述**逐项吻合**。
+- **MUT-K** 证同一形态守卫对另一包装器同样有牙（`95849 = 95841 + 8`，i=0 判红）。
+- **MUT-L 存活之分析（非缺陷，见观察 N-1）**：`emit_market_quote` 走 `emit_encoded(..., droppable=true)` ⇒ `emit_quote(body)`，其 `send_frame` **硬编码** `mt(kEvtMarketQuote)`（`event_emitter.cc:66`）⇒ 该包装器 `type` 实参**无线上投影**（行为等价变异，存活合理）。故 O-1「5 包装器 **type 实参**」对 market_quote 一语不精确：真正被守卫的是**有效线类型 = `EVT_MARKET_QUOTE`**（契约即此，仍受守卫）。
+- **⚠️ 复位陷阱留痕**：首次复位用 `mv .orig`（保留旧 mtime）⇒ `make` 判 object 较源码新而**不重编** ⇒ 一度**假红**（仍报 `95858/1`）。**须 `touch` 源码强制重编**后方得真绿 `95862/0`。此坑记入 N-3。
+
+### 4. 门禁回归与计数独立复算
+
+- 隔离副本（`/root/t039v-iso`，五件齐 `docs/java/cpp/tools/proto`；构建目录 `/root/t039v-iso-build`，`CTP_FOUND=ON`）：`ctest` **46/46**（0 failed）；`hgcp_event_emitter_test` **95862 checks / 0 failures → PASS**；`arch-check.sh` **rc 0**（`E1`–`E8` 全 0）。
+- **计数独立复算**：取 `git show 0bdcf5c:...event_emitter_test.cc`（812 行）实测 **95841/0** ⇒ 新增用例 **+21**（结构 = 1 `start` + 5 包装器 `HG_REQUIRE` + 5×(recv+eq+validate) `= 1+5+15`），`95841+21=95862` 自洽。
+
+### 5. 「独立实测」vs「产出方自述」对账
+
+| 项 | 产出方 `be-t039b` 自述 | 独立实测 |
+|----|------------------------|----------|
+| 用例 | `test_typed_wrapper_wire_types`，+61 行 | **成立**（`93b6a3aa…/873`；`git show --stat` = 1 file/+61） |
+| 5 包装器一一对应断言 | 断言 `f.header.type` 恰等于 5 个 `kEvt*` + `validate` 类型↔载荷 | **成立**（`:841-845` 经包装器；`:850-854` 逐帧双断言） |
+| checks 95841→95862（+21） | +21 | **吻合**（独立复算 §4） |
+| MUT-J 判红 | `95858/1`，`test:852`，i=3 | **吻合**（复现 §3） |
+| 原 8 用例在 MUT-J 下全绿（新用例唯一守卫） | 是 | **成立**（MUT-J 仅 1 failure，位于新用例） |
+| 复位 `diff -r` 逐字节 | 恒等 | **成立**（§3） |
+| ctest 46/46 + arch-check rc0 | 46/46、E1–E8 全 0 | **吻合**（§4） |
+| 写域仅 test 文件 | 1 file/+61 | **成立** |
+
+### 6. 观察项（不阻断）
+
+- **N-1（表述精确度）**：O-1 宜表述为「5 个包装器的**有效线类型**守卫」；`emit_market_quote` 的 `type` 实参无可观测性（MUT-L 存活，行为等价），生产契约（帧类型 = `EVT_MARKET_QUOTE`）仍被守卫。
+- **N-2（断言强度）**：`validate` 受 protobuf 解析宽容性限制，非「类型↔载荷」的充分守卫；用例注释「类型↔载荷一致」略强于其实际强度（主守卫为帧头断言）。不阻断。
+- **N-3（复检方法学）**：变异复位后**必须 `touch` 源文件**再重编，否则 `mv` 保留旧 mtime 会致 `make` 漏编 ⇒ 假红/假绿。已在 §3 留痕。
+- **N-4（冗余，代码卫生）**：`emit_encoded` 的 `droppable` 形参在 `type==kEvtMarketQuote` 时与 `emit()` 的类型守卫（`:54-56`）冗余（两条路径同归 `emit_quote`）；无功能影响，不阻断。
+
+（席 te-verify-t039b2；2026-10-04；本章纯追加，止于下一分隔线前）
