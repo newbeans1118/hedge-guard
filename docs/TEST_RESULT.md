@@ -13344,3 +13344,144 @@ TMPDIR=/ cmake --build /hg-build-base -j4
 ### 9. 独立性声明
 
 本席未参与 T-036 产出与退回修复；不采信产出方/编排者自述，上文门禁、锚点、变异、探针均为本席独立实测（产出方申报值单列表列；与实测不符处逐项点名）；变异 5 例与产出方 5 例、编排者 1 例零重叠，探针 3 例先基线验证后注入；SDK 常量以仓库内官方头文件为准；共享树零污染（变异与探针仅在隔离副本 `/root/t036b-mut`，`order_engine.cc` 复位 md5 逐字节恒等、共享树 `cpp/src` 锚追加前复验一致）；写域仅本章追加（纯 `>>`，追加前 `head -13261 | md5sum` = `197d374afa3b96ab9fc376e2edbe57a1`）。
+---
+
+## T-037 实现交付（席 be-t037）
+
+- **时点**：2026-10-04（席位 be-t037；编排者派单轮次：第 150 轮后）
+- **任务**：T-037 实现指令流水与重放 `flow_store`（P0，24 人时）——FR-TRADE-15/16、NFR-REL-1、CFG-29、ARCHITECTURE.md §3.5/§4.5
+- **范围**：`cpp/src/flow_store/**`（重放 + 状态机 + 对账接缝 + 保留清理）、`cpp/src/hgcp/**`（0x0401 单一门卫扩展 + EVT_REPLAY_PROGRESS 编码 + CMD_TRIGGER_REPLAY 接线）；`proto/**`、`java/**`、`risk_engine`/`order_engine` 既有逻辑、`flow_store.h`/`flow_store.cc`（T-036 契约）**零改动**（git status 实证：改动仅 4 个既有文件 + 4 个新增文件，均在写域内）
+
+### 变更清单（md5 以落笔时点为准）
+
+| 文件 | 性质 | md5 |
+|---|---|---|
+| `cpp/src/flow_store/include/hg/flow_store/replay.h` | 新增 | `6e17a4589eb82bde7b74f47329955c00` |
+| `cpp/src/flow_store/src/replay.cc` | 新增 | `e114f6b08046a57435900a9baa42e34c` |
+| `cpp/src/flow_store/tests/flow_store_replay_test.cc` | 新增 | `445b82958636f4444297b7a52a4572f4` |
+| `cpp/src/hgcp/tests/replay_gate_test.cc` | 新增 | `81ff725e06b4bdcbe384b6bcb998a1bb` |
+| `cpp/src/flow_store/CMakeLists.txt` | 增改（+replay.cc、+ctest 注册） | 改动见 git diff |
+| `cpp/src/hgcp/CMakeLists.txt` | 增改（+replay_gate_test 注册） | 改动见 git diff |
+| `cpp/src/hgcp/include/hg/hgcp/command_handler.h` | 增改（+replay 接缝声明） | `15fe92682ffea4f4a2196cb2957494de` |
+| `cpp/src/hgcp/src/command_handler.cc` | 增改（门卫合取 + 触发接线 + 进度帧） | `e63085ae3ae065a68838e424f469d3e3` |
+
+冻结锚点（落笔前实测）：`cpp/src` 树锚 `2eadbf62e02282fbbb28ead67f806b8d`/133 文件（`find cpp/src -type f | LC_ALL=C sort | xargs md5sum | md5sum` 口径，含本轮新增文件；派单时点 `774cd0c8…`/121、开工实测 `5c727c40…`/129，差异 = T-036 复核转 DONE 两笔提交 + 本轮新文件，逐笔见 git log `deb22b0`）。
+
+### 验收对照（工单 4 条）
+
+1. **append-only 流水落盘（`hg.flow.dir` 缺省 `./data/flow`、`fsync_mode=BATCH`、保留 90 天）**：`FlowRuntimeConfig` 承载 CFG-29 三键（缺省值逐一断言，test 1）；按日分片 `flow-YYYYMMDD.log`（`flowShardPath`）+ `sweepRetention` 滚动清理（删早于 today−90 天分片、非分片命名不触碰，test 2）。**fsync_mode 裁定**：T-036 同步形态「append 返回 true ⇒ 已 fsync」是 §4.2.6(4) ⑨→⑩「落盘先于发 CTP」顺序不变量的唯一承载；BATCH/ASYNC 须在发单调用点（order_engine，T-036 已验收逻辑、本单写域外）插入 barrier ⇒ 本单裁定**配置值解析并承载（requested），生效值恒 EVERY_RECORD（effective）**，降级以 `fsync_clamped=true` 显式披露；BATCH 真生效（异步批量 + barrier）归 T-039/T-041 装配轮（`replay.h` 头注「fsync_mode 裁定」块留痕）。
+2. **启动重放 + 状态机对外可见（EVT_REPLAY_PROGRESS/EVT_SYSTEM_STATE）**：`ReplayController::run` 实现 §4.5.3 ②→⑦；NOT_READY→REPLAYING→READY 迁移经进度回调对外可见（test 3：5 次回调 = 初始 0 + 每 2 条 + 终态）；进度帧 `0x0209` 字段级映射（state/replayed/total/started/finished/result/mismatch_detail）经真实 protobuf 解码断言（gate test 5）；重放完成 READY 后补发 `EVT_SYSTEM_STATE(READY, param_version)`（gate test 5，§4.5.3 ⑦）。
+3. **重放期与 CTP 侧状态对齐 + 非 READY 回 0x0401**：对账经 `IOrderStateQuery` 接缝（kLive/kFilled/kCancelled/kRejected/kNotFound/kTimeout/kConflict）；kConflict ⇒ verdict=MISMATCH、永不 READY（test 9）。**门卫无双轨**：T-038 既有 `system_ready()` 是唯一判定源，本单在其上**合取** `ReplayController::ready()`（参数收齐 **且** 重放就绪）——REPLAYING/FAILED ⇒ 交易指令 0x0401（gate test 1/3）；接缝未注入保持 T-038 语义（回归守卫 gate test 2）。
+4. **在途指令不释放冻结额度 + 状态未知标记 + 告警**：「在途」= 有 SENT 无终态（比 §4.5.3 ⑤「SENT 且无 REPORTED」**宽**——有 REPORTED 无终态者 CTP 侧仍可能在途，保守纳入，披露）；kNotFound ⇒ `kReleaseExpired`（释放 + EVT_ORDER_EXPIRED 承载，test 4）；kTimeout/查询未接线 ⇒ `kUnknownKeepFrozen` + `unknown_count` + `IReplayAlertSink` 告警（test 5）——保守优于冒进，冻结保留计数入报告（`frozen_held`）。
+
+### 判定与披露（诚实声明）
+
+- **FAILED 态承载**：§4.5.3 的 `FAILED` 在 T-036 冻结 3 值 `FlowState` 枚举中无承载 ⇒ 以 `failed()` 布尔承载（state 停 REPLAYING、`ready()`=false ⇒ 0x0401 拒一切交易指令，与「拒绝一切服务」同效）；独立 FAILED 枚举值须扩 FlowState（CH 级），本单不扩。
+- **结构完整性口径**：T-036 文本行格式无 CRC32（§4.5.2 二进制格式未由 T-036 承载；T-036 契约为工单明示的唯一可读契约）⇒ 完整性守卫 = **结构校验**（恰 5 字段/KIND ∈ 7 类/ts 与 order_id 纯数字/行以 \n 终止）；**任一不满足整文件拒**（kCorrupt ⇒ 永不 READY ⇒ 0x3002），不做「跳过坏行」（§4.5.1「不得带病运行」）；撕裂尾行（崩溃中断写）同拒。补 CRC 属行格式实质变更（CH 级），本单不补。
+- **生命周期不做跨行时序判定**：终态后 REPORTED（T-036 终态守卫下合法「只记流水」）与 0x2004 退回保留重试的合法重复 SENT 均容忍；解析器只守结构，时序还原交消费方（T-041）。
+- **在途冻结额度为订单级保留标志**：T-036 行格式 detail 不含数量/价格要素 ⇒ 重放可还原指令生命周期（OrderMap 状态），**不能**按单还原冻结金额；`ReplayReport.orders/pending_unsent/decisions` 为 T-041 还原 `order_engine`（OrderMap + 冻结账本）的接缝源，金额级还原需 T-041 扩 detail 约定或走 CH。
+- **CMD_TRIGGER_REPLAY 失败回码映射**：结构损坏 0x3002 / 对账不一致 0x0405 / 目录不可读 0x3001（§4.5.1/§4.5.3 ⑥）；终态进度帧由 run() 末次回调帧**就地升级**（result+finished），不产重复帧。
+- **保留清理失败不阻断重放**（只影响磁盘占用；披露口径）。
+
+### 门禁实测（独立取证）
+
+| 项 | 结果 |
+|---|---|
+| 基线（开工时点 `deb22b0`） | ctest **39/39**（复用 `/root/t036v-build`，配置 CTP_SDK_ROOT=空/stub 轨、Release） |
+| 交付后全量 | ctest **41/41**（+2：`flow_store.replay`、`hgcp.replay_gate`；基线 39 全绿无回归） |
+| arch-check | **rc 0**（E1–E8 全 0；聚合入口 `tools/arch-check/arch-check.sh`） |
+| 变异承重（5 例，`/root/t037-mut` 隔离副本，五件齐 docs/java/cpp/tools/proto） | 每例「先证 build_rc=0 → 红 → 复位 → 复绿」：**MUT-1** 坏行跳过化 ⇒ flow_store.replay 红（7 失败，corrupt case 全失守）；**MUT-2** 进度步长失效 ⇒ 红（3：回调次数/位次）；**MUT-3** 门卫合取删除 ⇒ replay_gate 红（2：REPLAYING/FAILED 下 0x0401 失守）；**MUT-4** 状态未知告警删除 ⇒ 红（2：hits 计数）；**MUT-5** kNotFound 释放翻转 ⇒ 红（2：decision kind + frozen_released）。复位后 41/41 绿，且 `diff -r`（docs/java/cpp/tools/proto 对共享树）**逐字节恒等** |
+| 隔离副本布局 | `TMPDIR=/`、`-j2`、构建落 `/root`（tmpfs 规避）；目标串 count==1 预检均实证 |
+
+### 观察（不阻断）
+
+- O-1：进度帧中间态 `result=REPLAY_RESULT_UNSET`（枚举无 PROGRESS 值；proto3 零值不上线）；终态帧 result=OK/MISMATCH 符合 §4.2.3 #35。
+- O-2：`EVT_REPLAY_PROGRESS` 事件在**启动重放**路径的发出主体 = 事件流装配（T-039；本单交付帧构造器 + 触发路径真实接线）。
+- O-3：`CMD_QUERY_STATUS` 回执的 `ready=` 已随单一门卫自动反映重放态（gate test 1 覆盖门卫面；回执文案无独立断言）。
+- O-4：TEST_RESULT.md 行号基线：追加前 **13346 行**，`head -13346 | md5sum` = `197d374afa3b96ab9fc376e2edbe57a1`（工单所载 13261 行已被并发追加超越；以本行实测为准）。
+
+**结论（自评，待独立复核，不自评 DONE）**：工单验收 1–4 代码级全落地；冻结契约零改动；门禁 41/41 + E1–E8 全 0 + 5 变异全红全复位。**交付待独立复核。**
+
+
+---
+
+## T-037 独立复核（席 te-verify-t037）
+
+- **时点**：2026-10-04（席位 te-verify-t037；复核对象 = 提交 `2f9e8b6`，产出方 = be-t037）
+- **结论**：**有条件通过**（0 阻断 / 1 低缺陷 `TE-T037-001` / 8 观察）。验收 4 条 + 门卫合取 + 对账矩阵**行为面全部独立证实**；条件项 = `TE-T037-001`（披露声明与实现不符，措辞或接线二选一收口）。
+
+### 1. 冻结点核验（本席独立实测，时点 2026-10-04）
+
+| 项 | 产出方自述 | 本席实测 | 判定 |
+|---|---|---|---|
+| HEAD | `2f9e8b6` | `2f9e8b6`（git log 实测） | 一致 |
+| `cpp/src` 树锚 | `2eadbf62e02282fbbb28ead67f806b8d`/133 | 同值/133（`find cpp/src -type f | LC_ALL=C sort | xargs md5sum | md5sum`） | 一致 |
+| `replay.h` | `6e17a458…`/233 行 | `6e17a4589eb82bde7b74f47329955c00`/233 | 一致 |
+| `replay.cc` | `e114f6b0…`/513 行 | `e114f6b08046a57435900a9baa42e34c`/513 | 一致 |
+| `flow_store_replay_test.cc` | `445b8295…`/477 行 | `445b82958636f4444297b7a52a4572f4`/477 | 一致 |
+| `replay_gate_test.cc` | `81ff725e…`/331 行 | `81ff725e06b4bdcbe384b6bcb998a1bb`/331 | 一致 |
+| `command_handler.h/.cc` | `15fe9268…`/`e63085ae…` | 同值 | 一致 |
+| `flow_store.h/.cc` 零改动 | git diff 空 | `git diff deb22b0 2f9e8b6 -- <flow_store.h/.cc>` 空 | 一致 |
+| `TEST_RESULT.md` | 13404 行 | 13404 行；`head -13404 | md5sum` = `f040ecfb56c8d65f7a93c146bd628b4e`（追加前基线，静默取样 ×2/8s 不变） | 一致 |
+
+### 2. 门禁独立复跑（非采信自述）
+
+| 项 | 产出方/编排者自述 | 本席独立实测 | 判定 |
+|---|---|---|---|
+| build | rc 0 | `/root/t036v-build` 增量 build rc 0；隔离副本（/root/t037v-mut，五件齐 docs/java/cpp/tools/proto）全量 configure+build rc 0 | ✅ |
+| ctest | 41/41 | **41/41**（两套构建目录各跑一遍：`/root/t036v-build` 与 `/root/t037v-build`；基线 39 + `flow_store.replay` + `hgcp.replay_gate`） | ✅ |
+| arch-check | rc 0 | rc 0（E1–E8 全 0，本席实跑 `tools/arch-check/arch-check.sh`） | ✅ |
+
+### 3. 验收 4 条逐条判定（独立实测 vs 产出方自述分列）
+
+**验收 1（CFG-29 承载）＝通过**。独立实测：`FlowRuntimeConfig` 缺省 `./data/flow`（`replay.h:81` 构造函数）/ `retain_days=90` / `fsync_requested` 缺省 BATCH（`replay.h:77`）；`parseFlowFsyncMode` 三名解析 + 未知名 `ok=false`（测试 1 实证）；`flowShardPath` 含尾斜杠不双写、`sweepRetention` 删旧留新且不触碰非分片/非法日期命名（测试 2 实证，含 `sweepRetention` 目录不可读退 -1）。**fsync 裁定属实且保守**：`FlowStore::append` 逐条 `fsync`（`flow_store.cc:106`，本席实读）⇒ 生效语义恒逐条落盘；`replay.cc` 全文无任何读取 `fsync_effective` 的路径 ⇒ 不存在「BATCH 配置下不 fsync 就发 CTP」的冒进面；BATCH 真生效须在 order_engine 发单点插 barrier＝**写域外**属实（本提交 diff 只涉 flow_store/hgcp，order_engine 零改动）。**但「并告警」不成立 ⇒ `TE-T037-001`（见 §6）**。
+
+**验收 2（启动重放 §4.5.3 ②→⑦ + 状态机 + 进度可见）＝通过**。独立实测：目录不可读⇒`kOpenFailed`+0x3001 口径（测试 10）；分片按日期升序 + 非分片计数跳过（测试 11）；撕裂尾行⇒`kCorrupt`（`countShardLines` 末行终止预检 + 主循环冗余防线，测试 8）；结构校验 7 类坏行形态全拒（测试 7：非法 KIND/非法 ts/非法 order_id/字段不足/字段超量/空行/中部空行）；进度回调：REPLAYING 起始帧 + 每 N 条 + READY 终态帧（测试 3 断言 0/2/4 步进）；`EVT_REPLAY_PROGRESS`(0x0209) 7 字段级编码对 `proto/hgcp.proto:632-640` 与 §4.2.3 #35 逐字段吻合，条件必填守卫（`finished_ts_ms` 仅终态帧、`mismatch_detail` 仅 MISMATCH）在 `make_replay_progress`（`command_handler.cc`）实证；READY 后 `EVT_SYSTEM_STATE(READY, param_version)`（gate 测试 5 字段级断言 `param_version_applied`）。空目录⇒直接 READY（测试 10）。
+
+**验收 3（对账接缝 + kConflict 永不 READY + 0x0401 单一门卫）＝通过**。`IOrderStateQuery` 接缝（`replay.h:122-128`）；`kConflict` ⇒ `verdict=kMismatch` + `failed_=true` + state 停 REPLAYING ⇒ `ready()`=false（`replay.cc:462-472`，测试 9 + gate 测试 4 回 0x0405 实证）；MUT-B（本席）红 2 例。**门卫合取逐 token 核**（`command_handler.cc:823-829`）：`if (!state_->ready()) return false; if (replay_ != nullptr && !replay_->ready()) return false; return true;`——与派单声明逐字一致。**无双轨实证**：全 `cpp/src` `kErrSystemNotReady` 仅 1 处发射点（`command_handler.cc:1233`，grep 实测；`protocol.cc:92` 为名字表）；门卫位于交易路径 case 组受理入口（`:1231`），`handleTradePath` 内部无第二就绪轨（其 make_error 均为风控拒绝码）。**接缝未注入 = T-038 回归语义**：gate 测试 2 双向实证（null + 参数未收齐 ⇒ 0x0401；null + 参数收齐 ⇒ 放行受理回执）。FAILED 拒服务：gate 测试 3（损坏⇒0x3002 + 后续下单 0x0401）。
+
+**验收 4（在途处置）＝通过（语义保守属实）**。在途定义 = SENT 且无终态（比 §4.5.3 ⑤「无 REPORTED」宽，头注显式披露为保守）；`kNotFound`⇒`kReleaseExpired`+`frozen_released`（测试 4）；`kTimeout`⇒`kUnknownKeepFrozen`+`frozen_held`+告警（测试 5，含查询未接线时同保守路径 + 告警 ×2）；`kLive`⇒冻结保留；CTP 终态⇒`kAdoptTerminal`（测试 6）。`EVT_ORDER_EXPIRED` 本单为**决策产出**（`ReplayDecision`），事件补发主体 = T-041/T-039 装配（`replay.h` 头注显式披露；本席 grep 证实 `decisions` 在 flow_store 外消费者为 0）——与披露一致，见 O-8。金额级还原不可行（行格式无数量要素）属实：`FlowRecord` 仅 ts/kind/order_id/ref/detail 五要素。
+
+### 4. 对账矩阵核（§C）
+
+`OrderQueryResult` 7 值 `kLive=0…kConflict=6`（`replay.h:113-122`，与派单「7 值 kConflict=6」一致）；`ReplayVerdict` 4 值（kOk/kCorrupt/kMismatch/kOpenFailed）映射 0x0401 面以外回码 0x3002/0x0405/0x3001（`protocol.h:141,179,180` 实测）；switch 全 case 覆盖 + default 并入 kConflict（保守）；`kTimeout` 保守语义（不释放冻结 + 告警）由测试 5 + 本席 MUT-C 承重。
+
+### 5. 变异承重（本席 5 例，与产出方 5 例零重叠；隔离副本 /root/t037v-mut）
+
+| 例 | 改坏点 | build | 结果 | 复位证明 |
+|---|---|---|---|---|
+| MUT-A | `ready()` 删 `&& !failed_`（`replay.h:214`，目标串 count==1 预检过） | rc 0 | **存活**（41/41 绿）⇒ O-1 | `diff -r` 全等 + 复跑 41/41 |
+| MUT-B | `kConflict` 改 `kAdoptTerminal`（对账矛盾放行，删 MISMATCH 判定） | rc 0 | **红 2**（flow_store.replay + hgcp.replay_gate） | 同上 |
+| MUT-C | `kTimeout` 改 `kReleaseExpired`（保守→冒进；保留告警调用） | rc 0 | **红 1**（flow_store.replay） | 同上 |
+| MUT-D | 删 `++report_.replayed_records`（报告计数失真） | rc 0 | **红 1**（flow_store.replay；gate 测试因帧载 `done` 计数被掩蔽 ⇒ O-6） | 同上 |
+| MUT-E | `sweepRetention` `< cutoff`→`<= cutoff`（边界日误删） | rc 0 | **存活**（41/41 绿）⇒ O-2 | 同上 |
+
+每例均「先证 build_rc=0 再看测试」；目标串 count==1 预检；终态 `diff -r cpp` 逐字节恒等 + 全量 rebuild + ctest 41/41 绿。共享树零污染（`cpp/src` 树锚追加前复验 `2eadbf62…`/133 不变）。
+
+### 6. 缺陷
+
+- **TE-T037-001（低）**：`replay.h:24-25`（fsync 裁定块）声明降级「以 `fsync_clamped=true` 显式披露**并告警**」，但全 `cpp/src` 无任何读取 `fsync_clamped` 的运行路径（grep 实测：仅结构字段 + 头注 + 测试 1 对 flag 的断言），`IReplayAlertSink` 仅有 `onInflightUnknown` 一法——**告警载体不存在**，提交信息「显式披露+告警」同表述。钳制行为本身成立（生效值恒 EVERY_RECORD 由 `FlowStore` 逐条 fsync 事实上担保，无冒进面），故仅低级、不阻断；条件 = 改披露措辞（「告警归 T-039/T-041 装配接线」）**或**在装配轮为 clamp 接告警，二选一收口。
+
+### 7. 观察（不阻断）
+
+- **O-1**：FAILED 拒服务守卫**完全由 `state_≠kReady` 承载**——MUT-A 存活证明 `!failed_` 合取项当前无独立测试守卫（failed 路径 state 恒 ≠ kReady，`!failed_` 为构造性冗余）。若未来某路径在 `failed_=true` 时置 `state_=kReady`，`ready()` 将误放行。建议装配轮加「`failed_`⇒`state_` 强制非 READY」断言或接受现状留痕。
+- **O-2**：保留期**精确边界日无夹具**——MUT-E 存活（`<=` 与 `<` 不可区分）；「早于 today−retain_days 删除（严格早于）」的边界语义未钉死。
+- **O-3**：目录不可读（`kOpenFailed`）路径 `failed_` 保持 false（`replay.cc:296-301` 只置 state）⇒ `failed()`=false 而 `ready()`=false；门卫不受影响（合取锚 `ready()`），但只查 `failed()` 的装配代码会漏判。
+- **O-4**：主循环内撕裂尾检测（`fread`=0 且 pending 非空）不置 `aborted`，外层继续读后续分片、verdict 理论可被后续分片 `kOpenFailed` 覆写；实践中被 `countShardLines` 预检先拦（冗余防线），无门禁影响。
+- **O-5**：`parseUint64` 溢出守卫漏 `v==max/10 && d>5` 形态（20+ 位数字段回绕）；结构校验仍过，仅影响还原取值，极端构造输入面。
+- **O-6**：进度帧载荷锚 `done` 局部计数、ACK/报告锚 `report_.replayed_records`——**双计数器**；MUT-D 在 gate 测试被掩蔽即此因（两者在 flow_store 测试各被钉住）。信息性。
+- **O-7**：中间进度帧 `result=REPLAY_RESULT_UNSET(0)`；proto 注 result 为「必」，UNSET 为合法枚举值，非违规；在途帧 result 语义建议装配文档注明。
+- **O-8**：`ReplayDecision`/`orders`/`pending_unsent` 在 flow_store 外消费者为 0（grep 实测），`EVT_ORDER_EXPIRED` 为决策产出未发射——与头注披露一致；提交信息「kNotFound⇒释放+EVT_ORDER_EXPIRED」字面易读作事件已接线，以头注为准。
+
+### 8. 四处守卫强度如实申报（派单点名）
+
+| 点 | 守卫强度 |
+|---|---|
+| fsync_clamped 告警 | **无守卫**（告警载体不存在，⇒ TE-T037-001；flag 本身有断言） |
+| FAILED 拒服务 | 有守卫（gate 测试 3：0x3002 后下单 0x0401）但** rides on state_，`!failed_` 无独立守卫（O-1） |
+| kConflict 永不 READY | **强守卫**（测试 9 + gate 测试 4；MUT-B 红 2） |
+| kTimeout 保守语义 | **有守卫**（测试 5 双路径；MUT-C 红 1） |
+
+### 9. 独立性声明
+
+本席未参与 T-037 产出；不采信产出方/编排者自述，上文锚点、门禁、验收判定、变异均为本席独立实测（产出方申报值单列「自述」列；与实测不符处逐项点名）。变异 5 例与产出方 5 例（坏行跳过化/进度步长/门卫合取删除/未知告警删除/kNotFound 释放翻转）零重叠。判据 = 冻结点上全量绿（两套构建目录各 41/41 + arch-check rc 0）。共享树零污染：变异与探针仅在隔离副本 `/root/t037v-mut`（五件齐，含 `proto/`），复位后 `diff -r` 逐字节恒等、共享树 `cpp/src` 锚追加前复验一致；写域仅本章追加（纯 `>>`，追加前 `head -13404 | md5sum` = `f040ecfb56c8d65f7a93c146bd628b4e`，静默取样 ×2/8s 不变）。
