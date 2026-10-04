@@ -13556,3 +13556,78 @@ TMPDIR=/ cmake --build /hg-build-base -j4
 - 生产装配（把 `EventEmitter`、`CommandHandler`、`OrderEngine`、`ReplayController`、`RiskStateFullRebuilder` 接成常驻进程的 T1 装配体）不在本单产出（与 T-038 O-1 同口径：集成主体另单）。
 
 （席 be-t039；2026-10-04；本章纯追加，止于下一分隔线前）
+
+---
+
+## T-039 独立复核（席 te-verify-t039）
+
+**复核对象**：交付提交 `0467c5e`（基线前态 `31dd631`；12 文件 +1391/−1）。**复核时点实时复测**：`cpp/src` 树锚 = `36bc31fbc680aab3c441ee6b1b484d1a` / **136 文件**（与编排者/产出方一致）；`event_emitter.h` = `c216312c…`/186、`event_emitter.cc` = `0fbae230…`/221、`event_emitter_test.cc` = `fdb01637…`/812（逐字节吻合）。**结论：有条件通过 / 0 阻断缺陷 / 6 观察项**（条件 = O-1 补守卫或收窄表述）。
+
+### 1. 独立复现门禁
+
+隔离副本 `/root/t039v-iso`（`git archive HEAD` 提取，非产出方副本），构建 `/root/t039v-iso-build`（`-DCMAKE_BUILD_TYPE=RelWithDebInfo -DCTP_SDK_ROOT=…/v6.7.13_20260225_api -DCTP_USE_FETCH_DEPS=OFF`，CTP_FOUND=ON）。
+
+| 门禁 | 命令（隔离副本） | 独立实测 |
+|----|----|----|
+| ctest | `ctest --output-on-failure` | **46/46 通过**（含 `hgcp.event_emitter_test`、`hgcp.replay_gate`）；rc 0 |
+| 新用例 | `hgcp_event_emitter_test` | **95841 checks / 0 failures → PASS** |
+| arch-check | `bash tools/arch-check/arch-check.sh` | **rc 0**；E2–E8 实过；**E1 = SKIP**（out-of-tree 构建下仓库根无 binary/link.txt，见 O-5） |
+| 构建 | `cmake --build` | BUILD_RC=0 |
+
+### 2. 变异台账（纪律：注入 grep count 核对 → build rc=0 先证 → 判红/存活 → 复位逐字节）
+
+| # | 变异（落点） | 注入核验 | build | 结果 |
+|---|----|----|----|----|
+| MUT-E（产出方·加固形态复核） | 容量 `16384u→8192u`（event_emitter.h:56） | count 8192=1 / 16384=0 | rc 0 | **判红**（`:448` 钉死字面 `== 16384`），13910 checks/1 fail |
+| MUT-E 反事实 | 同上 + 用例内 `16384` 改回引用常量 | — | rc 0 | **存活（PASS 54881/0）** ⇒ 实证「判据形态与取值重合 ⇒ 未加固前恒绿」，产出方披露成立 |
+| MUT-F（自设·新） | 背压边界 `>= kEventQueueCapacity` → `>`（event_emitter.cc:85） | count `>`=1 / `>=`=0 | rc 0 | **判红**（`:466` 第 16385 条非 kBackpressured），13913/1 |
+| MUT-J（自设·新） | `emit_ctp_state` 误用 `kEvtTradingAlert`（event_emitter.cc:146） | count=2 | rc 0 | **存活（PASS 95841/0）** ⇒ 见 O-1 |
+| MUT-K（自设·新） | `handle_inbound` 内 `send_resume(last)` 停用（server_loop.cc:265） | count=1 | rc 0 | **判红** 3 处（`:550`×2、`:653`），92149/3 |
+
+**复位核验**：复位后 `cpp/src` 树锚 = `36bc31fb…`/136 逐字节恒等、四文件 md5 复原、用例复绿 95841/0。
+
+### 3. 单门卫双向（0x0401）
+
+`grep` 实测 `command_handler.cc` 中 `kErrSystemNotReady` 发射点**恰 1 处**（`:1233`），由 `if (!system_ready())`（`:1231`）合取——`system_ready()` = `state_->ready() && (replay_==null || replay_->ready())`（`:823-828`），非「未注册」等偶然形态。用例双向断言：就绪 ⇒ `CMD_PLACE_ORDER` 回 ACK；空快照 ⇒ 回 `0x0401`。T-039 未新增第二拒点（`event_emitter.*` 不触指令分派）。
+
+### 4. 验收①–⑤对账（独立实测）
+
+1. **14 种事件** ✅：`protocol.h:84-97` 枚举恰 14 个（0x0201–0x020E）；用例逐帧类型序=产出序、body 全过 `PbPayloadCodec::validate`；须落库 10 种（0x0202–0x020B）逐一断言齐备。
+2. **SEQ 单调** ✅：`session.cc make_outbound:99-117` 从 1 严格 +1、事件/控制帧同计数器；用例（HELLO_ACK+事件×3+心跳+ACK）逐帧断言 seq==prev+1。
+3. **保留/背压/行情例外** ✅：断连入队 FIFO 不丢、满 ⇒ `kBackpressured`+告警计数（`emit_reliable:85-92`）、`emit_quote` 永不入队（断连 `kDroppedQuote`）；16384 全序补发用例逐帧校验 FIFO 载荷与 SEQ 连续。
+4. **补数** ✅：`server_loop.cc:260-273` 消费 `MSG_RESUME_REQ`（`TransportPolicy::resume_req_last_seq`）→ `send_resume`(:189) 分批 ≤500；用例实测首轮 `1..1201`=500/500/**201**、部分补数 `last=600 ⇒ 601..1204`=500/104，`is_last` 仅末批、批内 SEQ 连续、`from/to`=首/末帧；缺口超缓冲 ⇒ `MSG_ERROR{0x0306}`（err_code 字段级断言）+ 2×`EVT_POSITION_CHANGE`（sub=1/CU2601/方向/数量字段级）+ `EVT_SYSTEM_STATE`（READY/param_version=3/ts）。
+5. **压力 1000 笔** ✅：1000 `EVT_COMMAND_FLOW`（载荷序号 1..1000）+ 100 行情；接收侧 1000 事件子序列序号严格递增、100 行情、全程 SEQ 连续。
+
+### 5. 证据章核验（纯追加 + md5 对账）
+
+`head -13487 docs/TEST_RESULT.md | md5sum` = `c4ff7798dbedcc9469840a3eff64791a`（与产出方披露一致，**前缀逐字节未变**）；本章落笔前全文 13558 行。产出方证据章 §1 表 10 个文件 md5 **逐一实时复测全部吻合**（含 `server_loop.h a1db6669…`、`server_loop.cc ad4021d0…`、`session.h 28ad6aaa…`、`session.cc a7ed9ae2…`、`pb_transport_policy.h 9c877e14…`、`pb_transport_policy.cc 8b0d4650…`、`CMakeLists.txt b8884fb6…`）。
+
+### 6. 三项产出方披露复核
+
+- ① **RESUME_DATA 占 SEQ 并入缓冲**：核实 `send_frame→make_outbound`（session.cc:99-117，`resume_.push` :114）⇒ 补数回复帧确实占 SEQ 且入缓冲；与 §4.2.6「所有业务帧共用同一 SEQ」+「线路侧全量回放」自洽。改变须 `CH`——**成立**（见 O-6）。
+- ② **重建同步执行无交错点**：`on_resume_gap→rebuilder_->rebuild`（event_emitter.cc:116-121）在 `pump` 单线程消费路径内同步执行，期间不消费入站帧 ⇒ 「重建中收指令」无窗口——**成立**（见 O-4）。
+- ③ **risk_state 零改动**：`git diff 31dd631..HEAD -- cpp/src/risk_state` = **空**；`positions()` 无 const 访问器（risk_snapshot.h:59）、`snapshot().clone()`（:151）取副本——**成立**。
+
+### 7. 「独立实测」vs「产出方自述」对账
+
+| 项 | 产出方自述 | 独立实测 |
+|----|----|----|
+| ctest | 46/46 | **46/46**（吻合） |
+| 新用例 | 95841 checks/8 用例 | **95841/0**（吻合；用例实数 = 8，见 main()） |
+| arch-check | rc 0，E1–E8 | **rc 0**；但 **E1=SKIP**（表述宜修正） |
+| 树锚 | 36bc31fb…/136 | **吻合** |
+| 交付 md5 | 3 文件 + 10 行表 | **10 项全吻合** |
+| MUT-E | 首跑存活→加固必红 | **反事实实证吻合** |
+| 6 补齐编码 | 已交付并验证 | **5 个零覆盖**（O-1 偏差） |
+
+### 8. 观察项（不阻断）
+
+- **O-1（覆盖缺口·建议补守卫）**：6 个「补齐编码」包装器中 **5 个零测试覆盖**（`emit_command_flow/emit_fund_receipt/emit_market_quote/emit_ctp_state/emit_trading_alert`；用例经通用 `emit()` 而非类型化包装器）；MUT-J 实证「包装器误用错误 wire 类型」**存活**。建议补「类型化包装器 ⇒ 线上类型码」断言，或收窄证据章「6 种补齐编码」的验证范围表述。
+- **O-2（接线边界）**：证据 §3.1「8 种既有编码经 emit() 统一出口上线」——生产装配（command_handler→emit）不在本单（§7 已披露），用例为内联重编码而非 command_handler 产出。
+- **O-3（口径协调：阻塞 vs 背压）**：TASKS 验收 3 / ARCH §4.2.6:983 作「满则**阻塞** T4」，ARCH §2.4.3:249 作「告警 + **背压** T4」；产出方取背压（`kBackpressured`，事件留生产者侧重试）。单线程泵内阻塞会自锁，背压形态满足「不丢+告警」，建议 §4.2.6 与 §2.4.3 措辞统一。
+- **O-4**：见 §6②——「恢复期间拒新指令 0x0401」因重建同步而无窗口，验收 4 该分句未被独立强制（目的「不基于陈旧状态判定」已达成）。
+- **O-5（披露准确度）**：聚合 arch-check 的 **E1 为 SKIP（out-of-tree 构建）**，非真实命中检查；「八判据全过」宜注 E1=SKIP。
+- **O-6**：补数回复帧（`MSG_RESUME_DATA`）占 SEQ 并入缓冲，后续补数会回放前次补数帧；协议自洽但属设计点，若变更须 `CH`（产出方已披露）。
+
+（席 te-verify-t039；2026-10-04；本章纯追加，止于下一分隔线前）
+
