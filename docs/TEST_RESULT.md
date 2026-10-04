@@ -14744,3 +14744,195 @@ void balanceAfterReadbackClosesEquation() {                 // :231
 - **TE-T046-002 维持开放**（第②层 `0x1019`：Java wire 从未上送 6 个必填 proto 字段 + C++ 无 raise 点；须 CH；无承接任务）——本次修复未触及，仍在首轮报告 §3/§6 裁定②。
 - 门禁计数：首轮实测 776（声明 775）→ 本轮修复后 **778**（= 776 + 2），**声明值与实测值现已一致**（778）。
 - 首轮 O-1（775 vs 776）在修复后被 778 覆盖，建议以 778 为准。
+
+
+---
+
+# T-047 独立复核 + delta 证据章（编排者逐字转录）
+
+- **转录说明**：以下两份报告由复核席分别落笔于 /root/t047-review.md（md5 aef6dbcd91e1053d2bd51197ea99ba57 / 98 行）与 /root/t047b-delta.md（md5 9e35004c728cdcb4f5711c6885a60e00 / 82 行），编排者逐字转录、未改写任何数字或措辞；转录时点基线 = 14746 行（head md5 87823e5c22bccce40a33282a5c8b9d7d）。
+- **背景**：T-047 交付 c122752（16 文件 +3446/−3）；复核有条件通过（0 阻断/1 缺陷（中）TE-T047-001/5 观察 + O-5 需求张力）→ 修复 bd8119f（五项核对）→ te-verify-t047b delta 裁定闭环 ⇒ 可转 DONE（验收 3 张力〔FR-SETTLE-8 vs R-SETTLE-5③〕采甲栏：维持现实现、登记转权威席）。
+# T-047 独立复核报告（te-verify-t047）
+
+> 席位：te-verify-t047（独立复核）｜ 对象：T-047 实现结算服务 SettleService（独立结算 + 加总对账 + 差异归属）
+> 冻结点 HEAD = `c122752` ｜ 复核日期 2026-10-04 ｜ 不转 DONE（复核席不裁决）
+> 隔离副本：`/root/t047v-teverifyt047`（git archive HEAD；脚本/报告带席位后缀）
+
+## 0. 冻结链实时复测（全部吻合）
+| 项 | 声明 | 独立实测 | 结论 |
+|----|------|---------|------|
+| HEAD | c122752 | `c122752913032bc43dbd18296c73373f6f3d1c08` | ✔ |
+| 前锚 java/src | 92bfe920…/522 | `92bfe92026ac1118c08c8e9f04b61fbd`/522（git archive e3a3132） | ✔ |
+| 后锚 java/src（HEAD） | 0feb20f5…/538 | `0feb20f5d2eb917bd4445a8f26f5a513`/538 | ✔ |
+| SettleService | 34e727b7…/1933 | `34e727b766c7e58973ca98a3cb302eb7`/1933 | ✔ |
+| Bootstrap | be51c21a…/628 | `be51c21ab93467651e2912d509268201`/628 | ✔ |
+| BootstrapAssemblyTest | 26261a17…/244 | `26261a17ca8665e8ad7a82b59294d1e9`/244 | ✔ |
+| SettleServiceTest | e181dfd9…/496 | `e181dfd9b04e5ba50c6368c6064bf034`/496 | ✔ |
+| 提交 | 16 文件 +3446/−3 | `git show --stat c122752` 逐项吻合 | ✔ |
+
+口径：`cd java/src && find . -type f | LC_ALL=C sort | xargs md5sum | md5sum`；`LC_ALL=C sort` 必写。
+（注：首次在**已放入我方探针**的隔离副本上算得 0b91558a/541=538+我的 3 个文件；在**共享树/纯 HEAD** 上复算得 0feb20f5/538，与声明一致 ⇒ 前值系我方污染，非交付差异。）
+
+## 1. 结论
+**有条件通过（0 阻断级；1 功能缺口待裁定 + 3 观察）**。
+
+- 核心四项验收（1 CTP→拆分→独立结算→三类核对／2 加总不一致告警／3 仅差异子账户阻断且不阻断平仓／4 关账门禁）**均经独立用例逐条证实**，无假绿盲区、无机制空转。
+- 归因算法、机判来源（`t_agg_diff_candidate`）、路由可达性、关账三重前置均独立承重通过。
+- 留 1 项**需求覆盖缺口 TE-T047-001**（FR-SETTLE-7 资金核对仅比对权益，4/5 核对项未实现，`FR-SETTLE-7` 验收 2 不可达成）与 3 项观察；是否阻断 DONE 请编排者裁定（该缺口不在 T-047 任务「验收标准」四条枚举内，但在其**需求追溯** `FR-SETTLE-1~12/15/16` 内）。
+
+## 2. 门禁独立复现
+- `cd java && TMPDIR=/ mvn -B -o clean test` ⇒ **Tests run: 799, Failures: 0, Errors: 0, Skipped: 0, BUILD SUCCESS**（rc0）。
+  - surefire 实数：`com.hedgeguard.service.SettleServiceTest`=**15**、`com.hedgeguard.web.handler.settle.SettleRouteDispatchTest`=**1**（T-047 共 16；799 = 基线 778 + 16 + 并行 T-172 的 5）。
+- `bash tools/arch-check/arch-check.sh`（经 `mvn validate` 前置 exec）⇒ **rc0，E1–E8 全部退出码 0**（聚合「通过(0)=8 命中(1)=0 前置错误(2)=0」）。
+- 隔离副本 = 完整仓库树（含 cpp/tools/web/proto/docs），非仅 java ⇒ E1–E6 非空转。
+
+## 3. 核心逻辑独立测试（隔离副本自写，未改产出方文件）
+文件：`java/src/test/java/com/hedgeguard/service/TeVerifyT047IndependentTest.java`（5 用例全绿）
+| # | 断言（验收） | 结果 |
+|---|-------------|------|
+| ① | 构造单子账户差异（A 权益 650 vs 台账 600）⇒ A OPEN/TRANSFER/DAY_CLOSE 拒、**A CLOSE 放行**、**B OPEN 正常**；阻断异常 `10013` 四项齐备 | ✔ |
+| ② | 加总不一致 ⇒ `INCONSISTENT_BLOCKED` + `block_effective_time`/`alert_time` **非空** + `block_scope=DIFF_SUB_NON_CLOSE` | ✔ |
+| ③ | 差异未闭环 ⇒ `closeCycle` 拒 | ✔ |
+| ④ | 全部差异闭环 ⇒ `closeCycle` 放行、状态转 `CONFIRMED` | ✔ |
+| ⑤ | **机判取候选表**：负控（`possible_sub_accounts="102"` 但候选表无行 ⇒ **不阻断**）+ 正控（候选表 PENDING 行 ⇒ 阻断） | ✔ |
+| ⑥ | **fail-closed**：不一致但无已定位差异 ⇒ 全子账户候选、`resolution_status=PENDING`、evidence 含「未定位」标注（非伪装已定位） | ✔ |
+
+> ⑤ 的负控是产出方 `machineJudgmentUsesCandidates` **缺失**的守卫（见 §6 观察 O-2）。
+
+## 4. 变异台账（复现 C + 自设 D；均必红、复位逐字节）
+| # | 变异 | 结果 | 击落者 | 复位 |
+|---|------|------|--------|------|
+| C（复现产出方） | `if (!DIFF_CLOSED.equals(diff.handleStatus))` → 去掉 `!`（关账门禁旁路） | 红（SettleServiceTest 1F/1E + 我方 1E） | `closeBlockedByOpenDifferenceEvenWhenAggregationConsistent` | md5=34e727b7…，`diff` 逐字节同 |
+| D（自设） | DIFF_SUB_NON_CLOSE 分支改用 `check.possibleSubAccounts.contains(...)` 作机判 | 红（**仅**我方 `machineJudgmentIgnoresDisplayText`；产出方 15 例全绿） | 我方负控 | md5=34e727b7…，逐字节同 |
+协议：`.orig` 备份 + `count==1` 预检 + 改动跑测 + 必红 + 复位 + md5 比对 + `touch` 复位 mtime；复位后重跑两测试类 **20/0/0/0 BUILD SUCCESS**（防旧二进制假绿）。
+
+## 5. 归因算法核 / 路由核 / 接缝核 / 披露核
+### 5.1 归因算法（编排者批准形态比对）
+- 批准形态：双来源并集（FUND 勾稽差 ∪ `t_reconcile_difference`）+ fail-closed 全子账户候选（PENDING+未归因标注）。
+- 实现实态：`attributeCandidates`（`:950`）**只读 `t_reconcile_difference`**（`trade_date=?`），取 `sub_account_id != null && !CLOSED` 为 culprits；空则并入当日全部子账户。
+- 判据：FUND 勾稽差在 `applyFund`（`:502`）经 `recordDifference` **已物化进 `t_reconcile_difference` 且带 `sub_account_id`** ⇒ 两「来源」在**结果集合上并集等价**、在**取数路径上是单表**（非两次独立取数）。**结论：效果一致，实现为物化式并集**（不构成缺陷）。
+- fail-closed 分支产物：`resolutionStatus=PENDING` + `evidenceDesc="未定位差异来源，保守纳入候选…"` ⇒ **诚实标注、非伪装已定位**。✔
+- ⚠️ 副作用（观察 O-3）：culprits 恰等于全部子账户时，`evidenceDesc` 用 `culprits.size()==subs.size()` 判定，可能把「已定位全部子账户」也标成「未定位」（语义混淆，不影响阻断集合）。
+
+### 5.2 路由核
+- `ApiRoutes` SETTLE 声明 **12 条路径**：ctp-data / cycle / cycle/{id}/reconcile / aggregate / close / difference / report / margin / stress-test / monthly-check / quarterly-report / export（`ApiRoutes.java:48`）。
+- `SettleRoutes.register` 注册 **11 个 (方法,路径) 对**：8 静态 + 3 占位符（reconcile/aggregate/close）。注册路径集合 ⊂ 声明集合，差集 = **{monthly-check, quarterly-report}**（未注册，归 T-048）。✔
+- 独立可达性：`RouteReachabilityExhaustiveTest` 6/6、`RouteReachabilityProductionParityTest` 2/2、`BootstrapAssemblyTest` 7/7、`SettleRouteDispatchTest` 1/1（断言 11 对 + 占位符不被吞并 + 两未注册路径 `match` 为空）。总路由 87→98 经 `BootstrapAssemblyTest` 生产装配断言实测（非推算）。✔
+- **陈旧计数（cosmetic，观察 O-1）**：`BootstrapAssemblyTest:119` DisplayName 仍写「**87 条**」（+「7 个注册器」应为 8）；`:134` 基线注释仍写「**82 条**业务路由…= **84**」（应为 96/98）；`Bootstrap.java:127`「五个业务服务→五个模块路由注册器」、`:385`「装配五个业务服务」应为 6。均**非**断言（断言 :161 已 98），不影响门禁。加注块（T-010/T-135/T-050/T-046/T-047）齐备且体例正确（只加不改）。
+
+### 5.3 SettlementInput 接缝 ↔ T-172 事件面（衔接结论）
+- T-172（`96f5338`）交付：通用监听接缝 `HgcpEventListener`（事件 0x0201–0x0208：委托接受/委托回报/成交/持仓变化/预拒/指令流/撤单/过期）+ 生产装配注入，**唯一消费者 = risk_intraday**（`EVT_TRADE_FILL→recordTrade`）。
+- T-047 需要：① **CTP 日终结算数据**（账户级持仓/资金/成交批量）；② **系统内按子账户成交/持仓/资金**（`SettlementInput`/`SystemTradeRow`）。
+- **重叠**：②的成交/持仓**事件种类存在**（`EVT_TRADE_FILL`/`EVT_POSITION_CHANGE`），理论上可映射进 `SettlementInput`；但 **T-172 未建任何 → T-047 的消费者**，故 ② 仍是**开放接缝**。
+- **留白**：① CTP 日终结算面在 T-172 的监听面上**无对应事件类型**（0x02xx 为交易事件，无结算/资金批量）⇒ **完全留白**。
+- **结论**：T-172 的交付**不闭合** T-047 的事件源缺口——它提供了 ② 可能复用的**事件底座**，但 ① 无承载、② 无消费者。产出方「事件源接线缺口归 T-172」的据实披露**准确**，但该缺口在 96f5338 上仍未闭环（跨任务缺口，非 T-047 缺陷）。
+
+### 5.4 披露复核
+- ①**资金核对账户级**：与 FR-SETTLE-8「Σ子资金=真实账户资金」字面一致（实现 `Σ cycle.equity` vs `Σ ctp_fund.equity`，账户级）。**无「按子账户比 CTP」的遗漏需求**（CTP 资金为账户级合并单）。⚠️ 但见 **TE-T047-001**：FR-SETTLE-7 要求的是**5 个核对项**，实现仅权益。
+- ②**`unattributed_qty` NULL 承载**：`DATA_MODEL.md:2540` 定义该列为「无法归属的数量（…不得默认归入任一子账户）FR-SETTLE-2 验收 2」。实现**不写该列**、改以 `t_reconcile_difference(sub_account_id=NULL, diffQty=差额)` 承载。行为（告警+列差额+不归入）满足 FR-SETTLE-2 验收 2；但**定义列成为零生产者悬空列**（观察 O-4），建议后续收口。
+
+## 6. 缺陷与观察
+### TE-T047-001（中｜功能缺口，待裁定）资金核对未覆盖 FR-SETTLE-7 的 5 个核对项
+- **事实**：`reconcileFund`（`SettleService.java:692`）仅比较 **equity**（`Σ子权益` vs `Σ CTP 权益`）；`FR-SETTLE-7`「处理规则」列明核对项 = **权益、可用资金、占用保证金、当日出入金、当日手续费**。
+- **独立复现（探针）**：CTP `availableFund=800 / commissionToday=5`，系统 `availableFund=999 / commission=0`，权益两侧一致 ⇒ `reconcileFund` 返回 **CONSISTENT、FUND 差异 0 条**（`/root/t047-teverifyt047-probe.log`）。
+- **后果**：`FR-SETTLE-7` **验收 2**（人为调整某子账户可用资金后，差异清单定位到该项与差额）**不可达成**；该项在其**需求追溯**范围内（`FR-SETTLE-1~12/15/16`），但不在 T-047 任务「验收标准」四条枚举内 ⇒ 是否阻断 DONE 请编排者裁定。
+- **备注**：占用保证金在**加总对账**（FR-SETTLE-8 的 MARGIN 检查）中已比；可用资金/当日出入金/当日手续费**全链无处比对**。
+
+### 观察
+- **O-1（cosmetic）**：陈旧计数四处（见 §5.2）；仅影响可读性。
+- **O-2（测试强度，非代码缺陷）**：产出方 `machineJudgmentUsesCandidates` **未真正守卫**「`possible_sub_accounts` 仅展示」——它只断言候选表存在且展示文本不含一个臆造串；变异 D 证明「把机判改成解析展示文本」时产出方 15 例**全绿**，仅我方负控击落。建议补一条负控（不一致检查 + 展示文本指向他子账户 + 候选表为空 ⇒ 不得阻断）。
+- **O-3（语义）**：`attributeCandidates` 的 `evidenceDesc` 以 `culprits.size()==subs.size()` 判「未定位」，当 culprits 恰为全部子账户（含「已定位全部」）时会误标「未定位」；不影响阻断集合。
+- **O-4（数据模型悬空列）**：`t_settle_position.unattributed_qty` 零写入（改由 NULL 差异行承载），见 §5.4②。
+- **O-5（关账门禁范围，待裁定｜需求内部张力）**：`closeCycle` 门禁③按**当日全量差异**判定（`differenceDao.findPage(trade_date=?)`，不限结算单子账户）。探针实测：仅 A 有已定位未闭环差异时，**B（非差异子账户）的日终关账被 A 的差异拒绝**（`STATE_NOT_ALLOWED … differenceId=1`；`/root/t047-teverifyt047-scope.log`）。此与 `FR-SETTLE-8`/`R-SETTLE-2`「**仅**差异所属子账户…日终关账、**不波及其他子账户**」存在张力，但与 `R-SETTLE-5`③「**全部**差异已闭环」字面一致 ⇒ 判为**需求内部张力，待编排者裁定**（若按 FR-SETTLE-8，应把门禁③按 `sub_account_id`（含 NULL 账户级差异另议）收敛）。
+
+## 7. 产物与锚点口径
+- 隔离副本：`/root/t047v-teverifyt047`（= git archive HEAD）。
+- 我方独立用例：`java/src/test/java/com/hedgeguard/service/TeVerifyT047IndependentTest.java`（5 绿）、`TeVerifyT047FundProbe.java`、`TeVerifyT047CloseScopeProbe.java`（probe）。
+- 日志：`/root/t047-teverifyt047-mvn.log`（799/0/0/0）、`…-indep.log`、`…-probe.log`、`…-scope.log`、`…-mutC.log`、`…-mutD.log`、`…-regreen.log`。
+- 未改动任何仓库源码；未写 `docs/TEST_RESULT.md`（留编排者转录）。
+
+
+---
+
+# TE-T047-001 微修 delta 复检报告（te-verify-t047b）
+
+> 席位：te-verify-t047b（独立 delta 复检）｜ 对象：commit `bd8119f`（前态 `c122752`）对 `TE-T047-001`（reconcileFund 仅比权益）的修复
+> 复核日期 2026-10-04 ｜ **不转 DONE（复核席不裁决，仅出具结论）** ｜ 未改动任何仓库源码
+> 隔离副本：`/root/t047b-iso-teverifyt047b`（git archive HEAD 解包）｜ 脚本/日志带席位后缀
+
+## 0. 锚点复测
+
+| 项 | 产出方声明 | 独立实测 | 结论 |
+|----|-----------|---------|------|
+| HEAD | bd8119f（前态 c122752） | `bd8119f28e5339d5ef495547c30bc4e23a1e7ac5` | ✔ |
+| SettleService.java | 40e42ecf…/1978 | `40e42ecf4cd64fe9fb99a33cb1eda438`/1978 | ✔ |
+| SettleServiceTest.java | cbef906a…/**649** | `cbef906aab8007561b74c4d73559c43a`/**643** | md5 ✔ / **行数不符（见 §5-勘误1）** |
+| 提交规模 | 2 文件 +209/−17 | `git show --stat bd8119f`：2 文件 +209/−17 | ✔ |
+| 纯 HEAD java/src 树锚 | （未声明） | `dfaf7388163624d2eda83af1400c982d`/538（解包即测，未加探针） | 备参 |
+| 前态 SettleService | （未声明） | `34e727b766c7e58973ca98a3cb302eb7`/1933（=前席所测） | ✔ |
+
+口径：`cd java/src && find . -type f | LC_ALL=C sort | xargs md5sum | md5sum`。
+
+## 1. 结论
+
+**TE-T047-001 已闭环；T-047 可转 DONE（有条件——见勘误，均不影响门禁）。**
+
+- 修复实态与声明**逐条吻合**：`reconcileFund`（`SettleService.java:697`）已扩至 FR-SETTLE-7 五项、共 **6 个比较点**（`equity/availableFund/marginOccupied/amountIn/amountOut/commission`，`:718–723`）；任一不一致经 `compareFundItem`（`:735`）落 `t_settle_reconcile_difference`（`handleStatus=DIFF_PENDING`）+ `result=HAS_DIFFERENCE`；非权益差异经既有 `closeCycle` 门禁③（`:1161–1170`）阻断关账。
+- **出入金两向真实不取净额**（独立互抵盲区探针证实，见 §3-A）。
+- 独立全量门禁 **808/0/0/0（含本席 3 例；基线 805）**、arch-check **rc0 E1–E8 全 0**。
+- 变异复现**精确**：中和 commission 比较 ⇒ 仅 `reconcileFundDetectsCommissionMismatch` 红；复位逐字节 ⇒ 复绿。
+- 前席 `TE-T047-001`（FR-SETTLE-7 五项核对不可达成）**已消除**；前席观察 O-1~O-5 不受本次修复影响（O-5 已由编排者裁定维持现实现 + 登记转权威席，非本席范围）。
+
+## 2. 修复 diff 逐点核验（`git show bd8119f`）
+
+| 声明 | 实测 | 结论 |
+|------|------|------|
+| 扩至 FR-SETTLE-7 五项（6 比较点） | `:718–723` 六次 `compareFundItem`：equity/availableFund/marginOccupied/**amountIn**/**amountOut**/commission | ✔ |
+| 出入金两向不取净额 | `amountIn↔depositToday`、`amountOut↔withdrawToday` **分别**比对，无净额归并 | ✔ |
+| 差异落库走 PENDING（非伪装已定位） | `recordUnattributedDifference`（`:599`）设 `subAccountId=null`、`handleStatus=DIFF_PENDING`，字段级定位保留于 `bizKey/fieldName/systemValue/ctpValue/diffAmount` | ✔ |
+| 任一不一致 ⇒ HAS_DIFFERENCE | `:724` `diffCount==0 ? CONSISTENT : HAS_DIFFERENCE` | ✔ |
+| 非权益差异阻断关账 | `closeCycle` 门禁③（`:1161`）按 `trade_date` 全量差异，任一 `!CLOSED` ⇒ `STATE_NOT_ALLOWED` | ✔ |
+| 无吞异常 | `compareFundItem`/`recordUnattributedDifference` 无 try/catch；差异经 `LOG.warning` 显式暴露 | ✔ |
+| 字段映射正确 | `SettleFund`{equity,availableFund,marginOccupied,amountIn,amountOut,commission} ↔ `SettleCtpFund`{equity,availableFund,marginOccupied,depositToday,withdrawToday,commissionToday}（实体字段名实测） | ✔ |
+
+FR-SETTLE-7 原文（`docs/REQUIREMENTS/SETTLE.md:177`）核对项字面 = **权益、可用资金、占用保证金、当日出入金、当日手续费**；验收 2 = 人为调整某子账户可用资金后，差异清单**定位到该项与差额** ⇒ 修复**覆盖需求字面**。
+
+## 3. 独立复现（隔离副本自写，不改产出方文件）
+
+文件：`java/src/test/java/com/hedgeguard/service/TeVerifyT047bIndependentTest.java`（**3/0/0/0**）
+
+| # | 独立判据 | 结果 |
+|---|---------|------|
+| A | **互抵盲区**：系统 入10/出10（净 0） vs CTP 入30/出30（净 0），其余四项一致 ⇒ 必须 HAS_DIFFERENCE 且 `amountIn`/`amountOut` 各一条 | ✔ 证明两向不取净额 |
+| B | **marginOccupied 不一致** ⇒ FUND 差异定位 `marginOccupied`、`PENDING`、`subAccountId=null`、`diffAmount=-50`；`closeCycle` 抛 `STATE_NOT_ALLOWED`；闭环后关账 `confirmed=true` | ✔ 证明非权益差异真阻断 |
+| C | **手续费方向**：系统 5 vs CTP 0 ⇒ `kind=SYS_ONLY`、`diffAmount=+5` | ✔ 方向与差额正确 |
+
+### 3.1 修复前红态复现（证修复非空转）
+在隔离副本注入前态 `34e727b7…/1933`，跑 `SettleServiceTest` ⇒ **5 FAIL / 21**：`reconcileFundDifferenceBlocksClose`、`…AvailableFund`、`…Margin`、`…Commission`、`…CashFlow`（均 HAS_DIFFERENCE vs CONSISTENT）。
+> 产出方声明「4 FAIL」——**实测为 5**（第 5 个是阻断用例 `reconcileFundDifferenceBlocksClose`，说明阻断用例亦具守卫力，实为**更强**，见 §5-勘误2）。
+
+### 3.2 变异复现（commission 比较中和）
+`compareFundItem(..., "commission", sys[5], ctpCommission, ...)` → `(..., sys[5], sys[5], ...)`（count==1 预检）：
+- 红：`SettleServiceTest` **1 FAIL / 21**，**恰为** `reconcileFundDetectsCommissionMismatch`（与声明逐字吻合）。
+- 复位 `cp .orig` ⇒ **md5=40e42ecf…，`diff` 逐字节同** ⇒ `touch` 后复绿 **24/0/0/0**（防旧二进制假绿）。
+
+## 4. 独立全量门禁
+
+- 隔离副本 `cd java && TMPDIR=/ mvn -B -o clean test` ⇒ **Tests run: 808, Failures: 0, Errors: 0, Skipped: 0, BUILD SUCCESS**（rc0）。
+  - `com.hedgeguard.service.SettleServiceTest` = **21**（前 15 + 新增 6 ✔）；`TeVerifyT047bIndependentTest` = 3（本席）；**基线 = 808 − 3 = 805/0/0/0** ✔。
+  - 新增 6 例行号实测 `:213/:239/:262/:281/:302/:321`，与声明**逐号吻合**。
+- `bash tools/arch-check/arch-check.sh` ⇒ **rc0**，`通过(0)=8 命中(1)=0 前置错误(2)=0`；`mvn validate` 前置 exec 同报 E1–E8 全 0 ✔。
+
+## 5. 勘误与观察（均不阻断）
+
+- **勘误1（锚点，cosmetic）**：`SettleServiceTest.java` 实际 **643** 行，声明 **649**（`wc -l`/`grep -c ''`/`awk END NR` 三法一致、末字节 `0a`、md5 与声明**一致**）⇒ 仅行数笔误，内容锚无损。
+- **勘误2（自评，cosmetic）**：修复前红态实测 **5 FAIL**，声明 **4**（见 §3.1）。方向为「实际更强」。
+- **观察 O-6（继承既有，非本次引入）**：`sumFundColumns`（`:851`）与 `countFund` 仍以 `PageQuery.of("1","100",...)` 取 `t_settle_fund`；子账户数 >100 时 Σ 会截断。前态同口径，本次未引入、未扩大。
+- 前席 O-1~O-5 依然成立；O-5（门禁③按当日全量差异、波及其他子账户）已由编排者裁定**维持现实现 + 登记转权威席**，非本席范围，不重复裁决。
+
+## 6. 产物与锚点
+
+- 隔离副本：`/root/t047b-iso-teverifyt047b`；纯 HEAD java/src 树锚 `dfaf7388163624d2eda83af1400c982d`/538（解包即测；含本席探针后为 `466300e1…`/540，`.orig` 与独立用例各一）。
+- 本席独立用例：`TeVerifyT047bIndependentTest.java`（3 绿）。
+- 日志：`/root/t047b-mvn.log`（808/0/0/0）、`…-prefix.log`（前态 5 FAIL）、`…-mut.log`（变异 1 FAIL）、`…-regreen.log`（24/0/0/0）。
+- **未改动任何仓库源码**（共享树 `SettleService.java` md5 仍 40e42ecf…；`git status` 中 `dev-team/*` 与 `.verify/` 非本席产物）。
