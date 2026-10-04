@@ -14518,3 +14518,229 @@ void balanceAfterReadbackClosesEquation() {                 // :231
 - 门禁：全量 `776/0/0/0`；目标类 `6/0/0/0`；arch rc0（E1–E8）。
 
 *报告完*
+
+---
+
+# T-046 独立复核 + delta 证据章（编排者逐字转录）
+
+- **转录说明**：以下两份报告由复核席分别落笔于 /root/t046-review.md（md5 79c4d7834fa909e6bcd1588d44e59552 / 151 行）与 /root/t046-review-delta.md（md5 c5d4d834e02f616e23bd92f5c50cdbf1 / 63 行），编排者逐字转录、未改写任何数字或措辞；转录时点基线 = 14520 行。
+- **背景**：T-046 交付 9967a6f（8 文件 +2227/−4）；复核有条件通过（2 缺陷中）→ TE-T046-001 微修 257cba5 → delta 裁定闭环；TE-T046-002（0x1019 承载链）立号 T-173 待 CH-020；验收 5 READ 口径采栏 A（零写）+ 加注申请转权威席。
+
+# T-046 独立复核报告（席 te-verify-t046）
+
+> 对象：T-046「实现交易执行服务 TradeService（不落库下单 + 事件流落库）」（P0 / 24 人时）
+> 冻结链：HEAD = `9967a6f`（T-046 交付；父 `84a2c17` = T-045，祖 `8a120d6` = 台账）
+> 复核者：te-verify-t046 ｜ 日期：2026-10-04 ｜ 纪律：只读共享树、零写入源码；独立证据在隔离副本内产生
+> 编排者转录，本席不写 docs/TEST_RESULT.md（报告落 /root/t046-review.md）
+
+## 0. 结论
+
+**有条件通过（= 须闭环后转 DONE）/ 0 阻断 / 2 缺陷（中）/ 7 观察 / 2 项待裁定**
+
+- 门禁与核心逻辑独立复现通过：隔离副本 `mvn -B -o clean test` = **776/0/0/0**（全绿）、`arch-check` **rc 0（E1–E8 全 0）**；自写探针 6/7 绿（唯一红 = 真缺陷 TE-T046-001）。
+- 路由与计数自洽：TRADE 3 条 POST 与 `ApiRoutes` 逐字一致；`FullWebAssembly` 82→85、`BootstrapAssemblyTest` 84→87 自洽且被既有穷举可达性判据覆盖（全量绿）。
+- **缺陷 TE-T046-001（中）**：`TradeService.onCommandFlow` 声明幂等键（javadoc）但实现无去重；重放/重复投递 ⇒ 重复写（假 DAO 实测行数增；真 DAO 命中 `uk_command_flow_idem` ⇒ 唯一冲突异常）。违反 `NFR-REL-5` / `R-TRADE-4` 重放幂等；当前事件面未接线故为潜伏，接线（T-172 族）后即显形。
+- **缺陷 TE-T046-002（中）**：第②层 C++ `0x1019` 兜底不仅 `risk_engine` 无 raise 点，更根本地 Java 侧从未把关联对象送上 wire —— `PlaceOrderCmd`（冻结 DTO）无 `relatedPlanId/relatedExposureId/exposureId/tradeReasonCode/timeDesc` 字段，`HgcpClient.placeOrder`（`:497-509`）一个都没填，而 `proto/hgcp.proto CmdPlaceOrder` 对字段 3/16/17/18/19/20 明标「必」。产出方只披露「C++ 无 raise 点」，**未披露 Java 侧输入缺口（披露遗漏）**。
+- **2 项待裁定**（见 §6）：① 验收 5「零数据库访问」READ 口径（零写 vs 零读写）；② C++ `0x1019` 兜底缺口的性质、归属与是否须 CH。
+- **不转 DONE**。
+
+---
+
+## 1. 冻结链与锚点口径
+
+| 项 | 值 |
+|---|---|
+| HEAD | `9967a6fbe9ed43771293a3cf722858d408fde5d1`（与派单一致） |
+| `git show --stat` | 8 文件 / +2227 −4（与派单、自评逐一致） |
+| 交付物 md5（实测） | TradeService.java `135c6011ff17ec087b1fae1e34910563`/991；TradeServiceTest `a28b5d500e1222e901f0b95c47bc09f0`/976；Bootstrap `28eb115fa1226474a8b72c9fc4e963ed`/589；TradeRoutes `e4423b5565ad79193ad28282ec907a0a`/45；TradeOrderHandler `1893bfec1e405a9b67894f2722474a32`/76；TradeOrderActionHandler `01f5ed9aaf28ae488e129e74285d540d`/106；FullWebAssembly `aa3654a16efd16d4d8647e5dd1b15586`/79；BootstrapAssemblyTest `7423f3faf227dc4d4f6d7a089b339613`/237 —— **8/8 与自评声明逐字节一致** |
+| 隔离副本 | `/root/t046v`（docs/java/tools/proto/cpp；**非 /tmp**）；脚本/临时件均带席位后缀 `t046` |
+
+**锚点口径（本席所用，写死）**：`java/src` 树锚 = `cd /root/t046v/java/src && find . -type f | LC_ALL=C sort | xargs md5sum | md5sum` = **`3b50a34b720396f03cd33b1d40ff34c3` / 522 文件**（= 派单所述「cd java/src + './'」标准形态）。
+- ⚠️ **产出方声明的交付锚 `f6290cef0382f71d6282460f77237912`/522 不可复现**：该数在产出方自述的同口径下我实测即 `3b50a34b…`/522；另试 10 种变体（默认 locale / `-print0` / `cd java`+src/ / 根+java/src / 绝对路径 / git ls-files / exec+ / 仅哈希 / 拼接 / 名录）无一命中（见 §5）。文件数 522 与 8 文件级 md5 全对 ⇒ **内容可信、树锚值不可复现**（口径/环境差异，非内容漂移）。按「不可复现指纹须报出并给替身」，以 `3b50a34b…`/522 为准。
+
+---
+
+## 2. 验收 1–5 独立对账
+
+| # | 验收标准 | 判定 | 独立证据（本席实测） |
+|---|---|---|---|
+| 1 | 提交不落库经桥 `placeOrder`；确认/撤单经 `confirmOrder`/`cancelOrder` | ✅ | 自写探针 `probeNormalSubmitExactlyOneBridgeAndZeroWrites`：桥恰 1 次且零写；`confirmOrder`/`cancelOrder` 经 `bridge`（读码 + 全量绿） |
+| 2 | 理由结构化必填（关联类型 8 值 / 关联对象 / 时点说明 5 值），缺一即拒 | ✅ | 自写探针 `probeReasonStructuredThreeElements`：6 种非法/缺失全拒且桥零调用 |
+| 3 | 三层时点：①Java 权威 → ②C++ `0x1019` → ③落库复核 | ⚠️ 部分达成 | ①③ 实测两向跨子账户拒（`probeCrossSubAccountTwoDirections`，10012 四项齐备）；② 未达成 —— 见 §3 TE-T046-002 + §6 裁定② |
+| 4 | 事件流回传后落库（成交/委托/持仓/拒绝/流水）+ 回写计划进度 | ⚠️ 基本达成 | 成交幂等/回写由探针 `probeFillIdempotentByTradeId`/`probePlanProgressWriteback` 实测绿；流水幂等缺失 = TE-T046-001 |
+| 5 | 交易路径零数据库访问（100 笔 SQL 记录 = 0） | ⚠️ 口径待裁定 | 提交路径零写实测（探针 + 产出方正控）；但存在 SELECT（鉴权 + 理由权威校验）。见 §6 裁定① |
+
+---
+
+## 3. 缺陷
+
+### TE-T046-001（中） `onCommandFlow` 无幂等（声明与实现不一致）
+- **位置**：`TradeService.java:655-676`（`onCommandFlow`）——javadoc 自述「幂等键 `client_order_ref+flow_type+flow_ts_ms`」，实现直接 insert、无任何 findByIdem 去重。
+- **独立证据（自写探针红）**：`probeCommandFlowIdempotent` —— 同一 `CommandFlowEvent` 投递两次，`audit.writes` 由 1 增为 2（`expected:<1> but was:<2>`）。对照同族方法 `onOrderReport`/`onFill`/`onPreTradeReject` 均先查幂等键再落库。
+- **真库后果**：`DATA_MODEL.md:4424` `uk_command_flow_idem (client_order_ref, flow_type, flow_ts_ms)` 唯一 ⇒ 真 DAO 第二次 insert 触发唯一冲突异常，事件消费中断/重试环，而非静默去重。违反 `NFR-REL-5`「重放重复投递」/ `R-TRADE-4`。
+- **性质**：潜伏缺陷（`HgcpClient` 现对 `EVT_*` 仅推水位、事件面未接线 ⇒ 生产暂不触发）；一旦接线即显形。
+- **建议**：`onCommandFlow` 增幂等查询（DAO 侧新增幂等方法，登记 CONTRACTS）；或明确「流水允许重复、由 uk 抛异常」为设计并改 javadoc + 加异常处置。
+
+### TE-T046-002（中） 第②层 `0x1019` 兜底的「Java 输入面」从未上线（披露遗漏）
+- **C++ 侧（产出方已披露，属实）**：全仓（排除 `.codebuddy`）`kRiskRelatedObjectSubMismatch` 仅 2 命中 = 定义 `cpp/src/hgcp/include/hg/hgcp/protocol.h:167` + 字符串映射 `cpp/src/hgcp/src/protocol.cc:121`；`risk_engine` 无 raise 点。
+- **未披露的更根本一层（本席独立实测）**：第②层要「纯内存比关联对象同子账户」，前提是关联对象在 wire 上。`proto/hgcp.proto CmdPlaceOrder` 字段 3/16/17/18/19/20（`exposure_id`/`trade_reason_code`/`trade_reason_time_desc`/`trade_reason_text`/`related_plan_id`/`related_exposure_id`）全部标「必」；而：
+  - `java/src/main/java/com/hedgeguard/bridge/PlaceOrderCmd.java` 无这些字段（仅 `tradeReasonId`，且 `submitOrder` 置 0）；
+  - `HgcpClient.placeOrder`（`:497-509`）这 6 个必填字段一个都没 `set`（全仓 `setRelatedPlanId/setTradeReasonCode/setExposureId…` 生产命中 = 0，仅生成码 `Hgcp.java`）。
+- **后果**：即使 C++ 补 `0x1019` raise 点，收到的是 `related_plan_id=0 / related_exposure_id=0 / exposure_id=0` ⇒ 第②层结构性不可判。缺口实为协议/DTO 面（扩展冻结 `PlaceOrderCmd` + `HgcpClient` 映射 ⇒ 触 `CH`），非单纯 C++ 实现。
+- **归属**：`TradeService` 无法传（DTO 无字段），`bridge/**` 非 T-046 写域 ⇒ 跨单缺口，见 §6 裁定②。产出方披露不完整。
+
+---
+
+## 4. 观察
+
+- **O-1（计数不一致，中）**：产出方声明门禁 **775/0/0/0**，本席隔离副本实测 **776/0/0/0**（`@Test`==surefire==776==101 类，无 `@Disabled`）。反推基线 = 776 − 18(T-046) − 13(T-045) = **745**（非自评「744」）。相差 1，非阻断，但声明值不可复现，建议订正为 776。
+- **O-2（锚点不可复现，低）**：§1 的 `f6290cef…`/522 十变体全不命中；以 `3b50a34b…`/522 为准。
+- **O-3（文档-实现不一致，低）**：`validateReasonStructured` javadoc 写「任一项不通过即抛（10012 合规门禁）」，但「缺字段」分支实际抛 `10001 PARAM_INVALID`（仅跨子账户分支抛 10012）。产出方用例 `submitRejectsNullReason` 亦断言 10001。无功能影响，但 javadoc 与实现/契约不一致。
+- **O-4（事件面接线承载，中）**：`TradeService` 6 个事件落库方法在 `src/main` 0 生产调用点（`HgcpClient.onEvent` 对 EVT_ORDER_ACCEPTED/REPORT/COMMAND_FLOW/PRE_TRADE_REJECT/CANCEL_RESULT/EXPIRED 全落 `default` 仅推水位）。产出方称「供事件面接线单 T-172 落地时调用」，但 T-172 书面范围仅 `EVT_TRADE_FILL→recordTrade` + `evaluate()`（risk_intraday），未列 TradeService 落库面 ⇒ 声称的承载与实际任务文本不一致，建议明确由谁承接（T-172 扩范围 or 另立号）。
+- **O-5（超时常量，低）**：`TradeService.BRIDGE_TIMEOUT_MS` 硬编码 10000，而 `ARCHITECTURE.md §4.2.6(5)`/CFG-28 定 `HG.CMD_TIMEOUT_MS` 默认 3000ms（`HgcpConstants.COMMAND_TIMEOUT_MS=3000`，桥自身 3s 完成并标记超时）。服务层 10s 为冗余外圈、不读配置；无功能影响，建议对齐或注明。
+- **O-6（审计面，低）**：验收 5「零写」审计器仅覆盖 8 个交易 DAO；`AuthService` 的 `UnauthorizedAttemptDao` 等写未纳入审计 ⇒ 「零写」口径限于交易表（拒绝路径留痕写不在此面）。
+- **O-7（已声明未注册，低）**：`ApiRoutes` TRADE 12 路径，`TradeRoutes` 只注册 3；余 9 条（`order-report/fill/position/reason/reject-record/flow/quote/strategy/export`）已如实披露为范围外（非漏注册假象）。但仅 `T-053`（前端）`TASKS.md:1396` 引用它们，未见后端承接任务 ⇒ 建议登记（同 T-109 反向缺口教训）。
+
+### 客户端 `client_order_ref` 重启重排分析（派单第 7 项）
+- `nextOrderRef()`（`TradeService.java:724`）为单 JVM 内存计数（`synchronized`，仅进程内线程安全），按业务日重置；`BizNoGenerator.orderRef` = `HG<yyyyMMdd><seq6>`。
+- 重启同日 ⇒ `orderRefDay` 丢失 ⇒ seq 从 1 重排 ⇒ 必然生成与重启前同日已用 ref 相同的值。
+- 「落库唯一约束兜底」部分成立：`DATA_MODEL.md` `uk_trade_order_client_ref` 唯一，重复 ref 在 `onOrderAccepted→tradeOrderDao.insert` 会失败 ⇒ `onOrderAccepted` 抛 `UNIQUE_CONFLICT`。但兜底是事后且非无损：(a) 约束在事件回传落库时才生效，此前该 ref 已下发 C++（`client_order_ref` 也是 C++ 侧幂等键，可能被 C++ 合并/拒绝，语义已受污染）；(b) 抛异常而非幂等跳过 ⇒ 事件消费中断；(c) 多 Java 实例（水平扩展）下同锁不跨进程 ⇒ 并发撞 ref。**结论：兜底存在但不能替代持久化/可续的序号分配**（建议单独立号）。
+
+---
+
+## 5. 变异台账
+
+| 变异 | 形态 | 结果 | 复位 |
+|---|---|---|---|
+| **A（复现产出方）** | 删 `submitOrder` 第②步 `authService.assertCanTrade(operatorId, subAccountId)` | **TradeServiceTest 2 红**（`submitBlocksEnterpriseLeader`/`submitBlocksNonTrader`）= 与产出方声明「A 2 红」一致；自写探针 `probeLeaderCannotTrade` 亦红。`submitBlocksCrossReadonlyWrite` 保持绿（走 `assertSubAccountWritable`，不属 A） | 备份 `_TradeService.java.orig` 回写，md5 = `135c6011…` 逐字节一致，touch 重编 |
+| **S（本席自设）** | `onFill` 的 `trade_id` 去重翻转（`if (false)`） | 产出方 `onFillPersistsWritesBackAndIsIdempotent` 红 + 自写 `probeFillIdempotentByTradeId` 红 ⇒ 幂等判据确有承重（非空转） | 同上，复位后 `TradeServiceTest` 18/0/0/0 绿 |
+
+- 变异运行均在隔离副本内；复位以 `cp .orig` 回写 + `diff -q` + `md5sum` 三重校验；`touch` 强制重编后复绿（最终态：TradeServiceTest 18/0/0/0 绿；探针 6/7，唯 `probeCommandFlowIdempotent` 红 = 缺陷 TE-001）。
+- `onPreTradeReject` 的 `ref+ruleId` 幂等：本席目视核对其用例与实现（`findByIdem` 前置），未单独施加变异（与 trade_id 同族，已由 S 变异证同类判据有牙）。
+
+### 锚点变体表（`f6290cef…` 不可复现的穷举）
+| 口径 | 值 |
+|---|---|
+| cd java/src + `find .` + LC_ALL=C sort + xargs（**产出自述口径**） | `3b50a34b720396f03cd33b1d40ff34c3` |
+| cd java/src + 默认 locale sort | `7f4e836fffb68c93a691be07de9690a7` |
+| cd java/src + `-print0`/`-z`/`-0` | `3b50a34b720396f03cd33b1d40ff34c3` |
+| cd java + `find src`（LC_ALL=C） | `80f4dfb3f4ba4a1c6a79031bbed43b6f` |
+| cd java + `find src`（默认 locale） | `adb3ca24d6f96d7669bd8a8baf6c79b7` |
+| 根 + `find java/src`（LC_ALL=C / 默认 locale） | `df04ef25d4c0b1c3ce48d3745a377678` / `b5ce4f4665840d10ba422f1597a5d1e5` |
+| 绝对路径 | `0beabe22c2855fa310afaa5bbdb3ecf7` |
+| git ls-files java/src | `df04ef25d4c0b1c3ce48d3745a377678` |
+| `-exec md5sum {} +` | `2bd8cb7173ee5149fdb24893b67f8a2a` |
+| 仅哈希内容（cut -f1） | `e1ef200d3557053a974d9db14cb88c94` |
+| 拼接全文 cat | `d88938f27b722c48f528a4fdf3faa98e` |
+| **产出方声明** | **`f6290cef0382f71d6282460f77237912` ← 无一命中** |
+
+---
+
+## 6. 两项裁定的两栏论据
+
+### 裁定①：验收 5「零数据库访问」的 READ 口径
+
+**文本原文**：T-046 验收 5（`TASKS.md:1263`）「验证交易路径零数据库访问：DB 层全量语句审计下跑 100 笔下单，该路径 SQL 记录 = 0（PROJECT.md §10-23）」；`PROJECT.md:626` §10-23「从下达指令到发往 CTP 的路径中，不产生任何数据库 I/O」；`ARCHITECTURE.md:1039` §4.2.6(4)「第③步『不写库』是 NFR-PERF-1 与成功标准 23 的结构性保证……若 Java 先落库再下发，该路径将产生 SQL，成功标准 23 必然不通过」；`ARCHITECTURE.md:1667` §6.1④「交易路径两侧零 DB I/O（Java 不预写库、C++ 无 DB）→ 成功标准 23」；`FR-TRADE-10`（`TRADE.md:239`）/ `R-TRADE-9`：「① 权威 = 指令提交时（Java，DB 事务内，不通过即拒单）」。
+
+| 栏 | 论据 | 判定后果 |
+|---|---|---|
+| **A：零写口径**（= 产出方所采） | ① 架构把「零 DB I/O」显式等价于「Java 不预写库」（§6.1④）；② §4.2.6(4) 被点名的不通过情形是「先落库」（写，非读）；且同图 ①「鉴权+功能权限+数据权限」②「参数校验」在「③不写库」之前 —— 权限校验读库属架构既定；③ FR-TRADE-10 第①层强制 Java DB 事务内读库做跨表归属判定 ⇒ 零读与验收 3 第①层互斥。 | `submitOrder` 零写（探针实测 / 100 笔零写）⇒ **验收 5 达成** |
+| **B：零读写口径**（字面） | 验收 5 字面「该路径 SQL 记录 = 0」+ §10-23 字面「不产生任何数据库 I/O」（I/O 含 SELECT）。本实现 `submitOrder` 确有 SELECT：`assertCanTrade`→`userAccountDao/roleDao`；`validateReasonStructured`→`tradePlanDao.findById`+`exposureDao.findById`；计划一致性→`tradePlanDao.findById`。 | **验收 5 未达成**（字面口径） |
+
+**本席倾向**：栏 A 为自洽读法（架构原文显式把「零 DB I/O」等同于「不预写库」），且栏 B 与 FR-TRADE-10 第①层自相矛盾。**但**若权威席采栏 A，须在验收 5 / 成功标准 23 处**加注**「不含鉴权与理由权威校验的 SELECT」，否则字面「任何 I/O」永远不可能满足；若采栏 B，则须改架构的鉴权/第①层设计或判本单未达成。**请裁定。**
+
+### 裁定②：C++ `0x1019` 兜底缺口（性质 / 归属 / 是否 CH）
+
+| 项 | 论据 |
+|---|---|
+| **缺口存在性** | 已证实：`risk_engine` 无 raise 点（2 命中仅定义+映射）；**且 Java 侧 6 个必填 wire 字段全不填**（§3 TE-002 实测）。 |
+| **性质** | 非「C++ 未实现」单一缺口，而是**协议承载链断点**：冻结 proto 有此 6 字段（标必），冻结 Java DTO `PlaceOrderCmd` 无对应字段 ⇒ 要修必须**扩展冻结 DTO 字段集**（`TradingBridge.java:19` 明写「DTO 字段集在本里程碑内变更须走 `CH-xxx`」）⇒ 判 **L3（须 CH）**。 |
+| **归属** | `bridge/**`（DTO+HgcpClient）非 T-046 写域（派单明令勿改 `bridge/**`）；`risk_engine` 亦非本单。T-046 验收 3 第②层**部分达成**、缺口须**另立号**（或并入既有事件面/桥接单）。 |
+| **TASKS 承载** | `grep 0x1019` 于 `docs/TASKS.md` 仅命中 T-046 自身验收 3 文本（`:1264`，另 `兜底` 命中 T-153 等无关）⇒ **无既有承接任务**。 |
+| **建议** | 立一单：`PlaceOrderCmd` 增 `exposureId/relatedPlanId/relatedExposureId/tradeReasonCode/tradeReasonTimeDesc/tradeReasonText` + `TradeService.submitOrder` 填充 + `HgcpClient` 映射 + C++ `risk_engine` 补 `0x1019` raise 点；走 CH。 |
+
+---
+
+## 7. 复核方法与可复现命令
+
+- **隔离副本**：`/root/t046v`（含 docs/java/tools/proto/cpp；非 /tmp；建后校验 `java/src` 树锚 = `3b50a34b…`/522，与共享树逐一致）。
+- **门禁**：`cd /root/t046v/java && mvn -B -o clean test` ⇒ `Tests run: 776, Failures: 0, Errors: 0, Skipped: 0` + `BUILD SUCCESS`；validate 阶段 `arch-check` 汇总「通过(0)=8 命中(1)=0 用法/前置错误(2)=0」（E1–E8 全 0）。
+- **自写探针**（隔离副本内新增，**未改产出方任何文件**）：`java/src/test/java/com/hedgeguard/service/T046ProbeTest.java`（7 用例；复用同包既有测试支撑 `FakeTx` 与产出方假 DAO 形态，**断言与场景为本席自设**）。运行：`mvn -B -o test -Dtest=T046ProbeTest -DfailIfNoTests=false`。
+  - 结果：**6 绿 / 1 红**（红 = `probeCommandFlowIdempotent` = TE-T046-001）。
+- **变异**：见 §5；日志 `/root/t046v-mutA.log` / `/root/t046v-mutS.log` / `/root/t046v-final.log`。
+- **全量日志**：`/root/t046v-test.log`（776）。脚本/文件均带席位后缀 `t046`，不与他席同名。
+
+## 8. 回执要点（给编排者）
+
+1. **结论 = 有条件通过（不转 DONE）**：门禁 776/0/0/0 + arch rc0 独立复现；核心逻辑自写探针承重；变异 A 复现 2 红、自设 S 变异承重复位逐字节。
+2. **关键数字**：HEAD `9967a6f`；门禁 **776/0/0/0**（≠ 声明 775）；`arch-check` rc 0；交付 8 文件 md5 全对；树锚 `3b50a34b…`/522（声明 `f6290cef…` 不可复现）。
+3. **须闭环**：TE-T046-001（`onCommandFlow` 幂等）；TE-T046-002（第②层 Java wire 输入缺口 + 披露遗漏）。
+4. **两项裁定**：§6① READ 口径（栏 A/B）；§6② `0x1019` 缺口性质=协议/DTO 断裂、判 L3/CH、须另立号。
+5. **报告**：`/root/t046-review.md`（md5 见回执）。
+
+
+---
+
+# T-046 delta 复检报告（TE-T046-001 修复，席 te-verify-t046b）
+
+> 对象：提交 `257cba5`「fix(T-046): TE-T046-001 onCommandFlow 幂等去重」
+> 冻结链：HEAD = `257cba53b2ebd5121aa44917ff7edf9e2f58c406`（父 `7e8dcee`）
+> 复检者：te-verify-t046b ｜ 日期：2026-10-04 ｜ 隔离副本 `/root/t046v`（非 /tmp）
+> 前序：/root/t046-review.md（首轮 776，缺陷 TE-T046-001）
+
+## 0. 结论
+
+**delta 复检通过 / 0 新缺陷 / TE-T046-001 已闭合**；（TE-T046-002 不在本次修复范围，维持待裁定）
+
+- 修复真闭合：自写 delta 探针 **11/0/0/0**（含首轮致红的核心例 + 5 项绕过面穷举），产出方新用例 **2/0/0/0**。
+- 门禁独立复现：`mvn -B -o clean test` = **778/0/0/0**（精确复现；为取准数把自写探针暂移出源码树，778 = 源树 `@Test` 总数也 == 778）；`arch-check` rc 0（E1–E8 全 0）。
+- 修复有牙：变异 `if (false && isDuplicateCommandFlow(...))` ⇒ **5 红**（产出方 1 + 本席 4），复位后 31/0/0/0 复绿。
+
+## 1. 冻结点与锚点
+
+| 项 | 值 |
+|---|---|
+| HEAD | `257cba53b2ebd5121aa44917ff7edf9e2f58c406` |
+| `git show --stat` | 2 文件 / +64 −2（TradeService +22；TradeServiceTest +44/−2） |
+| TradeService.java | `04a94f99eb48e57deac3dd827c07cf1d` / **1013 行**（与 be-t046b 声明一致） |
+| TradeServiceTest.java | `d07d7e897ec82fe10b38a9a6e63965be` / **1016 行**（一致）；`@Test` 18→**20** |
+| 共享树 | 除既有 `dev-team/agents/*` 修改与 `.verify/` 外无新增改动；本席零写入 |
+
+## 2. 修复审查（代码 + 用例）
+
+- **实现**：`onCommandFlow` 事务内落库前新增 `isDuplicateCommandFlow(clientOrderRef, flowType, flowTsMs)`；经既有索引 `idx_command_flow_ref`（`findByClientOrderRef`）取同引用流水，按 `uk_command_flow_idem` 三键（ref+flow_type+flow_ts_ms）**合取**判重，命中即 `return null`。`flowType` 由入口守卫保证非空；`flow_ts_ms` **null-safe** 比较。**仅三键全等才判重**（不过宽）。无 try/catch（不吞异常）。
+- **用例**：新增 2 例——① 同帧重复 ⇒ 恰 1 行；② 维度区分负控（改 flow_type / flow_ts_ms ⇒ 新流水）⇒ 3 行。`FakeCommandFlowDao.findByClientOrderRef` 由 `unsupported` 改为真实现（读记审计）。断言形态与 FR-TRADE-4「重复不重复计入」一致，**非恒真**（见 §4 变异）。
+
+## 3. delta 证据
+
+| 项 | 命令/口径 | 结果 |
+|---|---|---|
+| 全量门禁 | `cd /root/t046v/java && mvn -B -o clean test` | **778/0/0/0** + `arch-check` rc 0 |
+| `TradeServiceTest` | 同上 | **20/0/0/0** |
+| 自写 delta 探针 | `-Dtest=T046ProbeTest` | **11/0/0/0** |
+| 复位复绿 | TradeServiceTest + 探针 | **31/0/0/0** |
+
+**自写 delta 探针覆盖的绕过面**（首轮红例 + 自设）：
+1. 同三键重复投递 ⇒ **1 行**（核心回归，首轮曾红）；
+2. `flow_ts_ms=null` 重复 ⇒ null-safe 去重 **1 行**；
+3. 三键任一不同（ts / ref）⇒ **3 行**（**不过宽去重**）；
+4. `order_id` 变化但三键相同 ⇒ 仍 **1 行**（order_id 不属幂等键，去重不得因它漏判）；
+5. 重复帧 **零写调用**（去重发生在写之前）。
+
+## 4. 变异台账（承重证）
+
+| 变异 | 结果 | 复位 |
+|---|---|---|
+| `if (isDuplicateCommandFlow(...))` → `if (false && ...)` | 产出方 `onCommandFlowIdempotentOnRepeatedDelivery` 红；本席 `probeFlowSameKeyDedup`/`probeFlowNullTsDedup`/`probeFlowOrderIdNotInKey`/`probeFlowDedupNoWrite` **4 红**；`probeFlowDistinctDimensions` 保持绿（符合预期，未过度去重）⇒ **共 5 红** | `cp .orig` 回写 + `diff -q` + `md5sum` = `04a94f99…` 逐字节一致；touch 重编后 31/0/0/0 绿 |
+
+## 5. 残余观察（不阻断，供登记）
+
+- **R-1（低·已披露）并发竞态**：预查（SELECT）与 insert 非原子；同一帧两路并发投递时，两路可同时通过预查 ⇒ 真库由 `uk_command_flow_idem` 兜底（一路成功、一路唯一冲突抛错），**非静默去重**。产出方已自述此残留；本席认可其定性（顺序重复已消除，竞态由 DB 约束兜底）。若要「竞态亦幂等」，需换 DB 级 upsert / `MERGE`（另立号）。
+- **R-2（很低）`flow_ts_ms` 空值**：服务未校验 `flowTsMs` 非空（与 `clientOrderRef`/`flowType` 不同），而 `DATA_MODEL t_command_flow.flow_ts_ms` 为 `NOT NULL`；不过 `proto EvtCommandFlow.flow_ts_ms` 标「必」⇒ 真实事件不可达。仅作记录，不建议改。
+
+## 6. 对首轮结论的影响
+
+- **TE-T046-001 关闭**（本 delta 独立复验通过）。
+- **TE-T046-002 维持开放**（第②层 `0x1019`：Java wire 从未上送 6 个必填 proto 字段 + C++ 无 raise 点；须 CH；无承接任务）——本次修复未触及，仍在首轮报告 §3/§6 裁定②。
+- 门禁计数：首轮实测 776（声明 775）→ 本轮修复后 **778**（= 776 + 2），**声明值与实测值现已一致**（778）。
+- 首轮 O-1（775 vs 776）在修复后被 778 覆盖，建议以 778 为准。
