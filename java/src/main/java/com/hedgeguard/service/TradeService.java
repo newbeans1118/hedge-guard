@@ -1,6 +1,8 @@
 package com.hedgeguard.service;
 
 import com.hedgeguard.bridge.AckResult;
+import com.hedgeguard.bridge.HgcpConstants;
+import com.hedgeguard.bridge.HgcpEventListener;
 import com.hedgeguard.bridge.PlaceOrderCmd;
 import com.hedgeguard.bridge.PlaceOrderResult;
 import com.hedgeguard.bridge.TradingBridge;
@@ -31,10 +33,14 @@ import com.hedgeguard.web.ErrorCode;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -123,6 +129,33 @@ public final class TradeService {
     private final TradePositionDao tradePositionDao;
     private final TradePreTradeRejectDao preTradeRejectDao;
     private final TradeCommandFlowDao commandFlowDao;
+
+    // ==================== 提交上下文（T-172 硬边界①）====================
+
+    /** 提交上下文有界地图容量上限（硬边界①：容量上限 + 淘汰策略）。 */
+    public static final int SUBMIT_CONTEXT_CAPACITY = 4096;
+
+    private final Object submitContextLock = new Object();
+
+    /** 提交上下文主表：C++ 指令号为键；accessOrder=true ⇒ LRU，超容淘汰最久未访问者。 */
+    private final LinkedHashMap<Long, SubmitContext> submitContexts =
+            new LinkedHashMap<>(16, 0.75f, true);
+
+    /** 次级索引：client_order_ref → order_id（与主表同步淘汰）。 */
+    private final Map<String, Long> contextOrderIdsByRef = new HashMap<>();
+
+    /** 品种解析次级索引：instrument_id → product_id（持仓事件无 order_id 时回填 product_id 用）。 */
+    private final LinkedHashMap<String, Long> productIdByInstrument =
+            new LinkedHashMap<>(16, 0.75f, true);
+
+    /** 累计淘汰计数（判据/观测用）。 */
+    private long submitContextEvictions;
+
+    /** 不可溯源事件残留清单（硬边界②）：线格式与提交上下文均无源且字段 NOT NULL 时跳过落库。 */
+    private final List<String> residualEvents = Collections.synchronizedList(new ArrayList<>());
+
+    /** 残留清单上限（防不可溯源事件洪泛导致内存无界增长；超出仅记 LOG 不入清单）。 */
+    private static final int RESIDUAL_LIST_CAP = 512;
 
     /** 幂等键当日序号（应用层内存分配，{@code HG<yyyyMMdd><seq(6)>}）；不读库以保交易路径零写。 */
     private final Object orderRefLock = new Object();
@@ -249,6 +282,9 @@ public final class TradeService {
         cmd.clientOrderRef = nextOrderRef();
 
         PlaceOrderResult result = await(bridge.placeOrder(cmd));
+        // T-172：登记提交上下文（纯内存，非 DAO 写 ⇒ 不破坏验收 5「提交路径零写」）。
+        registerSubmitContext(req, plan, cmd, result != null && result.orderId > 0 ? result.orderId : null,
+                result == null ? null : result.clientOrderRef);
         if (result == null) {
             throw BizException.of(ErrorCode.COMPONENT_UNAVAILABLE,
                     "交易组件未返回受理结果：复现=检查 hg-trading 是否就绪（FR-TRADE-2 验收4）");
@@ -438,39 +474,87 @@ public final class TradeService {
      * 落地时调用；本任务不改 {@code bridge/**}。
      */
     public void onOrderAccepted(OrderAcceptedEvent e) {
-        if (e == null || e.subAccountId == null || e.tradePlanId == null) {
-            throw invalid("受理事件缺少必要字段：subAccountId/tradePlanId");
+        if (e == null) {
+            throw invalid("受理事件为空");
         }
+        // T-172：以 order_id / client_order_ref 关联提交上下文，回填线格式未回显的 NOT NULL 字段。
+        SubmitContext c = lookupSubmitContext(e.orderId, e.clientOrderRef);
+        Integer subAccountId = choose(e.subAccountId, c == null ? null : c.subAccountId);
+        String clientOrderRef = choose(e.clientOrderRef, c == null ? null : c.clientOrderRef);
+        Long tradePlanId = choose(e.tradePlanId, c == null ? null : c.tradePlanId);
+        Long exposureId = choose(e.exposureId, c == null ? null : c.exposureId);
+        Long productId = choose(e.productId, c == null ? null : c.productId);
+        String instrumentId = choose(e.instrumentId, c == null ? null : c.instrumentId);
+        String instrumentType = choose(e.instrumentType, c == null ? null : c.instrumentType);
+        String direction = choose(e.direction, c == null ? null : c.direction);
+        String offsetFlag = choose(e.offsetFlag, c == null ? null : c.offsetFlag);
+        String priceType = choose(e.priceType, c == null ? null : c.priceType);
+        String limitPrice = choose(e.limitPrice, c == null ? null : c.price);
+        Integer volume = choose(e.volume, c == null ? null : c.volume);
+        Long operatorId = choose(e.operatorId, c == null ? null : c.operatorId);
+        Long hedgePlanId = c == null ? null : c.hedgePlanId;
+        ReasonInput reason = e.reason != null ? e.reason : (c == null ? null : c.reason);
+        if (hedgePlanId == null && tradePlanId != null) {
+            // 计划为权威源：hedge_plan_id / 品种 / 敞口在事件回传时仍未回显，回退按计划解析
+            TradePlan p = tradePlanDao.findById(tradePlanId);
+            if (p != null) {
+                hedgePlanId = p.hedgePlanId;
+                productId = choose(productId, p.productId);
+                exposureId = choose(exposureId, p.exposureId);
+                instrumentId = choose(instrumentId, p.instrumentId);
+                instrumentType = choose(instrumentType, p.instrumentType);
+            }
+        }
+        Integer vol = volume;
+        final Long fHedgePlanId = hedgePlanId;
+        final Long fExposureId = exposureId;
+        final Long fProductId = productId;
+        final String fInstrumentId = instrumentId;
+        final String fInstrumentType = instrumentType;
+        if (skipIfUnsourced("EVT_ORDER_ACCEPTED", e.orderId, clientOrderRef,
+                "subAccountId", subAccountId, "clientOrderRef", clientOrderRef,
+                "tradePlanId", tradePlanId, "hedgePlanId", hedgePlanId,
+                "exposureId", exposureId, "productId", productId,
+                "instrumentId", instrumentId, "direction", direction,
+                "offsetFlag", offsetFlag, "priceType", priceType,
+                "volume", vol, "operatorId", operatorId)) {
+            return;
+        }
+        final LocalDateTime submitTime = choose(e.submitTime, c == null ? null : c.submitTime) != null
+                ? choose(e.submitTime, c == null ? null : c.submitTime) : Clocks.now();
+        final Long clientTsMs = choose(e.clientTsMs, c == null ? null : c.clientTsMs) != null
+                ? choose(e.clientTsMs, c == null ? null : c.clientTsMs) : Clocks.epochMilli();
         tx.inTransaction(connection -> {
             TradeOrder order = new TradeOrder();
-            order.subAccountId = e.subAccountId;
-            order.clientOrderRef = e.clientOrderRef;
+            order.subAccountId = subAccountId;
+            order.clientOrderRef = clientOrderRef;
             order.orderId = e.orderId;
-            order.tradePlanId = e.tradePlanId;
-            order.exposureId = e.exposureId;
-            order.productId = e.productId;
-            order.instrumentId = e.instrumentId;
-            order.instrumentType = e.instrumentType == null ? "FUTURES" : e.instrumentType;
-            order.direction = e.direction;
-            order.offsetFlag = e.offsetFlag;
-            order.priceType = e.priceType;
-            order.limitPrice = dec(e.limitPrice);
-            order.volume = e.volume;
-            order.operatorId = e.operatorId;
+            order.tradePlanId = tradePlanId;
+            order.hedgePlanId = fHedgePlanId;
+            order.exposureId = fExposureId;
+            order.productId = fProductId;
+            order.instrumentId = fInstrumentId;
+            order.instrumentType = fInstrumentType == null ? "FUTURES" : fInstrumentType;
+            order.direction = direction;
+            order.offsetFlag = offsetFlag;
+            order.priceType = priceType;
+            order.limitPrice = dec(limitPrice);
+            order.volume = vol;
+            order.operatorId = operatorId;
             order.status = STATUS_PENDING_CONFIRM;
             order.acceptTime = Clocks.now();
-            order.submitTime = e.submitTime == null ? Clocks.now() : e.submitTime;
-            order.clientTsMs = e.clientTsMs;
+            order.submitTime = submitTime;
+            order.clientTsMs = clientTsMs;
             order.expireTime = e.expireTime;
-            if (tradeOrderDao.insert(order, e.operatorId == null ? 0L : e.operatorId) != 1) {
+            if (tradeOrderDao.insert(order, operatorId == null ? 0L : operatorId) != 1) {
                 throw BizException.of(ErrorCode.UNIQUE_CONFLICT,
                         "指令重复受理（uk_trade_order_order_id/client_order_ref）：orderId=" + e.orderId
-                                + " ref=" + e.clientOrderRef);
+                                + " ref=" + clientOrderRef);
             }
-            if (e.reason != null) {
-                persistReasonInternal(order.id, e.subAccountId, e.reason, e.operatorId, true);
+            if (reason != null) {
+                persistReasonInternal(order.id, subAccountId, reason, operatorId, true);
             }
-            occupyPlan(e.tradePlanId, e.volume);
+            occupyPlan(tradePlanId, vol);
             return null;
         });
     }
@@ -483,6 +567,21 @@ public final class TradeService {
         if (e == null || e.orderId == null) {
             throw invalid("委托回报事件缺少 orderId");
         }
+        // T-172：回报线格式不含 sub_account_id / instrument_id / direction / offset_flag，按 order_id 富化。
+        SubmitContext c = lookupSubmitContext(e.orderId, null);
+        Integer subAccountId = choose(e.subAccountId, c == null ? null : c.subAccountId);
+        String instrumentId = choose(e.instrumentId, c == null ? null : c.instrumentId);
+        String direction = choose(e.direction, c == null ? null : c.direction);
+        String offsetFlag = choose(e.offsetFlag, c == null ? null : c.offsetFlag);
+        String limitPrice = choose(e.limitPrice, c == null ? null : c.price);
+        if (skipIfUnsourced("EVT_ORDER_REPORT", e.orderId, null,
+                "subAccountId", subAccountId, "orderSysId", e.orderSysId,
+                "instrumentId", instrumentId, "direction", direction,
+                "offsetFlag", offsetFlag, "orderStatus", e.orderStatus,
+                "volumeTotal", e.volumeTotal, "reportTsMs", e.reportTsMs,
+                "eventSeq", e.eventSeq)) {
+            return;
+        }
         tx.inTransaction(connection -> {
             TradeOrderReport existing = tradeOrderReportDao.findByIdem(
                     e.orderSysId, e.orderStatus, e.volumeTraded == null ? 0 : e.volumeTraded);
@@ -490,16 +589,16 @@ public final class TradeService {
                 return null; // 幂等：重复回报不重复落库（FR-TRADE-4 验收2）
             }
             TradeOrderReport row = new TradeOrderReport();
-            row.subAccountId = e.subAccountId;
+            row.subAccountId = subAccountId;
             row.orderSysId = e.orderSysId;
             row.orderId = e.orderId;
             row.orderLocalId = e.orderLocalId;
             row.exchangeId = e.exchangeId;
-            row.instrumentId = e.instrumentId;
-            row.direction = e.direction;
-            row.offsetFlag = e.offsetFlag;
+            row.instrumentId = instrumentId;
+            row.direction = direction;
+            row.offsetFlag = offsetFlag;
             row.orderStatus = e.orderStatus;
-            row.limitPrice = dec(e.limitPrice);
+            row.limitPrice = dec(limitPrice);
             row.volumeTotal = e.volumeTotal;
             row.volumeTraded = e.volumeTraded;
             row.volumeLeft = e.volumeLeft;
@@ -526,39 +625,71 @@ public final class TradeService {
         if (e == null || e.tradeId == null || e.fillVolume == null || e.fillVolume <= 0) {
             throw invalid("成交事件缺少 tradeId 或 fillVolume<=0");
         }
+        // T-172：成交线格式不含 product_id / instrument_type / hedge_plan_id / trade_plan_id，
+        // 按 order_id 关联上下文；上下文缺失时回退按 trade_plan_id 的计划解析（计划为权威源）。
+        SubmitContext c = lookupSubmitContext(e.orderId, null);
+        Long tradePlanId = choose(e.tradePlanId, c == null ? null : c.tradePlanId);
+        TradePlan plan = tradePlanId == null ? null : tradePlanDao.findById(tradePlanId);
+        final Integer fSubAccountId = choose(e.subAccountId, c == null ? null : c.subAccountId);
+        final Long fHedgePlanId = c != null && c.hedgePlanId != null ? c.hedgePlanId
+                : (plan == null ? null : plan.hedgePlanId);
+        final Long fExposureId = choose(choose(e.exposureId, c == null ? null : c.exposureId),
+                plan == null ? null : plan.exposureId);
+        final Long fProductId = choose(choose(e.productId, c == null ? null : c.productId),
+                plan == null ? null : plan.productId);
+        final String fInstrumentId = choose(choose(e.instrumentId, c == null ? null : e.instrumentId),
+                plan == null ? null : plan.instrumentId);
+        final String fInstrumentType = choose(choose(e.instrumentType, c == null ? null : e.instrumentType),
+                plan == null ? null : plan.instrumentType);
+        final String fDirection = choose(e.direction, c == null ? null : c.direction);
+        final String fOffsetFlag = choose(e.offsetFlag, c == null ? null : c.offsetFlag);
+        if (skipIfUnsourced("EVT_TRADE_FILL", e.orderId, null,
+                "subAccountId", fSubAccountId, "tradeId", e.tradeId,
+                "orderId", e.orderId, "tradePlanId", tradePlanId,
+                "hedgePlanId", fHedgePlanId, "exposureId", fExposureId,
+                "productId", fProductId, "instrumentId", fInstrumentId,
+                "direction", fDirection, "offsetFlag", fOffsetFlag,
+                "fillPrice", e.fillPrice, "fillVolume", e.fillVolume,
+                "tradeTsMs", e.tradeTsMs, "eventSeq", e.eventSeq)) {
+            return;
+        }
+        final LocalDate tradeDate = e.tradeDate != null ? e.tradeDate
+                : (e.tradeTsMs == null ? Clocks.today()
+                        : java.time.Instant.ofEpochMilli(e.tradeTsMs).atZone(Clocks.ZONE).toLocalDate());
         tx.inTransaction(connection -> {
             if (tradeFillDao.findByTradeId(e.tradeId) != null) {
                 return null; // 幂等：同一成交回报重复推送不重复创建（FR-TRADE-5 验收4）
             }
             TradeFill fill = new TradeFill();
-            fill.subAccountId = e.subAccountId;
+            fill.subAccountId = fSubAccountId;
             fill.tradeId = e.tradeId;
             fill.orderId = e.orderId;
             fill.orderSysId = e.orderSysId;
-            fill.tradePlanId = e.tradePlanId;
-            fill.exposureId = e.exposureId;
-            fill.productId = e.productId;
-            fill.instrumentId = e.instrumentId;
-            fill.instrumentType = e.instrumentType == null ? "FUTURES" : e.instrumentType;
-            fill.direction = e.direction;
-            fill.offsetFlag = e.offsetFlag;
+            fill.tradePlanId = tradePlanId;
+            fill.hedgePlanId = fHedgePlanId;
+            fill.exposureId = fExposureId;
+            fill.productId = fProductId;
+            fill.instrumentId = fInstrumentId;
+            fill.instrumentType = fInstrumentType == null ? "FUTURES" : fInstrumentType;
+            fill.direction = fDirection;
+            fill.offsetFlag = fOffsetFlag;
             fill.fillPrice = dec(e.fillPrice);
             fill.fillVolume = e.fillVolume;
             fill.contractMultiplier = dec(e.contractMultiplier);
             fill.commission = dec(e.commission);
             fill.tradeTsMs = e.tradeTsMs;
-            fill.tradeDate = e.tradeDate == null ? Clocks.today() : e.tradeDate;
+            fill.tradeDate = tradeDate;
             fill.fillTime = Clocks.now();
             fill.eventSeq = e.eventSeq;
             fill.settledFlag = "N";
             tradeFillDao.insert(fill, 0L);
-            if (e.tradePlanId != null) {
-                TradePlan plan = tradePlanDao.findById(e.tradePlanId);
-                if (plan != null) {
-                    plan.executedQty = nz(plan.executedQty).add(BigDecimal.valueOf(e.fillVolume));
-                    BigDecimal orderedAfter = nz(plan.orderedQty).subtract(BigDecimal.valueOf(e.fillVolume));
-                    plan.orderedQty = orderedAfter.signum() < 0 ? BigDecimal.ZERO : orderedAfter;
-                    tradePlanDao.updateById(plan, 0L);
+            if (tradePlanId != null) {
+                TradePlan p = plan != null ? plan : tradePlanDao.findById(tradePlanId);
+                if (p != null) {
+                    p.executedQty = nz(p.executedQty).add(BigDecimal.valueOf(e.fillVolume));
+                    BigDecimal orderedAfter = nz(p.orderedQty).subtract(BigDecimal.valueOf(e.fillVolume));
+                    p.orderedQty = orderedAfter.signum() < 0 ? BigDecimal.ZERO : orderedAfter;
+                    tradePlanDao.updateById(p, 0L);
                 }
             }
             return null;
@@ -569,9 +700,20 @@ public final class TradeService {
      * <b>{@code EVT_POSITION_CHANGE}</b>：持仓变化 ⇒ 按四元键 {@code upsert} {@code t_position}。
      */
     public void onPositionChange(PositionChangeEvent e) {
-        if (e == null || e.subAccountId == null || e.instrumentId == null) {
-            throw invalid("持仓变化事件缺少 subAccountId/instrumentId");
+        if (e == null) {
+            throw invalid("持仓变化事件为空");
         }
+        // 持仓线格式无 order_id / client_order_ref，product_id 亦未回显；
+        // 经提交时登记的 instrument_id → product_id 索引回填（硬边界②：仍无源则 skip+LOG）。
+        Long productId = productIdForInstrument(e.instrumentId);
+        if (skipIfUnsourced("EVT_POSITION_CHANGE", e.instrumentId, null,
+                "subAccountId", e.subAccountId, "instrumentId", e.instrumentId,
+                "productId", productId, "direction", e.direction,
+                "positionType", e.positionType, "eventSeq", e.eventSeq)) {
+            return;
+        }
+        final Long fProductId = productId;
+        final LocalDateTime asOfTime = e.asOfTime == null ? Clocks.now() : e.asOfTime;
         tx.inTransaction(connection -> {
             TradePosition p = tradePositionDao.findByKey(e.subAccountId, e.instrumentId,
                     e.direction, e.positionType);
@@ -579,7 +721,7 @@ public final class TradeService {
                 p = new TradePosition();
                 p.subAccountId = e.subAccountId;
                 p.instrumentId = e.instrumentId;
-                p.productId = e.productId;
+                p.productId = fProductId;
                 p.direction = e.direction;
                 p.positionType = e.positionType;
                 p.positionQty = nz(e.positionQty);
@@ -588,7 +730,7 @@ public final class TradeService {
                 p.avgOpenPrice = dec(e.avgOpenPrice);
                 p.lastSettlementPrice = dec(e.lastSettlementPrice);
                 p.hedgePlanId = e.hedgePlanId;
-                p.asOfTime = e.asOfTime == null ? Clocks.now() : e.asOfTime;
+                p.asOfTime = asOfTime;
                 p.eventSeq = e.eventSeq;
                 tradePositionDao.insert(p, 0L);
             } else {
@@ -597,7 +739,7 @@ public final class TradeService {
                 p.frozenQty = nz(e.frozenQty);
                 p.avgOpenPrice = dec(e.avgOpenPrice);
                 p.lastSettlementPrice = dec(e.lastSettlementPrice);
-                p.asOfTime = e.asOfTime == null ? Clocks.now() : e.asOfTime;
+                p.asOfTime = asOfTime;
                 p.eventSeq = e.eventSeq;
                 tradePositionDao.updateById(p, 0L);
             }
@@ -610,21 +752,39 @@ public final class TradeService {
      * （幂等键 client_order_ref+rule_id）。
      */
     public void onPreTradeReject(PreTradeRejectEvent e) {
-        if (e == null || e.clientOrderRef == null) {
-            throw invalid("事前风控拒绝事件缺少 clientOrderRef");
+        if (e == null) {
+            throw invalid("事前风控拒绝事件为空");
         }
+        // 事前拒绝线格式不含 direction / volume / reject_reason；前两者按 client_order_ref 富化，
+        // reject_reason 线格式无源 ⇒ 硬边界②：仍缺则 skip+LOG，不硬造 NOT NULL（残留清单登记）。
+        SubmitContext c = lookupSubmitContext(null, e.clientOrderRef);
+        Integer subAccountId = choose(e.subAccountId, c == null ? null : c.subAccountId);
+        String clientOrderRef = choose(e.clientOrderRef, c == null ? null : c.clientOrderRef);
+        String direction = choose(e.direction, c == null ? null : c.direction);
+        Integer volume = choose(e.volume, c == null ? null : c.volume);
+        if (skipIfUnsourced("EVT_PRE_TRADE_REJECT", clientOrderRef, clientOrderRef,
+                "subAccountId", subAccountId, "clientOrderRef", clientOrderRef,
+                "orderDigest", e.orderDigest, "ruleId", e.ruleId,
+                "rejectCode", e.rejectCode, "rejectReason", e.rejectReason,
+                "operatorId", e.operatorId, "rejectTsMs", e.rejectTsMs,
+                "eventSeq", e.eventSeq)) {
+            return;
+        }
+        final LocalDate tradeDate = e.tradeDate != null ? e.tradeDate
+                : (e.rejectTsMs == null ? Clocks.today()
+                        : java.time.Instant.ofEpochMilli(e.rejectTsMs).atZone(Clocks.ZONE).toLocalDate());
         tx.inTransaction(connection -> {
-            if (preTradeRejectDao.findByIdem(e.clientOrderRef, e.ruleId) != null) {
+            if (preTradeRejectDao.findByIdem(clientOrderRef, e.ruleId) != null) {
                 return null;
             }
             TradePreTradeReject row = new TradePreTradeReject();
-            row.subAccountId = e.subAccountId;
-            row.clientOrderRef = e.clientOrderRef;
+            row.subAccountId = subAccountId;
+            row.clientOrderRef = clientOrderRef;
             row.orderDigest = e.orderDigest;
-            row.productId = e.productId;
-            row.instrumentId = e.instrumentId;
-            row.direction = e.direction;
-            row.volume = e.volume;
+            row.productId = choose(e.productId, c == null ? null : c.productId);
+            row.instrumentId = choose(e.instrumentId, c == null ? null : c.instrumentId);
+            row.direction = direction;
+            row.volume = volume;
             row.ruleId = e.ruleId;
             row.rejectCode = e.rejectCode;
             row.limitLayer = e.limitLayer;
@@ -634,7 +794,7 @@ public final class TradeService {
             row.operatorId = e.operatorId;
             row.rejectTsMs = e.rejectTsMs;
             row.rejectTime = Clocks.now();
-            row.tradeDate = e.tradeDate == null ? Clocks.today() : e.tradeDate;
+            row.tradeDate = tradeDate;
             row.eventSeq = e.eventSeq;
             row.reportedRetryCount = 0;
             preTradeRejectDao.insert(row, 0L);
@@ -647,20 +807,30 @@ public final class TradeService {
      * （幂等键 client_order_ref+flow_type+flow_ts_ms）。
      */
     public void onCommandFlow(CommandFlowEvent e) {
-        if (e == null || e.clientOrderRef == null || e.flowType == null) {
-            throw invalid("指令流水事件缺少 clientOrderRef/flowType");
+        if (e == null) {
+            throw invalid("指令流水事件为空");
+        }
+        // 指令流水线格式「整条无 client_order_ref」；按 order_id 关联提交流水上下文回填。
+        // 硬边界②：order_id 亦无法关联（未登记 / 已淘汰 / 重启前）⇒ skip+LOG，不硬造 NOT NULL。
+        SubmitContext c = lookupSubmitContext(e.orderId, e.clientOrderRef);
+        Integer subAccountId = choose(e.subAccountId, c == null ? null : c.subAccountId);
+        String clientOrderRef = choose(e.clientOrderRef, c == null ? null : c.clientOrderRef);
+        if (skipIfUnsourced("EVT_COMMAND_FLOW", e.orderId, clientOrderRef,
+                "subAccountId", subAccountId, "clientOrderRef", clientOrderRef,
+                "flowType", e.flowType, "flowTsMs", e.flowTsMs,
+                "eventSeq", e.eventSeq)) {
+            return;
         }
         tx.inTransaction(connection -> {
             // 幂等（uk_command_flow_idem = client_order_ref+flow_type+flow_ts_ms）：重复投递（断线重连 / 补数重放）
             // 不得重复落库，亦不得因唯一冲突中断事件消费（NFR-REL-5 / R-TRADE-4）。
-            // 与验收 4 既有口径一致：回报按 findByIdem、事前拒绝按 findByIdem、流水按既有 idx_command_flow_ref 预查判重。
-            if (isDuplicateCommandFlow(e.clientOrderRef, e.flowType, e.flowTsMs)) {
+            if (isDuplicateCommandFlow(clientOrderRef, e.flowType, e.flowTsMs)) {
                 return null;
             }
             TradeCommandFlow row = new TradeCommandFlow();
-            row.subAccountId = e.subAccountId;
+            row.subAccountId = subAccountId;
             row.orderId = e.orderId;
-            row.clientOrderRef = e.clientOrderRef;
+            row.clientOrderRef = clientOrderRef;
             row.flowType = e.flowType;
             row.flowDetail = e.flowDetail;
             row.flowTsMs = e.flowTsMs;
@@ -722,7 +892,323 @@ public final class TradeService {
 
     // ================================================================== 内部工具
 
-    /** 占用交易计划量（受理时 {@code ordered_qty += volume}）。 */
+    // ---- T-172 提交上下文富化（硬边界①/②）----
+
+    /** 登记提交上下文（submitOrder 内调用；纯内存、非 DAO 写，不破坏验收 5 零写）。 */
+    private void registerSubmitContext(SubmitRequest req, TradePlan plan, PlaceOrderCmd cmd,
+                                       Long orderId, String clientOrderRef) {
+        String ref = clientOrderRef != null ? clientOrderRef : cmd.clientOrderRef;
+        if (ref == null) {
+            return;
+        }
+        SubmitContext c = new SubmitContext();
+        c.clientOrderRef = ref;
+        c.orderId = orderId;
+        c.subAccountId = req.subAccountId;
+        c.tradePlanId = req.tradePlanId;
+        c.hedgePlanId = plan == null ? null : plan.hedgePlanId;
+        c.exposureId = req.exposureId != null ? req.exposureId : (plan == null ? null : plan.exposureId);
+        c.productId = req.productId != null ? req.productId : (plan == null ? null : plan.productId);
+        c.instrumentId = req.instrumentId != null ? req.instrumentId : (plan == null ? null : plan.instrumentId);
+        c.instrumentType = plan == null ? null : plan.instrumentType;
+        c.direction = req.direction;
+        c.offsetFlag = req.offsetFlag;
+        c.priceType = req.priceType;
+        c.price = req.price;
+        c.volume = req.volume;
+        c.operatorId = cmd.operatorId;
+        c.reason = req.reason;
+        c.submitTime = Clocks.now();
+        c.clientTsMs = Clocks.epochMilli();
+        synchronized (submitContextLock) {
+            if (orderId != null && orderId > 0) {
+                submitContexts.put(orderId, c);
+            }
+            contextOrderIdsByRef.put(ref, orderId);
+            if (c.instrumentId != null && c.productId != null) {
+                productIdByInstrument.put(c.instrumentId, c.productId);
+            }
+            evictSubmitContexts();
+        }
+    }
+
+    /** LRU 淘汰：主表/品种索引超容即移除最久未访问者（硬边界①）。 */
+    private void evictSubmitContexts() {
+        while (submitContexts.size() > SUBMIT_CONTEXT_CAPACITY) {
+            java.util.Iterator<Map.Entry<Long, SubmitContext>> it = submitContexts.entrySet().iterator();
+            if (!it.hasNext()) {
+                break;
+            }
+            Map.Entry<Long, SubmitContext> eldest = it.next();
+            it.remove();
+            contextOrderIdsByRef.remove(eldest.getValue().clientOrderRef);
+            submitContextEvictions++;
+        }
+        while (contextOrderIdsByRef.size() > SUBMIT_CONTEXT_CAPACITY) {
+            java.util.Iterator<Map.Entry<String, Long>> it = contextOrderIdsByRef.entrySet().iterator();
+            if (!it.hasNext()) {
+                break;
+            }
+            it.next();
+            it.remove();
+        }
+        while (productIdByInstrument.size() > SUBMIT_CONTEXT_CAPACITY) {
+            java.util.Iterator<String> it = productIdByInstrument.keySet().iterator();
+            if (!it.hasNext()) {
+                break;
+            }
+            it.next();
+            it.remove();
+        }
+    }
+
+    /** 以 order_id / client_order_ref 关联提交上下文（次级索引回退）。 */
+    private SubmitContext lookupSubmitContext(Long orderId, String clientOrderRef) {
+        synchronized (submitContextLock) {
+            SubmitContext c = orderId != null && orderId > 0 ? submitContexts.get(orderId) : null;
+            if (c == null && clientOrderRef != null) {
+                Long oid = contextOrderIdsByRef.get(clientOrderRef);
+                if (oid != null) {
+                    c = submitContexts.get(oid);
+                }
+            }
+            return c;
+        }
+    }
+
+    /** 品种解析：instrument_id 到 product_id；未知返回 null。 */
+    private Long productIdForInstrument(String instrumentId) {
+        if (instrumentId == null) {
+            return null;
+        }
+        synchronized (submitContextLock) {
+            return productIdByInstrument.get(instrumentId);
+        }
+    }
+
+    /**
+     * 品种级解析器（Q-5）：按 order_id 取提交上下文真值，供
+     * risk_intraday.IntradayEventFeed.ProductIdResolver 装配（保持品种级分组）；未知返回 0。
+     */
+    public long productIdForOrder(long orderId) {
+        SubmitContext c = lookupSubmitContext(orderId, null);
+        return c == null || c.productId == null ? 0L : c.productId;
+    }
+
+    /** 提交上下文当前条目数（判据/观测用）。 */
+    public int submitContextSize() {
+        synchronized (submitContextLock) {
+            return submitContexts.size();
+        }
+    }
+
+    /** 累计淘汰条目数（硬边界① 判据）。 */
+    public long submitContextEvictions() {
+        synchronized (submitContextLock) {
+            return submitContextEvictions;
+        }
+    }
+
+    /** 不可溯源事件残留清单快照（硬边界②）。 */
+    public List<String> residualEvents() {
+        synchronized (residualEvents) {
+            return new ArrayList<>(residualEvents);
+        }
+    }
+
+    /**
+     * 硬边界②：必要 NOT NULL 字段在「线格式 + 提交上下文」均无源时，跳过落库并登记残留清单。
+     *
+     * @param nameValuePairs 交替的 (字段名, 值)；值为 null 即视为缺源
+     * @return true 表示已跳过（调用方应立即 return）
+     */
+    private boolean skipIfUnsourced(String event, Object key, String clientOrderRef,
+                                    Object... nameValuePairs) {
+        List<String> missing = new ArrayList<>();
+        for (int i = 0; i + 1 < nameValuePairs.length; i += 2) {
+            if (nameValuePairs[i + 1] == null) {
+                missing.add(String.valueOf(nameValuePairs[i]));
+            }
+        }
+        if (missing.isEmpty()) {
+            return false;
+        }
+        String msg = event + " 富化后仍缺 NOT NULL 字段 " + missing + "：key=" + key
+                + " clientOrderRef=" + clientOrderRef + "（线格式与提交上下文均无源，已跳过落库）";
+        LOG.warning(msg);
+        synchronized (residualEvents) {
+            if (residualEvents.size() < RESIDUAL_LIST_CAP) {
+                residualEvents.add(msg);
+            }
+        }
+        return true;
+    }
+
+    /** 取值：优先主值，空则回退（T-172 富化统一入口）。 */
+    private static <T> T choose(T primary, T fallback) {
+        return primary != null ? primary : fallback;
+    }
+
+    // ================================================================== T-172 事件接缝适配（供编排者装配）
+
+    /**
+     * HGCP 事件接缝适配器：把 bridge 中立载荷映射为六事件 DTO，交给本服务富化落库。
+     *
+     * <p><b>帧头 SEQ 关联</b>：中立载荷不含 event_seq，而落库 5 表 event_seq 为 NOT NULL。
+     * HgcpClient 对同一帧先触发 typed 回调、后触发 onEventConsumed(type,seq)，故本类以
+     * 「暂存-冲刷」把帧头 SEQ 补入：typed 回调暂存 (类型, 落库动作)，onEventConsumed 类型匹配
+     * 时用 SEQ 冲刷；类型不匹配即丢弃（防异常帧残留误配，NFR-REL-5 不中断消费）。
+     *
+     * <p><b>装配归编排者</b>：本类不自注册；Bootstrap 生产装配时与 risk_intraday 监听器组合后
+     * 经 HgcpClient.setEventListener 注册（本任务写域不含 Bootstrap）。
+     */
+    public final class HgcpEventSink implements HgcpEventListener {
+
+        private int pendingType;
+        private java.util.function.LongConsumer pending;
+
+        private void stage(int type, java.util.function.LongConsumer action) {
+            pendingType = type;
+            pending = action;
+        }
+
+        @Override
+        public void onOrderAccepted(OrderAccepted e) {
+            stage(HgcpConstants.EVT_ORDER_ACCEPTED, seq -> {
+                OrderAcceptedEvent d = new OrderAcceptedEvent();
+                d.orderId = e.orderId;
+                d.clientOrderRef = e.clientOrderRef;
+                TradeService.this.onOrderAccepted(d);
+            });
+        }
+
+        @Override
+        public void onOrderReport(OrderReport e) {
+            stage(HgcpConstants.EVT_ORDER_REPORT, seq -> {
+                OrderReportEvent d = new OrderReportEvent();
+                d.orderId = e.orderId;
+                d.orderSysId = e.orderSysId;
+                d.orderLocalId = e.orderLocalId;
+                d.orderStatus = e.status;
+                d.volumeTotal = e.volumeTotal;
+                d.volumeTraded = e.volumeTraded;
+                d.volumeLeft = e.volumeLeft;
+                d.ctpErrorId = e.ctpErrorId;
+                d.ctpErrorMsg = e.ctpErrorMsg;
+                d.reportTsMs = e.reportTsMs;
+                d.eventSeq = seq;
+                d.mappedOrderStatus = mapOrderStatus(e.status);
+                TradeService.this.onOrderReport(d);
+            });
+        }
+
+        @Override
+        public void onTradeFill(TradeFill e) {
+            stage(HgcpConstants.EVT_TRADE_FILL, seq -> {
+                FillEvent d = new FillEvent();
+                d.tradeId = e.tradeId;
+                d.orderId = e.orderId;
+                d.orderSysId = e.orderSysId;
+                d.instrumentId = e.instrumentId;
+                d.direction = strip(e.direction, "DIRECTION_");
+                d.offsetFlag = strip(e.offsetFlag, "OFFSET_FLAG_");
+                d.fillPrice = e.price;
+                d.fillVolume = e.volume;
+                d.tradeTsMs = e.tradeTsMs;
+                d.subAccountId = e.subAccountId;
+                d.tradePlanId = e.tradePlanId;
+                d.exposureId = e.exposureId;
+                d.eventSeq = seq;
+                TradeService.this.onFill(d);
+            });
+        }
+
+        @Override
+        public void onPositionChange(PositionChange e) {
+            stage(HgcpConstants.EVT_POSITION_CHANGE, seq -> {
+                PositionChangeEvent d = new PositionChangeEvent();
+                d.subAccountId = e.subAccountId;
+                d.instrumentId = e.instrumentId;
+                d.direction = strip(e.direction, "DIRECTION_");
+                d.positionType = strip(e.positionType, "POSITION_TYPE_");
+                d.positionQty = BigDecimal.valueOf(e.positionQty);
+                d.availableQty = BigDecimal.valueOf(e.availableQty);
+                d.frozenQty = BigDecimal.valueOf(e.frozenQty);
+                d.asOfTime = toDateTime(e.asOfTsMs);
+                d.eventSeq = seq;
+                TradeService.this.onPositionChange(d);
+            });
+        }
+
+        @Override
+        public void onPreTradeReject(PreTradeReject e) {
+            stage(HgcpConstants.EVT_PRE_TRADE_REJECT, seq -> {
+                PreTradeRejectEvent d = new PreTradeRejectEvent();
+                d.clientOrderRef = e.clientOrderRef;
+                d.subAccountId = e.subAccountId;
+                d.productId = e.productId;
+                d.instrumentId = e.instrumentId;
+                d.ruleId = e.ruleId;
+                d.rejectCode = "0x" + Integer.toHexString(e.reasonCode);
+                d.limitLayer = mapLimitLayer(e.limitLayer);
+                d.currentValue = e.currentValue;
+                d.thresholdValue = e.thresholdValue;
+                d.orderDigest = e.orderDigest;
+                d.operatorId = e.operatorId;
+                d.rejectTsMs = e.rejectTsMs;
+                d.eventSeq = seq;
+                TradeService.this.onPreTradeReject(d);
+            });
+        }
+
+        @Override
+        public void onCommandFlow(CommandFlow e) {
+            stage(HgcpConstants.EVT_COMMAND_FLOW, seq -> {
+                CommandFlowEvent d = new CommandFlowEvent();
+                d.orderId = e.orderId;
+                d.flowType = strip(e.flowType, "FLOW_TYPE_");
+                d.flowDetail = e.detail;
+                d.flowTsMs = e.flowTsMs;
+                d.eventSeq = seq;
+                TradeService.this.onCommandFlow(d);
+            });
+        }
+
+        /** 每帧结尾由 HgcpClient 触发：类型匹配则用帧头 SEQ 冲刷暂存事件。 */
+        @Override
+        public void onEventConsumed(int eventType, long seq) {
+            java.util.function.LongConsumer action = pending;
+            boolean match = action != null && pendingType == eventType;
+            pending = null;
+            if (match) {
+                action.accept(seq);
+            }
+        }
+    }
+
+    /** 去线格式枚举名前缀（如 ORDER_STATUS_ALL_FILLED → ALL_FILLED）。 */
+    private static String strip(String value, String prefix) {
+        return value == null || !value.startsWith(prefix) ? value : value.substring(prefix.length());
+    }
+
+    /** 线格式 OrderStatus 枚举名 → DDL t_trade_order.status 取值（去前缀；UNSET 不回写）。 */
+    private static String mapOrderStatus(String wireStatus) {
+        String s = strip(wireStatus, "ORDER_STATUS_");
+        return s == null || "UNSET".equals(s) ? null : s;
+    }
+
+    /** 线格式 LimitLayer 枚举名 → DDL t_pre_trade_reject.limit_layer 取值（去前缀；UNSET 归 NONE）。 */
+    private static String mapLimitLayer(String wireLayer) {
+        String s = strip(wireLayer, "LIMIT_LAYER_");
+        return s == null || "UNSET".equals(s) ? "NONE" : s;
+    }
+
+    /** epoch 毫秒 → 本地日期时间（Asia/Shanghai）。 */
+    private static LocalDateTime toDateTime(long epochMilli) {
+        return LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(epochMilli), Clocks.ZONE);
+    }
+
+    /** 占用交易计划量（受理时 ordered_qty += volume）。 */
     private void occupyPlan(long tradePlanId, Integer volume) {
         if (volume == null || volume <= 0) {
             return;
@@ -841,7 +1327,34 @@ public final class TradeService {
 
     // ================================================================== DTO
 
-    /** 提交请求（{@code POST /trade/order} 请求体）。 */
+    /**
+     * 提交上下文（T-172）：submitOrder 时登记，供线格式事件富化回填 NOT NULL 字段。
+     *
+     * <p>纯内存、进程内、有界（LRU，容量 SUBMIT_CONTEXT_CAPACITY）——重启后丢失
+     * （硬边界③，据实披露于交付回执）。不含口令/确认令牌等敏感字段。
+     */
+    public static final class SubmitContext {
+        public String clientOrderRef;
+        public Long orderId;
+        public Integer subAccountId;
+        public Long tradePlanId;
+        public Long hedgePlanId;
+        public Long exposureId;
+        public Long productId;
+        public String instrumentId;
+        public String instrumentType;
+        public String direction;
+        public String offsetFlag;
+        public String priceType;
+        public String price;
+        public Integer volume;
+        public Long operatorId;
+        public ReasonInput reason;
+        public LocalDateTime submitTime;
+        public Long clientTsMs;
+    }
+
+    /** 提交请求（POST /trade/order 请求体）。 */
     public static final class SubmitRequest {
         /** 子账户（显式携带，必填）。 */
         public Integer subAccountId;

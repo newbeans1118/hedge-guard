@@ -1,6 +1,8 @@
 package com.hedgeguard.service;
 
 import com.hedgeguard.bridge.AckResult;
+import com.hedgeguard.bridge.HgcpConstants;
+import com.hedgeguard.bridge.HgcpEventListener;
 import com.hedgeguard.bridge.PlaceOrderCmd;
 import com.hedgeguard.bridge.PlaceOrderResult;
 import com.hedgeguard.bridge.stub.InMemoryTradingBridge;
@@ -94,6 +96,10 @@ class TradeServiceTest {
     private FakeTradePlanDao planDao;
     private FakeExposureDao exposureDao;
     private FakeTradeOrderDao orderDao;
+    private FakeTradeOrderReportDao reportDao;
+    private FakeTradeFillDao fillDao;
+    private FakeTradePositionDao positionDao;
+    private FakePreTradeRejectDao preTradeRejectDao;
     private FakeCommandFlowDao commandFlowDao;
 
     @BeforeEach
@@ -123,12 +129,16 @@ class TradeServiceTest {
         exposureDao.rows.put(EXPOSURE_ID, exposure(EXPOSURE_ID, SUB_A));
 
         bridge = new InMemoryTradingBridge();
+        reportDao = new FakeTradeOrderReportDao(audit);
+        fillDao = new FakeTradeFillDao(audit);
+        positionDao = new FakeTradePositionDao(audit);
+        preTradeRejectDao = new FakePreTradeRejectDao(audit);
         commandFlowDao = new FakeCommandFlowDao(audit);
         service = new TradeService(FakeTx.newTemplate(), bridge, authService,
                 planDao, exposureDao,
                 orderDao, new FakeTradeReasonDao(audit),
-                new FakeTradeOrderReportDao(audit), new FakeTradeFillDao(audit),
-                new FakeTradePositionDao(audit), new FakePreTradeRejectDao(audit),
+                reportDao, fillDao,
+                positionDao, preTradeRejectDao,
                 commandFlowDao);
     }
 
@@ -329,6 +339,8 @@ class TradeServiceTest {
         fill.fillPrice = "70500";
         fill.direction = "BUY";
         fill.offsetFlag = "OPEN";
+        fill.tradeTsMs = 1760000000000L;
+        fill.eventSeq = 31L;
         service.onFill(fill);
         TradePlan after = planDao.plans.get(PLAN_ID);
         assertEquals(0, after.executedQty.compareTo(new BigDecimal("4")), "executed_qty=4");
@@ -369,6 +381,184 @@ class TradeServiceTest {
         service.onCommandFlow(commandFlow("HG20261004000010", "SENT_CTP", 1760000000000L));
         service.onCommandFlow(commandFlow("HG20261004000010", "ACCEPTED", 1760000000001L));
         assertEquals(3, commandFlowDao.rows.size(), "三个维度任一不同即为新流水");
+    }
+
+    // ================================================================ T-172：提交上下文富化（六事件落库面）
+
+    @Test
+    @DisplayName("T-172 富化全链①：submitOrder → 受理事件（线格式仅回显 5 字段）→ 落库含全部富化 NOT NULL 字段")
+    void enrichmentOrderAcceptedFromSubmitContext() {
+        PlaceOrderResult r = service.submitOrder(request(validReason()), TRADER_ID);
+        assertTrue(r.accepted && r.orderId > 0, "应先受理取得 order_id");
+        // 线格式 EvtOrderAccepted 仅 order_id/client_order_ref/risk_passed/effective_timeout_ms/accepted_ts_ms
+        TradeService.OrderAcceptedEvent wire = new TradeService.OrderAcceptedEvent();
+        wire.orderId = r.orderId;
+        wire.clientOrderRef = r.clientOrderRef;
+        service.onOrderAccepted(wire);
+        assertEquals(1, orderDao.rows.size(), "应按上下文富化后落 1 行（缺源会被 skip）");
+        TradeOrder row = orderDao.rows.get(0);
+        assertEquals(SUB_A, row.subAccountId.intValue(), "sub_account_id 富化自上下文");
+        assertEquals(PLAN_ID, row.tradePlanId.longValue(), "trade_plan_id 富化自上下文");
+        assertEquals(1L, row.hedgePlanId.longValue(), "hedge_plan_id 富化（NOT NULL）");
+        assertEquals(EXPOSURE_ID, row.exposureId.longValue(), "exposure_id 富化");
+        assertEquals(55L, row.productId.longValue(), "product_id 富化");
+        assertEquals("cu2612", row.instrumentId);
+        assertEquals("BUY", row.direction);
+        assertEquals("OPEN", row.offsetFlag);
+        assertEquals("LIMIT", row.priceType);
+        assertEquals(10, row.volume.intValue());
+        assertEquals(TRADER_ID, row.operatorId.longValue());
+    }
+
+    @Test
+    @DisplayName("T-172 富化全链②：submitOrder → 成交事件（线格式无 product_id）→ 落库含品种/计划/持仓归属")
+    void enrichmentFillFromSubmitContext() {
+        PlaceOrderResult r = service.submitOrder(request(validReason()), TRADER_ID);
+        TradeService.FillEvent wire = new TradeService.FillEvent();
+        wire.tradeId = "T-FILL-ENRICH";
+        wire.orderId = r.orderId;
+        wire.orderSysId = "SYS-1";
+        wire.instrumentId = "cu2612";
+        wire.direction = "BUY";
+        wire.offsetFlag = "OPEN";
+        wire.fillPrice = "70500";
+        wire.fillVolume = 4;
+        wire.tradeTsMs = 1760000000000L;
+        wire.eventSeq = 41L;
+        service.onFill(wire);
+        assertEquals(1, fillDao.rows.size(), "应按上下文富化后落成交（product_id 等 NOT NULL）");
+        TradeFill f = fillDao.rows.get(0);
+        assertEquals(55L, f.productId.longValue(), "product_id 经上下文解析");
+        assertEquals(PLAN_ID, f.tradePlanId.longValue(), "trade_plan_id 富化");
+        assertEquals(1L, f.hedgePlanId.longValue(), "hedge_plan_id 富化（NOT NULL）");
+        assertEquals(EXPOSURE_ID, f.exposureId.longValue(), "exposure_id 富化");
+        assertEquals(SUB_A, f.subAccountId.intValue());
+        assertEquals(LocalDate.of(2025, 10, 9), f.tradeDate, "trade_date 由 trade_ts_ms 派生（信源忠实）");
+    }
+
+    @Test
+    @DisplayName("T-172 富化全链③：submitOrder → 委托回报（线格式无 sub_account_id/品种）→ 落库含富化字段")
+    void enrichmentOrderReportFromSubmitContext() {
+        PlaceOrderResult r = service.submitOrder(request(validReason()), TRADER_ID);
+        TradeService.OrderReportEvent e = new TradeService.OrderReportEvent();
+        e.orderId = r.orderId;
+        e.orderSysId = "SYS-R1";
+        e.orderStatus = "ORDER_STATUS_ALL_TRADED";
+        e.volumeTotal = 10;
+        e.volumeTraded = 10;
+        e.volumeLeft = 0;
+        e.reportTsMs = 1760000000000L;
+        e.eventSeq = 71L;
+        service.onOrderReport(e);
+        assertEquals(1, reportDao.rows.size(), "应按上下文富化后落回报");
+        TradeOrderReport row = reportDao.rows.get(0);
+        assertEquals(SUB_A, row.subAccountId.intValue(), "sub_account_id 富化自上下文");
+        assertEquals("cu2612", row.instrumentId, "instrument_id 富化自上下文");
+        assertEquals("BUY", row.direction);
+        assertEquals("OPEN", row.offsetFlag);
+        assertEquals(71L, row.eventSeq.longValue(), "event_seq 由调用方（帧头 SEQ）承载");
+    }
+
+    @Test
+    @DisplayName("T-172 富化：持仓事件（线格式无 product_id）→ 经 instrument_id 索引回填")
+    void enrichmentPositionFromInstrumentIndex() {
+        service.submitOrder(request(validReason()), TRADER_ID);
+        TradeService.PositionChangeEvent e = new TradeService.PositionChangeEvent();
+        e.subAccountId = SUB_A;
+        e.instrumentId = "cu2612";
+        e.direction = "BUY";
+        e.positionType = "SPECULATION";
+        e.positionQty = new BigDecimal("4");
+        e.eventSeq = 81L;
+        service.onPositionChange(e);
+        assertEquals(1, positionDao.rows.size(), "应按 instrument 索引回填 product_id 后落库");
+        TradePosition p = positionDao.rows.values().iterator().next();
+        assertEquals(55L, p.productId.longValue(), "product_id 经 instrument 索引解析");
+    }
+
+    @Test
+    @DisplayName("T-172 Q-5：productIdForOrder 经上下文取真值（保品种级分组）；未知返回 0")
+    void productIdResolverFromContext() {
+        PlaceOrderResult r = service.submitOrder(request(validReason()), TRADER_ID);
+        assertEquals(55L, service.productIdForOrder(r.orderId), "经上下文取品种真值");
+        assertEquals(0L, service.productIdForOrder(888888L), "未关联降级 0（与既有接缝默认一致）");
+    }
+
+    @Test
+    @DisplayName("T-172 硬边界②：指令流水无 client_order_ref 且 order_id 未关联 → skip+LOG+残留清单（不 crash、不落库）")
+    void untraceableCommandFlowSkippedAndListed() {
+        TradeService.CommandFlowEvent e = new TradeService.CommandFlowEvent();
+        e.orderId = 999999L;
+        e.flowType = "ACCEPTED";
+        e.flowTsMs = 1760000000000L;
+        e.eventSeq = 51L;
+        service.onCommandFlow(e);
+        assertEquals(0, commandFlowDao.rows.size(), "不可溯源流水不得落库");
+        assertFalse(service.residualEvents().isEmpty(), "应登记残留清单");
+        assertTrue(service.residualEvents().get(0).contains("EVT_COMMAND_FLOW"),
+                "残留项应点名事件：" + service.residualEvents());
+    }
+
+    @Test
+    @DisplayName("T-172 硬边界②：事前拒绝线格式无 reject_reason（NOT NULL）→ skip+LOG（不硬造）")
+    void untraceablePreTradeRejectSkipped() {
+        TradeService.PreTradeRejectEvent e = new TradeService.PreTradeRejectEvent();
+        e.subAccountId = SUB_A;
+        e.clientOrderRef = "HG20261004000077";
+        e.ruleId = "R-RISK-2";
+        e.rejectCode = "0x1004";
+        e.orderDigest = "{d}";
+        e.operatorId = TRADER_ID;
+        e.rejectTsMs = 1760000000000L;
+        e.eventSeq = 61L;
+        service.onPreTradeReject(e);
+        assertEquals(0, preTradeRejectDao.rows.size(), "reject_reason 线格式无源不得硬造，应跳过");
+        assertFalse(service.residualEvents().isEmpty());
+        assertTrue(service.residualEvents().get(0).contains("rejectReason"),
+                "残留项应点名缺源字段：" + service.residualEvents());
+    }
+
+    @Test
+    @DisplayName("T-172 硬边界①：提交上下文有界（容量上限 + LRU 淘汰最久未访问者）")
+    void submitContextBoundedAndEvicts() {
+        long firstOrderId = 0;
+        for (int i = 0; i < TradeService.SUBMIT_CONTEXT_CAPACITY + 2; i++) {
+            PlaceOrderResult r = service.submitOrder(request(validReason()), TRADER_ID);
+            if (i == 0) {
+                firstOrderId = r.orderId;
+            }
+        }
+        assertEquals(TradeService.SUBMIT_CONTEXT_CAPACITY, service.submitContextSize(), "条目数封顶");
+        assertEquals(2, service.submitContextEvictions(), "超容逐出最久未访问者");
+        assertEquals(0L, service.productIdForOrder(firstOrderId), "最久未访问者已被淘汰");
+    }
+
+    @Test
+    @DisplayName("T-172 接缝适配：中立 EvtTradeFill → 帧头 SEQ 补入 → 富化落库（event_seq 有源、Q-5 品种级）")
+    void hgcpEventSinkFillEndToEnd() {
+        PlaceOrderResult r = service.submitOrder(request(validReason()), TRADER_ID);
+        TradeService.HgcpEventSink sink = service.new HgcpEventSink();
+        HgcpEventListener.TradeFill wire = new HgcpEventListener.TradeFill();
+        wire.tradeId = "T-SINK-1";
+        wire.orderId = r.orderId;
+        wire.orderSysId = "SYS-SINK";
+        wire.instrumentId = "cu2612";
+        wire.direction = "DIRECTION_BUY";
+        wire.offsetFlag = "OFFSET_FLAG_OPEN";
+        wire.price = "70500";
+        wire.volume = 4;
+        wire.tradeTsMs = 1760000000000L;
+        wire.subAccountId = SUB_A;
+        wire.tradePlanId = PLAN_ID;
+        wire.exposureId = EXPOSURE_ID;
+        sink.onTradeFill(wire);
+        assertEquals(0, fillDao.rows.size(), "冲刷前不落库（帧头 SEQ 未到）");
+        sink.onEventConsumed(HgcpConstants.EVT_TRADE_FILL, 99L);
+        assertEquals(1, fillDao.rows.size(), "冲刷后应富化落库");
+        TradeFill f = fillDao.rows.get(0);
+        assertEquals(99L, f.eventSeq.longValue(), "event_seq 由帧头 SEQ 补入");
+        assertEquals(55L, f.productId.longValue(), "product_id 经上下文富化（Q-5 品种级）");
+        assertEquals("BUY", f.direction, "方向去线格式前缀 DIRECTION_");
     }
 
     // ================================================================ 夹具
@@ -441,7 +631,10 @@ class TradeServiceTest {
         e.ruleId = ruleId;
         e.rejectCode = "0x1004";
         e.rejectReason = "超额度";
+        e.orderDigest = "{digest}";
         e.operatorId = TRADER_ID;
+        e.rejectTsMs = 1760000000000L;
+        e.eventSeq = 11L;
         return e;
     }
 
@@ -453,6 +646,7 @@ class TradeServiceTest {
         e.flowType = flowType;
         e.flowDetail = "{\"k\":\"v\"}";
         e.flowTsMs = tsMs;
+        e.eventSeq = 21L;
         return e;
     }
 
