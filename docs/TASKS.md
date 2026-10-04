@@ -88,7 +88,7 @@
 | T-043 | 交付 TRADE 模块 9 张表 DDL 与 DAO | FR-TRADE-1~18 | backend-engineer#java | P0 | T-004 | 16 人时 | 初版 | TODO  **DONE（授权 + 独立验证：te-verify-t043 通过/0 阻断/6 观察/0 条件；DATA_MODEL 独立对账全一致；全量 720/0/0/0 + arch rc0 复现；变异复现+自设全红复位逐字节；交付 458687c 30 文件 +3443；证据章 31bb715 纯追加 13706→13942；观察 O-2〔CHECK 取值域/复合幂等键无测试承重〕登记为 T-046 补测输入；2026-10-04）** |
 | T-044 | 交付 SETTLE 模块 16 张表 DDL 与 DAO | FR-SETTLE-1~17 | backend-engineer#java2 | P0 | T-004 | 24 人时 | 初版 | TODO  **DONE（授权 + 独立验证：te-verify-t044 有条件通过/0 阻断/1 低/4 观察〔16/16 表独立对账 100% 一致、全量 720/0/0/0 复现、守卫负控未放水〕+ 条件 TE-T044-001 注释 CFG-18→CFG-11 微修（2b2a1f3）经 te-verify-t044b delta 确认闭环〔恰单点、CFG-18 残留 0〕；交付 7cdd310（51 文件 +4124）；内容级锚替身 1d989cb4…（原锚 e24caa40… 不可复现已作废）；证据章 31bb715；上游 DATA_MODEL.md:2694/:2710 同误引登记勘误转权威席；O-1 读侧列名映射判据增强登记为候选；2026-10-04）** |
 | T-045 | 交付 FUND 模块 9 张表 DDL 与 DAO | FR-FUND-1~17 | backend-engineer#java2 | P0 | T-004 | 16 人时 | 初版 | TODO |
-| T-046 | 实现交易执行服务 TradeService（不落库下单 + 事件流落库） | FR-TRADE-1~18, CFG-13 | backend-engineer#java | P0 | T-042, T-043 | 24 人时 | 初版 | BLOCKED |
+| T-046 | 实现交易执行服务 TradeService（不落库下单 + 事件流落库） | FR-TRADE-1~18, CFG-13 | backend-engineer#java | P0 | T-042, T-043 | 24 人时 | 初版 |TODO **📌（2026-10-04 第 178 轮解锁回写）依赖 `T-042`/`T-043` 均 DONE ⇒ 依赖满足，`BLOCKED` → `TODO`（编排者）** |
 | T-047 | 实现结算服务 SettleService（独立结算 + 加总对账 + 差异归属） | FR-SETTLE-1~12/15/16, CFG-11, Q-11 | backend-engineer#java2 | P0 | T-042, T-044, T-046 | 32 人时 | 初版 | BLOCKED |
 | T-048 | 实现核对任务与电子签署 | FR-SETTLE-13/14/17, CFG-14, R-SETTLE-11 | backend-engineer#java2 | P0 | T-047 | 16 人时 | 初版 | BLOCKED |
 | T-049 | 实现资金管理服务 FundService（出入金 + 划拨 + 额度） | FR-FUND-1~17, CFG-25 | backend-engineer#java2 | P0 | T-042, T-045 | 24 人时 | 初版 | BLOCKED |
@@ -1256,7 +1256,8 @@
 - **依赖**：T-042, T-043
 - **估时**：24 人时
 - **来源**：初版
-- **状态**：**BLOCKED**
+- **状态**：**TODO**（2026-10-04 第 178 轮解锁回写：依赖 `T-042`/`T-043` 均 DONE；2026-09-21 `T-030` 汇签解除门禁）
+  **📌（2026-10-04 第 178 轮解锁回写 · 只加不改）** 依赖 `T-042`（2026-10-02 DONE）/`T-043`（2026-10-04 DONE）均满足 ⇒ `BLOCKED` → `TODO`；解除人 = 编排者（依台账裁定连锁）。
 - **验收标准**：
   1. 提交指令**不落库**（避免交易路径 DB I/O），经桥接下 `CMD_PLACE_ORDER`；确认/撤单经 `CMD_CONFIRM_ORDER`/`CMD_CANCEL_ORDER`；
   2. **交易理由结构化必填**（`CFG-13`）：关联类型 + 关联对象（计划 ID + 敞口 ID，须同子账户）+ 时点说明三项；校验不通过即拒绝；
