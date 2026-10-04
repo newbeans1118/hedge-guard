@@ -151,8 +151,15 @@ class BootstrapAssemblyTest {
             //   最小写/动作面 3 条 POST（`/trade/order`、`/trade/order/{id}/confirm`、`/trade/order/{id}/cancel`），
             //   TRADE 由 0 增为 3，业务路由 85（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK1/TRADE3）+ ping 2 = 87。
             //   非为过测试而放宽断言。
-            assertEquals(87, assembly.routeCount(),
-                    "业务路由必须全部注册：85（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK1/TRADE3）+ ping 2");
+            // 【T-047 订正（加注）】断言值由 87 订正为 98：订正理由 = 需求面（ApiRoutes 声明 SETTLE 模块
+            //   12 条路径；ARCHITECTURE.md §3.8 SettleService 结算主链、FR-SETTLE-1~12/15/16）——本任务
+            //   注册结算最小面 11 个 (方法,路径) 对（ctp-data / cycle[GET,POST] / cycle/{id}/reconcile /
+            //   cycle/{id}/aggregate / cycle/{id}/close / difference / report / margin / stress-test / export），
+            //   SETTLE 由 0 增为 11，业务路由 96（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK1/TRADE3/SETTLE11）
+            //   + ping 2 = 98。monthly-check/quarterly-report（FR-SETTLE-13/14/17）归 T-048，本任务不注册。
+            //   非为过测试而放宽断言。
+            assertEquals(98, assembly.routeCount(),
+                    "业务路由必须全部注册：96（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK1/TRADE3/SETTLE11）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。
             // （不真发 HTTP：经 RequestDispatcher 进程内分发；handler 因无真实库而 4xx/5xx 皆可，

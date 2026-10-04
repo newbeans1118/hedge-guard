@@ -46,6 +46,20 @@ import com.hedgeguard.dao.impl.DmPurchaseContractDao;
 import com.hedgeguard.dao.impl.DmReportPeriodConfigDao;
 import com.hedgeguard.dao.impl.DmRoleDao;
 import com.hedgeguard.dao.impl.DmSalesContractDao;
+import com.hedgeguard.dao.impl.DmSettleAggDiffCandidateDao;
+import com.hedgeguard.dao.impl.DmSettleAggregationCheckDao;
+import com.hedgeguard.dao.impl.DmSettleCtpBatchDao;
+import com.hedgeguard.dao.impl.DmSettleCtpFundDao;
+import com.hedgeguard.dao.impl.DmSettleCtpPositionDao;
+import com.hedgeguard.dao.impl.DmSettleCtpTradeDao;
+import com.hedgeguard.dao.impl.DmSettleCycleDao;
+import com.hedgeguard.dao.impl.DmSettleFundDao;
+import com.hedgeguard.dao.impl.DmSettlePnlDao;
+import com.hedgeguard.dao.impl.DmSettlePositionDao;
+import com.hedgeguard.dao.impl.DmSettleReconcileDifferenceDao;
+import com.hedgeguard.dao.impl.DmSettleReconcileRecordDao;
+import com.hedgeguard.dao.impl.DmSettleReportDao;
+import com.hedgeguard.dao.impl.DmSettleStressTestDao;
 import com.hedgeguard.dao.impl.DmSpotChangeLogDao;
 import com.hedgeguard.dao.impl.DmSpotPriceDao;
 import com.hedgeguard.dao.impl.DmSubAccountDao;
@@ -81,6 +95,7 @@ import com.hedgeguard.service.ConfigService;
 import com.hedgeguard.service.ParamDispatchService;
 import com.hedgeguard.service.PlanService;
 import com.hedgeguard.service.SpotService;
+import com.hedgeguard.service.SettleService;
 import com.hedgeguard.service.TradeService;
 import com.hedgeguard.service.VarietyService;
 import com.hedgeguard.service.impl.ParamDispatchServiceImpl;
@@ -90,6 +105,7 @@ import com.hedgeguard.web.handler.config.ConfigRoutes;
 import com.hedgeguard.web.handler.plan.PlanRoutes;
 import com.hedgeguard.web.handler.product.ProductRoutes;
 import com.hedgeguard.web.handler.spot.SpotRoutes;
+import com.hedgeguard.web.handler.settle.SettleRoutes;
 import com.hedgeguard.web.handler.trade.TradeRoutes;
 
 import java.io.IOException;
@@ -436,6 +452,18 @@ public final class Bootstrap {
                 new DmTradePositionDao(tx), new DmTradePreTradeRejectDao(tx),
                 new DmTradeCommandFlowDao(tx));
         TradeRoutes.register(router, tradeService);
+
+        // M2 结算服务（T-047）：CTP 日终入库 → 子账户拆分/独立结算 → 三类核对 → 加总对账 → 关账门禁。
+        // 系统内按子账户数据以「服务方法 + 入参接缝」承接（生产事件接线归 T-172）。
+        SettleService settleService = new SettleService(tx, authService,
+                new DmSettleCtpBatchDao(tx), new DmSettleCtpPositionDao(tx),
+                new DmSettleCtpTradeDao(tx), new DmSettleCtpFundDao(tx),
+                new DmSettleCycleDao(tx), new DmSettlePositionDao(tx),
+                new DmSettleFundDao(tx), new DmSettlePnlDao(tx),
+                new DmSettleReconcileRecordDao(tx), new DmSettleReconcileDifferenceDao(tx),
+                new DmSettleAggregationCheckDao(tx), new DmSettleAggDiffCandidateDao(tx),
+                new DmSettleReportDao(tx), new DmSettleStressTestDao(tx));
+        SettleRoutes.register(router, settleService);
 
         IntradayRiskMonitor monitor = registerRiskIntradayRoute(router, config, bridge,
                 paramDispatchService, authService);

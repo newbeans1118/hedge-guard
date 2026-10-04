@@ -5,6 +5,7 @@ import com.hedgeguard.web.handler.config.ConfigRoutes;
 import com.hedgeguard.web.handler.plan.PlanRoutes;
 import com.hedgeguard.web.handler.product.ProductRoutes;
 import com.hedgeguard.risk_intraday.RiskRoutes;
+import com.hedgeguard.web.handler.settle.SettleRoutes;
 import com.hedgeguard.web.handler.spot.SpotRoutes;
 import com.hedgeguard.web.handler.trade.TradeRoutes;
 
@@ -55,7 +56,7 @@ final class FullWebAssembly {
      * <p>{@code T-050} 据「事中风控 REST 面」新增 {@code GET /api/v1/risk/mirror-status} 一条
      * ⇒ {@code 81 → 82}（非为过测试而放宽：{@code ApiRoutes} 已声明该路径，本任务只做<b>最小注册</b>）。
      */
-    static final int ROUTE_COUNT = 85;
+    static final int ROUTE_COUNT = 96;
 
     private FullWebAssembly() {
     }
@@ -74,6 +75,10 @@ final class FullWebAssembly {
         // T-046：TRADE 交易执行主链最小注册面（3 条 POST：order / confirm / cancel）。
         // 服务入参 null：装配期只调用 router.register(...) 构造 Handler，不驱动任何业务逻辑。
         TradeRoutes.register(router, null);
+        // T-047：SETTLE 结算最小注册面（11 个 (方法,路径) 对：ctp-data / cycle(GET,POST) /
+        // cycle/{id}/{reconcile,aggregate,close} / difference / report / margin / stress-test / export）。
+        // 服务入参 null：装配期只调用 router.register(...) 构造 Handler，不驱动任何业务逻辑。
+        SettleRoutes.register(router, null);
         return router;
     }
 }
