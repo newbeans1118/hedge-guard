@@ -522,7 +522,7 @@ COMMENT ON COLUMN t_aggregation_check.real_account_value IS '真实期货账户�
 COMMENT ON COLUMN t_aggregation_check.difference IS '差额';
 COMMENT ON COLUMN t_aggregation_check.result     IS '对账结论';
 COMMENT ON COLUMN t_aggregation_check.possible_sub_accounts IS '可能来源子账户清单（展示缓存，禁作判定来源）';
-COMMENT ON COLUMN t_aggregation_check.block_scope IS '阻断范围（CFG-18）';
+COMMENT ON COLUMN t_aggregation_check.block_scope IS '阻断范围（CFG-11）';
 COMMENT ON COLUMN t_aggregation_check.block_effective_time IS '阻断生效时间';
 COMMENT ON COLUMN t_aggregation_check.alert_time IS '告警可见时间';
 COMMENT ON COLUMN t_aggregation_check.check_time IS '校验执行时间';
