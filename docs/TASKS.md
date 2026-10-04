@@ -92,7 +92,7 @@
 | T-047 | 实现结算服务 SettleService（独立结算 + 加总对账 + 差异归属） | FR-SETTLE-1~12/15/16, CFG-11, Q-11 | backend-engineer#java2 | P0 | T-042, T-044, T-046 | 32 人时 | 初版 | BLOCKED |
 | T-048 | 实现核对任务与电子签署 | FR-SETTLE-13/14/17, CFG-14, R-SETTLE-11 | backend-engineer#java2 | P0 | T-047 | 16 人时 | 初版 | BLOCKED |
 | T-049 | 实现资金管理服务 FundService（出入金 + 划拨 + 额度） | FR-FUND-1~17, CFG-25 | backend-engineer#java2 | P0 | T-042, T-045 | 24 人时 | 初版 | BLOCKED |
-| T-050 | 实现事中风控与镜像状态 risk_intraday | FR-RISK-12~16/19, R-RISK-13 | backend-engineer#java | P0 | T-042 | 20 人时 | 初版 | BLOCKED |
+| T-050 | 实现事中风控与镜像状态 risk_intraday | FR-RISK-12~16/19, R-RISK-13 | backend-engineer#java | P0 | T-042 | 20 人时 | 初版 |TODO **📌（2026-10-04 第 175 轮解锁回写）依赖 `T-042` 已 DONE（2026-10-02）⇒ 依赖满足，`BLOCKED` → `TODO`（编排者）** |
 | T-051 | 实现调度 job（日终/报表/对账/到期提醒，可注入时钟） | NFR-TEST-4, ARCH §3.12 | backend-engineer#java2 | P1 | T-047, T-049 | 16 人时 | 初版 | BLOCKED |
 | T-052 | 交付部署与运维支撑（部署/环境/配置清单/启动脚本） | NFR-DEPLOY-2/3/4/5, ARCH §3.14, CFG-01~31 | backend-engineer#java2 | P0 | T-009, T-049 | 16 人时 | 初版 | BLOCKED |
 | T-053 | 实现交易执行前端（含行情 WebSocket） | FR-TRADE-1~18, NFR-PERF-5 | frontend-engineer | P0 | T-017, T-046 | 20 人时 | 初版 | BLOCKED |
@@ -1329,7 +1329,8 @@
 - **依赖**：T-042
 - **估时**：20 人时
 - **来源**：初版
-- **状态**：**BLOCKED**
+- **状态**：**TODO**（2026-10-04 第 175 轮解锁回写：依赖 `T-042` 已 DONE；2026-09-21 `T-030` 汇签解除门禁）
+  **📌（2026-10-04 第 175 轮解锁回写 · 只加不改）** 依赖 `T-042` 已于 2026-10-02 转 `DONE`（全链复核；验收 3/6 经 `T-166`/`T-167`/`T-168` 两侧闭合）⇒ 依赖满足，`BLOCKED` → `TODO`；解除人 = 编排者（依台账 `T-042` 裁定连锁）。
 - **验收标准**：
   1. 基于 `TradingBridge.mirror()` 实时监控 6 类指标：实时持仓 / 浮动盈亏 / 保证金占用率 / 风险度 / 资金可用量 / 异常下单行为；
   2. 超阈值 → 告警 / **限制新开仓**（经 `CMD_SET_TRADING_SUSPEND`，`scope=OPEN_ONLY`）/ 强制平仓**只提示不自动下单**（`R-RISK-13`）；
