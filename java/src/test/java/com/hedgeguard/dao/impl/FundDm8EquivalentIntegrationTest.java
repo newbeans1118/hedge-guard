@@ -226,6 +226,45 @@ class FundDm8EquivalentIntegrationTest {
                 "Σ 各子账户期末余额应可直接求和（加总对账核心，R-FUND-1）");
     }
 
+    @Test
+    @DisplayName("读侧闭合（TE-T045-001）：balance_after 逐笔读回 == 期初 + 有向发生额（IN 加 / OUT 减）")
+    void balanceAfterReadbackClosesEquation() {
+        DmFundLedgerDao ledgerDao = new DmFundLedgerDao(tx);
+        ledgerDao.insert(ledger(), 7L);
+        FundLedger begin = ledgerDao.findBySubAccountAndDate(1, D_1004);
+        assertNotNull(begin, "应读回台账作为期初余额");
+        BigDecimal open = begin.beginBalance;
+
+        DmFundFlowDao flowDao = new DmFundFlowDao(tx);
+
+        FundFlow in = flow();
+        in.voucherNo = "FV20261004010";
+        in.direction = "IN";
+        in.amount = new BigDecimal("5000.0000");
+        in.balanceAfter = open.add(in.amount);
+        assertEquals(1, flowDao.insert(in, 7L));
+        FundFlow inRead = flowDao.findByVoucherNo("FV20261004010");
+        assertNotNull(inRead, "应按凭证编号读回 IN 方向流水");
+        assertEquals(0, inRead.balanceAfter.compareTo(open.add(inRead.amount)),
+                "IN 方向：balance_after 应 == 期初 + 发生额（读侧不得漂移到 amount）");
+        assertEquals(0, inRead.balanceAfter.compareTo(new BigDecimal("105000.0000")),
+                "IN 方向：期初 100000 + 发生额 5000 = 期末 105000");
+
+        FundFlow out = flow();
+        out.voucherNo = "FV20261004011";
+        out.flowType = "WITHDRAW";
+        out.direction = "OUT";
+        out.amount = new BigDecimal("2000.0000");
+        out.balanceAfter = open.subtract(out.amount);
+        assertEquals(1, flowDao.insert(out, 7L));
+        FundFlow outRead = flowDao.findByVoucherNo("FV20261004011");
+        assertNotNull(outRead, "应按凭证编号读回 OUT 方向流水");
+        assertEquals(0, outRead.balanceAfter.compareTo(open.subtract(outRead.amount)),
+                "OUT 方向：balance_after 应 == 期初 - 发生额（有向负向亦闭合）");
+        assertEquals(0, outRead.balanceAfter.compareTo(new BigDecimal("98000.0000")),
+                "OUT 方向：期初 100000 - 发生额 2000 = 期末 98000");
+    }
+
     // ------------------------------------------------------------ 构造器
 
     private static final LocalDate D_1004 = LocalDate.of(2026, 10, 4);
