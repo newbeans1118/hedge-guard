@@ -689,27 +689,62 @@ public final class SettleService {
         return new ReconcileLine(DIFF_TYPE_POSITION, record.result, diffCount, record.id);
     }
 
+    /**
+     * 资金核对（{@code FR-SETTLE-7}）：账户级「Σ 子账户 vs CTP 账户」，逐项比对
+     * <b>权益、可用资金、占用保证金、当日出入金（入金/出金两向）、当日手续费</b>；
+     * 任意一项不一致 ⇒ 产生可定位到该项的 {@code FUND} 差异（未闭环前阻断关账，不得只告警不阻断）。
+     */
     private ReconcileLine reconcileFund(SettleCycle cycle, List<SettleCtpFund> ctpFunds, long operatorId) {
-        BigDecimal sysEquity = sumFundColumn(cycle, "equity");
+        // 系统侧：Σ 全部子账户（CTP 资金为账户级合并值，故不按单子账户比较）
+        BigDecimal[] sys = sumFundColumns(cycle);
         BigDecimal ctpEquity = BigDecimal.ZERO;
+        BigDecimal ctpAvailable = BigDecimal.ZERO;
+        BigDecimal ctpMargin = BigDecimal.ZERO;
+        BigDecimal ctpCommission = BigDecimal.ZERO;
+        BigDecimal ctpDeposit = BigDecimal.ZERO;
+        BigDecimal ctpWithdraw = BigDecimal.ZERO;
         for (SettleCtpFund f : ctpFunds) {
             ctpEquity = ctpEquity.add(nz(f.equity));
+            ctpAvailable = ctpAvailable.add(nz(f.availableFund));
+            ctpMargin = ctpMargin.add(nz(f.marginOccupied));
+            ctpCommission = ctpCommission.add(nz(f.commissionToday));
+            ctpDeposit = ctpDeposit.add(nz(f.depositToday));
+            ctpWithdraw = ctpWithdraw.add(nz(f.withdrawToday));
         }
         int diffCount = 0;
         SettleReconcileRecord record = newRecord(cycle, DIFF_TYPE_FUND,
                 countFund(cycle), ctpFunds.size(), operatorId);
         recordDaoInsertPlaceholder(record, operatorId);
-        if (sysEquity.compareTo(ctpEquity) != 0) {
-            diffCount++;
-            recordUnattributedDifference(cycle.tradeDate, record.id, DIFF_TYPE_FUND,
-                    sysEquity.compareTo(ctpEquity) < 0 ? KIND_CTP_ONLY : KIND_SYS_ONLY, "equity",
-                    "equity", sysEquity.toPlainString(), ctpEquity.toPlainString(),
-                    null, sysEquity.subtract(ctpEquity), operatorId);
-        }
+        diffCount += compareFundItem(cycle, record, "equity", sys[0], ctpEquity, operatorId);
+        diffCount += compareFundItem(cycle, record, "availableFund", sys[1], ctpAvailable, operatorId);
+        diffCount += compareFundItem(cycle, record, "marginOccupied", sys[2], ctpMargin, operatorId);
+        diffCount += compareFundItem(cycle, record, "amountIn", sys[3], ctpDeposit, operatorId);
+        diffCount += compareFundItem(cycle, record, "amountOut", sys[4], ctpWithdraw, operatorId);
+        diffCount += compareFundItem(cycle, record, "commission", sys[5], ctpCommission, operatorId);
         record.result = diffCount == 0 ? RESULT_CONSISTENT : RESULT_HAS_DIFFERENCE;
         record.differenceCount = diffCount;
         recordDaoUpdate(record, operatorId);
         return new ReconcileLine(DIFF_TYPE_FUND, record.result, diffCount, record.id);
+    }
+
+    /**
+     * 逐项比对资金核对项；不一致 ⇒ 记录可定位到具体项的 {@code FUND} 差异（{@code FR-SETTLE-7} 验收2）。
+     *
+     * @return 不一致返回 1，否则 0（供汇总 {@code differenceCount}）
+     */
+    private int compareFundItem(SettleCycle cycle, SettleReconcileRecord record, String field,
+                                BigDecimal sysValue, BigDecimal ctpValue, long operatorId) {
+        BigDecimal s = nz(sysValue);
+        BigDecimal c = nz(ctpValue);
+        if (s.compareTo(c) == 0) {
+            return 0;
+        }
+        recordUnattributedDifference(cycle.tradeDate, record.id, DIFF_TYPE_FUND,
+                s.compareTo(c) < 0 ? KIND_CTP_ONLY : KIND_SYS_ONLY, field, field,
+                s.toPlainString(), c.toPlainString(), null, s.subtract(c), operatorId);
+        LOG.warning("资金核对差异（FR-SETTLE-7）：tradeDate=" + cycle.tradeDate + " 项=" + field
+                + " 系统=" + s.toPlainString() + " CTP=" + c.toPlainString());
+        return 1;
     }
 
     private ReconcileLine reconcileTrades(SettleCycle cycle, List<SettleCtpTrade> ctpTrades,
@@ -808,20 +843,30 @@ public final class SettleService {
     }
 
     /**
-     * 账户级资金合计：Σ 全部子账户结算资金（{@code FR-SETTLE-7} 资金核对 = Σ 子账户 vs CTP 账户）。
-     * <b>不按单子账户</b>比较——CTP 资金是账户级合并值（{@code t_ctp_settle_fund} 单行）。
+     * 账户级系统侧资金合计：Σ 全部子账户结算资金，按核对项返回
+     * {@code [权益, 可用资金, 占用保证金, 当日入金, 当日出金, 当日手续费]}
+     * （{@code FR-SETTLE-7} 资金核对 = Σ 子账户 vs CTP 账户；CTP 资金为账户级合并值
+     * {@code t_ctp_settle_fund} 单行，故<b>不按单子账户</b>比较）。
      */
-    private BigDecimal sumFundColumn(SettleCycle cycle, String column) {
+    private BigDecimal[] sumFundColumns(SettleCycle cycle) {
         PageResult<SettleFund> page = fundDao.findPage(
                 PageQuery.of("1", "100", "id,asc", "id"),
                 "trade_date = ?", Collections.singletonList((Object) cycle.tradeDate));
-        BigDecimal sum = BigDecimal.ZERO;
+        BigDecimal equity = BigDecimal.ZERO;
+        BigDecimal available = BigDecimal.ZERO;
+        BigDecimal margin = BigDecimal.ZERO;
+        BigDecimal amountIn = BigDecimal.ZERO;
+        BigDecimal amountOut = BigDecimal.ZERO;
+        BigDecimal commission = BigDecimal.ZERO;
         for (SettleFund f : page.items()) {
-            if ("equity".equals(column)) {
-                sum = sum.add(nz(f.equity));
-            }
+            equity = equity.add(nz(f.equity));
+            available = available.add(nz(f.availableFund));
+            margin = margin.add(nz(f.marginOccupied));
+            amountIn = amountIn.add(nz(f.amountIn));
+            amountOut = amountOut.add(nz(f.amountOut));
+            commission = commission.add(nz(f.commission));
         }
-        return sum;
+        return new BigDecimal[] {equity, available, margin, amountIn, amountOut, commission};
     }
 
     private int countFund(SettleCycle cycle) {

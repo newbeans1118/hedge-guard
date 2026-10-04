@@ -206,6 +206,142 @@ class SettleServiceTest {
         assertEquals("Y", out.get(0).negativeFundFlag);
     }
 
+    // ================================================================ FR-SETTLE-7：资金核对五项（权益/可用资金/占用保证金/当日出入金/当日手续费）
+
+    @Test
+    @DisplayName("FR-SETTLE-7 验收2：非权益项（可用资金）不一致 ⇒ 产生 FUND 差异并定位到该项")
+    void reconcileFundDetectsAvailableFundMismatch() {
+        service.ingestCtpData(ctpRequest("15", "1000"), OP); // CTP 可用资金 800
+        SettleService.SettlementInput in = settlement("15");
+        in.positions.add(pos(SUB_A, "cu2612", "LONG", "TODAY", "15"));
+        SettleService.SystemFundRow f = fund(SUB_A, "1000", "1000", "200");
+        f.availableFund = "999"; // 人为调整可用资金（权益/保证金/手续费/出入金仍一致）
+        in.funds.add(f);
+        service.runSettlement(in, OP);
+
+        differences.rows.clear(); // 隔离本次 reconcile 产生的差异
+        records.rows.clear();
+        SettleService.ReconcileResult res = service.reconcile(firstCycleId(), null, OP);
+
+        assertEquals("HAS_DIFFERENCE", res.fund.result, "可用资金不一致不得判 CONSISTENT（FR-SETTLE-7 验收2）");
+        assertEquals(1, res.fund.differenceCount, "仅可用资金一项不一致 ⇒ 恰 1 条 FUND 差异");
+        SettleReconcileDifference d = findDiff("FUND", "availableFund");
+        assertNotNull(d, "差异须定位到具体项 availableFund");
+        assertEquals("999", d.systemValue);
+        assertEquals("800", d.ctpValue);
+        assertNotNull(d.diffAmount, "差异须含差额");
+        assertEquals(0, d.diffAmount.compareTo(new BigDecimal("199")));
+        assertEquals("PENDING", d.handleStatus, "未闭环差异须为待处理（关账门禁③）");
+    }
+
+    @Test
+    @DisplayName("FR-SETTLE-7 验收2：非权益项（当日手续费）不一致 ⇒ 产生 FUND 差异并定位到该项")
+    void reconcileFundDetectsCommissionMismatch() {
+        SettleService.CtpDataRequest req = ctpRequest("15", "1000");
+        req.funds.get(0).commissionToday = "5"; // CTP 当日手续费 5，系统侧 0
+        service.ingestCtpData(req, OP);
+        SettleService.SettlementInput in = settlement("15");
+        in.positions.add(pos(SUB_A, "cu2612", "LONG", "TODAY", "15"));
+        in.funds.add(fund(SUB_A, "1000", "1000", "200"));
+        service.runSettlement(in, OP);
+
+        differences.rows.clear();
+        records.rows.clear();
+        SettleService.ReconcileResult res = service.reconcile(firstCycleId(), null, OP);
+
+        assertEquals("HAS_DIFFERENCE", res.fund.result, "手续费不一致不得判 CONSISTENT");
+        SettleReconcileDifference d = findDiff("FUND", "commission");
+        assertNotNull(d, "差异须定位到具体项 commission");
+        assertEquals("0", d.systemValue);
+        assertEquals("5", d.ctpValue);
+        assertEquals(0, d.diffAmount.compareTo(new BigDecimal("-5")));
+    }
+
+    @Test
+    @DisplayName("FR-SETTLE-7 验收2：占用保证金不一致 ⇒ 产生 FUND 差异并定位到该项")
+    void reconcileFundDetectsMarginMismatch() {
+        SettleService.CtpDataRequest req = ctpRequest("15", "1000");
+        req.funds.get(0).marginOccupied = "250"; // CTP 保证金 250，系统侧 200
+        service.ingestCtpData(req, OP);
+        SettleService.SettlementInput in = settlement("15");
+        in.positions.add(pos(SUB_A, "cu2612", "LONG", "TODAY", "15"));
+        in.funds.add(fund(SUB_A, "1000", "1000", "200"));
+        service.runSettlement(in, OP);
+
+        differences.rows.clear();
+        records.rows.clear();
+        SettleService.ReconcileResult res = service.reconcile(firstCycleId(), null, OP);
+
+        assertEquals("HAS_DIFFERENCE", res.fund.result, "占用保证金不一致不得判 CONSISTENT");
+        assertNotNull(findDiff("FUND", "marginOccupied"), "差异须定位到具体项 marginOccupied");
+    }
+
+    @Test
+    @DisplayName("FR-SETTLE-7 验收2：当日出入金（入金/出金两向）不一致 ⇒ 产生 FUND 差异并定位到该项")
+    void reconcileFundDetectsCashFlowMismatch() {
+        SettleService.CtpDataRequest req = ctpRequest("15", "1000");
+        req.funds.get(0).depositToday = "30";  // CTP 当日入金 30，系统侧 0
+        req.funds.get(0).withdrawToday = "10"; // CTP 当日出金 10，系统侧 0
+        service.ingestCtpData(req, OP);
+        SettleService.SettlementInput in = settlement("15");
+        in.positions.add(pos(SUB_A, "cu2612", "LONG", "TODAY", "15"));
+        in.funds.add(fund(SUB_A, "1000", "1000", "200"));
+        service.runSettlement(in, OP);
+
+        differences.rows.clear();
+        records.rows.clear();
+        SettleService.ReconcileResult res = service.reconcile(firstCycleId(), null, OP);
+
+        assertEquals("HAS_DIFFERENCE", res.fund.result, "当日出入金不一致不得判 CONSISTENT");
+        assertNotNull(findDiff("FUND", "amountIn"), "入金差异须定位到 amountIn");
+        assertNotNull(findDiff("FUND", "amountOut"), "出金差异须定位到 amountOut");
+    }
+
+    @Test
+    @DisplayName("FR-SETTLE-7 验收1：五项全部一致 ⇒ CONSISTENT（回归）")
+    void reconcileFundConsistentWhenAllFiveItemsMatch() {
+        service.ingestCtpData(ctpRequest("15", "1000"), OP);
+        SettleService.SettlementInput in = settlement("15");
+        in.positions.add(pos(SUB_A, "cu2612", "LONG", "TODAY", "10"));
+        in.positions.add(pos(SUB_B, "cu2612", "LONG", "TODAY", "5"));
+        in.funds.add(fund(SUB_A, "600", "600", "200"));
+        in.funds.add(fund(SUB_B, "400", "400", "0"));
+        service.runSettlement(in, OP);
+
+        differences.rows.clear();
+        records.rows.clear();
+        SettleService.ReconcileResult res = service.reconcile(firstCycleId(), null, OP);
+
+        assertEquals("CONSISTENT", res.fund.result, "五项一致须判 CONSISTENT");
+        assertEquals(0, res.fund.differenceCount);
+    }
+
+    @Test
+    @DisplayName("FR-SETTLE-7 验收2/R-SETTLE-5：非权益资金差异未闭环 ⇒ 关账门禁③阻断（不得只告警不阻断）")
+    void reconcileFundDifferenceBlocksClose() {
+        service.ingestCtpData(ctpRequest("15", "1000"), OP); // CTP 可用资金 800
+        SettleService.SettlementInput in = settlement("15");
+        in.positions.add(pos(SUB_A, "cu2612", "LONG", "TODAY", "15"));
+        SettleService.SystemFundRow f = fund(SUB_A, "1000", "1000", "200");
+        f.availableFund = "999"; // 仅非权益项不一致
+        in.funds.add(f);
+        service.runSettlement(in, OP);
+        SettleService.ReconcileResult res = service.reconcile(firstCycleId(), null, OP);
+        assertEquals("HAS_DIFFERENCE", res.fund.result);
+
+        BizException e = assertThrows(BizException.class, () -> service.closeCycle(firstCycleId(), OP));
+        assertEquals(ErrorCode.STATE_NOT_ALLOWED, e.errorCode(), "未闭环的非权益资金差异须阻断关账");
+
+        for (SettleReconcileDifference d : new ArrayList<>(differences.rows)) {
+            SettleService.DifferenceInput di = new SettleService.DifferenceInput();
+            di.handleStatus = "CLOSED";
+            di.handleMethod = "SUPPLEMENT";
+            di.handleDesc = "已核对并补录";
+            service.handleDifference(d.id, di, OP);
+        }
+        assertTrue(service.closeCycle(firstCycleId(), OP).confirmed, "差异闭环后关账应成功");
+    }
+
     // ================================================================ 验收2 + 3：加总对账与阻断范围
 
     @Test
@@ -482,7 +618,8 @@ class SettleServiceTest {
         f.beginBalance = "0";
         f.equity = equity;
         f.ledgerEquity = ledger;
-        f.availableFund = "800";
+        // 可用资金 = 权益 − 占用保证金（使 Σ 子账户 = CTP 账户，供 FR-SETTLE-7 五项核对一致）
+        f.availableFund = new BigDecimal(equity).subtract(new BigDecimal(margin)).toPlainString();
         f.marginOccupied = margin;
         f.closePnl = "0";
         f.floatPnl = "0";
@@ -492,5 +629,15 @@ class SettleServiceTest {
 
     private static SettleService.SystemFundRow fundWithLedger(int sub, String equity, String ledger, String margin) {
         return fund(sub, equity, ledger, margin);
+    }
+
+    /** 按差异类型 + 定位项查找差异记录。 */
+    private SettleReconcileDifference findDiff(String type, String field) {
+        for (SettleReconcileDifference d : differences.rows) {
+            if (type.equals(d.differenceType) && field.equals(d.fieldName)) {
+                return d;
+            }
+        }
+        return null;
     }
 }
