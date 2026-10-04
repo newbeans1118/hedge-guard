@@ -1,12 +1,14 @@
 package com.hedgeguard.dao.impl;
 
 import com.hedgeguard.dao.FundQuotaDao;
+import com.hedgeguard.dao.SubAccountScope;
 import com.hedgeguard.dao.entity.FundQuota;
 import com.hedgeguard.dao.tx.TxTemplate;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -99,5 +101,16 @@ public final class DmFundQuotaDao extends AbstractDmDao<FundQuota, Long> impleme
         String sql = "SELECT " + selectList() + " FROM " + tableName()
                 + " WHERE quota_scope = ? ORDER BY effective_from ASC, id ASC";
         return queryList(sql, Arrays.asList(quotaScope), this::mapRow);
+    }
+
+    @Override
+    public List<FundQuota> findScoped(String quotaScope, SubAccountScope scope) {
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE quota_scope = ? AND " + scope.sql()
+                + " ORDER BY effective_from ASC, id ASC";
+        List<Object> args = new ArrayList<>();
+        args.add(quotaScope);
+        args.addAll(scope.params());
+        return queryList(sql, args, this::mapRow);
     }
 }

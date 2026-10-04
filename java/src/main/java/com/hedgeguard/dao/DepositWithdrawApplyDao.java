@@ -34,4 +34,18 @@ public interface DepositWithdrawApplyDao extends BaseDao<DepositWithdrawApply, L
      * @return 列表（{@code id} 升序）
      */
     List<DepositWithdrawApply> findBySubAccountAndStatus(int subAccountId, String status);
+
+    /**
+     * 取当日前缀区间内字典序最大的申请单号（{@code DATA_MODEL.md} §3.5「当日最大序号 + 1」取数；
+     * {@code T-049} 退回修复，先例 {@code HedgePlanDao.findMaxPlanNoByPrefix} / {@code T-137}）。
+     *
+     * <p>{@code t_deposit_withdraw_apply} 无独立业务日列，业务日隐含于 {@code apply_no} 前缀
+     * （{@code DW<yyyyMMdd>}）；通用 WHERE 原子表达不了前缀匹配 ⇒ 专用 SQL
+     * {@code apply_no LIKE ?}，走 {@code uk_dw_apply_no} 唯一索引区间；
+     * <b>不使用 {@code SELECT MAX(...) FOR UPDATE}</b>（{@code §3.5} 明令禁止）。
+     *
+     * @param applyNoPrefix 当日前缀（如 {@code DW20260920}）
+     * @return 字典序最大的单号；当日无既有编号返回 {@code null}
+     */
+    String findMaxApplyNoByPrefix(String applyNoPrefix);
 }

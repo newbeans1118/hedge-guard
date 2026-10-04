@@ -596,8 +596,13 @@ public final class FundService {
         onFundReceipt(confirmed, operatorId);
         return tx.inTransaction(conn -> {
             DepositWithdrawApply out = dwDao.findById(applyId);
-            out.originalConfirmed = "Y";
-            dwDao.updateById(out, operatorId);
+            // O-1（T-049 退回修复）：originalConfirmed 仅在确认结果**实际收到**（终态 SUCCESS / FAILED）
+            // 时置位；查询仍为 PROCESSING / UNKNOWN ⇒ 维持「超时待查」，不放行重试
+            // （FR-FUND-9 验收1：确认未到账后方可重试；UNKNOWN ≠ 未到账）。
+            if (DW_SUCCESS.equals(out.status) || DW_FAILED.equals(out.status)) {
+                out.originalConfirmed = "Y";
+                dwDao.updateById(out, operatorId);
+            }
             return out;
         });
     }
@@ -943,18 +948,40 @@ public final class FundService {
     /**
      * 查询资金额度（{@code FR-FUND-13} 验收4；{@code GET /fund/quota}）。
      *
+     * <p><b>读取面子账户隔离（{@code NFR-SEC-7}；{@code TE-T049-002} 退回修复）</b>：原实现在
+     * {@code subAccountId == null} 时直接 {@code findByScope}，<b>不施加可见性过滤</b> ⇒ 可见集
+     * {@code [1]} 时可读到子账户 2 的额度（跨子账户泄漏）。现按同族先例（{@code T-105}/{@code T-107}）
+     * 取数入口接 {@link SubAccountVisibility#visibleSubAccountIds(long)}：非空且不含哨兵 ⇒ 构造
+     * {@link SubAccountScope} 下推 DAO（{@code findScoped}）；空集 ⇒ 恒假（fail-closed）；含哨兵
+     * {@code 0}（跨账户只读）⇒ 不加过滤。
+     *
+     * <p><b>账户级不施加子账户过滤</b>：{@code quota_scope = ACCOUNT} 行 {@code sub_account_id} 为
+     * 哨兵 {@code NULL}，非子账户维度（同 {@code T-112} 层③口径），若按子账户可见性门禁会漏掉账户级额度。
+     *
      * @param subAccountId 子账户（可空）
-     * @param quotaScope   范围（可空）
+     * @param quotaScope   范围（可空，缺省 {@code SUB_ACCOUNT}）
      * @param operatorId   调用者
-     * @return 额度列表
+     * @return 可见范围内的额度列表
      */
     public List<FundQuota> listQuota(Integer subAccountId, String quotaScope, long operatorId) {
         if (subAccountId != null) {
             visibility.assertSubAccountVisible(operatorId, subAccountId);
             return quotaDao.findBySubAccount(subAccountId);
         }
-        String scope = quotaScope == null ? SCOPE_SUB : quotaScope.trim().toUpperCase();
-        return quotaDao.findByScope(scope);
+        String scope = quotaScope == null || quotaScope.trim().isEmpty()
+                ? SCOPE_SUB : quotaScope.trim().toUpperCase();
+        if (SCOPE_ACCOUNT.equals(scope)) {
+            // 账户级：非子账户维度（sub_account_id 哨兵 NULL），不施加子账户过滤（T-112 层③口径）
+            return quotaDao.findByScope(scope);
+        }
+        List<Integer> visible = visibility.visibleSubAccountIds(operatorId);
+        if (visible == null || visible.isEmpty()) {
+            return Collections.emptyList(); // fail-closed：空可见 ⇒ 恒假，绝不退化为不过滤
+        }
+        if (visible.contains(SubAccountScope.ALL_ACCOUNT_SENTINEL)) {
+            return quotaDao.findByScope(scope); // 跨账户只读（哨兵 0）⇒ 不加过滤
+        }
+        return quotaDao.findScoped(scope, SubAccountScope.of("sub_account_id", visible));
     }
 
     /**
@@ -1124,14 +1151,36 @@ public final class FundService {
         ExportResult out = new ExportResult();
         out.exportTime = Clocks.now();
         out.exportedBy = operatorId;
+        // TE-T049-001 退回修复：导出列补「期初 / 各类型发生额小计 / 期末」（使验收 1
+        // 「期初 + 发生额 = 期末」可在导出物上逐行核验）；各行取自所属台账，故同台账的多笔流水
+        // 共享同一组期初 / 小计 / 期末（对账行语义）。
         out.columns = Arrays.asList("subAccountId", "ledgerDate", "voucherNo", "flowType",
-                "direction", "amount", "balanceAfter");
+                "direction", "amount", "balanceAfter",
+                "beginBalance", "amountIn", "amountOut", "transferIn", "transferOut",
+                "pnlCarryover", "commission", "marginChange", "differenceAdjust",
+                "occurrenceTotal", "endBalance", "equation");
         out.rows = new ArrayList<>();
-        PageQuery q = PageQuery.of("1", "100", "ledger_date,asc", "ledger_date", "asc");
-        PageResult<FundFlow> page = listFlow(q, from, to, subAccountId, null, operatorId);
+
+        // TE-T049-001 退回修复：全量分页迭代取尽（原实现硬编码 size=100 且仅第 1 页 ⇒ 150 条被静默截断为 100）。
+        List<FundFlow> allFlows = new ArrayList<>();
+        int pageNo = 1;
+        int size = PageQuery.ALLOWED_SIZES.get(PageQuery.ALLOWED_SIZES.size() - 1); // 100（页大小上限）
+        while (true) {
+            PageQuery q = PageQuery.of(String.valueOf(pageNo), String.valueOf(size),
+                    "ledger_date,asc,voucher_no,asc", "ledger_date", "asc");
+            PageResult<FundFlow> page = listFlow(q, from, to, subAccountId, null, operatorId);
+            allFlows.addAll(page.items());
+            if (page.items().size() < size || allFlows.size() >= page.total()) {
+                break;
+            }
+            pageNo++;
+        }
+
         BigDecimal grandTotal = ZERO;
         Map<Integer, BigDecimal> subTotals = new LinkedHashMap<>();
-        for (FundFlow f : page.items()) {
+        Map<String, FundLedger> ledgerCache = new LinkedHashMap<>();
+        for (FundFlow f : allFlows) {
+            FundLedger ledger = ledgerFor(ledgerCache, f.subAccountId, f.ledgerDate);
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("subAccountId", f.subAccountId);
             row.put("ledgerDate", f.ledgerDate == null ? null : f.ledgerDate.toString());
@@ -1140,6 +1189,21 @@ public final class FundService {
             row.put("direction", f.direction);
             row.put("amount", nz(f.amount).toPlainString());
             row.put("balanceAfter", nz(f.balanceAfter).toPlainString());
+            row.put("beginBalance", ledger == null ? null : nz(ledger.beginBalance).toPlainString());
+            row.put("amountIn", ledger == null ? null : nz(ledger.amountIn).toPlainString());
+            row.put("amountOut", ledger == null ? null : nz(ledger.amountOut).toPlainString());
+            row.put("transferIn", ledger == null ? null : nz(ledger.transferIn).toPlainString());
+            row.put("transferOut", ledger == null ? null : nz(ledger.transferOut).toPlainString());
+            row.put("pnlCarryover", ledger == null ? null : nz(ledger.pnlCarryover).toPlainString());
+            row.put("commission", ledger == null ? null : nz(ledger.commission).toPlainString());
+            row.put("marginChange", ledger == null ? null : nz(ledger.marginChange).toPlainString());
+            row.put("differenceAdjust",
+                    ledger == null ? null : nz(ledger.differenceAdjust).toPlainString());
+            row.put("occurrenceTotal", ledger == null ? null : occurrenceOf(ledger).toPlainString());
+            row.put("endBalance", ledger == null ? null : nz(ledger.endBalance).toPlainString());
+            row.put("equation", ledger == null ? null
+                    : (nz(ledger.beginBalance).add(occurrenceOf(ledger))
+                    .compareTo(nz(ledger.endBalance)) == 0 ? "Y" : "N"));
             out.rows.add(row);
             BigDecimal signed = DIR_IN.equals(f.direction) ? nz(f.amount) : nz(f.amount).negate();
             subTotals.merge(f.subAccountId, signed, BigDecimal::add);
@@ -1148,6 +1212,20 @@ public final class FundService {
         out.subTotals = subTotals;
         out.grandTotal = grandTotal;
         return out;
+    }
+
+    /** 取（子账户, 记账日）所属台账；按 key 缓存，避免逐流水重复查询。 */
+    private FundLedger ledgerFor(Map<String, FundLedger> cache, Integer sub, LocalDate date) {
+        if (sub == null || date == null) {
+            return null;
+        }
+        String key = sub + "@" + date;
+        if (cache.containsKey(key)) {
+            return cache.get(key);
+        }
+        FundLedger ledger = ledgerDao.findBySubAccountAndDate(sub, date);
+        cache.put(key, ledger);
+        return ledger;
     }
 
     // ================================================================ 内部：流水 / 台账
@@ -1217,25 +1295,48 @@ public final class FundService {
         return BizNoGenerator.fundVoucher(date, max + 1);
     }
 
-    /** 当日下一申请单号（{@code <前缀><yyyyMMdd><seq(width)>}；以当日计数 + 1）。 */
+    /**
+     * 当日下一申请单号（{@code <前缀><yyyyMMdd><seq(width)>}；{@code DATA_MODEL.md} §3.5
+     * 「当日最大序号 + 1」，按业务日重置）。
+     *
+     * <p>{@code TE-T049-003} 退回修复：原实现取「当日计数 + 1」（前缀 {@code count}），对当日空档
+     * 不鲁棒、且并发交错下据陈旧计数生成同一号，第二笔被 {@code uk_dw_apply_no} 唯一约束抛错而无兜底
+     * （{@code BUG-003}/{@code T-141} 同族）。改为取当日前缀区间内字典序最大号 + 1（等价「最大序号 + 1」，
+     * 定长零填充 ⇒ 字典序最大即序号最大）；{@code UNIQUE} 约束保留为并发兜底不动，
+     * {@code R-FUND-5}「系统不自动重试」⇒ 修复落在号生成而非自动重试。
+     *
+     * @param prefixCode       前缀（{@code DW}）
+     * @param date             业务日
+     * @param width            序号定长
+     * @param depositWithdraw  {@code true}=出入金申请（{@code dwDao}）；{@code false}=划拨（{@code transferDao}）
+     * @return 新申请单号
+     */
     private String nextApplyNo(String prefixCode, LocalDate date, int width, boolean depositWithdraw) {
         String prefix = prefixCode + date.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
-        long count = depositWithdraw
-                ? dwDao.count("apply_no LIKE ?", Collections.singletonList(prefix + "%"))
-                : transferDao.count("apply_no LIKE ?", Collections.singletonList(prefix + "%"));
+        String max = depositWithdraw
+                ? dwDao.findMaxApplyNoByPrefix(prefix)
+                : transferDao.findMaxApplyNoByPrefix(prefix);
+        long next = 1L;
+        if (max != null && max.startsWith(prefix) && max.length() > prefix.length()) {
+            next = parseSeq(max.substring(prefix.length())) + 1L;
+        }
         StringBuilder sb = new StringBuilder(prefix);
-        String seq = Long.toString(count + 1);
+        String seq = Long.toString(next);
         for (int i = seq.length(); i < width; i++) {
             sb.append('0');
         }
         return sb.append(seq).toString();
     }
 
-    /** 当日下一划拨单号（{@code TF<yyyyMMdd><seq(4)>}）。 */
+    /** 当日下一划拨单号（{@code TF<yyyyMMdd><seq(4)>}；「当日最大序号 + 1」）。 */
     private String nextTransferApplyNo(LocalDate date) {
         String prefix = "TF" + date.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
-        long count = transferDao.count("apply_no LIKE ?", Collections.singletonList(prefix + "%"));
-        return BizNoGenerator.transferApply(date, count + 1);
+        String max = transferDao.findMaxApplyNoByPrefix(prefix);
+        long next = 1L;
+        if (max != null && max.startsWith(prefix) && max.length() > prefix.length()) {
+            next = parseSeq(max.substring(prefix.length())) + 1L;
+        }
+        return BizNoGenerator.transferApply(date, next);
     }
 
     /** 落一条复核记录。 */

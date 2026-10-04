@@ -8,6 +8,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -124,5 +125,19 @@ public final class DmDepositWithdrawApplyDao extends AbstractDmDao<DepositWithdr
         String sql = "SELECT " + selectList() + " FROM " + tableName()
                 + " WHERE sub_account_id = ? AND status = ? ORDER BY id ASC";
         return queryList(sql, Arrays.asList(subAccountId, status), this::mapRow);
+    }
+
+    @Override
+    public String findMaxApplyNoByPrefix(String applyNoPrefix) {
+        String sql = "SELECT apply_no FROM " + tableName() + " WHERE apply_no LIKE ?";
+        List<String> applyNos = queryList(sql, Collections.singletonList(applyNoPrefix + "%"),
+                rs -> rs.getString("apply_no"));
+        String max = null;
+        for (String applyNo : applyNos) {
+            if (applyNo != null && (max == null || applyNo.compareTo(max) > 0)) {
+                max = applyNo;
+            }
+        }
+        return max;
     }
 }

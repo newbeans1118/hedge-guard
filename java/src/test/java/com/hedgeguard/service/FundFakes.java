@@ -11,6 +11,7 @@ import com.hedgeguard.dao.FundReconcileDao;
 import com.hedgeguard.dao.FundReviewRecordDao;
 import com.hedgeguard.dao.PageQuery;
 import com.hedgeguard.dao.PageResult;
+import com.hedgeguard.dao.SubAccountScope;
 import com.hedgeguard.dao.TransferApplyDao;
 import com.hedgeguard.dao.entity.AuditedEntity;
 import com.hedgeguard.dao.entity.CapitalReceipt;
@@ -91,7 +92,12 @@ final class FundFakes {
         public PageResult<T> findPage(PageQuery query, String where, List<Object> whereArgs) {
             lastWhere = where;
             lastArgs = whereArgs == null ? new ArrayList<>() : new ArrayList<>(whereArgs);
-            return new PageResult<>(new ArrayList<>(rows), rows.size(), query.page(), query.size());
+            // 尊重 page/size 的 limit-offset（与真实 DAO 分页同形；供「导出全量分页迭代」用例
+            // 复现「仅取第 1 页 ⇒ 截断」的失败模式）。
+            int from = Math.min(query.offset(), rows.size());
+            int to = Math.min(from + query.size(), rows.size());
+            return new PageResult<>(new ArrayList<>(rows.subList(from, to)),
+                    rows.size(), query.page(), query.size());
         }
 
         @Override
@@ -223,6 +229,17 @@ final class FundFakes {
             }
             return out;
         }
+
+        @Override public String findMaxApplyNoByPrefix(String applyNoPrefix) {
+            String max = null;
+            for (DepositWithdrawApply a : rows) {
+                if (a.applyNo != null && a.applyNo.startsWith(applyNoPrefix)
+                        && (max == null || a.applyNo.compareTo(max) > 0)) {
+                    max = a.applyNo;
+                }
+            }
+            return max;
+        }
     }
 
     static final class Transfers extends Base<TransferApply> implements TransferApplyDao {
@@ -261,6 +278,17 @@ final class FundFakes {
                 }
             }
             return out;
+        }
+
+        @Override public String findMaxApplyNoByPrefix(String applyNoPrefix) {
+            String max = null;
+            for (TransferApply t : rows) {
+                if (t.applyNo != null && t.applyNo.startsWith(applyNoPrefix)
+                        && (max == null || t.applyNo.compareTo(max) > 0)) {
+                    max = t.applyNo;
+                }
+            }
+            return max;
         }
     }
 
@@ -339,6 +367,21 @@ final class FundFakes {
             List<FundQuota> out = new ArrayList<>();
             for (FundQuota q : rows) {
                 if (quotaScope != null && quotaScope.equals(q.quotaScope)) {
+                    out.add(q);
+                }
+            }
+            return out;
+        }
+
+        @Override public List<FundQuota> findScoped(String quotaScope, SubAccountScope scope) {
+            List<FundQuota> out = new ArrayList<>();
+            if (scope == null || scope.isEmpty()) {
+                return out; // 恒假：空可见 ⇒ 空结果
+            }
+            List<Integer> allowed = scope.allowed();
+            for (FundQuota q : rows) {
+                if (quotaScope != null && quotaScope.equals(q.quotaScope)
+                        && q.subAccountId != null && allowed.contains(q.subAccountId)) {
                     out.add(q);
                 }
             }

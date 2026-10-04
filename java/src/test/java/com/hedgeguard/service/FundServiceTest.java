@@ -5,6 +5,7 @@ import com.hedgeguard.dao.PageQuery;
 import com.hedgeguard.dao.entity.DepositWithdrawApply;
 import com.hedgeguard.dao.entity.FundFlow;
 import com.hedgeguard.dao.entity.FundLedger;
+import com.hedgeguard.dao.entity.FundQuota;
 import com.hedgeguard.dao.entity.FundQuotaAlert;
 import com.hedgeguard.dao.entity.TransferApply;
 import com.hedgeguard.web.BizException;
@@ -342,6 +343,106 @@ class FundServiceTest {
 
         BizException poor = assertThrows(BizException.class, () -> initiateTransfer(1, 2, "99999", "x"));
         assertEquals(ErrorCode.PARAM_INVALID, poor.errorCode());
+    }
+
+    // ------------------------------------------------------------------ T-049 退回修复回归（be-t049c）
+
+    @Test
+    @DisplayName("验收1/TE-T049-001：导出全量分页取尽（150 条不截断），且含期初/各类型发生额小计/期末")
+    void exportFullPaginationAndReconcileColumns() {
+        initLedger(1, "1000");
+        int n = 150;
+        for (int i = 0; i < n; i++) {
+            long a = deposit(1, "1", "K" + i);
+            review(a, 2L, true, null);
+            receipt(a, FundService.RECEIPT_SUCCESS, "R" + i, i + 1L);
+        }
+        assertEquals(n, flows.rows.size());
+
+        FundService.ExportResult ex = svc.exportReconcile(Clocks.today(), Clocks.today(), null, 1L);
+        assertEquals(n, ex.rows.size(),
+                "全量分页迭代：150 条源流水须导出 150 行，不得静默截断为 100（TE-T049-001）");
+        java.util.Map<String, Object> first = ex.rows.get(0);
+        assertDec("1000", new BigDecimal((String) first.get("beginBalance")));
+        assertDec("1", new BigDecimal((String) first.get("amount")));
+        assertDec("150", new BigDecimal((String) first.get("amountIn")));
+        assertDec("150", new BigDecimal((String) first.get("occurrenceTotal")));
+        assertDec("1150", new BigDecimal((String) first.get("endBalance")));
+        assertEquals("Y", first.get("equation"),
+                "导出物须可核验 期初 + 发生额小计 = 期末（FR-FUND-4 验收1）");
+        assertDec("150", ex.grandTotal);
+    }
+
+    @Test
+    @DisplayName("验收5/TE-T049-002：额度读取面按可见子账户隔离（空可见恒假 / 哨兵 0 不过滤 / 账户级不适用于过滤）")
+    void quotaReadScopedByVisibility() {
+        svc.setQuota(quota(1, FundService.SCOPE_SUB, "1000", null), null, 1L);
+        svc.setQuota(quota(2, FundService.SCOPE_SUB, "2000", null), null, 1L);
+        svc.setQuota(quota(null, FundService.SCOPE_ACCOUNT, "5000", null), new BigDecimal("9000"), 1L);
+
+        visible.set(List.of(1));
+        List<FundQuota> only1 = svc.listQuota(null, FundService.SCOPE_SUB, 1L);
+        assertEquals(1, only1.size(), "可见集 [1] 不得读到子账户 2 的额度（NFR-SEC-7 / TE-T049-002）");
+        assertEquals(1, only1.get(0).subAccountId);
+
+        visible.set(List.of());
+        assertTrue(svc.listQuota(null, FundService.SCOPE_SUB, 1L).isEmpty(), "空可见须恒假（fail-closed）");
+
+        visible.set(List.of(0)); // 跨账户只读哨兵
+        assertEquals(2, svc.listQuota(null, FundService.SCOPE_SUB, 1L).size(), "哨兵 0 不加过滤");
+
+        visible.set(List.of()); // 账户级非子账户维度，不受子账户可见性过滤（T-112 层③口径）
+        assertEquals(1, svc.listQuota(null, FundService.SCOPE_ACCOUNT, 1L).size());
+    }
+
+    @Test
+    @DisplayName("取号/TE-T049-003：申请单号取「当日最大序号 + 1」（对空档鲁棒，非 count+1）")
+    void applyNoUsesDailyMaxPlusOne() {
+        String day = Clocks.today().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
+
+        DepositWithdrawApply seeded = new DepositWithdrawApply();
+        seeded.subAccountId = 1;
+        seeded.applyNo = "DW" + day + "00005";
+        seeded.status = FundService.DW_PENDING_REVIEW;
+        dws.insert(seeded, 1L);
+
+        long a = deposit(1, "10", "K1");
+        assertEquals("DW" + day + "00006", dws.findById(a).applyNo,
+                "须取当日最大序号 + 1（count+1 会得到 ...00002）");
+
+        initLedger(1, "1000");
+        TransferApply seededT = new TransferApply();
+        seededT.fromSubAccountId = 1;
+        seededT.toSubAccountId = 2;
+        seededT.applyNo = "TF" + day + "00007";
+        seededT.status = FundService.TR_PENDING_APPROVAL;
+        transfers.insert(seededT, 1L);
+        long t = initiateTransfer(1, 2, "100", "调配");
+        assertEquals("TF" + day + "0008", transfers.findById(t).applyNo);
+    }
+
+    @Test
+    @DisplayName("O-1：查询仍 UNKNOWN 不置 originalConfirmed（不放行重试）；终态方可重试")
+    void unknownConfirmationDoesNotPermitRetry() {
+        initLedger(1, "0");
+        long a1 = deposit(1, "500", "K1");
+        review(a1, 2L, true, null);
+        receipt(a1, FundService.RECEIPT_UNKNOWN, "R1", 1L);
+        assertEquals(FundService.DW_TIMEOUT_UNKNOWN, dws.findById(a1).status);
+
+        DepositWithdrawApply stillUnknown = svc.confirmTimeoutResult(
+                a1, receiptReq(FundService.RECEIPT_UNKNOWN, "R2", 2L, true), 1L);
+        assertEquals(FundService.DW_TIMEOUT_UNKNOWN, stillUnknown.status);
+        assertEquals("N", stillUnknown.originalConfirmed,
+                "查询仍 UNKNOWN 不得置 originalConfirmed='Y'（FR-FUND-9 验收1：UNKNOWN ≠ 未到账）");
+        BizException ex = assertThrows(BizException.class,
+                () -> svc.retryDepositWithdraw(a1, "K2", 1L));
+        assertEquals(ErrorCode.STATE_NOT_ALLOWED, ex.errorCode());
+
+        svc.confirmTimeoutResult(a1, receiptReq(FundService.RECEIPT_FAIL, "R3", 3L, true), 1L);
+        assertEquals("Y", dws.findById(a1).originalConfirmed, "确认终态（FAIL）后方可置位");
+        long a2 = svc.retryDepositWithdraw(a1, "K2", 1L).id;
+        assertEquals(a1, dws.findById(a2).retryOfId);
     }
 
     // ------------------------------------------------------------------ 工具
