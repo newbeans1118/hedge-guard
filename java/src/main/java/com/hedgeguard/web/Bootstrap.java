@@ -69,6 +69,7 @@ import com.hedgeguard.dao.pool.JdbcConnectionFactory;
 import com.hedgeguard.dao.pool.PoolConfig;
 import com.hedgeguard.dao.tx.TxTemplate;
 import com.hedgeguard.risk_intraday.AbnormalOrderTracker;
+import com.hedgeguard.risk_intraday.IntradayEventFeed;
 import com.hedgeguard.risk_intraday.IntradayRiskMonitor;
 import com.hedgeguard.risk_intraday.MirrorStatusHandler;
 import com.hedgeguard.risk_intraday.NoopRiskMetricSink;
@@ -436,7 +437,15 @@ public final class Bootstrap {
                 new DmTradeCommandFlowDao(tx));
         TradeRoutes.register(router, tradeService);
 
-        registerRiskIntradayRoute(router, config, bridge, paramDispatchService, authService);
+        IntradayRiskMonitor monitor = registerRiskIntradayRoute(router, config, bridge,
+                paramDispatchService, authService);
+        // T-172 事件面接线：生产装配（bridge = HgcpClient）时注册事件消费监听接缝 ——
+        // EVT_TRADE_FILL → recordTrade（异常下单行为）+ 每事件 → evaluate()（评估泵，验收 2）。
+        // 非 HgcpClient（测试桩）或缺省不装配时跳过；仅推进会水位的接线前行为不变（nullable seam）。
+        if (bridge instanceof HgcpClient && monitor != null) {
+            ((HgcpClient) bridge).setEventListener(new IntradayEventFeed(monitor));
+            LOG.info("已接线 HGCP 事件消费（T-172）：EVT_TRADE_FILL→recordTrade + 每事件→evaluate()");
+        }
         return authService;
     }
 
@@ -458,7 +467,8 @@ public final class Bootstrap {
      * @param paramDispatchService  参数下发服务（{@code null} 时不自动限制）
      * @param authService           认证服务（同时实现子账户可见性，供读取面隔离）
      */
-    private static void registerRiskIntradayRoute(Router router, Config config, TradingBridge bridge,
+    private static IntradayRiskMonitor registerRiskIntradayRoute(Router router, Config config,
+                                                  TradingBridge bridge,
                                                   ParamDispatchService paramDispatchService,
                                                   AuthService authService) {
         TradingSuspender suspender = paramDispatchService instanceof ParamDispatchServiceImpl
@@ -472,6 +482,7 @@ public final class Bootstrap {
         LOG.info("已装配事中风控模块（risk_intraday）：GET " + MirrorStatusHandler.PATH
                 + "；自动限制开仓=" + RiskThresholds.from(config).autoSuspendEnabled
                 + "；限制端口=" + (suspender == null ? "未装配（仅告警）" : "已装配（OPEN_ONLY）"));
+        return monitor;
     }
 
     /**

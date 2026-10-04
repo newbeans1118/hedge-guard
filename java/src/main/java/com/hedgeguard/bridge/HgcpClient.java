@@ -81,6 +81,12 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
     private volatile ReplayProgress replayProgress = new ReplayProgress();
 
     /**
+     * 事件流消费监听接缝（{@code T-172}）。{@code null} = 未接线（行为与接线前一致）。
+     * 由 {@link #setEventListener} 注入；读线程逐事件回调。
+     */
+    private volatile HgcpEventListener eventListener;
+
+    /**
      * 命令回执超时调度池（共享单线程、守护线程工厂）。每命令一线程改为共享池（{@code T-165}）；
      * {@code close()} 经 {@link #timeoutPool} 关停，close 后不再有悬挂超时任务。
      */
@@ -113,6 +119,19 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
         this.clientBootId = clientBootId;
         this.tokenVersion = tokenVersion;
         this.transportFactory = transportFactory;
+    }
+
+    /**
+     * 注册事件流消费监听器（{@code T-172} 接缝）。
+     *
+     * <p><b>nullable</b>：设 {@code null} 即注销，回到「仅推进水位」的接线前形态。
+     * 可在 {@link #start()} 前后任意时刻调用；切换对读线程立即可见（{@code volatile}）。
+     * 回调在 {@code hgcp-reader} 单线程内触发，实现方<b>不得阻塞</b>。
+     *
+     * @param listener 监听器；{@code null} 表示不接线
+     */
+    public void setEventListener(HgcpEventListener listener) {
+        this.eventListener = listener;
     }
 
     // ==================== 生命周期 ====================
@@ -314,11 +333,74 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
     private void onEvent(HgcpFrame.Decoded d)
             throws com.google.protobuf.InvalidProtocolBufferException {
         long seq = d.header.seq;
-        switch (d.header.type) {
+        int type = d.header.type;
+        switch (type) {
+            case HgcpConstants.EVT_ORDER_ACCEPTED: {
+                Hgcp.EvtOrderAccepted e = Hgcp.EvtOrderAccepted.parseFrom(d.payload);
+                mirror.advanceWatermark(seq);
+                HgcpEventListener.OrderAccepted out = new HgcpEventListener.OrderAccepted();
+                out.orderId = e.getOrderId();
+                out.clientOrderRef = e.getClientOrderRef();
+                out.riskPassed = e.getRiskPassed();
+                out.effectiveTimeoutMs = e.getEffectiveTimeoutMs();
+                out.acceptedTsMs = e.getAcceptedTsMs();
+                notifyListener(l -> l.onOrderAccepted(out));
+                break;
+            }
+            case HgcpConstants.EVT_PRE_TRADE_REJECT: {
+                Hgcp.EvtPreTradeReject e = Hgcp.EvtPreTradeReject.parseFrom(d.payload);
+                mirror.advanceWatermark(seq);
+                HgcpEventListener.PreTradeReject out = new HgcpEventListener.PreTradeReject();
+                out.clientOrderRef = e.getClientOrderRef();
+                out.subAccountId = e.getSubAccountId();
+                out.productId = e.getProductId();
+                out.instrumentId = e.getInstrumentId();
+                out.ruleId = e.getRuleId();
+                out.reasonCode = e.getReasonCode();
+                out.limitLayer = e.getLimitLayer().name();
+                out.currentValue = e.getCurrentValue();
+                out.thresholdValue = e.getThresholdValue();
+                out.orderDigest = e.getOrderDigest();
+                out.operatorId = e.getOperatorId();
+                out.rejectTsMs = e.getRejectTsMs();
+                notifyListener(l -> l.onPreTradeReject(out));
+                break;
+            }
+            case HgcpConstants.EVT_ORDER_REPORT: {
+                Hgcp.EvtOrderReport e = Hgcp.EvtOrderReport.parseFrom(d.payload);
+                mirror.advanceWatermark(seq);
+                HgcpEventListener.OrderReport out = new HgcpEventListener.OrderReport();
+                out.orderId = e.getOrderId();
+                out.orderSysId = e.getOrderSysId();
+                out.orderLocalId = e.getOrderLocalId();
+                out.status = e.getStatus().name();
+                out.volumeTotal = e.getVolumeTotal();
+                out.volumeTraded = e.getVolumeTraded();
+                out.volumeLeft = e.getVolumeLeft();
+                out.ctpErrorId = e.getCtpErrorId();
+                out.ctpErrorMsg = e.getCtpErrorMsg();
+                out.reportTsMs = e.getReportTsMs();
+                notifyListener(l -> l.onOrderReport(out));
+                break;
+            }
             case HgcpConstants.EVT_TRADE_FILL: {
                 Hgcp.EvtTradeFill e = Hgcp.EvtTradeFill.parseFrom(d.payload);
                 if (idempotency.first(e.getTradeId(), seq)) {
                     mirror.advanceWatermark(seq);
+                    HgcpEventListener.TradeFill out = new HgcpEventListener.TradeFill();
+                    out.tradeId = e.getTradeId();
+                    out.orderId = e.getOrderId();
+                    out.orderSysId = e.getOrderSysId();
+                    out.instrumentId = e.getInstrumentId();
+                    out.direction = e.getDirection().name();
+                    out.offsetFlag = e.getOffsetFlag().name();
+                    out.price = e.getPrice();
+                    out.volume = e.getVolume();
+                    out.tradeTsMs = e.getTradeTsMs();
+                    out.subAccountId = e.getSubAccountId();
+                    out.tradePlanId = e.getTradePlanId();
+                    out.exposureId = e.getExposureId();
+                    notifyListener(l -> l.onTradeFill(out));
                 }
                 break;
             }
@@ -332,7 +414,53 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
                     v.availableQty = String.valueOf(e.getAvailableQty());
                     mirror.applyPosition(v);
                     mirror.advanceWatermark(seq);
+                    HgcpEventListener.PositionChange out = new HgcpEventListener.PositionChange();
+                    out.subAccountId = e.getSubAccountId();
+                    out.instrumentId = e.getInstrumentId();
+                    out.direction = e.getDirection().name();
+                    out.positionType = e.getPositionType().name();
+                    out.positionQty = e.getPositionQty();
+                    out.availableQty = e.getAvailableQty();
+                    out.frozenQty = e.getFrozenQty();
+                    out.changeReason = e.getChangeReason();
+                    out.asOfTsMs = e.getAsOfTsMs();
+                    notifyListener(l -> l.onPositionChange(out));
                 }
+                break;
+            }
+            case HgcpConstants.EVT_ORDER_CANCEL_RESULT: {
+                Hgcp.EvtOrderCancelResult e = Hgcp.EvtOrderCancelResult.parseFrom(d.payload);
+                mirror.advanceWatermark(seq);
+                HgcpEventListener.OrderCancelResult out = new HgcpEventListener.OrderCancelResult();
+                out.orderId = e.getOrderId();
+                out.cancelledVolume = e.getCancelledVolume();
+                out.releasedQuota = e.getReleasedQuota();
+                out.restoredPlanQty = e.getRestoredPlanQty();
+                out.result = e.getResult();
+                out.reasonCode = e.getReasonCode();
+                notifyListener(l -> l.onOrderCancelResult(out));
+                break;
+            }
+            case HgcpConstants.EVT_ORDER_EXPIRED: {
+                Hgcp.EvtOrderExpired e = Hgcp.EvtOrderExpired.parseFrom(d.payload);
+                mirror.advanceWatermark(seq);
+                HgcpEventListener.OrderExpired out = new HgcpEventListener.OrderExpired();
+                out.orderId = e.getOrderId();
+                out.clientOrderRef = e.getClientOrderRef();
+                out.expiredTsMs = e.getExpiredTsMs();
+                out.timeoutMs = e.getTimeoutMs();
+                notifyListener(l -> l.onOrderExpired(out));
+                break;
+            }
+            case HgcpConstants.EVT_COMMAND_FLOW: {
+                Hgcp.EvtCommandFlow e = Hgcp.EvtCommandFlow.parseFrom(d.payload);
+                mirror.advanceWatermark(seq);
+                HgcpEventListener.CommandFlow out = new HgcpEventListener.CommandFlow();
+                out.orderId = e.getOrderId();
+                out.flowType = e.getFlowType().name();
+                out.flowTsMs = e.getFlowTsMs();
+                out.detail = e.getDetail();
+                notifyListener(l -> l.onCommandFlow(out));
                 break;
             }
             case HgcpConstants.EVT_FUND_RECEIPT: {
@@ -364,10 +492,46 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
                 break;
             }
             default:
-                // 其余事件（委托回报/撤单结果/行情/CTP 状态/告警）：本里程碑不落镜像，
+                // 其余事件（行情/CTP 状态/告警）：本里程碑不落镜像，
                 // 仅推进水位（水位 = 已消费事件流的连续性判据）
                 mirror.advanceWatermark(seq);
                 break;
+        }
+        notifyConsumed(type, seq);
+    }
+
+    /**
+     * 通知监听器的具体事件回调。
+     *
+     * <p><b>异常安全</b>（{@code NFR-REL-5}）：监听器抛出的 {@link RuntimeException}
+     * 在此被捕获并记日志，<b>不得中断事件消费</b>。
+     */
+    private void notifyListener(java.util.function.Consumer<HgcpEventListener> cb) {
+        HgcpEventListener l = eventListener;
+        if (l == null) {
+            return;
+        }
+        try {
+            cb.accept(l);
+        } catch (RuntimeException ex) {
+            LOG.log(Level.WARNING, "HGCP 事件监听器异常（已忽略，不中断消费）：" + ex.getMessage(), ex);
+        }
+    }
+
+    /**
+     * 通知监听器「每消费一事件」的评估泵回调（含镜像与水位处理之后）。
+     *
+     * <p>异常安全同 {@link #notifyListener}。
+     */
+    private void notifyConsumed(int type, long seq) {
+        HgcpEventListener l = eventListener;
+        if (l == null) {
+            return;
+        }
+        try {
+            l.onEventConsumed(type, seq);
+        } catch (RuntimeException ex) {
+            LOG.log(Level.WARNING, "HGCP 事件消费泵异常（已忽略，不中断消费）：" + ex.getMessage(), ex);
         }
     }
 
