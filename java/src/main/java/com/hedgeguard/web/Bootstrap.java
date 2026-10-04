@@ -3,6 +3,7 @@ package com.hedgeguard.web;
 import com.hedgeguard.common.Clocks;
 import com.hedgeguard.common.Config;
 import com.hedgeguard.bridge.HgcpClient;
+import com.hedgeguard.bridge.HgcpEventListener;
 import com.hedgeguard.bridge.TcpHgcpTransport;
 import com.hedgeguard.bridge.TradingBridge;
 import com.hedgeguard.common.SensitiveLog;
@@ -471,8 +472,13 @@ public final class Bootstrap {
         // EVT_TRADE_FILL → recordTrade（异常下单行为）+ 每事件 → evaluate()（评估泵，验收 2）。
         // 非 HgcpClient（测试桩）或缺省不装配时跳过；仅推进会水位的接线前行为不变（nullable seam）。
         if (bridge instanceof HgcpClient && monitor != null) {
-            ((HgcpClient) bridge).setEventListener(new IntradayEventFeed(monitor));
-            LOG.info("已接线 HGCP 事件消费（T-172）：EVT_TRADE_FILL→recordTrade + 每事件→evaluate()");
+            // 单槽接缝：组合「事中风控投喂（IntradayEventFeed）」与「交易执行落库（TradeService.HgcpEventSink）」，两者均被回调。
+            // ProductIdResolver 接 Q-5 真值（order_id→product_id 经提交上下文），替代 IntradayEventFeed 恒 0 缺省。
+            IntradayEventFeed feed = new IntradayEventFeed(monitor, tradeService::productIdForOrder);
+            TradeService.HgcpEventSink sink = tradeService.new HgcpEventSink();
+            ((HgcpClient) bridge).setEventListener(new CompositeHgcpEventListener(feed, sink));
+            LOG.info("已接线 HGCP 事件消费（T-172）：EVT_TRADE_FILL→recordTrade + 每事件→evaluate()"
+                    + " + 六事件富化落库（Q-5 品种级解析=提交上下文真值）");
         }
         return authService;
     }
@@ -511,6 +517,77 @@ public final class Bootstrap {
                 + "；自动限制开仓=" + RiskThresholds.from(config).autoSuspendEnabled
                 + "；限制端口=" + (suspender == null ? "未装配（仅告警）" : "已装配（OPEN_ONLY）"));
         return monitor;
+    }
+
+    /**
+     * {@code T-172} 事件面装配：{@link HgcpClient} 的监听接缝为<b>单槽</b>（{@code setEventListener}
+     * 覆盖式），故以本组合器把多个中立消费者串联：每帧回调<b>依次</b>分发给全部消费者；单个消费者抛
+     * {@link RuntimeException} 只记日志、<b>不影响其余消费者</b>，也不中断事件消费（{@code NFR-REL-5}；
+     * {@link HgcpClient} 另有一层兜底）。
+     */
+    static final class CompositeHgcpEventListener implements HgcpEventListener {
+
+        private final java.util.List<HgcpEventListener> delegates;
+
+        CompositeHgcpEventListener(HgcpEventListener... delegates) {
+            this.delegates = Arrays.asList(delegates);
+        }
+
+        private void each(java.util.function.Consumer<HgcpEventListener> callback) {
+            for (HgcpEventListener delegate : delegates) {
+                try {
+                    callback.accept(delegate);
+                } catch (RuntimeException ex) {
+                    LOG.log(Level.WARNING, "HGCP 组合监听器消费异常（已忽略，不中断其余消费者）："
+                            + ex.getMessage(), ex);
+                }
+            }
+        }
+
+        @Override
+        public void onEventConsumed(int eventType, long seq) {
+            each(l -> l.onEventConsumed(eventType, seq));
+        }
+
+        @Override
+        public void onOrderAccepted(HgcpEventListener.OrderAccepted e) {
+            each(l -> l.onOrderAccepted(e));
+        }
+
+        @Override
+        public void onOrderReport(HgcpEventListener.OrderReport e) {
+            each(l -> l.onOrderReport(e));
+        }
+
+        @Override
+        public void onTradeFill(HgcpEventListener.TradeFill e) {
+            each(l -> l.onTradeFill(e));
+        }
+
+        @Override
+        public void onPositionChange(HgcpEventListener.PositionChange e) {
+            each(l -> l.onPositionChange(e));
+        }
+
+        @Override
+        public void onPreTradeReject(HgcpEventListener.PreTradeReject e) {
+            each(l -> l.onPreTradeReject(e));
+        }
+
+        @Override
+        public void onCommandFlow(HgcpEventListener.CommandFlow e) {
+            each(l -> l.onCommandFlow(e));
+        }
+
+        @Override
+        public void onOrderCancelResult(HgcpEventListener.OrderCancelResult e) {
+            each(l -> l.onOrderCancelResult(e));
+        }
+
+        @Override
+        public void onOrderExpired(HgcpEventListener.OrderExpired e) {
+            each(l -> l.onOrderExpired(e));
+        }
     }
 
     /**

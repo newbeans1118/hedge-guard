@@ -756,16 +756,19 @@ public final class TradeService {
             throw invalid("事前风控拒绝事件为空");
         }
         // 事前拒绝线格式不含 direction / volume / reject_reason；前两者按 client_order_ref 富化，
-        // reject_reason 线格式无源 ⇒ 硬边界②：仍缺则 skip+LOG，不硬造 NOT NULL（残留清单登记）。
+        // reject_reason 线格式无源 ⇒ 由 rule_id/limit_layer/current/threshold 规范化派生
+        // （DERIVED[...]，显式标注派生、缺项省略对应段，禁臆造自然语言；编排者裁定，不走 CH）。
         SubmitContext c = lookupSubmitContext(null, e.clientOrderRef);
         Integer subAccountId = choose(e.subAccountId, c == null ? null : c.subAccountId);
         String clientOrderRef = choose(e.clientOrderRef, c == null ? null : c.clientOrderRef);
         String direction = choose(e.direction, c == null ? null : c.direction);
         Integer volume = choose(e.volume, c == null ? null : c.volume);
+        String rejectReason = e.rejectReason != null ? e.rejectReason
+                : deriveRejectReason(e.ruleId, e.limitLayer, e.currentValue, e.thresholdValue);
         if (skipIfUnsourced("EVT_PRE_TRADE_REJECT", clientOrderRef, clientOrderRef,
                 "subAccountId", subAccountId, "clientOrderRef", clientOrderRef,
                 "orderDigest", e.orderDigest, "ruleId", e.ruleId,
-                "rejectCode", e.rejectCode, "rejectReason", e.rejectReason,
+                "rejectCode", e.rejectCode, "rejectReason", rejectReason,
                 "operatorId", e.operatorId, "rejectTsMs", e.rejectTsMs,
                 "eventSeq", e.eventSeq)) {
             return;
@@ -790,7 +793,7 @@ public final class TradeService {
             row.limitLayer = e.limitLayer;
             row.currentValue = e.currentValue == null ? "-" : e.currentValue;
             row.thresholdValue = e.thresholdValue == null ? "-" : e.thresholdValue;
-            row.rejectReason = e.rejectReason;
+            row.rejectReason = rejectReason;
             row.operatorId = e.operatorId;
             row.rejectTsMs = e.rejectTsMs;
             row.rejectTime = Clocks.now();
@@ -1201,6 +1204,35 @@ public final class TradeService {
     private static String mapLimitLayer(String wireLayer) {
         String s = strip(wireLayer, "LIMIT_LAYER_");
         return s == null || "UNSET".equals(s) ? "NONE" : s;
+    }
+
+    /**
+     * {@code T-172} {@code reject_reason} 规范化派生（{@code EVT_PRE_TRADE_REJECT} 线格式无源，编排者裁定）。
+     *
+     * <p>由 {@code rule_id} / {@code limit_layer} / {@code current} / {@code threshold} 四个既有线格式字段
+     * 确定性派生，形如 {@code DERIVED[rule=<code>;layer=<layer>;cur=<n>;thr=<n>]}：显式 {@code DERIVED[...]}
+     * 标注「本值为派生而非线格式原文」，<b>缺项省略对应段</b>（如仅 rule 可用时 {@code DERIVED[rule=<code>]}），
+     * <b>禁臆造自然语言原因</b>。故该事件不再因 {@code reject_reason} 缺源而 skip，正常落库。
+     */
+    static String deriveRejectReason(String ruleId, String limitLayer, String currentValue, String thresholdValue) {
+        StringBuilder sb = new StringBuilder("DERIVED[");
+        boolean first = appendSegment(sb, true, "rule", ruleId);
+        first = appendSegment(sb, first, "layer", limitLayer);
+        first = appendSegment(sb, first, "cur", currentValue);
+        appendSegment(sb, first, "thr", thresholdValue);
+        return sb.append(']').toString();
+    }
+
+    /** 追加 {@code name=value} 段（{@code null}/空 值省略）；返回「追加后是否仍为首段」。 */
+    private static boolean appendSegment(StringBuilder sb, boolean first, String name, String value) {
+        if (value == null || value.isEmpty()) {
+            return first;
+        }
+        if (!first) {
+            sb.append(';');
+        }
+        sb.append(name).append('=').append(value);
+        return false;
     }
 
     /** epoch 毫秒 → 本地日期时间（Asia/Shanghai）。 */

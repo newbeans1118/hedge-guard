@@ -500,22 +500,43 @@ class TradeServiceTest {
     }
 
     @Test
-    @DisplayName("T-172 硬边界②：事前拒绝线格式无 reject_reason（NOT NULL）→ skip+LOG（不硬造）")
-    void untraceablePreTradeRejectSkipped() {
+    @DisplayName("T-172 reject_reason 规范化派生：线格式无源 ⇒ DERIVED[rule;layer;cur;thr] 落库（不再 skip）")
+    void preTradeRejectDerivesReasonWhenUnsourced() {
         TradeService.PreTradeRejectEvent e = new TradeService.PreTradeRejectEvent();
         e.subAccountId = SUB_A;
         e.clientOrderRef = "HG20261004000077";
         e.ruleId = "R-RISK-2";
         e.rejectCode = "0x1004";
         e.orderDigest = "{d}";
+        e.limitLayer = "ACCOUNT";
+        e.currentValue = "5";
+        e.thresholdValue = "3";
         e.operatorId = TRADER_ID;
         e.rejectTsMs = 1760000000000L;
         e.eventSeq = 61L;
         service.onPreTradeReject(e);
-        assertEquals(0, preTradeRejectDao.rows.size(), "reject_reason 线格式无源不得硬造，应跳过");
-        assertFalse(service.residualEvents().isEmpty());
-        assertTrue(service.residualEvents().get(0).contains("rejectReason"),
-                "残留项应点名缺源字段：" + service.residualEvents());
+        assertEquals(1, preTradeRejectDao.rows.size(), "派生后不再因 reject_reason 缺源而 skip");
+        assertEquals("DERIVED[rule=R-RISK-2;layer=ACCOUNT;cur=5;thr=3]",
+                preTradeRejectDao.rows.get(0).rejectReason, "派生串形态（四段齐全、显式 DERIVED 标注）");
+        assertTrue(service.residualEvents().isEmpty(), "无缺源字段，不应登记残留：" + service.residualEvents());
+    }
+
+    @Test
+    @DisplayName("T-172 reject_reason 规范化派生：缺项省略对应段（仅 rule 可用 ⇒ DERIVED[rule=...]）")
+    void preTradeRejectDerivesReasonOmitsMissingSegments() {
+        TradeService.PreTradeRejectEvent e = new TradeService.PreTradeRejectEvent();
+        e.subAccountId = SUB_A;
+        e.clientOrderRef = "HG20261004000078";
+        e.ruleId = "R-RISK-2";
+        e.rejectCode = "0x1004";
+        e.orderDigest = "{d}";
+        e.operatorId = TRADER_ID;
+        e.rejectTsMs = 1760000000000L;
+        e.eventSeq = 62L;
+        service.onPreTradeReject(e);
+        assertEquals(1, preTradeRejectDao.rows.size(), "派生后仍落库");
+        assertEquals("DERIVED[rule=R-RISK-2]", preTradeRejectDao.rows.get(0).rejectReason,
+                "缺项省略对应段（layer/cur/thr 均缺）");
     }
 
     @Test
