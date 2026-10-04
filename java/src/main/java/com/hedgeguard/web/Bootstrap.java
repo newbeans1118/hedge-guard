@@ -16,8 +16,17 @@ import com.hedgeguard.dao.impl.DmAccountSubjectDao;
 import com.hedgeguard.dao.impl.DmConfigChangeLogDao;
 import com.hedgeguard.dao.impl.DmConfigItemDao;
 import com.hedgeguard.dao.impl.DmCtpFrontConfigDao;
+import com.hedgeguard.dao.impl.DmCapitalReceiptDao;
 import com.hedgeguard.dao.impl.DmCustomHedgeRuleDao;
+import com.hedgeguard.dao.impl.DmDepositWithdrawApplyDao;
 import com.hedgeguard.dao.impl.DmDictItemDao;
+import com.hedgeguard.dao.impl.DmFundFlowDao;
+import com.hedgeguard.dao.impl.DmFundLedgerDao;
+import com.hedgeguard.dao.impl.DmFundQuotaAlertDao;
+import com.hedgeguard.dao.impl.DmFundQuotaDao;
+import com.hedgeguard.dao.impl.DmFundReconcileDao;
+import com.hedgeguard.dao.impl.DmFundReviewRecordDao;
+import com.hedgeguard.dao.impl.DmTransferApplyDao;
 import com.hedgeguard.dao.impl.DmExposureDao;
 import com.hedgeguard.dao.impl.DmAuthorizationDao;
 import com.hedgeguard.dao.impl.DmExposureDetailDao;
@@ -93,6 +102,7 @@ import com.hedgeguard.risk_intraday.RiskThresholds;
 import com.hedgeguard.risk_intraday.TradingSuspender;
 import com.hedgeguard.service.AuthService;
 import com.hedgeguard.service.ConfigService;
+import com.hedgeguard.service.FundService;
 import com.hedgeguard.service.ParamDispatchService;
 import com.hedgeguard.service.PlanService;
 import com.hedgeguard.service.SpotService;
@@ -103,6 +113,7 @@ import com.hedgeguard.service.impl.ParamDispatchServiceImpl;
 import com.hedgeguard.web.handler.PingHandler;
 import com.hedgeguard.web.handler.auth.AuthRoutes;
 import com.hedgeguard.web.handler.config.ConfigRoutes;
+import com.hedgeguard.web.handler.fund.FundRoutes;
 import com.hedgeguard.web.handler.plan.PlanRoutes;
 import com.hedgeguard.web.handler.product.ProductRoutes;
 import com.hedgeguard.web.handler.spot.SpotRoutes;
@@ -465,6 +476,21 @@ public final class Bootstrap {
                 new DmSettleAggregationCheckDao(tx), new DmSettleAggDiffCandidateDao(tx),
                 new DmSettleReportDao(tx), new DmSettleStressTestDao(tx));
         SettleRoutes.register(router, settleService);
+
+        // M2 资金管理服务（T-049）：台账/出入金/双人复核/划拨/额度/对账。
+        // 回执处理与 CTP 下发以「服务方法 + 接缝」承接（bridge 未承载 CMD_FUND_TRANSFER(0x011D)/
+        // CMD_QUERY_FUND_RESULT(0x011E) 与 EVT_FUND_RECEIPT(0x020B) 监听载荷，缺口归 T-172 扩载；
+        // bridge/** 未改动）。CFG-25 额度告警阈值经 ConfigService 读取（缺省 0.80,0.95,1.00）。
+        FundService fundService = new FundService(tx, authService, authService::hasTradingRole,
+                key -> {
+                    com.hedgeguard.dao.entity.ConfigItem ci = configService.getConfig(key);
+                    return ci == null ? null : ci.configValue;
+                },
+                new DmFundLedgerDao(tx), new DmFundFlowDao(tx),
+                new DmDepositWithdrawApplyDao(tx), new DmTransferApplyDao(tx),
+                new DmCapitalReceiptDao(tx), new DmFundReviewRecordDao(tx),
+                new DmFundQuotaDao(tx), new DmFundQuotaAlertDao(tx), new DmFundReconcileDao(tx));
+        FundRoutes.register(router, fundService);
 
         IntradayRiskMonitor monitor = registerRiskIntradayRoute(router, config, bridge,
                 paramDispatchService, authService);

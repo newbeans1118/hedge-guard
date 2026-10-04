@@ -2,6 +2,7 @@ package com.hedgeguard.web;
 
 import com.hedgeguard.web.handler.auth.AuthRoutes;
 import com.hedgeguard.web.handler.config.ConfigRoutes;
+import com.hedgeguard.web.handler.fund.FundRoutes;
 import com.hedgeguard.web.handler.plan.PlanRoutes;
 import com.hedgeguard.web.handler.product.ProductRoutes;
 import com.hedgeguard.risk_intraday.RiskRoutes;
@@ -55,8 +56,14 @@ final class FullWebAssembly {
      *
      * <p>{@code T-050} 据「事中风控 REST 面」新增 {@code GET /api/v1/risk/mirror-status} 一条
      * ⇒ {@code 81 → 82}（非为过测试而放宽：{@code ApiRoutes} 已声明该路径，本任务只做<b>最小注册</b>）。
+     *
+     * <p>【{@code T-049}】{@code FUND} 资金管理最小注册面 {@code 15} 个 {@code (方法,路径)} 对
+     * （ledger[GET,POST] / flow / deposit / withdraw / {id}/review / receipt / transfer[GET,POST] /
+     * transfer/{id}/approve / quota[GET,POST] / margin / reconcile / export）
+     * ⇒ {@code 96 → 111}（非为过测试而放宽：{@code ApiRoutes} 已声明 FUND 12 条路径，本任务只做
+     * <b>最小注册</b>，路径逐字取自冻结清单）。
      */
-    static final int ROUTE_COUNT = 96;
+    static final int ROUTE_COUNT = 111;
 
     private FullWebAssembly() {
     }
@@ -79,6 +86,9 @@ final class FullWebAssembly {
         // cycle/{id}/{reconcile,aggregate,close} / difference / report / margin / stress-test / export）。
         // 服务入参 null：装配期只调用 router.register(...) 构造 Handler，不驱动任何业务逻辑。
         SettleRoutes.register(router, null);
+        // T-049：FUND 资金管理最小注册面（15 个 (方法,路径) 对）。服务入参 null：装配期只调用
+        // router.register(...) 构造 Handler，不驱动任何业务逻辑。
+        FundRoutes.register(router, null);
         return router;
     }
 }

@@ -158,8 +158,16 @@ class BootstrapAssemblyTest {
             //   SETTLE 由 0 增为 11，业务路由 96（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK1/TRADE3/SETTLE11）
             //   + ping 2 = 98。monthly-check/quarterly-report（FR-SETTLE-13/14/17）归 T-048，本任务不注册。
             //   非为过测试而放宽断言。
-            assertEquals(98, assembly.routeCount(),
-                    "业务路由必须全部注册：96（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK1/TRADE3/SETTLE11）+ ping 2");
+            // 【T-049 订正（加注）】断言值由 98 订正为 113：订正理由 = 需求面（ApiRoutes 声明 FUND 模块
+            //   12 条路径；ARCHITECTURE.md §3.8 FundService 资金管理主链、FR-FUND-1~17）——本任务
+            //   注册资金管理最小面 15 个 (方法,路径) 对（ledger[GET,POST] / flow / deposit / withdraw /
+            //   {id}/review / receipt / transfer[GET,POST] / transfer/{id}/approve / quota[GET,POST] /
+            //   margin / reconcile / export），FUND 由 0 增为 15，业务路由 111
+            //   （AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK1/TRADE3/SETTLE11/FUND15）+ ping 2 = 113。
+            //   非为过测试而放宽断言。
+            assertEquals(113, assembly.routeCount(),
+                    "业务路由必须全部注册：111（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK1/TRADE3/"
+                            + "SETTLE11/FUND15）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。
             // （不真发 HTTP：经 RequestDispatcher 进程内分发；handler 因无真实库而 4xx/5xx 皆可，
