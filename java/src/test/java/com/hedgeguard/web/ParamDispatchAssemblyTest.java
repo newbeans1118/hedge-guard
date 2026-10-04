@@ -33,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code T-042} S3：参数下发服务的<b>生产装配</b>取证（离线，不接触 DM8，不起 socket）。
  *
  * <p><b>为何需要本类</b>：{@code T-042} 的核心可交付之一是「{@code ParamDispatchService} 有生产装配点」，
- * 而该事实**无法**由 {@code BootstrapAssemblyTest} 的 {@code routeCount()==83} 覆盖——
+ * 而该事实**无法**由 {@code BootstrapAssemblyTest} 的 {@code routeCount()==84} 覆盖——
  * 参数下发是<b>服务而不注册路由</b>（无 {@code ParamDispatchRoutes}），删掉装配行不会改变路由计数，
  * 属"改回退也全绿"的盲区。故此处直接对装配产物断言。
  *

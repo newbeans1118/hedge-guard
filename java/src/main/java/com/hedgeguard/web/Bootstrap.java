@@ -61,6 +61,13 @@ import com.hedgeguard.dao.pool.DataSourcePool;
 import com.hedgeguard.dao.pool.JdbcConnectionFactory;
 import com.hedgeguard.dao.pool.PoolConfig;
 import com.hedgeguard.dao.tx.TxTemplate;
+import com.hedgeguard.risk_intraday.AbnormalOrderTracker;
+import com.hedgeguard.risk_intraday.IntradayRiskMonitor;
+import com.hedgeguard.risk_intraday.MirrorStatusHandler;
+import com.hedgeguard.risk_intraday.NoopRiskMetricSink;
+import com.hedgeguard.risk_intraday.RiskRoutes;
+import com.hedgeguard.risk_intraday.RiskThresholds;
+import com.hedgeguard.risk_intraday.TradingSuspender;
 import com.hedgeguard.service.AuthService;
 import com.hedgeguard.service.ConfigService;
 import com.hedgeguard.service.ParamDispatchService;
@@ -108,6 +115,14 @@ public final class Bootstrap {
 
     /** 关闭核心转储的必需 JVM 参数（{@code ARCHITECTURE.md} §8.2 {@code NFR-SEC-1} ④）。 */
     public static final String REQUIRED_JVM_FLAGS = "-XX:-CreateCoredumpOnCrash -XX:ErrorFile=/dev/null";
+
+    /**
+     * 自动处置的系统操作人标识（{@code T-050} 事中风控自动限制开仓留痕用）。
+     *
+     * <p>{@code 0} = 系统（无自然人）。自动限制仅作<b>限制开仓</b>（{@code scan_scope=OPEN_ONLY}），
+     * 绝不自动下单（{@code R-RISK-13}）；解除限制须风控岗人工处置（{@code T-065}）。
+     */
+    public static final long SYSTEM_OPERATOR_ID = 0L;
 
     private Bootstrap() {
     }
@@ -175,7 +190,8 @@ public final class Bootstrap {
                     ? "参数下发服务未装配（组件桥不可用）"
                     : "参数下发服务已装配（回执超时取 CFG-28 " + ParamDispatchServiceImpl.KEY_CMD_TIMEOUT_MS
                             + "）");
-            AuthService authService = registerBusinessRoutes(router, tx, sessionStore, config);
+            AuthService authService = registerBusinessRoutes(router, tx, sessionStore, config,
+                    hgcpClient, paramDispatchService);
             // 认证时经 AuthService.touchSession 续期 ⇒ 会话为「空闲 30 min」滑动超时（FR-AUTH-15 验收 2）
             authFilter = new SessionAuthFilter(sessionStore, config.sessionCookieName(),
                     authService::touchSession);
@@ -348,7 +364,9 @@ public final class Bootstrap {
      * @return 已装配的 {@link AuthService}（供认证过滤器注入会话续期器）
      */
     private static AuthService registerBusinessRoutes(Router router, TxTemplate tx,
-                                                      SessionStore sessionStore, Config config) {
+                                                      SessionStore sessionStore, Config config,
+                                                      TradingBridge bridge,
+                                                      ParamDispatchService paramDispatchService) {
         DmProductSpotCategoryDao productSpotCategoryDao = new DmProductSpotCategoryDao(tx);
         DmExposureDao exposureDao = new DmExposureDao(tx);
         DmProductContractDao productContractDao = new DmProductContractDao(tx);
@@ -398,7 +416,42 @@ public final class Bootstrap {
         ProductRoutes.register(router, varietyService);
         SpotRoutes.register(router, spotService);
         PlanRoutes.register(router, planService);
+        registerRiskIntradayRoute(router, config, bridge, paramDispatchService, authService);
         return authService;
+    }
+
+    /**
+     * 装配事中风控模块（{@code T-050}，{@code ARCHITECTURE.md} §3.11 J5）并注册
+     * {@code GET /api/v1/risk/mirror-status}。
+     *
+     * <p><b>最小接线</b>：本方法只构造 {@code risk_intraday} 引擎与读取服务、注册 1 条已声明路径；
+     * 不改任何既有模块的注册序与路径。
+     *
+     * <p><b>限制开仓适配</b>：把既有 {@code ParamDispatchService} 的
+     * {@code suspendOpenOnly}（{@code CMD_SET_TRADING_SUSPEND} + {@code scan_scope=OPEN_ONLY}，
+     * {@code R-RISK-5}）适配为 {@code risk_intraday} 的端口，使该模块不直接依赖协议细节；
+     * 未装配参数下发服务（桥不可用）时端口为 {@code null}，自动限制禁用（只产告警）。
+     *
+     * @param router                路由
+     * @param config                配置（阈值经 {@code R-RISK-14} 统一读取，不硬编码）
+     * @param bridge                组件桥（{@code null} 视为空快照）
+     * @param paramDispatchService  参数下发服务（{@code null} 时不自动限制）
+     * @param authService           认证服务（同时实现子账户可见性，供读取面隔离）
+     */
+    private static void registerRiskIntradayRoute(Router router, Config config, TradingBridge bridge,
+                                                  ParamDispatchService paramDispatchService,
+                                                  AuthService authService) {
+        TradingSuspender suspender = paramDispatchService instanceof ParamDispatchServiceImpl
+                ? (subAccountId, reason, operatorId) ->
+                        ((ParamDispatchServiceImpl) paramDispatchService)
+                                .suspendOpenOnly(subAccountId, reason, operatorId)
+                : null;
+        IntradayRiskMonitor monitor = new IntradayRiskMonitor(bridge, RiskThresholds.from(config),
+                new AbnormalOrderTracker(), new NoopRiskMetricSink(), suspender, SYSTEM_OPERATOR_ID);
+        RiskRoutes.register(router, monitor, authService);
+        LOG.info("已装配事中风控模块（risk_intraday）：GET " + MirrorStatusHandler.PATH
+                + "；自动限制开仓=" + RiskThresholds.from(config).autoSuspendEnabled
+                + "；限制端口=" + (suspender == null ? "未装配（仅告警）" : "已装配（OPEN_ONLY）"));
     }
 
     /**

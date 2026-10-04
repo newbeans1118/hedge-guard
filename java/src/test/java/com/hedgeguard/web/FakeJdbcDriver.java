@@ -20,7 +20,7 @@ import java.util.logging.Logger;
  * **无法用真实驱动断言**（原用例只能靠异常反证"分支被走到"，见 {@code D-19} 复核结论）。
  *
  * <p>本驱动以 {@link Proxy} 返回一个"永远健康"的 {@link Connection}，使预建连接成功，
- * 从而把装配**跑到底**，让「业务路由数 = 81（+ ping 2 = 83）」成为**可被直接断言**的事实——
+ * 从而把装配**跑到底**，让「业务路由数 = 82（+ ping 2 = 84）」成为**可被直接断言**的事实——
  * 一旦 {@code registerBusinessRoutes(...)} 被删除或短路，该断言**必然变红**（防关键路径静默退化）。
  *
  * <p>注册方式：类静态块内 {@link DriverManager#registerDriver}。由于 {@code JdbcConnectionFactory.create()}

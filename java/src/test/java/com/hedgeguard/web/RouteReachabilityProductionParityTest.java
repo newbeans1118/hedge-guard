@@ -22,8 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * （{@code T-153} 独立复核缺陷 {@code TE-T153-001}（中）的机械收口）。
  *
  * <h2>待防缺陷（{@code TE-T153-001}）</h2>
- * {@link FullWebAssembly} 的 {@code ROUTE_COUNT = 81} 与生产装配（{@link Bootstrap#assembleWithResources}）
- * 的 {@code 83} 是**两个互相独立的数**（差 {@code 2} = 平台级 {@code ping} 的 {@code GET}/{@code HEAD}），
+ * {@link FullWebAssembly} 的 {@code ROUTE_COUNT = 82} 与生产装配（{@link Bootstrap#assembleWithResources}）
+ * 的 {@code 84} 是**两个互相独立的数**（差 {@code 2} = 平台级 {@code ping} 的 {@code GET}/{@code HEAD}），
  * 二者之间**无任何断言对齐**。后果：给生产装配新增第 6 个模块（{@code ApiRoutes} 已声明、尚未注册的
  * {@code TRADE}/{@code SETTLE}/{@code RISK}/{@code ACCT}/{@code FUND}/{@code AUDIT}，将在 M3/M4 接入
  * {@code Bootstrap}）而**忘记同步** {@code FullWebAssembly} 时，{@link RouteReachabilityExhaustiveTest}
