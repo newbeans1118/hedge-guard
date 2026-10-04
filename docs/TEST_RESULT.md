@@ -13940,3 +13940,338 @@ TMPDIR=/ cmake --build /hg-build-base -j4
 - **是否转 DONE：由编排者裁定**；本席不自行转 DONE。建议 `TE-T044-001` 与 `O-2` 随上游文档订正、`O-1` 择优增判据，均不阻断。
 
 （本报告仅新增 `/root/t044-review.md`，未改动仓库源码与 `docs/TEST_RESULT.md`。）
+
+---
+
+# T-050 独立复核 + delta 证据章（编排者逐字转录）
+
+- **转录说明**：以下两份报告由复核席分别落笔于 /root/t050-review.md（md5 c06056ac1c40d0b799fc880185e4e457 / 188 行）与 /root/t050b-delta.md（md5 7d62ad3c9f77ba6db5ad6b3c604962dd / 135 行），编排者逐字转录、未改写任何数字或措辞；转录时点基线 = 13942 行。
+- **背景**：T-050 交付 94328f3（37 文件 +2631/−17）；复核有条件通过（条件 TE-T050-001 键对齐）→ 修复 8f5f577 → te-verify-t050b delta 裁定闭环 ⇒ 可转 DONE（验收 1 ⑥/验收 2 生产接线由 T-172 承接）。
+
+# T-050「事中风控与镜像状态 risk_intraday」独立复核报告（te-verify-t050）
+
+- 复核对象：交付提交 `94328f3`（T-050 交付，37 文件 +2631/−17）
+- 复核时空 HEAD：`94328f3`（分支 master）
+- 复核者：te-verify-t050（独立复核席；未改动任何仓库源码，全部变异/负控在隔离副本 `/root/t050-iso` 进行）
+- 报告时点：2026-10-04（本报告内全部实测值以落笔时刻为准）
+- 结论：**有条件通过（0 阻断缺陷 / 1 缺陷（中）/ 7 观察）**；D-1 归属建议见 §5。**不转 DONE**，由编排者裁定。
+
+---
+
+## 0. 判据与口径说明
+
+- 树锚口径（与编排者一致的唯一可复现命令）：
+  `cd java/src && find . -type f | LC_ALL=C sort | xargs md5sum | md5sum`
+- 隔离副本布局：`/root/t050-iso/{docs,java,tools,proto,cpp,sdk,web}`（含 `tools/` 供 `mvn validate` 的 arch-check exec；未用 `/tmp`，避免 tmpfs 满）。
+- `git status` 存在 `M dev-team/agents/*.md` 与 `?? .verify/`（合规资料目录，非本任务产物），**与 T-050 交付无关，未纳入判定**。
+
+---
+
+## 1. 冻结链复核（开工实时复测）——全部吻合
+
+| 项 | 声明值 | 独立实测值 | 判定 |
+|---|---|---|---|
+| HEAD | 94328f3（37 文件 +2631/−17） | `94328f3`；`git show --stat` = 37 files, +2631/−17 | ✅ 吻合 |
+| java/src 树锚（前） | c3a9be3b…/457 | 由 `git archive 88dea88 java/src` 复原后实测 **c3a9be3b2814dc171f6ba7b65202921b / 457** | ✅ 吻合 |
+| java/src 树锚（后） | cdc31bfc…/488 | 共享树 + 隔离副本实测 **cdc31bfc857da8148dff8741314c505b / 488** | ✅ 吻合 |
+| 链尾 | 88dea88 → 94328f3 | `git log` 确认无中间提交 | ✅ 吻合 |
+
+> 注：首次用 `find java/src …`（相对前缀 `java/`）得 45293f5b，与声明不符；改用 `cd java/src`（前缀 `./`）后精确命中 cdc31bfc。**锚点命令的相对前缀是敏感面**，后续引用须固定此口径。
+
+---
+
+## 2. 独立门禁复现——全部复现
+
+| 门禁 | 声明 | 独立实测 | 判定 |
+|---|---|---|---|
+| 全量测试 | 743/0/0/0（+23） | 隔离副本 `TMPDIR=/root/t050tmp mvn -B -o clean test` → **Tests run: 743, Failures: 0, Errors: 0, Skipped: 0，BUILD SUCCESS**（02:29） | ✅ |
+| surefire 类数 | —（声明未给） | **98 个测试类**上报结果 | ✅ 供追溯 |
+| risk_intraday 新增用例 | 23 用例 / 7 类 | 实测 **23 用例 / 7 个 @Test 类**（NoSql1 + CalcTest4 + ThresholdsTest2 + MonitorTest6 + TrackerTest4 + BridgeOpenOnly1 + EndpointTest5 = 23） | ✅ |
+| arch-check | rc=0（E1–E8） | `bash tools/arch-check/arch-check.sh` → **rc=0**，尾部「八个判据脚本全部通过」 | ✅ |
+
+（新增 23 = 743 − 基线 720，与 java/src「前 457 文件 / 后 488 文件」的差 31 不冲突：31 = 24 主源含 package-info + 7 测试类 + 0，另含测试工厂 TestSnapshots 等已在测试文件数内。）
+
+---
+
+## 3. 共享判据改动核（敏感面）+ 反放水负控
+
+### 3.1 逐文件核对（`git show 94328f3 -- <file>`）
+
+提交实动 **6** 个非 risk_intraday 文件，逐文件性质：
+
+| # | 文件 | 改动性质 | 判定 |
+|---|---|---|---|
+| 1 | `web/Bootstrap.java`（生产） | 新增 import 7 行 + `SYSTEM_OPERATOR_ID` 常量 + `registerBusinessRoutes` 增 2 参 + 新增 `registerRiskIntradayRoute`（构造 monitor + `RiskRoutes.register` 1 条） | 合规（注册点 + 装配，不改既有注册序/路径） |
+| 2 | `web/BootstrapAssemblyTest.java`（判据） | 计数 83→84（+ 新增 `GET /risk/mirror-status` 经 RequestDispatcher 分发断言 ≠404/≠405） | 合规（**实质计数变更**） |
+| 3 | `web/FullWebAssembly.java`（判据） | `ROUTE_COUNT 81→82` + `assemble()` 新增 `RiskRoutes.register(router,null,null)` + 注释 | 合规（**实质计数变更**） |
+| 4 | `web/FakeJdbcDriver.java`（判据/辅助） | **仅注释**（81/83 → 82/84） | 合规 |
+| 5 | `web/ParamDispatchAssemblyTest.java`（判据） | **仅注释**（83 → 84） | 合规 |
+| 6 | `web/RouteReachabilityProductionParityTest.java`（判据） | **仅注释**（81/83 → 82/84） | 合规 |
+
+### 3.2 口径差（记录）
+
+- 编排者交底：产出方回执正文写「**4 个共享判据文件**」；提交实测为 **1 生产（Bootstrap）+ 5 测试侧判据/辅助 = 6 文件**。
+- 其中**仅 2 个**含实质计数变更（BootstrapAssemblyTest、FullWebAssembly），另 3 个为注释同步。
+- 判定：**回执「4」这一数字与提交不符（少记）**；因 5 个测试侧文件中 3 个仅注释，「4」可能指「有实质/相关者」，口径未定义。**属口径差、非实质缺陷**，但建议回执显式写明「6 文件（1 生产 + 5 判据/辅助；2 实质 + 3 注释）」。
+
+### 3.3 反放水负控（隔离副本，两次独立变异）
+
+- **负控 A（判据侧）**：删 `FullWebAssembly.assemble()` 中 `RiskRoutes.register(...)` 一行 ⇒
+  `RouteReachabilityProductionParityTest.productionAssemblyEqualsCriteriaAssemblyMinusPing:108` **红**，差集精确点名 `[GET /api/v1/risk/mirror-status]`（仅生产有 / 判据缺）。✅ 防漂移判据承重。
+- **负控 B（生产侧）**：注释 `Bootstrap` 内 `RiskRoutes.register(router, monitor, authService)` ⇒
+  `BootstrapAssemblyTest.configuredDatabaseRegistersAllBusinessRoutes:149` **红**（expected 84 but was 83）**且** ParityTest 同步红。✅ 计数硬判据承重（非放宽为下界）。
+- 复位：两文件 `cp` 回 `.orig` 后 md5 与共享树**逐字节一致**（Bootstrap `ae4fcb7fa96c099e159fb7996600d1f3`、FullWebAssembly `8bdff07c3cc4d5c2ef5734a4b220d9b6`）；隔离副本 `java/src` 树锚复位为 **cdc31bfc…/488** = 共享树；`touch` 重编复跑相关用例 **BUILD SUCCESS（11/0/0/0）** 复绿。
+
+---
+
+## 4. 验收 3 机械证明复核（NoSql）
+
+- `RiskIntradayNoSqlTest` 判据形态：遍历 `src/main/java/com/hedgeguard/risk_intraday` 全部 `.java`，任一含 `import java.sql.` 或 SQL 语句形态正则（`select …/insert into/update … set/delete from`）即违反；并断言目录存在、文件非空（防判据空转）。
+- **自设反例（隔离副本）**：向主源 `TradeAction.java` 注入 `import java.sql.Connection;` ⇒ `RiskIntradayNoSqlTest.mainSourcesContainNoSql:53` **红**，报「TradeAction.java 引入 java.sql」。复位后逐字节复原。✅ 判据能真正拦截 SQL 引入。
+- **独立 grep**：`risk_intraday` 主源 `import java.sql` = **0**、SQL 语句形态 = **0**。✅ 与主源零 SQL 声明一致。
+
+---
+
+## 5. 验收 1 vs D-1（关键裁定输入）——两栏论据
+
+**验收 1 原文**（TASKS.md:1336）：基于 `TradingBridge.mirror()` 实时监控 **6 类指标**：实时持仓 / 浮动盈亏 / 保证金占用率 / 风险度 / 资金可用量 / **异常下单行为**。
+
+### 栏 A（「指标可算」承载成立）
+- `MirrorMetricsCalculator.compute`（MirrorMetricsCalculator.java:54）为纯函数，从不可变 `MirrorSnapshot` 一次算出 6 类指标：①②（positions 聚合）+ ③④⑤（funds）+ ⑥（tracker.maxIntradayOpenClose/maxRollingRounds/averageHoldingDays）。`MirrorMetricsCalculatorTest` 对①②③④⑤逐值断言；`AbnormalOrderTrackerTest` 对⑥三子指标（日内合计/7 日回合/平均持仓）逐值断言。
+- ⑥ 的输入 `AbnormalOrderTracker` 确由 `IntradayRiskMonitor.recordTrade(TradeActivity)`（IntradayRiskMonitor.java:105）投喂；`IntradayRiskMonitorTest.suspendOpenOnlyDispatched` 用构造的 TradeActivity 流触发了 ⑥ 的 CRITICAL 告警与限制开仓。
+- ⇒ **模块内「6 类指标可算 + ⑥ 告警/处置路径可跑」在单测层面成立**。
+
+### 栏 B（生产事件接入缺口 ⇒ 验收 1 就 ⑥ 未达成）
+- `mirror()` 快照（`MirrorSnapshot`）**只承载 positions()+funds()**，**不含任何成交（trade-fill）流**；`HgcpClient.onEvent` 对 `EVT_TRADE_FILL` 仅做 `mirror.advanceWatermark(seq)`（HgcpClient.java:318-321），**不提取成交字段、不投喂 tracker**。
+- 全 `src/main` 中 `recordTrade(…)` **零调用**、`IntradayRiskMonitor.evaluate()` **零调用**（唯一生产调用是 `MirrorStatusService.current()→monitor.current()→compute(false)` 只读路径，MirrorStatusService.java:44）。
+- ⇒ 生产下 ⑥ 的三个计数**恒为 0** ⇒ 「异常下单行为」在生产为**不可观测的死指标**；且因 `evaluate()` 未被触发，**验收 2 的「限制新开仓」下发路径在生产永不执行**（仅单测可跑）。
+- T-050 **备注本身**明列「消费 `EVT_TRADE_FILL`/`EVT_POSITION_CHANGE`」⇒ 事件接入属 T-050 声明面（跨栈依赖），非纯下游。
+
+### 裁定建议（供编排者）
+1. **验收 1 应判「部分达成」**：①②③④⑤有生产数据源（mirror()），⑥ 无生产数据源（恒 0）。「基于 mirror() 监控 6 类指标」这句在 **⑥ 上不成立**（⑥ 的源不是 mirror()，且当前无生产源）。
+2. **修复归属（重要）**：事件接入（`EVT_TRADE_FILL → recordTrade` + 消费线程 → `evaluate()`）**不宜归 T-065**——T-065 依赖 T-050，逻辑上不能反向承载 T-050 的验收。建议**登记独立授权任务**（bridge/事件面接线，涉及 `HgcpClient` 事件消费面），或由编排者明确授权在本任务内补接线。
+3. 若**不补接线直接转 DONE**，则验收 1（异常下单行为）+ 验收 2（限制开仓生产可达）在**生产恒不生效**，属「声明已落实、实则死路径」——同 `CR-002`「声明未落实」教训。**本席不背书将验收 1 判为完全达成。**
+
+---
+
+## 6. D-2 / D-3 / D-4 归属核（文档明文 vs 推论）
+
+回读 TASKS.md T-065 原文（:1595-1610）：
+- 验收 1 = 告警落 `t_risk_alert`、处置落 `t_risk_disposal`（含限制新开仓/解除）；
+- 验收 2 = 异常下单统计落 `t_abnormal_order_stat`；
+- 验收 3 = 指标快照落 `t_risk_metric_snapshot`、镜像水位落 `t_mirror_watermark`；
+- 验收 4 = 经 `/ws/alert` 推送 + `?since=` 重连补拉；
+- **产出**：`java/service/RiskService.java`（告警部分）、`java/risk_intraday/**` **持久化**、REST `/risk/alert*`。
+
+判定：
+- 「**落库**（t_risk_alert / t_risk_metric_snapshot / 告警处置端点）」为 T-065 **文档明文**（验收 1/3/4 逐表点名 + 产出「risk_intraday/** 持久化」）⇒ 产出方「真实写者 = T-065」**成立**（非推论）。
+- 「**异常下单统计落 t_abnormal_order_stat**」亦为 T-065 验收 2 明文。
+- 但「**事件接入（EVT_TRADE_FILL→tracker + evaluate 触发）**」**不在 T-065 清单**；该接线在 T-050 备注明列，故**不属 T-065**（见 §5 建议 2）。
+- 生产装配用 `NoopRiskMetricSink`（Bootstrap.java:450），`AsyncRiskMetricSink` 已实现但**未接入生产**（仅单测覆盖）；与 D-2「落库待 T-065」披露一致。
+
+---
+
+## 7. 变异台账
+
+| 变异 | 位置 | 形态 | 结果 | 复位 |
+|---|---|---|---|---|
+| M2（复现产出方） | `IntradayRiskMonitor.java:198` | `abnormalIntradayCount >= intradaySuspendCount` → `>` | **红 2**：`suspendOpenOnlyDispatched:158`（expected [1] but []）、`autoSuspendDisabledKeepsSuggestionOnly:198` | md5 逐字节复原 |
+| 自设 M-S1 | `MirrorMetricsCalculator.java:93` | 滞后判定 `lagMillis > mirrorLagMillis` → `!=` | **红 1**：`lagDetection:92`（expected false but true） | md5 逐字节复原 |
+| 负控 A（反放水·判据侧） | `FullWebAssembly.assemble()` | 删 `RiskRoutes.register(...)` | **红 1**：`RouteReachabilityProductionParityTest:108`（差集点名 mirror-status） | md5 逐字节复原 |
+| 负控 B（反放水·生产侧） | `Bootstrap` | 注释 `RiskRoutes.register(...)` | **红 2**：`BootstrapAssemblyTest:149`（84 vs 83）+ ParityTest | md5 逐字节复原 |
+| 自设 NoSql 反例 | `TradeAction.java` | 注入 `import java.sql.Connection;` | **红 1**：`RiskIntradayNoSqlTest:53` | md5 逐字节复原 |
+
+- 复位后：隔离副本 `java/src` 树锚 = **cdc31bfc…/488** = 共享树；`touch` 重编复跑相关 11 用例 **0/0/0** 复绿。
+
+---
+
+## 8. 路由计数口径（routeCount 84）
+
+- 声明 `ApiRoutes.byModule().get("RISK")` = 10 路径（`/risk/dashboard … /risk/post-report`），**含 `/risk/mirror-status`**（ApiRoutes.java:54-56）⇒ 注册路径**逐字来自冻结清单、未臆造**。
+- 独立复现：`BootstrapAssemblyTest` 经**真实生产装配**的 `RequestDispatcher` 分发 `GET /api/v1/risk/mirror-status` → **≠404/≠405**，且 `routeCount()==84` 精确断言通过；`RouteReachabilityProductionParityTest` 断言生产装配 = 判据装配（`FullWebAssembly` 82）+ ping 2 = 84，对称差为空。
+- RISK 模块「声明 10 / 注册 1」= **按 T-050 明确范围**（RiskRoutes javadoc「本里程碑仅 /risk/mirror-status」+ TASKS 产出面），其余 9 条归后续任务 ⇒ **不构成 T-109 型反向缺口**。
+- 计数口径：84 = 82 业务（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK1）+ ping 2。✅ 与 `FullWebAssembly.ROUTE_COUNT=82` 差 2 已由 ParityTest 显式对齐。
+
+---
+
+## 9. D-8 / D-5 披露裁定
+
+- **D-8（operatorId=0 留痕口径）= 认可（非缺陷）**：`Bootstrap.SYSTEM_OPERATOR_ID = 0L`（Bootstrap.java:125），语义「系统（无自然人）」，与既有先例**逐字一致**——`ParamChangeEncoder` 对 `operator_id` **缺省即取 "0"**（ParamChangeEncoder.java:119/150），且 `CH-018` 登记明文「`0`=「系统」（旧口径语义）」。留痕口径自洽。
+- **D-5（滞后借 `POSITION` 类别承载）= 观察 O-2**：滞后告警以 `new RiskAlert(0, RiskMetricType.POSITION, WARNING, lagMillis, mirrorLagMillis, …)`（IntradayRiskMonitor.java:148-151）承载 ⇒ 响应体 `metricType="POSITION"` 而实义为「镜像滞后」，**消费方若按 metricType 分类会误读**（仅 message 文案可辨识；`view.lagging`/`lagMillis` 为根级字段，尚可辨识）。建议后续为「镜像滞后」单列枚举或独立字段。
+
+---
+
+## 10. 缺陷清单
+
+### TE-T050-001（中 / P1）—— 阈值配置键与冻结 CFG 清单不一致，已声明配置项对 Java 事中风控无效果（等价硬编码，R-RISK-14 未真正满足）
+
+- **证据（键名逐字比对）**：
+  - 实现读取（`RiskThresholds.java:17-37`）：`risk.ratio.warning` / `risk.ratio.critical` / `risk.margin.usage.warning` / `risk.margin.usage.critical` / `risk.mirror.lag_millis` / `risk.freq.intraday_alert` / `risk.freq.intraday_suspend` / `risk.freq.rolling7d_alert` / `risk.freq.min_holding_days` / `risk.fund.available_warn` / `risk.auto_suspend.enabled`。
+  - 冻结声明（ARCHITECTURE.md）：`CFG-05`（:2807）= `risk.freq.intraday_warn` / `risk.freq.intraday_block`；`CFG-05b`（:2808）= `risk.freq.7d_rounds_warn` / `risk.freq.min_hold_days`；`CFG-21`（:2834）= `risk.margin_ratio_warn` / `risk.margin_ratio_critical`（风险度/保证金占用率）。种子 `data-init.sql` 亦为 `risk.freq.intraday_warn`(:294) / `_block`(:298) / `risk.freq.7d_rounds_warn`(:302) / `risk.freq.min_hold_days`(:306) / `risk.margin_ratio_warn`(:411) / `_critical`(:415)。
+  - 实测：实现所用 11 个键**全仓 0 命中**（除 RiskThresholds.java 与其测试自身）；4 个频次键与 CFG-05/05b **逐字不同**，风险度/保证金键与 CFG-21 **逐字不同**。
+  - `Config.get` 为**精确键**读取（System 属性 / hg.properties，Config.java:173），无别名映射。
+- **后果**：按冻结清单（及 data-init 种子）配置 `risk.freq.intraday_warn=8` 等**对 Java 事中风控完全无效**；阈值只能用代码内缺省值 ⇒ 实质**硬编码**，与 `R-RISK-14`「全部风控阈值由 CONFIG 统一配置，不得硬编码」冲突（`R-RISK-14` 直接关联 `FR-RISK-13/14`，在 T-050 追溯内）。
+- **假绿原因**：缺省值恰好等于文档值（0.70/0.90/6/10/5/3）⇒ **全量 743 全绿**；`RiskThresholdsTest` 只断言自造键名，**无任何用例断言键名 ∈ CFG 清单**。
+- **建议**：二选一，由编排者裁定归属：(a) `RiskThresholds` 改用 `CFG-05/05b/21` 键名；或 (b) 若确需新键，须在 §11 配置清单登记（走 `NFR-MAINT-5`/CFG 变更）。无论哪种，建议补一条「键名 ∈ CFG 清单」的机械判据。
+
+---
+
+## 11. 观察清单（不阻断）
+
+- **O-1（承接 §5）**：`evaluate()` / `recordTrade()` 生产零调用 ⇒ ⑥ 恒 0、验收 2「限制开仓」生产不生效（D-1/D-3 披露属实）。归属建议见 §5。
+- **O-2（D-5）**：滞后告警借 `RiskMetricType.POSITION` + `subAccountId=0` 承载，`metricType` 误导（见 §9）。
+- **O-3**：滞后告警 `subAccountId=0`，在子账户隔离下被 `allowed(visible, 0)` **过滤**（MirrorStatusService.java:90）⇒ 受限用户看不到该告警（根级 `lagging`/`lagMillis` 仍可见，故不阻断）。
+- **O-4**：`AsyncRiskMetricSink` 已实现且有界队列/守护线程测试，但**生产装配用 `NoopRiskMetricSink`**（Bootstrap.java:450）⇒「先算后异步落库」生产装配未启用（承接 D-2，T-065 落地后替换）。
+- **O-5**：测试类数口径：交底「7 类 23 用例」✅；提交信息「8 测试类」含工厂 `TestSnapshots`（无 @Test），建议区分「用例类 / 辅助类」。
+- **O-6**：`risk_intraday` 主源 `git ls-tree` = **24** 文件（含 `package-info.java`），交底「23 新文件」少计 package-info。
+- **O-7**：`MirrorStatusService` 依赖 `AuthService` 作 `SubAccountVisibility`（Bootstrap 传 `authService`）。隔离面为空集时 fail-closed（用例已覆盖 emptyVisibilityFailsClosed）；与既有 `NFR-SEC-7` 口径一致，仅记录耦合点。
+
+---
+
+## 12. 锚点（本报告实测，以实时为准）
+
+- HEAD：`94328f3`；工作树相对 T-050 无源码改动（仅 dev-team md 与 .verify/，非本任务）。
+- java/src 树锚：前 `c3a9be3b2814dc171f6ba7b65202921b`/457 → 后 **`cdc31bfc857da8148dff8741314c505b`/488**。
+- `risk_intraday` 主源锚：`6b0bf536b355b31dc447de76b3a26065`/24。
+- 关键文件 md5：`Bootstrap.java`=`ae4fcb7fa96c099e159fb7996600d1f3`；`FullWebAssembly.java`=`8bdff07c3cc4d5c2ef5734a4b220d9b6`。
+- 独立门禁：`mvn -B -o clean test` = **743/0/0/0**（98 类，02:29）；arch-check **rc=0**（E1–E8）。
+- 隔离副本：`/root/t050-iso`（复位后树锚 = cdc31bfc…/488）。
+
+
+---
+
+# T-050 修复（TE-T050-001）delta 复检报告（te-verify-t050b）
+
+- 复核对象：HEAD `8f5f577`「fix(T-050): TE-T050-001 阈值键对齐冻结 CFG-05/05b/21」
+- 前链：`e9cc544`（T-172 台账登记）→ `94328f3`（T-050 交付）→ `88dea88`
+- 复核者：te-verify-t050b（未改动仓库源码；全部变异在隔离副本 `/root/t050b-iso`；未用 `/tmp`）
+- 时点：2026-10-04（值以落笔时刻为准）
+- **结论：TE-T050-001 已闭环 ✅；T-050 可转 DONE（D-1 已由 T-172 承载，比照 T-042 两侧闭合先例）**
+
+---
+
+## 0. 交付物与冻结链（独立实测）
+
+| 项 | 声明 | 独立实测 | 判定 |
+|---|---|---|---|
+| HEAD | 8f5f577 | `8f5f57716b530bd03c345c110edd8df5f47d7606` | ✅ |
+| 提交文件数 | 恰 2 文件 +116/−32 | `git show --name-status 8f5f577` = **恰 2 文件**（M `RiskThresholds.java`、M `RiskThresholdsTest.java`），无夹带 | ✅ |
+| RiskThresholds.java | `e37b7ca2…/161` | `e37b7ca251761f13810cbb87d83fe0a1` / **161** 行 | ✅ |
+| RiskThresholdsTest.java | `338e7702…/118` | `338e7702349bd88c4251167bbd1328cf` / **118** 行 | ✅ |
+
+---
+
+## 1. 锚点裁定（必做项）——**口径差异，非造假**
+
+三种路径前缀形态各测一次（文件集完全相同，仅路径前缀不同）：
+
+| 形态 | 命令 | 值 | 文件数 |
+|---|---|---|---|
+| **A（标准口径）** | `cd java/src && find . -type f | LC_ALL=C sort | xargs md5sum | md5sum`（前缀 `./`） | **`51bec79447815c23ba6fa9e679b337bf`** | 488 |
+| **B（产出方口径）** | `cd java && find src -type f | LC_ALL=C sort | xargs md5sum | md5sum`（前缀 `src/`） | **`7b946561c122575d1217c7efb5d711ca`** | 488 |
+| C（仓库根） | `find java/src -type f …`（前缀 `java/src`） | `c2d2af8431d6aee885c2b008dae42007` | 488 |
+
+- **裁定**：产出方回执的 `7b946561…/488` 系**形态 B（`src/` 前缀）**口径，**可复现**；编排者与标准命令的 `51bec794…/488` 系**形态 A（`./` 前缀）**。二者**文件集逐字节相同**——把两侧 md5sum 输出行前缀归一后同为 `4445a3b1d5ba2aeb9aa260a010f44bdb`（`sed 's|  \./|  |'` 与 `sed 's|  src/|  |'` 结果相等）。
+- **报告写死标准口径值**：**`51bec79447815c23ba6fa9e679b337bf` / 488**（沿用 te-verify-t050 对 T-102 树锚前缀差异的判例形态：口径不同非造假，报告须写明口径）。
+- 附加形态（均不命中 `7b946561`，排除其它可能）：无 `LC_ALL`=`e0596b29…`；`-exec md5sum`=`e39d4944…`；`print0/-0`=`51bec794…`（同 A）；`git ls-files`=`c2d2af84…`（同 C，证实为内容一致）。
+
+---
+
+## 2. CFG-21 归并裁定（回读原文 + 抽核公式）
+
+### 2.1 ARCHITECTURE.md §11.1 CFG-21 原文（`docs/ARCHITECTURE.md:2834`）
+```
+| CFG-21 | risk.margin_ratio_warn / _critical | 风险度 / 保证金占用率告警与严重阈值 | 0.70 / 0.90 | (0,1] | ✅ | 可持久化 |
+```
+- **用途列逐字含「风险度 / 保证金占用率」，一行一对键、一组默认值 0.70/0.90** ⇒ **确为同键双载**，归并忠实于冻结文档 ✅。
+- `data-init.sql:411/415` 播种同为 `0.70/0.90`（描述分别写「风险度告警阈值」「保证金占用率严重阈值」），佐证同键双载。
+
+### 2.2 MirrorMetricsCalculator 公式抽核（`MirrorMetricsCalculator.java:62-66`）
+- `marginUsageRate = ratio(marginOccupied, balance)`（恒定）。
+- `riskRatio = f.riskRatio` 非空时**取资金视图权威值**，否则回退 `ratio(marginOccupied, balance)`。
+- **判定**：二者**并非严格「同一公式」**——`riskRatio` 优先采用资金视图下发的权威风险度（`FundView.riskRatio`），仅在其缺省时才与 `marginUsageRate` 同式。
+  - 但**归并仍忠实**：依据是 **CFG-21 用途列明文**（一对键承载两指标），不依赖公式是否相同。产出方「同一公式」的**支撑表述不精确（见 O-A）**，不构成缺陷。
+- `IntradayRiskMonitor.evaluateOne`（:168-187）：`riskRatio` 驱动 `RISK_RATIO` 告警（用 ratioWarning/ratioCritical），`marginUsageRate` 驱动 `MARGIN_USAGE_RATE` 告警（用 marginWarning/marginCritical）。归并后两阈值相等，符合 CFG-21 单一阈值对的设计。
+
+### 2.3 副作用（margin 缺省 0.80/0.95 → 0.70/0.90）裁定
+- 旧值 `0.80/0.95` **恰等于 CFG-21b 默认值**；但 CFG-21b（`risk.limit_usage_hint/_warn`，`ARCHITECTURE.md:2835`）用途明文为**「限额使用率提示线 / 警告线」**，与「保证金占用率」是**不同指标** ⇒ 旧值系**巧合**，正解为 CFG-21 的 `0.70/0.90`。**本次改动正确** ✅。
+
+---
+
+## 3. 判据牙齿复现（隔离副本，≥1，实做 3 向）
+
+隔离副本五件齐（`/root/t050b-iso/{java,docs,tools,proto,cpp,sdk}` + `web`）；基线 `java/src` 树锚 = 标准口径 `51bec794…/488`。
+
+| 变异 | 位置/形态 | 结果 | 复位 |
+|---|---|---|---|
+| 基线 | — | `RiskThresholdsTest 3/0/0/0` 绿 | — |
+| **M1（缺冻结键方向）** | 测试侧 `FROZEN_CFG_KEYS` 删 `risk.freq.min_hold_days` | **红 1**：`RiskThresholdsTest.configKeysMatchFrozenList:75`，expected 缺该键、actual 含之 | md5 复原 |
+| **M2（多出键方向）** | 主源新增 `KEY_INVENTED_DELTA="risk.invented.delta"` | **红 1**：`:76`，actual 多出 `risk.invented.delta` | md5 复原 |
+| **M3（回退旧键名，对应产出方变异②）** | 主源 `KEY_FREQ_INTRADAY_ALERT` 改回 `risk.freq.intraday_alert` | **红 1**：`:76`，actual 含旧键、缺新键 | md5 复原 |
+
+- **双向可杀已证实**：`assertEquals(allowed, declared)` 对「缺失」与「多出」两向均红。
+- **复位后复绿**：`mvn -o clean test -Dtest=RiskThresholdsTest` → **3/0/0/0 BUILD SUCCESS**。
+- **陷阱留痕**：仅 `cp` 复原（`copy2` 保留旧 mtime）时 mvn 增量编译**不重编**，读到旧变异 class ⇒ 出现「复位后仍红」**假红**；须 `touch`/clean 后复跑方为真绿。最终两文件 md5 均复原为 `e37b7ca2…`/`338e7702…`。
+
+---
+
+## 4. 独立全量门禁
+
+| 门禁 | 声明 | 独立实测 | 判定 |
+|---|---|---|---|
+| 全量测试 | 744/0/0/0（+1） | 隔离副本 `TMPDIR=/root/t050btmp mvn -B -o clean test` → **Tests run: 744, Failures: 0, Errors: 0, Skipped: 0，BUILD SUCCESS** | ✅ |
+| RiskThresholdsTest | — | `3/0/0/0`（较前态 2 例 **+1**，与「+1 用例」一致） | ✅ |
+| arch-check | rc 0 | `bash tools/arch-check/arch-check.sh` → **rc=0**，E1–E8 全部退出码 0，尾部「八个判据脚本全部通过」 | ✅ |
+
+---
+
+## 5. 扩散面（无夹带）
+
+- `git show 8f5f577`：**恰 2 文件**（见 §0），无第三条路径。
+- **旧键名残留独立 grep**（整仓，排除 `build/.git/.codebuddy/target`）：
+  `risk.ratio.warning` / `risk.ratio.critical` / `risk.margin.usage.*` / `risk.freq.intraday_alert` / `risk.freq.intraday_suspend` / `risk.freq.rolling7d_alert` / `risk.freq.min_holding_days` → **0 命中** ✅。
+- 新键命中面：`RiskThresholds.java`(`KEY_*`)、`RiskThresholdsTest.java`、`ConfigSeedDataTest.java`（既有播种断言）——一致。
+- 共享树未被本次复检改动（`git status` 仅 `M dev-team/agents/*.md` + `?? .verify/`，与本任务无关）；共享树锚复测仍 = 标准口径 `51bec794…/488`。
+
+---
+
+## 6. 待裁 3 键「确无冻结对应物」核验（不在本席裁定范围，仅确认存在性）
+
+`risk.mirror.lag_millis` / `risk.fund.available_warn` / `risk.auto_suspend.enabled`：
+- `ARCHITECTURE.md` §11 全表及全文 → **0 命中**（无冻结 CFG 对应物）✅。
+- `docs/DEPLOY/schema/data-init.sql` → **0 命中**（未播种）✅。
+- 仅出现在 `RiskThresholds.java` 与 `RiskThresholdsTest.java`（后者显式列于 `PENDING_CFG_KEYS` 并受集合相等判据约束，新增/改名须先获授权）✅。
+⇒ 产出方「保持现名、待权威席裁定登记」的做法与事实相符。
+
+---
+
+## 7. 缺陷 / 观察
+
+**0 阻断缺陷、0 缺陷。** 观察（不阻断）：
+
+- **O-A（口径，§2.2）**：产出方「riskRatio 与 marginUsageRate 同一公式」表述不精确——`riskRatio` 优先取资金视图权威值，仅缺省时回退同式。**归并结论不受影响**（依据为 CFG-21 用途列明文）。
+- **O-B（锚点口径，§1）**：回执树锚 `7b946561…/488` 系 `src/` 前缀口径；标准口径应写 **`51bec794…/488`**。**建议后续回执统一标准命令**。
+- **O-C（来源标注）**：产出方称「CFG-21b 系限额使用率（FR-RISK-18）」——`CFG-21b` 行未引 `FR-RISK-18`（`FR-RISK-18` 映射 `CFG-07`/`§6.9`）。`CFG-21b` 确为「限额使用率」不同指标（不影响归并结论），仅来源标注待核。
+- **O-D（行为含义，§2.3）**：归并后 `ratioWarning==marginWarning`、`ratioCritical==marginCritical`（同键+同缺省），即 `RISK_RATIO` 与 `MARGIN_USAGE_RATE` 两类告警**共用一组阈值、不可独立调参**——此即 CFG-21 单一阈值对的规定形态；仅记录供权威席知悉。
+
+---
+
+## 8. 裁定
+
+1. **TE-T050-001（阈值键与冻结 CFG 清单不一致）→ 已闭环 ✅**：
+   - 4 个频次键逐字对齐 `CFG-05/05b`；`CFG-21` 双载归并忠实于文档明文；旧键全仓 0 残留；
+   - 机械判据 `configKeysMatchFrozenList`（集合相等、**双向可杀**）+ `everyKeyIsConsulted`（9 键逐字生效）经独立变异承重；
+   - 全量 744/0/0/0、arch rc0。
+2. **T-050 可转 DONE**：本修复不带入新缺口；C++/生产侧遗留（验收 1 ⑥「异常下单行为」生产事件源、验收 2「限制新开仓」生产触发）已由 **T-172**（`docs/TASKS.md:217`，TODO，依赖 `T-042,T-050`）承接，比照 T-042「两侧闭合」先例成立。**最终 DONE 由编排者裁定**（验收 1 ⑥/验收 2 生产生效以 T-172 落地为准）。
+3. 待裁 3 键（§6）无冻结对应物，交编排者转权威席，**不在本席裁定范围**。
+
+---
+
+## 9. 锚点（本报告实测，以实时为准）
+
+- HEAD：`8f5f577`。
+- java/src 树锚（**标准口径 A**）：**`51bec79447815c23ba6fa9e679b337bf` / 488**。
+- 产出方口径 B（`cd java && find src …`）：`7b946561c122575d1217c7efb5d711ca` / 488（内容归一后同 `4445a3b1d5ba2aeb9aa260a010f44bdb`）。
+- 关键文件 md5：`RiskThresholds.java` = `e37b7ca251761f13810cbb87d83fe0a1`/161；`RiskThresholdsTest.java` = `338e7702349bd88c4251167bbd1328cf`/118。
+- 隔离副本：`/root/t050b-iso`（基线锚 = 标准口径 51bec794…/488）；变异日志 `/root/t050b-teeth-*.log`；全量日志 `/root/t050b-mvn.log`。
+
