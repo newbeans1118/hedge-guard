@@ -94,6 +94,7 @@ class TradeServiceTest {
     private FakeTradePlanDao planDao;
     private FakeExposureDao exposureDao;
     private FakeTradeOrderDao orderDao;
+    private FakeCommandFlowDao commandFlowDao;
 
     @BeforeEach
     void setUp() {
@@ -122,12 +123,13 @@ class TradeServiceTest {
         exposureDao.rows.put(EXPOSURE_ID, exposure(EXPOSURE_ID, SUB_A));
 
         bridge = new InMemoryTradingBridge();
+        commandFlowDao = new FakeCommandFlowDao(audit);
         service = new TradeService(FakeTx.newTemplate(), bridge, authService,
                 planDao, exposureDao,
                 orderDao, new FakeTradeReasonDao(audit),
                 new FakeTradeOrderReportDao(audit), new FakeTradeFillDao(audit),
                 new FakeTradePositionDao(audit), new FakePreTradeRejectDao(audit),
-                new FakeCommandFlowDao(audit));
+                commandFlowDao);
     }
 
     @AfterEach
@@ -349,6 +351,26 @@ class TradeServiceTest {
         assertEquals(n, audit.writes.size(), "同指令同规则只记一条（幂等）");
     }
 
+    @Test
+    @DisplayName("验收4：指令流水重复投递幂等（同 client_order_ref+flow_type+flow_ts_ms 仅落 1 行）")
+    void onCommandFlowIdempotentOnRepeatedDelivery() {
+        TradeService.CommandFlowEvent e = commandFlow("HG20261004000009", "ACCEPTED", 1760000000000L);
+        service.onCommandFlow(e);
+        assertEquals(1, commandFlowDao.rows.size(), "首帧应落 1 行");
+        service.onCommandFlow(e); // 同帧重复投递
+        assertEquals(1, commandFlowDao.rows.size(),
+                "同帧重复投递不得重复落库（uk_command_flow_idem：ref+flow_type+flow_ts_ms）");
+    }
+
+    @Test
+    @DisplayName("验收4：指令流水幂等键区分维度（flow_type / flow_ts_ms 变更即视为新流水）")
+    void onCommandFlowDistinguishesIdemKeyDimensions() {
+        service.onCommandFlow(commandFlow("HG20261004000010", "ACCEPTED", 1760000000000L));
+        service.onCommandFlow(commandFlow("HG20261004000010", "SENT_CTP", 1760000000000L));
+        service.onCommandFlow(commandFlow("HG20261004000010", "ACCEPTED", 1760000000001L));
+        assertEquals(3, commandFlowDao.rows.size(), "三个维度任一不同即为新流水");
+    }
+
     // ================================================================ 夹具
 
     private void assertRejected(Runnable r, String what) {
@@ -420,6 +442,17 @@ class TradeServiceTest {
         e.rejectCode = "0x1004";
         e.rejectReason = "超额度";
         e.operatorId = TRADER_ID;
+        return e;
+    }
+
+    private static TradeService.CommandFlowEvent commandFlow(String ref, String flowType, Long tsMs) {
+        TradeService.CommandFlowEvent e = new TradeService.CommandFlowEvent();
+        e.subAccountId = SUB_A;
+        e.orderId = 1001L;
+        e.clientOrderRef = ref;
+        e.flowType = flowType;
+        e.flowDetail = "{\"k\":\"v\"}";
+        e.flowTsMs = tsMs;
         return e;
     }
 
@@ -970,7 +1003,14 @@ class TradeServiceTest {
 
         @Override
         public List<TradeCommandFlow> findByClientOrderRef(String ref) {
-            throw FakeDao.unsupported("findByClientOrderRef");
+            read("findByClientOrderRef");
+            List<TradeCommandFlow> out = new ArrayList<>();
+            for (TradeCommandFlow row : rows) {
+                if (ref == null ? row.clientOrderRef == null : ref.equals(row.clientOrderRef)) {
+                    out.add(row);
+                }
+            }
+            return out;
         }
     }
 }

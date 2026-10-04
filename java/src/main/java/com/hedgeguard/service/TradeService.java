@@ -651,6 +651,12 @@ public final class TradeService {
             throw invalid("指令流水事件缺少 clientOrderRef/flowType");
         }
         tx.inTransaction(connection -> {
+            // 幂等（uk_command_flow_idem = client_order_ref+flow_type+flow_ts_ms）：重复投递（断线重连 / 补数重放）
+            // 不得重复落库，亦不得因唯一冲突中断事件消费（NFR-REL-5 / R-TRADE-4）。
+            // 与验收 4 既有口径一致：回报按 findByIdem、事前拒绝按 findByIdem、流水按既有 idx_command_flow_ref 预查判重。
+            if (isDuplicateCommandFlow(e.clientOrderRef, e.flowType, e.flowTsMs)) {
+                return null;
+            }
             TradeCommandFlow row = new TradeCommandFlow();
             row.subAccountId = e.subAccountId;
             row.orderId = e.orderId;
@@ -664,6 +670,22 @@ public final class TradeService {
             commandFlowDao.insert(row, 0L);
             return null;
         });
+    }
+
+    /**
+     * 指令流水幂等判重（{@code uk_command_flow_idem} 三键合取：{@code client_order_ref+flow_type+flow_ts_ms}）。
+     *
+     * <p>经既有索引 {@code idx_command_flow_ref} 取同引用流水后按键值比对；{@code flow_ts_ms} 可空，按 null-safe 语义比较。
+     * 仅当三键全等才视为重复，任一不同即新流水（防止过宽去重吞掉真实轨迹）。
+     */
+    private boolean isDuplicateCommandFlow(String clientOrderRef, String flowType, Long flowTsMs) {
+        for (TradeCommandFlow existing : commandFlowDao.findByClientOrderRef(clientOrderRef)) {
+            if (flowType.equals(existing.flowType)
+                    && (flowTsMs == null ? existing.flowTsMs == null : flowTsMs.equals(existing.flowTsMs))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
