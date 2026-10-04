@@ -14936,3 +14936,186 @@ FR-SETTLE-7 原文（`docs/REQUIREMENTS/SETTLE.md:177`）核对项字面 = **权
 - 本席独立用例：`TeVerifyT047bIndependentTest.java`（3 绿）。
 - 日志：`/root/t047b-mvn.log`（808/0/0/0）、`…-prefix.log`（前态 5 FAIL）、`…-mut.log`（变异 1 FAIL）、`…-regreen.log`（24/0/0/0）。
 - **未改动任何仓库源码**（共享树 `SettleService.java` md5 仍 40e42ecf…；`git status` 中 `dev-team/*` 与 `.verify/` 非本席产物）。
+
+---
+
+# T-172 全链独立复核证据章（编排者逐字转录）
+
+- **转录说明**：复核席报告落笔于 /root/t172-review.md（md5 40fd864fe790025612c3d10483eab3dd / 175 行），编排者逐字转录、未改写任何数字或措辞；转录时点基线 = 14938 行。
+- **背景**：T-172 全链三提交（96f5338 risk 面 → 6bda127 富化落库 → a55fc64 派生+装配）；复核有条件通过（条件 = CompositeHgcpEventListenerTest.java 写域追认，编排者已裁定追认并留痕）；O-2（CANCEL_RESULT/EXPIRED 无消费者）登记为残留缺口。
+
+# T-172「HGCP 事件面接线」独立复核报告（te-verify-t172）
+
+- 复核对象：HEAD = **a55fc64**；T-172 逻辑三提交 96f5338 → 6bda127 → a55fc64
+- 复核时间：2026-10-04（本报告为唯一留痕；不触碰 docs/TEST_RESULT.md，由编排者转录）
+- 复核方式：隔离副本（git archive HEAD 展开于 /root/t172-iso2，非 /tmp）+ 自写探针 + 变异复现
+- 结论：**有条件通过 / 0 阻断缺陷 / 1 条件 / 7 观察**（条件＝写域披露追认；不转 DONE，由编排者裁定）
+
+---
+
+## 1. 冻结链与锚点实测
+
+### 1.1 git 拓扑实况（重要更正）
+「三提交链」是**逻辑链**，非 git 父链：T-047 的六笔提交插在中间。实测父指针：
+- 96f5338 的父 = 0a62193（非 T-172 提交）
+- 6bda127 的父 = 4bd2c0a（T-047 收尾）
+- a55fc64 的父 = 6bda127
+
+即 96f5338 →（T-047 六提交）→ 6bda127 → a55fc64。引用时勿写成父子三连。
+
+### 1.2 关键文件 md5（独立实测，全部与产出方声明一致）
+| 文件 | 实测 md5 |
+|---|---|
+| HgcpClient.java | cd3e19e513766f5ed2f2bd40d35bd46f |
+| HgcpEventListener.java | 7f2650d25cb8edbeec753de0454a7ec0 |
+| TradeService.java | 86f9d6d6e3e3fdfdf2def09188929adb |
+| Bootstrap.java | 07dd6b1143d6671a1f629872efd939d1 |
+| IntradayEventFeed.java | f306ee93f0d463722abef4da13596800 |
+| CompositeHgcpEventListenerTest.java | 8af9e45f367832e838fc78f560927236 |
+
+### 1.3 树锚口径（不可复现，见 O-1）
+产出方声明：java/src 树锚（相对路径口径）d77a334d…/539。
+独立实测（同口径 find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum）：**6018f3716f3ebafd52602bf13609fe6c / 539（文件数一致）**。
+穷举 12+ 种常见口径（相对/前缀/-print0/sha1/sha256/git ls-files/git ls-tree/path-only/content-only/cat 拼接）均不产出 d77a334d。文件数一致 + 6 个关键文件 md5 逐字节吻合，判为**口径差异，非内容差异**；建议统一树锚 recipe 或改引文件级 md5。
+
+---
+
+## 2. 门禁独立复现（要求 1）—— 通过
+
+隔离副本 git archive HEAD（539 文件 java/src，与共享树同锚 6018f371…）：
+
+- mvn -B -o clean test（TMPDIR=/root/t172-tmp-t172）：
+  - **Tests run: 817, Failures: 0, Errors: 0, Skipped: 0，BUILD SUCCESS**
+  - surefire 实数 817；grep -c @Test（HEAD）亦 817，两数一致，无「注释吞并 @Test」虚高
+- arch-check（mvn validate 内 exec）：**八个判据脚本 E1–E8 全退出码 0**，汇总「通过(0)=8 命中(1)=0 用法(2)=0」
+
+---
+
+## 3. 两栏对账（独立实测 vs 产出方自述）
+
+| 交付声明 | 独立实测 | 判定 |
+|---|---|---|
+| risk 面：HgcpEventListener 中立接缝（8 事件载荷＝线格式字段逐字） | 8 个载荷类字段与 proto §4.2.8 逐条机械比对，**8/8 完全一致、0 自造字段**（见 §5） | 成立 |
+| HgcpClient :333 onEvent 解析回调（幂等门内投喂） | 读源码核实：EVT_TRADE_FILL 的 notify 在 idempotency.first(tradeId,seq) 门内；其余事件无条件 notify；每帧末 notifyConsumed(type,seq) | 成立 |
+| IntradayEventFeed：:83 recordTrade / :89 evaluate，接线前 src/main 均 0 调用 | git grep 实测：96f5338^ 的 src/main .recordTrade(/.evaluate( = **0**；HEAD = 恰 2 处（IntradayEventFeed:83/:89） | 成立 |
+| 富化面：有界 LRU 4096 + ref→orderId + instrument→product 三索引 | 读源码 + 变异（MUT-C）证实淘汰承重 | 成立 |
+| 六事件富化落库（NOT NULL 全满足） | 自写探针经**真实线格式帧**驱动六事件，逐字段断言落库（见 §4） | 成立 |
+| 不可溯源 skip+LOG+残留清单（CAP=512） | 探针③：0 落库 + 清单非空且点名事件/字段 | 成立 |
+| deriveRejectReason DERIVED[...] 段省略 | 探针② + 既有单测双向（四段齐 / 仅 rule） | 成立 |
+| Bootstrap.Composite 9 回调转发、单消费者异常只记日志 | 读源码（9 override）+ 变异 MUT-B 承重 | 成立 |
+| 装配：组合器 setEventListener + ProductIdResolver=tradeService::productIdForOrder | Bootstrap 源码核实（instanceof HgcpClient 门内） | 成立 |
+| 全量 817/0/0/0；arch rc0 | 独立复现，见 §2 | 成立 |
+
+---
+
+## 4. 接线生效独立验证（要求 2）—— 自写探针（不复用产出方断言）
+
+探针文件（隔离副本内，**不入共享树**）：
+/root/t172-iso2/java/src/test/java/com/hedgeguard/service/T172IndependentProbeTest.java
+（复用本文件夹具=假 DAO/AuthService 装配；4 个探针方法+断言全部独立编写；经 HgcpClient.onFrame 喂真实 HgcpFrame 编码帧）
+
+| 探针 | 断言 | 结果 |
+|---|---|---|
+| ① 真实帧→HgcpClient→IntradayEventFeed | 6 笔 EVT_TRADE_FILL ⇒ tracker().maxIntradayOpenClose(SUB_A)==6；evaluate() 发布非空；**同帧重复 ⇒ 仍 6**（幂等门内不投喂） | 通过 |
+| ② 真实帧驱动六事件→HgcpEventSink→TradeService | 受理/委托/成交/持仓/拒绝/流水各落 **1 行**；逐字段 NOT NULL（sub_account_id/product_id/hedge_plan_id/instrument_id/direction/offset_flag/event_seq…）；reject_reason 以 DERIVED[rule=R-RISK-2… 落库；**委托/成交同帧重复 ⇒ 仍 1 行** | 通过 |
+| ③ 不可溯源指令流水（order_id 未关联） | 0 落库 + 残留清单非空且含 EVT_COMMAND_FLOW、clientOrderRef | 通过 |
+| ④ 监听器 onEventConsumed 抛异常 | 3 帧均投递、assertDoesNotThrow 通过（消费不中断，NFR-REL-5） | 通过 |
+
+运行：mvn -o test -Dtest=T172IndependentProbeTest ⇒ **34/0/0/0**（30 既有 + 4 探针）。
+
+---
+
+## 5. bridge 最小性核（要求 3）—— 通过
+
+git show 96f5338 -- java/src/main/java/com/hedgeguard/bridge/ 逐 hunk 审：
+
+- 仅 2 处：新增 HgcpEventListener.java（纯接口+8 中立载荷，无实现逻辑）；改 HgcpClient.java（新增 volatile 接缝字段 + setEventListener + onEvent 逐类型解析回调 + notifyListener/notifyConsumed 异常吞并记日志）。
+- **PlaceOrderCmd / placeOrder 发送侧 / 任何冻结 DTO 字段：0 改动**（git show … | grep PlaceOrderCmd|placeOrder|0x1019 = NONE）。
+- 三提交总文件集：bridge/{HgcpClient,HgcpEventListener} + risk_intraday/IntradayEventFeed + service/TradeService + web/Bootstrap + 对应测试；未触 route 文件。
+- 0x1019 红线（T-173）：未触碰。
+
+载荷↔线格式机械比对 8/8：
+- OrderAccepted 5/5、PreTradeReject 12/12、OrderReport 10/10、TradeFill 12/12、PositionChange 9/9、CommandFlow 4/4、OrderCancelResult 6/6、OrderExpired 4/4 —— 字段名/条数逐字对应 proto §4.2.8，**无自造字段**。
+
+---
+
+## 6. 富化正确性抽核（要求 4）—— 通过
+
+- **EVT_ORDER_ACCEPTED 全字段**：线格式仅 5 字段（order_id/client_order_ref/risk_passed/effective_timeout_ms/accepted_ts_ms），其余经 lookupSubmitContext(orderId, ref) 从提交上下文回填；上下文缺失时 tradePlanId→TradePlan 兜底解析 hedgePlanId/品种/敞口；仍缺则 skipIfUnsourced。探针②实测落库全 NOT NULL。
+- **EVT_TRADE_FILL product_id 溯源链**：线格式**确无 product_id**（proto 实测 12 字段无此列）⇒ 经 order_id→提交上下文.productId，兜底 trade_plan_id→TradePlan.productId；productIdForOrder(orderId) 同源，供 Q-5 品种级分组装配（替代 IntradayEventFeed 恒 0 缺省）。探针②实测 f.productId==55。
+- **上下文键匹配**：lookupSubmitContext 优先 orderId>0 主表，否则回退 client_order_ref→orderId 次级索引。null/缺失形态：registerSubmitContext 仅当 orderId>0 入主表（否则只留 ref 映射）；PreTradeReject 仅按 ref 查、OrderReport/Fill/CommandFlow 按 orderId 查、OrderAccepted 两者皆查。探针②的流水事件（线格式整条无 ref）经 order_id 关联成功。
+
+---
+
+## 7. 残留清单诚实性（要求 5）—— 通过
+
+- 探针③实测：不可溯源事件 **0 落库** + residualEvents() 非空、首条含事件名与缺失字段；LOG.warning 同步（源码核实）。
+- PRE_TRADE_REJECT.reject_reason 派生串实测形态 DERIVED[rule=R-RISK-2;layer=…;cur=…;thr=…]，缺项省略（既有单测双向覆盖：四段齐 / 仅 DERIVED[rule=R-RISK-2]）。
+- layer=NONE 形态裁定：mapLimitLayer 把线格式 UNSET 与 LIMIT_LAYER_NONE 均映射为 "NONE" ⇒ 派生串可能出现 layer=NONE。**接受（cosmetic）**：非限额拒绝本即填 NONE，不影响判读；建议文档披露（见 O-5）。
+
+---
+
+## 8. 变异台账（要求 6）—— 4 杀，复位逐字节 + 复绿
+
+| 变异 | 目标 | 选择器 | 结果 |
+|---|---|---|---|
+| MUT-A（复现「删 recordTrade 投喂」） | IntradayEventFeed:83 注释掉 monitor.recordTrade(a) | IntradayEventFeedTest,T172IndependentProbeTest | **rc=1 / Failures 3** 必红 |
+| MUT-A2（复现「删 evaluate 泵」） | IntradayEventFeed:89 注释掉 monitor.evaluate() | 同上 | **rc=1 / Failures 3** 必红 |
+| MUT-B（自设：组合器只分发首个消费者） | Bootstrap each 的 for 改 delegates.subList(0,1) | CompositeHgcpEventListenerTest | **rc=1 / Failures 2** 必红 |
+| MUT-C（自设：中和 LRU 淘汰） | TradeService while 改 while (false && …) | TradeServiceTest#submitContextBoundedAndEvicts | **rc=1 / Failures 1** 必红 |
+
+- 复位：4 次均 cp .orig 回写 + touch；**复位后三文件 md5 与基线逐字节一致**（f306ee93…/07dd6b11…/86f9d6d6…）。
+- 复绿：复位后重跑 IntradayEventFeedTest,CompositeHgcpEventListenerTest,T172IndependentProbeTest ⇒ **41/0/0/0**。
+- 日志：/root/t172-mut-{A,A2,B,C}.log、/root/t172-mut-reset.log。
+
+---
+
+## 9. 写域披露裁定输入（要求 7）—— 建议【追认】
+
+java/src/test/java/com/hedgeguard/web/CompositeHgcpEventListenerTest.java（新增，字面写在 T-172 写域之外）：
+
+- 内容核实：**纯测试**（2 个 @Test），无任何 src/main 改动。
+- 必要性：被测对象 Bootstrap.CompositeHgcpEventListener 是 **package-private 嵌套类**（可见性使然）；测试须落 com.hedgeguard.web 包方可访问 new Bootstrap.CompositeHgcpEventListener(...)。
+- 归属：Bootstrap 的伴生测试，与该生产类同批（a55fc64）引入；并非夹带生产逻辑。
+- **裁定建议：追认**（若删除重提，则该 package-private 生产类将零单测覆盖）。请编排者在 TASKS/BOARD 留「写域偏差已追认」痕迹。
+
+---
+
+## 10. 计数与路由（要求 8）
+
+**817 构成（@Test 逐提交实测）**：
+- 0a62193（T-172 基线）= **778**
+- 96f5338（T-172 risk）= 783 → **+5**（IntradayEventFeedTest）
+- 4bd2c0a（T-047 段，含 T-042/044/046/050）= 805 → **+22**
+- 6bda127（T-172 富化）= 814 → **+9**（TradeServiceTest）
+- a55fc64（T-172 收尾）= 817 → **+3**（TradeServiceTest 净 +1＝2 增 1 删；Composite +2）
+⇒ **T-172 合计 +17**；778 + 22(T-047) + 17(T-172) = 817。surefire 实数 = @Test 数 = 817（一致）。
+
+**路由**：三笔 T-172 提交**未触任何 route 文件**（逐提交 --name-only | grep route 全空）；当前路由计数 **98**（业务 96 + ping 2；BootstrapAssemblyTest 精确断言，全量绿已含）。路由 87→98 属 T-047（SETTLE +11 等），与 T-172 无因果。
+
+---
+
+## 11. 缺陷（TE-T172-xxx）
+
+**0 项阻断缺陷。** 未发现不通过条件。
+
+---
+
+## 12. 观察（非阻断；建议登记）
+
+- **O-1 树锚口径不可复现**：产出方 d77a334d…/539 与实测 6018f371…/539 不符（12+ 口径穷举不中）；文件数同、6 文件级 md5 全合，判口径差异。建议统一 recipe 或改引文件级 md5。
+- **O-2 事件面残留缺口**：EVT_ORDER_CANCEL_RESULT(0x0206)/EVT_ORDER_EXPIRED(0x0207) 已投递监听接缝，但 HgcpEventSink 未实现对应回调、IntradayEventFeed 不处理，TradeService.onOrderTerminal（订单终态 + 释放 ordered_qty）**生产仍 0 调用**。T-172 声明范围为「六事件」（TASKS 扩载措辞即列六项），非越界；但属事件面接线残留，建议另立/并入后续单。
+- **O-3 受理事件重复投递非幂等 return**：EVT_ORDER_ACCEPTED 无短路幂等，靠 DB 唯一约束抛 10012 并记日志；其余五事件为幂等 return。不产生重复写、不中断消费，但行为不对称（补数重放会反复告警）。
+- **O-4 悬空 ref 项**：registerSubmitContext 在 result == null 时仍 contextOrderIdsByRef.put(ref, null)（有界、lookup 返回 null）；纯内存无功能影响。
+- **O-5 layer=NONE 合并**：线格式 UNSET 与 LIMIT_LAYER_NONE 同归一为 "NONE"（编排者预案接受，cosmetic）。
+- **O-6 未固化的调用次序隐含契约**：HgcpEventSink 以「typed 暂存 + onEventConsumed 冲刷」补帧头 SEQ，依赖 HgcpClient「先 typed 后 consumed」。该次序未被断言固化；若未来调整，富化面事件将被静默丢弃（match=false）。建议补一条次序断言。
+- **O-7 工单链表述**：见 §1.1，三提交为逻辑链非父链。
+
+---
+
+## 13. 锚点口径声明
+
+- HEAD = a55fc64；本报告所有实测在隔离副本 /root/t172-iso2（= git archive HEAD）执行。
+- md5 采用 md5sum（内容级）；树锚口径 find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum（实测 6018f3716f3ebafd52602bf13609fe6c / 539）。
+- 探针/变异脚本与日志均带席位后缀 -t172，落 /root。
+- 本报告为唯一留痕；未改动仓库源码与 docs/TEST_RESULT.md。
