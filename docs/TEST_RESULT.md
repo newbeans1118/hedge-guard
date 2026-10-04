@@ -14275,3 +14275,246 @@ TMPDIR=/ cmake --build /hg-build-base -j4
 - 关键文件 md5：`RiskThresholds.java` = `e37b7ca251761f13810cbb87d83fe0a1`/161；`RiskThresholdsTest.java` = `338e7702349bd88c4251167bbd1328cf`/118。
 - 隔离副本：`/root/t050b-iso`（基线锚 = 标准口径 51bec794…/488）；变异日志 `/root/t050b-teeth-*.log`；全量日志 `/root/t050b-mvn.log`。
 
+
+---
+
+# T-045 独立复核 + delta 证据章（编排者逐字转录）
+
+- **转录说明**：以下两份报告由复核席分别落笔于 /root/t045-review.md（md5 1dc369d8f642d9e7bce431587364e912 / 144 行）与 /root/t045b-delta.md（md5 93b19472c31349738641466319b1985c / 87 行），编排者逐字转录、未改写任何数字或措辞；转录时点基线 = 14277 行。
+- **背景**：T-045 交付 84a2c17（30 文件 +3287）；复核有条件通过（Low TE-T045-001 balance_after 读侧无断言）→ 微修 25241fc → te-verify-t045b delta 裁定闭环 ⇒ 可转 DONE（验收 3 张力采甲栏：维持现实现、登记 R-FUND-2/验收 3 措辞张力转权威席）。
+
+# T-045「FUND 模块 9 张表 DDL 与 DAO」独立复核报告
+
+- 复核席：te-verify-t045（独立复核，未改动任何仓库源码）
+- 被审对象：HEAD `84a2c17`（`feat(T-045): FUND 9 表 DDL 与 DAO（★ 待独立复核）`，30 文件 +3287）
+- 基线：`8a120d6`
+- 仓库：`/root/myspace/hedge-guard`
+- 报告路径：`/root/t045-review.md`
+
+## 0. 结论
+
+**有条件通过 / 0 阻断缺陷 / 1 项 Low（测试守卫缺口） / 5 项观察。**
+
+核心交付全部独立复现：9 表 DDL 与 `DATA_MODEL.md` §2.11 逐列（含类型/精度/非空/索引/外键）**双向零差异**；9 接口↔9 `Dm*` 实现全配对；隔离副本全量 `757/0/0/0`、arch-check rc0。
+
+**转 DONE 的前提（非代码缺陷，属裁定/登记）**：验收标准 3「流水覆盖期初…期末」的字面张力需编排者裁定（见 §4 两栏）；`TE-T045-001`（`balance_after` 读侧无断言）建议下一轮补 1 例。二者均**不构成交付阻断**。
+
+## 1. 锚点口径与基线自查（编排者已实测，本席实时复测）
+
+| 项 | 声明值 | 本席实测 | 判定 |
+|----|--------|---------|------|
+| HEAD | `84a2c17` | `84a2c17` | ✅ |
+| 交付面 scoped 锚（30 文件 md5 列表再 md5） | `84fe9aa1…` | `84fe9aa125b4adb81a81a779db0d0e65` | ✅ 复现 |
+| `docs/DEPLOY/schema/m2_fund.sql` | `87e760d1…`/439 | `87e760d12659ea4dcba26e5baca01301`/439 | ✅ |
+| `FundSchemaTest.java` | `fb085514…`/576 | `fb0855142bbc8036c19c233c49c8566a`/576 | ✅ |
+| `FundDm8EquivalentIntegrationTest.java` | `5c195114…`/387 | `5c195114bfa5b40e4da92fe4b5e68ad6`/387 | ✅ |
+| 基线 `8a120d6` java/src 锚 | `51bec794…`/488 | **不可复现**：同一命令得 `c2d2af84…`/488（文件数一致，锚不同） | ⚠️ 见观察 O-2 |
+
+**scoped 锚复现命令（口径）**：`git show --name-only --pretty=format: 84a2c17`（路径已字典序）→ 逐文件 `md5sum`（保留 `hash␠路径` 原样）→ 对整段再 `md5sum` ⇒ `84fe9aa1…`。
+**基线锚不可复现**：8a120d6 的 java/src 共 488 文件（与声明相符），但以下口径均不得 `51bec794`：`find|LC_ALL=C sort|xargs md5sum|md5sum`（`c2d2af84…`）、哈希列再 md5（`7d107179…`）、md5 行再 sort（`cf28a9aa…`）、`git ls-tree` blob 列（`a42b1a68…`）、内容拼接（`1be55605…`）。**替身锚（可复现）**：`8a120d6` java/src 级锚 = `c2d2af8431d6aee885c2b008dae42007`（488 文件）。
+
+## 2. 独立复现门禁（隔离副本）
+
+**隔离手法（如实披露，与产出方不同点在此）**：本席用 `git archive HEAD | tar -x` 取**纯净 HEAD 树**（`/root/t045-iso-a`，非 /tmp），**天然剔除**并行席 `be-t046` 的全部在途（未跟踪 `service/TradeService.java`、`web/handler/trade/`、`TradeServiceTest.java` ＋ 已修改的 `Bootstrap.java`/`BootstrapAssemblyTest.java`/`FullWebAssembly.java` 均回到 HEAD 版本）。此为比「手工剔除」更严的等价手法（不会被遗漏的在途文件污染）。仓库根含 `tools/`（arch-check 需要）。
+
+| 门禁 | 命令 | 结果 |
+|------|------|------|
+| 全量单测 | `cd /root/t045-iso-a/java && mvn -B -o clean test` | **757 / 0 / 0 / 0**，BUILD SUCCESS |
+| arch-check | （`mvn validate` 内 exec 触发）`tools/arch-check/arch-check.sh` | **rc 0**，E1–E8 全 0 |
+| arch-check（共享树） | `bash tools/arch-check/arch-check.sh` | **rc 0**（E1–E8 全 0），与声明一致 |
+| FUND 用例 | surefire 名单 | `FundSchemaTest` 8、`FundDm8EquivalentIntegrationTest` 5 = **13**；`DaoColumnAlignmentTest` 3 |
+
+## 3. 独立对账（自写对账器，不采信产出方测试）
+
+### 3.1 DDL ↔ `DATA_MODEL.md` §2.11（逐列/类型/非空/索引/外键）
+
+9 表全部：**列集合 missing=∅、extra=∅、类型不一致=0、非空不一致=0**。
+
+| 表 | 业务列数 | 审计列 | 唯一约束 | 普通索引 | FK |
+|----|---------|--------|---------|---------|----|
+| TB-FUND-1 t_fund_ledger | 17 | 6 | 1 | 2 | 1 |
+| TB-FUND-2 t_fund_flow | 16 | 6 | 1 | 5 | 6（含 2 后置 ALTER） |
+| TB-FUND-3 t_deposit_withdraw_apply | 16 | 6 | 2 | 3 | 2 |
+| TB-FUND-4 t_transfer_apply | 16 | 6 | 1 | 4 | 4 |
+| TB-FUND-5 t_capital_receipt | 11 | 6 | 1 | 3 | 2 |
+| TB-FUND-6 t_fund_review_record | 10 | 6 | 0 | 3 | 1 |
+| TB-FUND-7 t_fund_quota | 7 | 6 | 1 | 2 | 1 |
+| TB-FUND-8 t_fund_quota_alert | 8 | 6 | 0 | 2 | 1 |
+| TB-FUND-9 t_fund_reconcile | 15 | 6 | 1 | 3 | 2 |
+
+- 合计业务列 116、审计列 54、唯一约束 8、普通索引 27、**FK 20**。
+- **FK 双向对账**：文档 FK 注记集（20）与 DDL FK 集（20）**差集双向皆空** ⇒ 「20 条 FK 双向对应」成立。
+
+### 3.2 实体 ↔ DDL（9 个 entity）
+
+9 实体 public 字段经 camelCase→snake_case 后与各表**非审计列完全一致**（miss=∅、extra=∅）。
+
+### 3.3 DAO `COLUMNS` ↔ DDL 业务列（9 个 `Dm*`）
+
+9 个 `Dm*Dao.COLUMNS` 与 DDL 业务列**集合一致且顺序逐一相同**（n=17/16/16/16/11/10/7/8/15）。
+
+### 3.4 `row_version`「§0.3 一律落」核验
+
+`DATA_MODEL.md` §0.3 明文：「通用审计字段（**每张表都有**）」，且注明「`row_version` … **只增不改的表不使用**」。DDL 9 表**均含** `row_version`（含只增不改的 `t_fund_flow`）。**全仓先例一致**：`m2_trade.sql` 的只增类 `t_command_flow`/`t_trade_fill`/`t_replay_log`、`m2_settle.sql` 16/16 亦均带 `row_version`（各 schema 文件「表数==`row_version` 数」，唯 `m2_trade` 10/9 系 `t_position` 段多一处）。⇒ 属**项目级统一约定**，非 FUND 本模块偏离（见观察 O-3）。
+
+## 4. 验收标准 3 张力 —— 两栏裁定输入（关键）
+
+**回读的原文（三份制品）**：
+1. `REQUIREMENTS/FUND.md` `R-FUND-2`：「资金流水**必须覆盖**——期初余额、出入金、调拨、盈亏结转、手续费、保证金占用变动、期末余额」；`FR-FUND-2` 处理规则：「**必须满足期初 + 发生额 = 期末**」。
+2. `TASKS.md` T-045 验收 3：「资金流水覆盖期初、出入金、调拨、盈亏结转、手续费、保证金变动、期末，每笔有凭证编号」。
+3. `DATA_MODEL.md` §2.11 `t_fund_flow.flow_type` 枚举**全集（8 个，无期初/期末）**：`DEPOSIT`/`WITHDRAW`/`TRANSFER_OUT`/`TRANSFER_IN`/`PNL_CARRYOVER`/`COMMISSION`/`MARGIN_CHANGE`/`DIFFERENCE_ADJUST`；`balance_after`（NOT NULL）说明为「该笔之后的子账户余额（**支持『期初 + 发生额 = 期末』逐笔验证**）」；§3.1 明文「**须使用本表取值，不得自行扩展**」。
+
+**数值链（现实现能否承载『期初/期末』）**：现有夹具构成闭合链——`begin_balance=100000` ＋ `DEPOSIT(IN) 5000` ⇒ `balance_after=105000` ＝ `end_balance=105000`（子账户 1）；两子账户期末和 `105000+203000=308000` 由 `ledgerIsAdditive` **断言**。即：**期初**=`ledger.begin_balance`、**期末**=`ledger.end_balance`，**逐笔闭合**=`flow.balance_after`；`flow_type` 只承载 8 类**发生额事件**。⚠️ 但**无任何测试断言 `balance_after` 读回值**（见 TE-T045-001）。
+
+**甲栏（维持现实现 + 登记文档张力）**：
+- `R-FUND-2` 的枚举事件（出入金/调拨/盈亏/手续费/保证金）与 8 类 `flow_type` **一一对应**；「期初/期末」在语义上**不是发生额事件而是余额**，已由 `ledger.begin/end_balance` ＋ `flow.balance_after` 承载，功能等价且可逐笔验证。
+- 若在 `flow_type` 增 `BEGIN/END`：① 违反 §3.1「不得自行扩展」；② 期初/期末无「发生额/方向」，与 `amount`/`direction` 语义冲突并引发重复计数；③ 与 §2.11 逐字枚举直接矛盾。
+- 判定：**DDL 忠实实现权威文档**；张力在**验收 3/R-FUND-2 的散文用词**，应由编排者**登记为文档张力**（不改 DDL）。
+
+**乙栏（须实质变更、开 CH）**：
+- 若将验收 3「覆盖期初、期末」**字面**解为 `flow_type` 必须含期初/期末两条流水，则 DDL 缺 2 个枚举值 ⇒ 须改 `DATA_MODEL.md` §2.11/§3.1 枚举——属**冻结对象实质变更**，须走 **CH + 用户批准（L3）**。
+- 风险：该字面读法与 `balance_after` 的设计目的、`direction` 语义相冲突，且会改动已冻结的字段级 schema。
+
+**本席倾向**：**甲栏**。建议编排者裁定「维持现实现 + 登记验收 3/R-FUND-2 措辞张力（不改 DDL）」。**注**：本张力不影响 T-045 交付正确性（DDL 与权威文档零差异）。
+
+## 5. 变异台账（隔离副本 `/root/t045-mut`，每例复位逐字节）
+
+| 例 | 变异 | 预期 | 实测 | 复位 |
+|----|------|------|------|------|
+| MUT-A（复现产出方 A 类） | DDL 删 `uk_dw_apply_idem` | 红 | **红 3 例**：`FundSchemaTest.ddlMatchesDataModel` + `.acceptanceFourIdempotency`、`FundDm8EquivalentIntegrationTest.ddlCreatesNineTables` | md5 回 `87e760d1…` ✅ |
+| MUT-FK（自设，核跨模块 FK 静态核验有牙） | DDL 改 `REFERENCES t_trade_fill` → `t_trade_fil` | 红 | **红 1 例**：`FundSchemaTest.ddlMatchesDataModel`（FK 集差异）；`FundDm8` **不红**（跨模块目标表缺失被引擎跳过） | md5 回 `87e760d1…` ✅ |
+| MUT-D（自设，读侧非对称） | `DmFundFlowDao.readBusiness` 的 `balance_after` 改读 `amount` 列 | 红 | **绿（存活）** ⇒ 盲区，见 TE-T045-001 | md5 回 `15f8762c…` ✅ |
+
+- 复位校验：`m2_fund.sql`=`87e760d12659ea4dcba26e5baca01301`、`DmFundFlowDao.java`=`15f8762c076bf05a087fea062e24da51`，`touch` 重编后 16/0/0/0 复绿。
+- 结论：幂等唯一约束、跨模块 FK 静态核对**均承重**；`balance_after` 读侧**无守卫**。
+
+## 6. 披露复核
+
+**① DB 规则服务层权威清单**：DDL 文件尾披露「未落 DB 的规则（服务层/内存权威，§4.4）」共 **7 项**（发起人=复核人、驳因必填、金额>0、额度值>=0、期初+发生额=期末、加总=真实账户、重试前须确认原请求；派单称「6 项」，实为 7 项，见观察 O-4）。与 `DATA_MODEL §4.4`「无法由数据库保证的业务规则必须服务层 + 不得用触发器」体制一致；`R-FUND-3`「系统级强制，不得仅靠制度」亦落服务层。**属实**（其中「金额>0/额度值>=0/期初+发生额=期末」DB 层本可 CHECK 表达，但 §2.11/§4.3 **未**声明为具名 CHECK，DDL 未自造 ⇒ 忠实文档）。
+
+**② DM8 未实测替代证据口径**：`docs/DEPLOY/schema/m2_fund.sql` 头注显式声明「本环境无 DM8 实例，未实机执行」，替代证据=文档↔脚本静态核对 + 内存引擎等价执行；**先例一致**（`M1Dm8EquivalentIntegrationTest`、`TradeDm8EquivalentIntegrationTest` 同法）。口径**诚实且一致**。
+
+**③ 跨模块 FK 静态核对有效性**：`FundSchemaTest` 以「文档 FK 注记集 ⇔ DDL FK 集」双向比对，**MUT-FK 证明有牙**。注意其**不校验约束名**、不校验 `ON DELETE/UPDATE RESTRICT`、不校验引用目标表是否真实存在（仅与文档注记匹配）——属观察 O-5。
+
+**④ `DaoColumnAlignmentTest` 自动纳入**：该测试扫描 `impl/` 下全部 `Dm*Dao.java` 与 `schema/*.sql`（自检阈值 `ddl≥40`、`dao≥30`）。实测：impl 下 `Dm*Dao` **80** 个、schema 表 **81** 张；9 个 FUND `Dm*` 的 `tableName()` 全部命中 `m2_fund.sql` ⇒ **9 新 DAO 确被覆盖**（非仅靠阈值）。
+
+## 7. 缺陷与观察
+
+### 缺陷
+
+**TE-T045-001（Low，测试守卫缺口）**：`t_fund_flow.balance_after` 的**读回值无任何断言** —— 全仓测试仅 `FundSchemaTest` 断言该列**存在**（`:242`），`FundDm8EquivalentIntegrationTest` 构造了 `balanceAfter` 但**从不读回校验**。自设 MUT-D（读侧 `balance_after`→`amount`）**16/0/0/0 全绿存活**。影响：`balance_after` 正是「期初+发生额=期末逐笔验证」的结构载体（§4 张力核心），其读侧映射漂移（列名错位）在生产会静默产出错误的对账/闭合值而无测试拦截。**修复建议**：`FundDm8EquivalentIntegrationTest` 增 1 例——插入流水后 `findByVoucherNo(...).balanceAfter` 断言 `= begin_balance + 有向发生额`。**不阻断**。
+
+### 观察
+
+- **O-1**：`20 条 FK` 与 `9 接口↔9 Dm*`、`验收 2/4` 落点、`flow_type` 8 枚举、子账户贯穿 6/3/0 全部独立复现属实。
+- **O-2**：基线 `8a120d6` java/src 锚 `51bec794…` **不可复现**（文件数 488 相符，多种口径均不得该值）；替身 `c2d2af84…/488`（见 §1）。请编排者核对其原始口径。
+- **O-3**：`row_version` 落在只增不改的 `t_fund_flow` 上，与 §0.3「只增不改的表不使用」字面不符，但**全仓先例一致**（TRADE/SETTLE 流水/日志类同）⇒ 属统一约定，非本模块缺陷。
+- **O-4**：派单称服务层权威规则「6 项」，DDL 实列 **7 项**（多「重试前须确认原请求」或计数口径差）；建议以 DDL 实列 7 项为准。
+- **O-5**：`FundSchemaTest` 的 FK 判据为「表.列→目标表」集合，**不含约束名、不含 `ON DELETE/UPDATE RESTRICT`、不校验跨模块目标表真实存在**。MUT-FK 已证对「列/目标改名」有牙；对「约束名错/级联动作错/目标表在别的 schema 缺失」无牙（后者由跨文件人工核对兜底）。
+- **O-6**：`t_fund_quota`/`t_fund_quota_alert`/`t_fund_reconcile` 的 `sub_account_id` 用 `NULL` 表账户级（§2.11/§4.6 明写），而 §0.4「作用域列例外」清单未含这三张、§0.2 又将「额度」列为作用域列 ⇒ **DATA_MODEL 内部措辞张力**；DDL 忠实 §2.11（`NULL`），非缺陷，建议文档侧登记。
+
+## 8. 复核过程披露
+
+- 全程**只读仓库**；隔离副本在 `/root`（非 /tmp），报告在 `/root/t045-review.md`，**未触碰** `docs/TEST_RESULT.md`。
+- ⚠️ **并行写者事故（已规避）**：`/root/mut_a.py` 曾被**另一席**（内容指向 `/root/vt166b/.../HgcpClient.java`）同名覆盖，致首轮 MUT-A 实为**未变异**（假绿）。已改用**席位私有目录** `/root/t045verify_te/` 重跑，MUT-A 正确转红。**提示编排者：共享 `/root` 下临时脚本须带席位后缀。**
+- 隔离手法与产出方不同（`git archive HEAD` 而非手工剔除），更严；已在 §2 披露。
+- 未对 DM8 实机复跑（无实例）；接受产出方替代证据口径。
+
+## 9. 附：关键锚点汇总
+
+- HEAD `84a2c17`；基线 `8a120d6`（java/src 替身锚 `c2d2af84…/488`）。
+- 交付面 scoped 锚 `84fe9aa1…`；`m2_fund.sql` `87e760d1…/439`；`FundSchemaTest` `fb085514…/576`；`FundDm8EquivalentIntegrationTest` `5c195114…/387`。
+- 隔离副本：`/root/t045-iso-a`；变异副本：`/root/t045-mut`（已复位）。
+- 门禁：`757/0/0/0` + arch rc0（iso 与共享树均 rc0）。
+
+*报告完*
+
+---
+
+# TE-T045-001 micro-fix delta 复检报告（te-verify-t045b）
+
+- 复核席：**te-verify-t045b**（独立 delta 复检，全程**未改动任何仓库源码**）
+- 被审对象：修复提交 `25241fc`「test(T-045): TE-T045-001 balance_after 读侧断言补齐（★ 待 delta 复检）」（仅 1 文件 +39）
+- 前态：`9967a6f`；前席复核报告：`/root/t045-review.md`（缺陷 TE-T045-001 = balance_after 读回值无断言、MUT-D 读侧漂移存活全绿）
+- 仓库：`/root/myspace/hedge-guard`；隔离副本：`/root/t045b_verify_a`（`git archive HEAD` 纯净树，非 /tmp）
+- 报告路径：`/root/t045b-delta.md`（编排者转录）
+
+## 0. 结论
+
+**✅ TE-T045-001 已闭环。T-045 可转 DONE**（验收标准 3 的字面张力按编排者倾向「甲栏：维持现实现 + 登记文档张力」处理，非本席裁定范围）。
+
+- 读侧映射漂移**已具双向守卫**：注入 MUT-D（`DmFundFlowDao.java:86` `balance_after→amount`）后，新用例必红于 `FundDm8EquivalentIntegrationTest.java:248`（IN 等式）；进一步以 probeOUT（中和 IN 两条断言后再注入 MUT-D）证 **OUT 分支独立承重**，红于 `:258`（对应提交版 `:262`）。
+- 独立全量门禁 `776/0/0/0`、arch-check rc0（E1–E8 全 0）均复现。
+- 复位逐字节一致（DAO `15f8762c…`、测试 `fd347241…`）。
+
+## 1. 锚点复测（本席实时实测）
+
+| 项 | 产出方声明 | 本席实测 | 判定 |
+|----|-----------|---------|------|
+| 修复提交 | `25241fc`（前态 `9967a6f`） | `25241fc`（git merge-base --is-ancestor 25241fc HEAD = YES） | ✅ |
+| 改动面 | 仅 1 测试文件 +39 | git show --stat：1 file changed, 39 insertions(+) | ✅ |
+| 测试文件 | `fd347241…`/426 | `fd34724190fae375014eaf3a6723a0eb` / 426 | ✅ |
+| 前态测试文件 | `5c195114…`/387 | git show 9967a6f:… = `5c195114bfa5b40e4da92fe4b5e68ad6` / 387 | ✅ |
+| DAO 复位值 | `15f8762c…` | `15f8762c076bf05a087fea062e24da51` / 146 | ✅ |
+| 新用例 | `balanceAfterReadbackClosesEquation` @ :231 | 方法声明在 `:231`；@Test 5→**6**（grep -c） | ✅ |
+| 隔离副本 java/src 树锚 | —（本席自设） | `3b50a34b720396f03cd33b1d40ff34c3` / 522 | 记录 |
+
+## 2. 门禁独立复现（隔离副本 `/root/t045b_verify_a`）
+
+| 门禁 | 命令 | 结果 |
+|------|------|------|
+| 全量单测 | cd java && TMPDIR=/root mvn -B -o clean test | **776 / 0 / 0 / 0**，BUILD SUCCESS（独立） |
+| FUND 目标类 | surefire FundDm8EquivalentIntegrationTest.txt | **6 / 0 / 0 / 0** |
+| arch-check | bash tools/arch-check/arch-check.sh | **rc 0**，E1–E8 全 0（通过8/命中0/错误0） |
+
+## 3. 新用例读侧断言审计
+
+```java
+void balanceAfterReadbackClosesEquation() {                 // :231
+    DmFundLedgerDao ledgerDao = new DmFundLedgerDao(tx);
+    ledgerDao.insert(ledger(), 7L);                         // 期初 begin_balance = 100000
+    ... open = begin.beginBalance;
+    FundFlow in = flow(); voucherNo=...010; direction="IN"; amount=5000;
+    in.balanceAfter = open.add(in.amount);                  // 落库 105000
+    flowDao.insert(in, 7L);
+    FundFlow inRead = flowDao.findByVoucherNo(...010);      // :246 读侧路径
+    assertEquals(0, inRead.balanceAfter.compareTo(open.add(inRead.amount)), ...);       // :248 等式
+    assertEquals(0, inRead.balanceAfter.compareTo(new BigDecimal("105000.0000")), ...);  // :250 绝对值
+    FundFlow out = flow(); direction="OUT"; amount=2000; flowType="WITHDRAW";
+    out.balanceAfter = open.subtract(out.amount);           // 落库 98000
+    flowDao.insert(out, 7L);
+    FundFlow outRead = flowDao.findByVoucherNo(...011);     // :260 读侧路径
+    assertEquals(0, outRead.balanceAfter.compareTo(open.subtract(outRead.amount)), ...); // :262 等式
+    assertEquals(0, outRead.balanceAfter.compareTo(new BigDecimal("98000.0000")), ...);  // :264 绝对值
+}
+```
+
+- **真读回**：断言值取自 `findByVoucherNo(...)` 返回对象，该方法 → `queryOne(..., this::mapRow)` → `AbstractDmDao:313 mapRow` → `:315 readBusiness`（已核 `AbstractDmDao.java:313/315`）。变异证明（§4）反证：改 `readBusiness` 即红 ⇒ 确经真实读侧路径。
+- **双向覆盖**：IN（加）与 OUT（WITHDRAW，减）各含「等式 + 绝对值」两条独立断言，取值非对称（105000 vs 98000）。
+- **无 RMW 自愈掩蔽**：`t_fund_flow` 只增不改，`DmFundFlowDao.updateById` **显式抛** `UnsupportedOperationException`；用例路径为 **insert → 纯 SELECT 读回**，无「读-改-写」两跳，故不存在对称映射变异被 RMW 抵消的通道（对照 MEMORY feedback_mutation_rmw_healing）。且等式两侧取自同一次读回的 `balanceAfter` 与 `amount`：无论只改一列还是两列同向错位，等式与绝对值**至少一条**必红。
+
+## 4. 变异承重（本席自写脚本，席位后缀；隔离副本）
+
+| 例 | 变异 | build | 测试 | 命中 | 复位 |
+|----|------|-------|------|------|------|
+| **MUT-D**（重注入，独立） | `DmFundFlowDao.java:86` decimal(rs,"balance_after") → decimal(rs,"amount")（count==1 预检通过；md5 15f8762c→29fbc70f） | rc0 | **红 1 / 6** | `balanceAfterReadbackClosesEquation:248` — AssertionFailedError: IN 方向… expected:<0> but was:<-1> | 逐字节 ✅ |
+| **probeOUT**（自设，证 OUT 独立有牙） | 先中和 IN 两条断言（inA/inB count==1）+ 注入 MUT-D | rc0 | **红 1 / 6** | `:258`（提交版 `:262`）— AssertionFailedError: OUT 方向：balance_after 应 == 期初 - 发生额（有向负向亦闭合） expected:<0> but was:<-1> | 逐字节 ✅ |
+
+- 复位核验：两文件 diff orig vs file = **空**；md5 = DAO `15f8762c…`、测试 `fd347241…`；touch 后 FundDm8EquivalentIntegrationTest clean test = **6/0/0/0 复绿**。
+- 日志：`/root/t045b_mutD_te.log`、`/root/t045b_probeOUT_te.log`、`/root/t045b_restore_te.log`；脚本 `/root/t045b_mutD_te.py`、`/root/t045b_probeOUT_te.py`。
+
+## 5. 处置与并发披露
+
+- **TE-T045-001 闭环**：前席 MUT-D 存活全绿（无守卫）→ 现注入即红于新用例，读侧映射漂移已纳入测试守卫。
+- **共享树 HEAD 在复检期间前移**：起始 `25241fc` → 现 `404372d`（ledger: 登记 T-173…，docs-only）。经核 git log 25241fc..HEAD -- 两目标文件 **无输出**、git diff --stat **空** ⇒ 两目标文件在修复提交与现 HEAD **逐字节相同**，本席锚点不受前移影响。共享树另存并行席 be-t046 的在途改动（TradeService.java/TradeServiceTest.java 未提交）与 .verify/，与本席无关、本席未触碰。
+- 本席仅写入 /root 下隔离副本与日志；未写 docs/TEST_RESULT.md，未提交 git。
+
+## 6. 附：锚点汇总
+
+- 修复提交 `25241fc`；现共享 HEAD `404372d`（本席两目标文件 identical）。
+- `FundDm8EquivalentIntegrationTest.java` = `fd34724190fae375014eaf3a6723a0eb` / 426；前态 `5c195114…` / 387。
+- `DmFundFlowDao.java` = `15f8762c076bf05a087fea062e24da51` / 146。
+- 隔离副本 java/src 树锚 `3b50a34b720396f03cd33b1d40ff34c3` / 522（本席口径，find|LC_ALL=C sort|xargs md5sum|md5sum）。
+- 门禁：全量 `776/0/0/0`；目标类 `6/0/0/0`；arch rc0（E1–E8）。
+
+*报告完*
