@@ -6,6 +6,9 @@
 namespace hg {
 namespace hgcp {
 
+SessionReadySink::~SessionReadySink() {}
+ResumeGapSink::~ResumeGapSink() {}
+
 namespace {
 
 std::uint16_t mt(MessageType m) { return static_cast<std::uint16_t>(m); }
@@ -38,6 +41,8 @@ HgcpServerLoop::HgcpServerLoop(const TcpConfig& cfg)
       policy_(&default_policy_),
       token_verifier_(0),
       auth_audit_sink_(0),
+      session_ready_sink_(0),
+      resume_gap_sink_(0),
       accepted_(0),
       duplicates_(0),
       frames_in_(0),
@@ -232,6 +237,10 @@ void HgcpServerLoop::handle_inbound(const Frame& f, std::int64_t now_ms) {
       }
       handshaken_ = true;
       send_frame(mt(MessageType::kMsgHelloAck), fl(kFlagIsReply), empty_body());
+      // T-039：握手完成 ⇒ 通知事件层（保留队列按序补发；先于任何 RESUME_DATA 上线）。
+      if (session_ready_sink_ != 0) {
+        session_ready_sink_->on_session_ready();
+      }
     } else {
       send_frame(mt(MessageType::kMsgError), fl(kFlagIsError),
       policy_->error_body(static_cast<std::uint32_t>(ErrorCode::kErrNotHandshaken)));
@@ -241,6 +250,28 @@ void HgcpServerLoop::handle_inbound(const Frame& f, std::int64_t now_ms) {
   }
   if (f.header.type == mt(MessageType::kMsgHeartbeatAck)) {
     session_.on_heartbeat_ack(now_ms);
+    return;
+  }
+  // 补数请求（T-039 / 验收 4 / §4.2.6「补数请求」行）：重连握手完成后由对端发起。
+  //   · `last_received_seq` 经接缝解析（本层不解释字段）；不可解析 ⇒ 按 0 = 从头补数；
+  //   · `send_resume` 分批 ≤500 回放 `SEQ > last`（线路侧不过滤行情帧，CH-007）；
+  //   · 缺口超缓冲 ⇒ **不得伪造**：尽力回 `MSG_ERROR{0x0306}`，再通知缺口接收方
+  //     （上层全量状态重建的决定点；重建期间拒新指令仍归 `system_ready()` 单一门卫）。
+  if (f.header.type == mt(MessageType::kMsgResumeReq)) {
+    std::uint64_t last = 0;
+    if (!policy_->resume_req_last_seq(f.body, &last)) {
+      last = 0;
+    }
+    const ReplayStatus st = send_resume(last);
+    if (st == ReplayStatus::kGapTooLarge) {
+      send_frame(mt(MessageType::kMsgError), fl(kFlagIsError),
+                 policy_->error_body(
+                     static_cast<std::uint32_t>(ErrorCode::kErrResumeGapTooLarge)));
+      if (resume_gap_sink_ != 0) {
+        resume_gap_sink_->on_resume_gap();
+      }
+    }
+    return;
   }
 }
 

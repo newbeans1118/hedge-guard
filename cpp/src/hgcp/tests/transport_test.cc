@@ -223,6 +223,11 @@ class TestPolicy : public TransportPolicy {
   virtual std::vector<std::uint8_t> auth_fail_body(std::uint32_t /*reason_code*/) const {
     return std::vector<std::uint8_t>(1, 0x41);  // 'A' 占位标记
   }
+  // T-039 入站侧接缝：测试策略不解析（返回 false ⇒ 调用方按 0 = 从头补数）。
+  virtual bool resume_req_last_seq(const std::vector<std::uint8_t>& /*body*/,
+                                   std::uint64_t* /*last_received_seq*/) const {
+    return false;
+  }
 };
 
 // 辅助：启动生产侧服务端循环（端口 0）并返回其端口。

@@ -46,6 +46,9 @@ class PbTransportPolicy : public TransportPolicy {
       const std::vector<std::uint8_t>& hello_body) const;
   // T-171：`MsgAuthFail{reason_code}` 编码（§4.2.8.2）；detail 不承载令牌信息。
   virtual std::vector<std::uint8_t> auth_fail_body(std::uint32_t reason_code) const;
+  // T-039：入站 `MsgResumeReq.last_received_seq` 解析（§4.2.8.2）；不可解析 ⇒ false。
+  virtual bool resume_req_last_seq(const std::vector<std::uint8_t>& body,
+                                   std::uint64_t* last_received_seq) const;
 
  private:
   PbTransportPolicy(const PbTransportPolicy&);

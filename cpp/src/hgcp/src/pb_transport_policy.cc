@@ -51,6 +51,20 @@ std::vector<std::uint8_t> PbTransportPolicy::auth_fail_body(
   return body;
 }
 
+bool PbTransportPolicy::resume_req_last_seq(
+    const std::vector<std::uint8_t>& body, std::uint64_t* last_received_seq) const {
+  // §4.2.8.2 `MsgResumeReq{last_received_seq(必), session_id(必), max_resume_count(可)}`。
+  if (last_received_seq == 0) {
+    return false;
+  }
+  pbv1::MsgResumeReq m;
+  if (!PbPayloadCodec::decode(body, &m)) {
+    return false;
+  }
+  *last_received_seq = m.last_received_seq();
+  return true;
+}
+
 std::vector<std::uint8_t> PbTransportPolicy::heartbeat_body(
     std::int64_t now_ms, std::uint64_t last_received_seq) const {
   pbv1::MsgHeartbeat m;

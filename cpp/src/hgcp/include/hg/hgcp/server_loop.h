@@ -43,6 +43,30 @@
 namespace hg {
 namespace hgcp {
 
+// ---------------------------------------------------------------------------
+// 会话就绪接收方（T-039 / 验收 3）：**HELLO_ACK 发出后**（该连接握手完成）回调一次。
+//   事件层（event_emitter）借此触发「保留队列按序补发」——补发帧先于任何
+//   `MSG_RESUME_DATA` 上线（TCP 序）⇒ 对端补数不重不乱（§4.2.6）。
+//   回调在 pump() 调用方线程内**同步**执行（本类无内部线程）。
+// ---------------------------------------------------------------------------
+class SessionReadySink {
+ public:
+  virtual ~SessionReadySink();
+  virtual void on_session_ready() = 0;
+};
+
+// ---------------------------------------------------------------------------
+// 补数缺口接收方（T-039 / 验收 4）：缺口超缓冲 ⇒ 本类已尽力回 `MSG_ERROR{0x0306}`
+//   后回调——**上层全量状态重建的决定点**（§4.2.6「补数不可达」行：C++ 侧
+//   `EVT_POSITION_CHANGE` 全量 + `EVT_SYSTEM_STATE`；重建期间拒新指令仍由
+//   `CommandHandler::system_ready()` 单一门卫承载，本回调**不**新增第二拒点）。
+// ---------------------------------------------------------------------------
+class ResumeGapSink {
+ public:
+  virtual ~ResumeGapSink();
+  virtual void on_resume_gap() = 0;
+};
+
 class HgcpServerLoop {
  public:
   explicit HgcpServerLoop(const TcpConfig& cfg = default_tcp_config());
@@ -68,6 +92,10 @@ class HgcpServerLoop {
   // 审计留痕接收方（§4.2.6 `:947`）。可空；留痕由 `TokenVerifier::verify_audited`
   // 完成（成功不落痕），本类**不**重复留痕。
   void set_auth_audit_sink(AuthAuditSink* s);
+  // 会话就绪接收方（T-039）：HELLO_ACK 后回调（事件层保留队列补发触发点）。可空 = 不启用。
+  void set_session_ready_sink(SessionReadySink* s) { session_ready_sink_ = s; }
+  // 补数缺口接收方（T-039）：0x0306 回发后回调（全量重建决定点）。可空 = 仅回错误帧。
+  void set_resume_gap_sink(ResumeGapSink* s) { resume_gap_sink_ = s; }
 
   // 单步事件循环：accept（单连接治理）→ 读帧（粘/半包 + 握手门禁）→ 心跳。
   // 返回本次交付的**完整入站帧数**；入站帧追加到 *inbound（可空）。
@@ -113,6 +141,8 @@ class HgcpServerLoop {
   HgcpSession session_;
   const TokenVerifier* token_verifier_;  // 可空；null = 不启用令牌校验
   AuthAuditSink* auth_audit_sink_;       // 可空；经 verify_audited 消费
+  SessionReadySink* session_ready_sink_;  // 可空；T-039 事件层补发触发
+  ResumeGapSink* resume_gap_sink_;        // 可空；T-039 全量重建决定点
   std::string peer_;                     // 最近 accept 的对端描述（审计用；无敏感信息）
   int accepted_;
   int duplicates_;

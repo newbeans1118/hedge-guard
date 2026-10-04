@@ -36,6 +36,11 @@ std::vector<std::uint8_t> EmptyTransportPolicy::auth_fail_body(
     std::uint32_t /*reason_code*/) const {
   return std::vector<std::uint8_t>();  // 占位：见 pb_transport_policy.h（真实字段编码）
 }
+bool EmptyTransportPolicy::resume_req_last_seq(
+    const std::vector<std::uint8_t>& /*body*/,
+    std::uint64_t* /*last_received_seq*/) const {
+  return false;  // 占位：见 pb_transport_policy.h（真实字段解析）
+}
 
 HgcpSession::HgcpSession()
     : hb_(kHeartbeatIntervalMs, kHeartbeatMissThreshold),

@@ -66,6 +66,14 @@ class TransportPolicy {
   // 鉴权失败（`0x0003`）时的回发 body —— §4.2.8.2 `MsgAuthFail{reason_code, detail}`。
   // `detail` 只承载固定提示文案；**不得**含令牌本体 / 长度 / 片段（NFR-SEC-1 / §4.2.6）。
   virtual std::vector<std::uint8_t> auth_fail_body(std::uint32_t reason_code) const = 0;
+
+  // ---------------------------------------------------------------------------
+  // 入站侧（T-039 / 验收 4）：与上述同属**本接缝**的入站方向，不新增第二套符号。
+  // ---------------------------------------------------------------------------
+  // 从入站 `MSG_RESUME_REQ` 的 body 中取 `last_received_seq`（§4.2.8.2 `MsgResumeReq`）。
+  // body 不可解析 ⇒ 返回 false（调用方按 0 处理 = 从头补数，不伪造缺口；不在此回 `0x0104`）。
+  virtual bool resume_req_last_seq(const std::vector<std::uint8_t>& body,
+                                   std::uint64_t* last_received_seq) const = 0;
 };
 
 // 占位策略：全部返回空 body（**仅测试/无 schema 场景**使用；生产缺省见 `server_loop.h`）。
@@ -83,6 +91,8 @@ class EmptyTransportPolicy : public TransportPolicy {
   virtual std::string hello_auth_token(
       const std::vector<std::uint8_t>& /*hello_body*/) const;
   virtual std::vector<std::uint8_t> auth_fail_body(std::uint32_t /*reason_code*/) const;
+  virtual bool resume_req_last_seq(const std::vector<std::uint8_t>& /*body*/,
+                                   std::uint64_t* /*last_received_seq*/) const;
 };
 
 // 连接会话：帧级 / 序号 / 心跳 / 退避 / 补数 / 单连接。

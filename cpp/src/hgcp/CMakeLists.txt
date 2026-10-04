@@ -68,6 +68,7 @@ add_library(hg_hgcp STATIC
   src/session.cc
   src/server_loop.cc
   src/command_handler.cc
+  src/event_emitter.cc
   "${HGCP_PB_GEN_DIR}/hgcp.pb.cc")
 # 承载层 = `tcp`（回环 socket 原语）+ `session`（schema-free 连接状态机）
 #        + `server_loop`（两者的**生产侧装配**：accept/读/握手门禁/心跳/退避/补数/单连接）。
@@ -98,7 +99,8 @@ set(HGCP_UNIT_TESTS
   session_test
   transport_test
   command_handler_test
-  order_path_test)
+  order_path_test
+  event_emitter_test)
 
 foreach(_t ${HGCP_UNIT_TESTS})
   add_executable(hgcp_${_t} "tests/${_t}.cc")

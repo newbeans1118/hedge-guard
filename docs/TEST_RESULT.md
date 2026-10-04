@@ -13485,3 +13485,74 @@ TMPDIR=/ cmake --build /hg-build-base -j4
 ### 9. 独立性声明
 
 本席未参与 T-037 产出；不采信产出方/编排者自述，上文锚点、门禁、验收判定、变异均为本席独立实测（产出方申报值单列「自述」列；与实测不符处逐项点名）。变异 5 例与产出方 5 例（坏行跳过化/进度步长/门卫合取删除/未知告警删除/kNotFound 释放翻转）零重叠。判据 = 冻结点上全量绿（两套构建目录各 41/41 + arch-check rc 0）。共享树零污染：变异与探针仅在隔离副本 `/root/t037v-mut`（五件齐，含 `proto/`），复位后 `diff -r` 逐字节恒等、共享树 `cpp/src` 锚追加前复验一致；写域仅本章追加（纯 `>>`，追加前 `head -13404 | md5sum` = `f040ecfb56c8d65f7a93c146bd628b4e`，静默取样 ×2/8s 不变）。
+---
+
+## T-039 实现交付（席 be-t039）
+
+**追加前时点**：`docs/TEST_RESULT.md` 13487 行；`head -13487 | md5sum` = `c4ff7798dbedcc9469840a3eff64791a`（本证据章为**纯追加**，前缀逐字节不变）。基线 HEAD = `31dd631`（编排者冻结点 `2f9e8b6` 之后两笔 docs-only 提交；`cpp/src` 冻结树锚 `2eadbf62e02282fbbb28ead67f806b8d`/133 逐字节吻合）。
+
+### 1. 交付物（落笔后实时 md5）
+
+| 文件 | 状态 | md5 | 行数 |
+|----|----|----|----|
+| `cpp/src/hgcp/include/hg/hgcp/event_emitter.h` | 新增 | `c216312cf30013d566435ed9ede22434` | 186 |
+| `cpp/src/hgcp/src/event_emitter.cc` | 新增 | `0fbae2303fe9fab4b38c986fef45081a` | 221 |
+| `cpp/src/hgcp/tests/event_emitter_test.cc` | 新增 | `fdb0163745721b313f9b736e784d905f` | 812 |
+| `cpp/src/hgcp/include/hg/hgcp/server_loop.h` | 修改 | `a1db6669882aa38d7b9454957a053f5b` | — |
+| `cpp/src/hgcp/src/server_loop.cc` | 修改 | `ad4021d00df4abc02702a699a58035b4` | 316 |
+| `cpp/src/hgcp/include/hg/hgcp/session.h` | 修改 | `28ad6aaa8bcadfbdf961961f23a7bd92` | — |
+| `cpp/src/hgcp/src/session.cc` | 修改 | `a7ed9ae2d2ff6903a9542767141bb402` | — |
+| `cpp/src/hgcp/include/hg/hgcp/pb_transport_policy.h` | 修改 | `9c877e1481a6c8a2a4066681267a0e16` | — |
+| `cpp/src/hgcp/src/pb_transport_policy.cc` | 修改 | `8b0d4650742939831f48ea794ce34ecd` | — |
+| `cpp/src/hgcp/CMakeLists.txt` | 修改 | `b8884fb6ca1754082bc3a0a0d7e16356` | — |
+
+树锚（追加前实测）：`cpp/src` = `36bc31fbc680aab3c441ee6b1b484d1a` / **136 文件**（起点 `2eadbf62…`/133；+3 新文件）。⚠️ 测试文件 md5 以**最终回执**为准（证据章落笔前有一次判据加固，见 §4 MUT-E）。
+
+### 2. 接缝裁定（四项，理由）
+
+- **D1 保留模式接缝**：emitter 内部于 `emit()` 时点轮询 `has_connection()`（断连即自然转保留）+ 新增 `SessionReadySink` 挂 **HELLO_ACK 发出后**（保留队列按序补发触发点）。不挂 `close_conn`：其为私有且多路径触发（recv 错误/心跳判死/帧错误/发送失败），且回调会在持有内部锁语义的关闭路径上再入——schema-free 章程（`server_loop.h :14-16`）下最小接缝即两个单向 sink。补发先于任何 `MSG_RESUME_DATA` 上线（TCP 序）⇒ 对端补数不重不乱。
+- **D2 「满则阻塞 T4」取背压形态**：`emit` 返回 `kBackpressured` + 告警计数 + 可选告警接收方；事件留在生产者（T4 载体）侧重试。依据 §2.4.3 eventQueue 行**权威措辞即「告警 + 背压 T4（可靠事件不得丢）」**；本装配 T4/T6 同泵线程（无内部线程、时间注入），condvar 阻塞会自锁。
+- **D3 全量重建 = 回调上层接缝**：`server_loop` 缺口超缓冲 → 回 `MSG_ERROR{0x0306}` → fire `ResumeGapSink` → `FullStateRebuilder`（缺省 `RiskStateFullRebuilder` = `EVT_POSITION_CHANGE` 全量 + `EVT_SYSTEM_STATE`）。**0x0401 不立第二拒点**：重建同步执行于单线程消费路径（0x0306 与重建产出帧同一 pump 轮上线），拒新指令仍唯一由 `CommandHandler::system_ready()` 承载（门卫回归用例：快照就绪时重建后指令仍获 ACK、未就绪时仍 0x0401）。
+- **D4 行情可丢例外 = 结构性承载**：`emit_quote` 路径**永不入队**（已连接直发、否则丢弃计数）——「队列满时不背压交易路径」由构造保证而非运行时判断；`emit()` 收到行情类型时守卫转可丢路径（防误用）。
+
+### 3. 验收对账（5/5，工单原文口径）
+
+1. **14 种事件可产出** ✅ — 8 种既有编码（command_handler T-036/037/038 产出）经 `emit()` 统一出口 + 6 种本单补齐编码（`emit_position_change/command_flow/fund_receipt/market_quote/ctp_state/trading_alert`，经 `PbPayloadCodec` 按 CH-013 schema）；实测 14 帧逐帧类型序=产出序、body 全过 `PbPayloadCodec::validate`；**须落库 10 种（0x0202~0x020B）逐一在产出清单断言齐备**。
+2. **通道 A 单调 SEQ 不跳号** ✅ — 既有资产已保证（`session.cc make_outbound` 从 1 严格 +1，事件帧与控制帧同计数器）；本单以混流用例验证：HELLO_ACK + 事件×3 + 心跳 + `CMD_QUERY_STATUS` 回执 ACK，客户端逐帧断言 SEQ 严格 +1。
+3. **断连保留模式** ✅ — 断连后可靠事件入保留队列（FIFO），容量 `kEventQueueCapacity=16384`；满 ⇒ `kBackpressured` + 告警（计数 + 接收方回调）**不丢**；重连握手完成 ⇒ 按序补发（实测 16384 条全序回放、SEQ 连续、FIFO 载荷逐一断言）；`EVT_MARKET_QUOTE` 断连丢弃（`quotes_dropped` 计数）、满时同样丢弃不背压。
+4. **补数** ✅ — `MSG_RESUME_REQ` 入站消费（`TransportPolicy` 入站侧新增 `resume_req_last_seq`，T-171 同形先例）；回放复用 `send_resume`（分批 ≤500、`is_last`、批内 SEQ 连续，实测 1201 帧=500/500/201 与部分补数 601..1204）；缺口超缓冲 ⇒ `MSG_ERROR{0x0306}`（body 字段级断言 `err_code`）+ 全量重建（2×`EVT_POSITION_CHANGE` 字段级断言 + `EVT_SYSTEM_STATE`（param_version/READY/ts））；重建期间 0x0401 单一门卫回归双向断言。
+5. **压力 1000 笔** ✅ — 连续 1000 条 `EVT_COMMAND_FLOW`（载荷序号 1..1000）+ 每 10 笔插 1 条行情（共 100）；接收侧实测：事件恰 1000、子序列序号严格递增 1..1000（顺序与发出完全一致）、行情恰 100（通道同权不过滤，CH-007）、全程 SEQ 连续。
+
+### 4. 变异承重（5 例，全部「count==1 预检 → build rc=0 → 红 → 复位逐字节恒等」）
+
+隔离副本 `/root/t039-iso`（cpp+proto，out-of-tree 构建 `/root/t039-iso-build`）；基线 95841 checks / 0 fail。
+
+| # | 变异 | 落点 | 结果（判红用例） |
+|---|----|----|----|
+| MUT-A | `on_session_ready` 补发禁用（提前 return） | `event_emitter.cc` flush 循环前 | 红 ×2（retained≠0，保留队列永不清） |
+| MUT-B | 行情断连改保留（`emit_quote` 转 `emit_reliable`） | `event_emitter.cc` drop 分支 | 红 ×2（`emit_quote`≠kDroppedQuote） |
+| MUT-C | 队列满改丢最旧（`++backpressure_count_` → `++head_`） | `event_emitter.cc` 背压分支 | 红（backpressure_count≠1，事件丢失） |
+| MUT-D | 缺口超缓冲不回 0x0306 | `server_loop.cc` error 发送段 | 红（误差帧缺失，`kMsgError` 未收到） |
+| MUT-E | 容量 16384→8192 | `event_emitter.h` 常量 | **首跑存活**（用例引用同一常量随动恒绿——判据形态与取值重合）⇒ **判据加固**：用例内钉死字面 `16384` 后必红 |
+
+复位核验：5 例各自复位后 `diff -r /root/t039-iso/cpp <repo>/cpp` 与 `diff -r …/proto` **逐字节恒等**（RESTORE_IDENTICAL），副本终态全绿。
+
+### 5. 门禁实测（本机构建，CTP_FOUND=ON）
+
+- `ctest`：**46/46 通过**（编排者冻结口径 41 系其构建配置差异；本机含 rsk02 等 CTP 侧用例）。
+- `arch-check`（E1–E8）：**rc 0**，八判据全过。
+- 新用例 `hgcp.event_emitter_test`：**95841 checks / 0 failures**（8 用例）。
+
+### 6. 实测发现（披露，不属本单改动范围）
+
+1. **补数回复帧本身占用通道 SEQ 并入补数缓冲**：1201 帧回放产生 3 条 `MSG_RESUME_DATA`（seq 1202~1204），再次补数（last=600）时回放区间扩为 601..1204。与 §4.2.6「所有业务帧共用同一 SEQ」+「线路侧不过滤」自洽；若需「RESUME_DATA 不入缓冲/不占 SEQ」属**实质协议变更**（须 CH）。
+2. `RiskState.positions()` 无 const 访问器 ⇒ `RiskStateFullRebuilder::rebuild` 经 `RiskSnapshot::clone()` 取可读副本（其头注明示「仅重建线程调用（允许堆分配）」）；`risk_state` **零改动**。
+3. 测试判据加固一笔（MUT-E 触发）：容量字面钉死，属**收紧**非放宽。
+
+### 7. 范围外（只报不改）
+
+- `command_handler` 17 指令骨架与 0x0401 门卫：零改动（仅消费 `system_ready()` 语义回归验证）。
+- `risk_engine`/`flow_store`/`risk_state`/`proto`/`java`/`tools`：零改动。
+- 生产装配（把 `EventEmitter`、`CommandHandler`、`OrderEngine`、`ReplayController`、`RiskStateFullRebuilder` 接成常驻进程的 T1 装配体）不在本单产出（与 T-038 O-1 同口径：集成主体另单）。
+
+（席 be-t039；2026-10-04；本章纯追加，止于下一分隔线前）
