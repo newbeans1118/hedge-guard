@@ -51,6 +51,9 @@
 #include "hg/risk_state/risk_state.h"
 
 namespace hg {
+namespace flow_store {
+class ReplayController;  // 前置声明（T-037 重放就绪源接缝；可空持有）
+}  // namespace flow_store
 namespace order_engine {
 class OrderEngine;  // 前置声明（T-036 交易路径消费接缝；可空持有）
 }  // namespace order_engine
@@ -84,7 +87,11 @@ class CommandHandler {
   CommandOutcome handle(std::uint16_t type, const std::vector<std::uint8_t>& body,
                         std::uint64_t ack_msg_id, std::int64_t now_ms);
 
-  // 就绪观测（CMD_QUERY_STATUS 用；= RiskState::ready）。
+  // 就绪观测（0x0401 门卫与 CMD_QUERY_STATUS 的**单一判定源**；T-037 扩展）。
+  //   = RiskState::ready（参数收齐，T-038）**且** 重放就绪（T-037）。
+  //   重放接缝未注入时保持 T-038 语义（仅参数面）；注入后：重放未完成/失败
+  //   （ReplayController::ready()==false）⇒ 一律 false ⇒ 交易指令回 0x0401
+  //   （§4.5.3「系统未就绪」行；单一门卫，不设双轨）。
   bool system_ready() const;
 
   // ---- 交易路径消费接缝（T-036）----------------------------------------------
@@ -96,10 +103,22 @@ class CommandHandler {
   // T-033 银期轨 / T-039，不在本接缝）。
   void set_order_engine(hg::order_engine::OrderEngine* engine);
 
+  // ---- 重放接缝（T-037）-------------------------------------------------------
+  // 注入重放控制器（可空持有；缺省 null = 维持 T-038 门卫语义）。
+  //   · system_ready() 合取其 ready()（0x0401 单一门卫扩展，见上）；
+  //   · CMD_TRIGGER_REPLAY 由「受理回执」升级为**真实触发**：同步执行重放
+  //     （T4 单线程），并产出 EVT_REPLAY_PROGRESS 帧（result=OK/MISMATCH）+
+  //     成功时 EVT_SYSTEM_STATE(READY)（§4.5.3 ⑦）；失败回 0x3002（结构损坏）
+  //     / 0x0405（对账不一致）/ 0x3001（目录不可读），与 §4.5.1/§4.5.3 对应。
+  // 运行时配置/查询/告警接缝在 ReplayController 上注入（set_runtime_config 等），
+  // 生产装配（T-039）按 CFG-29 落值。
+  void set_replay_controller(hg::flow_store::ReplayController* replay);
+
  private:
   hg::risk_state::RiskState* state_;
   hg::risk_state::ParamRebuildSession session_;
   hg::order_engine::OrderEngine* engine_ = nullptr;
+  hg::flow_store::ReplayController* replay_ = nullptr;
 
   // 交易路径三指令的消费体（T-036；engine_ 注入后由 handle() 分派）。
   CommandOutcome handleTradePath(std::uint16_t type, const std::vector<std::uint8_t>& body,

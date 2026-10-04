@@ -5,6 +5,7 @@
 
 #include "hg/hgcp/protocol.h"
 #include "hg/hgcp/payload_codec.h"
+#include "hg/flow_store/replay.h"
 #include "hg/order_engine/order_engine.h"
 #include "hgcp.pb.h"
 
@@ -112,6 +113,51 @@ ReplyFrame make_system_state_ready(std::uint64_t param_version, std::int64_t now
   f.flags = 0u;
   PbPayloadCodec::encode(e, &f.body);
   return f;
+}
+
+// ---- T-037：EVT_REPLAY_PROGRESS(0x0209) 帧构造（§4.2.3 #35 字段级映射）-----
+pbv1::ServerState server_state_of(hg::flow_store::FlowState s) {
+  switch (s) {
+    case hg::flow_store::FlowState::kReady: return pbv1::SERVER_STATE_READY;
+    case hg::flow_store::FlowState::kReplaying: return pbv1::SERVER_STATE_REPLAYING;
+    case hg::flow_store::FlowState::kNotReady:
+    default: return pbv1::SERVER_STATE_NOT_READY;
+  }
+}
+
+// `finished` 仅在终态帧携带（§4.2.3 #35 finished_ts_ms 条件必填）。
+ReplyFrame make_replay_progress(pbv1::ServerState st, std::uint64_t replayed,
+                                std::uint64_t total, std::int64_t started_ms,
+                                pbv1::ReplayResult result,
+                                const std::string& mismatch_detail,
+                                bool finished, std::int64_t finished_ms) {
+  pbv1::EvtReplayProgress e;
+  e.set_state(st);
+  e.set_replayed_records(static_cast<std::int64_t>(replayed));
+  e.set_total_records(static_cast<std::int64_t>(total));
+  e.set_started_ts_ms(started_ms);
+  e.set_result(result);
+  if (result == pbv1::REPLAY_RESULT_MISMATCH) e.set_mismatch_detail(mismatch_detail);
+  if (finished) e.set_finished_ts_ms(finished_ms);
+  ReplyFrame f;
+  f.type = mt(MessageType::kEvtReplayProgress);
+  f.flags = 0u;
+  PbPayloadCodec::encode(e, &f.body);
+  return f;
+}
+
+// 重放进度回调跳板：中间进度帧（state=REPLAYING，result=UNSET）。
+struct ReplayProgressCtx {
+  std::vector<ReplyFrame>* events;
+  std::int64_t started_ms;
+};
+
+void replay_progress_trampoline(void* user, hg::flow_store::FlowState st,
+                                std::uint64_t done, std::uint64_t total) {
+  ReplayProgressCtx* ctx = static_cast<ReplayProgressCtx*>(user);
+  ctx->events->push_back(make_replay_progress(
+      server_state_of(st), done, total, ctx->started_ms,
+      pbv1::REPLAY_RESULT_UNSET, "", false, 0));
 }
 
 // ---------------------------------------------------------------------------
@@ -774,10 +820,20 @@ ReplyFrame encode_engine_event(const hg::order_engine::EngineEvent& ev) {
 CommandHandler::CommandHandler(hg::risk_state::RiskState* state)
     : state_(state), session_(state) {}
 
-bool CommandHandler::system_ready() const { return state_->ready(); }
+bool CommandHandler::system_ready() const {
+  // T-037 扩展（单一门卫，无双轨）：参数收齐（T-038）**且** 重放就绪（T-037）。
+  // 重放接缝未注入时保持 T-038 语义（仅参数面）——0x0401 仍由本函数唯一承载。
+  if (!state_->ready()) return false;
+  if (replay_ != nullptr && !replay_->ready()) return false;
+  return true;
+}
 
 void CommandHandler::set_order_engine(hg::order_engine::OrderEngine* engine) {
   engine_ = engine;
+}
+
+void CommandHandler::set_replay_controller(hg::flow_store::ReplayController* replay) {
+  replay_ = replay;
 }
 
 // 交易路径三指令消费（T-036）：engine_ 注入后由 handle() 分派至此。
@@ -1085,8 +1141,65 @@ CommandOutcome CommandHandler::handle(std::uint16_t type,
         out.reply = invalid_payload(ack_msg_id, "unparseable");
         return out;
       }
-      // 受理回执；重放执行与 EVT_REPLAY_PROGRESS 归 T-037/T-039 承接。
-      out.reply = make_ack_with_detail(ack_msg_id, "replay accepted");
+      // 重放接缝未注入 ⇒ T-038 受理形态（回归守卫）；注入后 = T-037 真实触发：
+      // 同步执行重放（T4 单线程），进度帧逐次产出（§4.2.3 #23），终态帧按
+      // verdict 定 result；成功再补 EVT_SYSTEM_STATE(READY)（§4.5.3 ⑦）。
+      // 失败回码（§4.5.1 / §4.5.3 ⑥）：结构损坏 0x3002 / 对账不一致 0x0405 /
+      // 目录不可读 0x3001 —— 拒绝服务，不得带病运行。
+      if (replay_ == nullptr) {
+        out.reply = make_ack_with_detail(ack_msg_id, "replay accepted");
+        return out;
+      }
+      ReplayProgressCtx ctx;
+      ctx.events = &out.events;
+      ctx.started_ms = now_ms;
+      replay_->run(now_ms, &replay_progress_trampoline, &ctx);
+      const hg::flow_store::ReplayReport& rep = replay_->last_report();
+      // 终态帧：run() 末次进度回调（若已产出帧）**就地升级**为终态
+      // （result + finished_ts_ms，§4.2.3 #35 finished 条件必填），避免重复帧；
+      // 早期失败路径（损坏/目录）无末次回调 ⇒ 补一帧。
+      const bool ok = rep.verdict == hg::flow_store::ReplayVerdict::kOk;
+      bool upgraded = false;
+      if (!out.events.empty() &&
+          out.events.back().type == mt(MessageType::kEvtReplayProgress)) {
+        pbv1::EvtReplayProgress e;
+        if (PbPayloadCodec::decode(out.events.back().body, &e)) {
+          e.set_result(ok ? pbv1::REPLAY_RESULT_OK : pbv1::REPLAY_RESULT_MISMATCH);
+          if (!ok) e.set_mismatch_detail(rep.detail);
+          e.set_finished_ts_ms(now_ms);
+          ReplyFrame f;
+          f.type = mt(MessageType::kEvtReplayProgress);
+          f.flags = 0u;
+          PbPayloadCodec::encode(e, &f.body);
+          out.events.back() = f;
+          upgraded = true;
+        }
+      }
+      if (!upgraded) {
+        out.events.push_back(make_replay_progress(
+            server_state_of(replay_->state()), rep.replayed_records,
+            rep.total_records, ctx.started_ms,
+            ok ? pbv1::REPLAY_RESULT_OK : pbv1::REPLAY_RESULT_MISMATCH,
+            rep.detail, true, now_ms));
+      }
+      char tail[96];
+      if (ok) {
+        std::snprintf(tail, sizeof(tail), "replay done: records=%llu/%llu",
+                      static_cast<unsigned long long>(rep.replayed_records),
+                      static_cast<unsigned long long>(rep.total_records));
+        out.reply = make_ack_with_detail(ack_msg_id, std::string(tail));
+        out.events.push_back(make_system_state_ready(state_->param_version(), now_ms));
+        return out;
+      }
+      std::uint32_t err_code = 0;
+      if (rep.verdict == hg::flow_store::ReplayVerdict::kCorrupt) {
+        err_code = static_cast<std::uint32_t>(ErrorCode::kMemoryStateCorrupted);  // 0x3002
+      } else if (rep.verdict == hg::flow_store::ReplayVerdict::kMismatch) {
+        err_code = static_cast<std::uint32_t>(ErrorCode::kErrReplayMismatch);    // 0x0405
+      } else {
+        err_code = static_cast<std::uint32_t>(ErrorCode::kFlowPersistFailed);    // 0x3001
+      }
+      out.reply = make_error(ack_msg_id, err_code, rep.detail);
       return out;
     }
     case mt(MessageType::kCmdQueryStatus): {

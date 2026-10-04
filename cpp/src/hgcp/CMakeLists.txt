@@ -122,3 +122,21 @@ foreach(_t command_handler_test order_path_test)
   target_include_directories(hgcp_${_t} PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../risk_engine/tests")
 endforeach()
+
+# -----------------------------------------------------------------------------
+# T-037：重放门卫与触发接线单测（0x0401 单一门卫扩展 + CMD_TRIGGER_REPLAY +
+#        EVT_REPLAY_PROGRESS 编码）。复用 risk_engine testutil（就绪夹具同形）。
+# -----------------------------------------------------------------------------
+add_executable(hgcp_replay_gate_test "tests/replay_gate_test.cc")
+target_link_libraries(hgcp_replay_gate_test PRIVATE hg::hgcp hg::risk_engine)
+target_include_directories(hgcp_replay_gate_test PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../risk_engine/tests")
+set_target_properties(hgcp_replay_gate_test PROPERTIES
+  CXX_STANDARD 11
+  CXX_STANDARD_REQUIRED ON
+  CXX_EXTENSIONS OFF)
+add_test(NAME "hgcp.replay_gate" COMMAND hgcp_replay_gate_test)
+set_tests_properties("hgcp.replay_gate" PROPERTIES
+  FIXTURES_REQUIRED hg_arch_check
+  TIMEOUT 60)
