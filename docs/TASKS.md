@@ -85,7 +85,7 @@
 | T-040 | 实现 Java 端行情 WebSocket 服务端（**生产级**） | FR-TRADE-12, R-TRADE-11, NFR-PERF-5, `EVT_MARKET_QUOTE`, ARCH §4.1.2/§6.13/§7.1.11 | backend-engineer#java | P1 | T-028, T-042 | 16 人时 | 初版（`CH-006` 定界改派 `#java`） | BLOCKED |
 | T-041 | 实现崩溃恢复集成（在途指令不释放冻结额度） | PROJECT §10-27, FR-TRADE-15/16, ARCH §9 RSK-10 | backend-engineer#cpp | P0 | T-036, T-037 | 24 人时 | 初版 | TODO |
 | T-042 | 实现组件桥接层 TradingBridge（HGCP 客户端） | FR-TRADE-14, FR-RISK-9~12, NFR-REL-2/5 | backend-engineer#java | P0 | T-030 | 32 人时 | 初版 | **IN_PROGRESS**（2026-09-25 第 149 轮派发实施，实例 `be-t042`；⚠️ **2026-09-30 进度审查加注**：本行此前为 `TODO`，与 `TASKS.md` §2 `:1171` 及 `BOARD.md:127` 的 `IN_PROGRESS` **文件内自相矛盾** —— 系提交 `997a6bd` 仅改 §2 与 BOARD、漏改本 §1 总览列所致，**是为订正、非新状态变更**） **📌（2026-10-01 第 153 轮：独立复核回执 · 只加不改）** **结论 = 有条件通过 / 0 阻断 / 3 中缺陷 / 5 观察**（席 `te-verify-t042`；证据章 `docs/TEST_RESULT.md:12201–12333`，纯追加 `+132/−0`、`head -12201` md5 `6962e655…` 未变；提交 `6b238dc`）。**冻结点实测**（13:18:47/13:18:58/13:19:08 三次恒同）：`HEAD 4db583e`（对象提交 `0a396e0`）、树锚 `ca48707b…/373`、隔离副本 **669/0/0/0**、`@Test`==surefire==669、arch-check rc 0；`git status --short -- java proto cpp docs/ARCHITECTURE.md java/CONTRACTS.md` = 空。**⇒ 因验收 6 未达成（`TE-T042-002`），本任务不置 `DONE`，保持 `IN_PROGRESS`（退回修复）**；三缺陷已**立号 `T-166`（`TE-T042-001`/`-003`）与 `T-167`（`TE-T042-002`，须先裁定归属）**。**★复核席订正一处论据（订正的正是编排者与工单反复沿用的表述）**：此前称「**本机无** `hg-trading` ⇒ 跨进程不可达」—— 实测**仓库内无、本机有**（`/hg-build-base/src/hg-trading`、`/hg-build-chk/src/hg-trading`，均 16624B ELF）；**正确论据 = `hg-trading` 为骨架**（`cpp/src/main.cc` 自述「工程骨架」、仅打印模块清单 + `--self-test`，**不接受端口、不监听、不做 HGCP 握手** —— 全文已核，无 `listen`/`accept`/`handshake`）⇒ **结论仍成立**（跨进程 E2E 确实不可达），但**论据须更正**。**两条诚实性限定经复核证实属实**：①未发现自环被升级成联调；②未发现未声明的跨侧证据。  **DONE（授权 + 独立验证；2026-10-02 编排者依全链复核裁定：验收 1 达成〔限同源，`te-verify-ch019c`/`te-verify-t167168` 独立背书披露诚实〕、验收 2/4/5/7 达成、验收 3/6 两侧闭合〔`T-166`/`T-167`/`T-168` 均 DONE〕、`T-165` 池化 DONE；遗留 = 未决项 1/2 + `T-170` 门禁缺口，均已单列不阻断）** |
-| T-043 | 交付 TRADE 模块 9 张表 DDL 与 DAO | FR-TRADE-1~18 | backend-engineer#java | P0 | T-004 | 16 人时 | 初版 | TODO |
+| T-043 | 交付 TRADE 模块 9 张表 DDL 与 DAO | FR-TRADE-1~18 | backend-engineer#java | P0 | T-004 | 16 人| 初版 | TODO  **DONE（授权 + 独立验证：te-verify-t043 通过/0 阻断/6 观察/0 条件；DATA_MODEL 独立对账全一致；全量 720/0/0/0 + arch rc0 复现；变异复现+自设全红复位逐字节；交付 458687c 30 文件 +3443；证据章 31bb715 纯追加 13706→13942；观察 O-2〔CHECK 取值域/复合幂等键无测试承重〕登记为 T-046 补测输入；2026-10-04）** |
 | T-044 | 交付 SETTLE 模块 16 张表 DDL 与 DAO | FR-SETTLE-1~17 | backend-engineer#java2 | P0 | T-004 | 24 人时 | 初版 | TODO |
 | T-045 | 交付 FUND 模块 9 张表 DDL 与 DAO | FR-FUND-1~17 | backend-engineer#java2 | P0 | T-004 | 16 人时 | 初版 | TODO |
 | T-046 | 实现交易执行服务 TradeService（不落库下单 + 事件流落库） | FR-TRADE-1~18, CFG-13 | backend-engineer#java | P0 | T-042, T-043 | 24 人时 | 初版 | BLOCKED |
@@ -1199,7 +1199,7 @@
 - **依赖**：T-004
 - **估时**：16 人时
 - **来源**：初版
-- **状态**：**TODO**（2026-09-21 `T-030` 汇签解锁，由 `BLOCKED` 转）
+- **状态**：**DONE**（2026-10-04 编排者依独立复核裁定转 DONE；2026-09-21 T-030 汇签解除门禁）
 - **验收标准**：
   1. `TB-TRADE-1~9` 交付，DM8 建表成功，与 `DATA_MODEL.md` 逐列一致；
   2. `t_trade_fill.trade_id` 建唯一约束（幂等键）；`t_pre_trade_reject` 含 `limit_layer` 与敞口快照列；
