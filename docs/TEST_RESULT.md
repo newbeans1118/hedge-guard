@@ -13704,3 +13704,239 @@ TMPDIR=/ cmake --build /hg-build-base -j4
 - **N-4（冗余，代码卫生）**：`emit_encoded` 的 `droppable` 形参在 `type==kEvtMarketQuote` 时与 `emit()` 的类型守卫（`:54-56`）冗余（两条路径同归 `emit_quote`）；无功能影响，不阻断。
 
 （席 te-verify-t039b2；2026-10-04；本章纯追加，止于下一分隔线前）
+
+---
+
+# T-043 / T-044 独立复核证据章（编排者逐字转录）
+
+- **转录说明**：以下两份复核报告由复核席分别落笔于 /root/t043-review.md（md5 d6f15e4334d1fa8f02ebc64a41471e5a / 78 行）与 /root/t044-review.md（md5 d1f12bf909cbda26a93317788027a08f / 146 行），编排者**逐字转录、未改写任何数字或措辞**；转录时点 TEST_RESULT.md 基线 = $N 行（head-$N md5 见台账）。
+- **背景**：T-043/T-044 两单并行交付（458687c / 7cdd310），共享守卫 DaoColumnAlignmentTest 解析器前缀缺陷经授权修复（2da10c8，恰 5 token 加空格，全量 720/0/0/0）。
+
+# T-043 独立复核报告（te-verify-t043）
+
+- **对象**：T-043「交付 TRADE 模块 9 张表 DDL 与 DAO」
+- **复核席**：te-verify-t043（独立于产出方 be-t043）
+- **仓库**：/root/myspace/hedge-guard
+- **冻结链**：HEAD = 2da10c8（458687c T-043 交付 → 7cdd310 T-044 → 2da10c8 守卫修复）
+- **复核纪律**：未改动任何仓库文件；本报告落 /root/t043-review.md（不碰 docs/TEST_RESULT.md）
+
+## 0. 独立基线实测（开工实时）
+
+| 项 | 产出方自述 | 独立实测 | 判定 |
+|---|---|---|---|
+| HEAD | 2da10c8 | \`2da10c8c805b7aeabbd2f4c126ff8910eeaf42be\` | ✅ |
+| 458687c 交付规模 | 30 文件 +3443 | 30 files changed, 3443 insertions(+), 0 del（含 m2_trade.sql + 29 java） | ✅ |
+| java/src 树锚（f6d3f29 时点基线） | 21d423dd…/378 | 未复现该时点（见下）；现行锚 = c3a9be3b2814dc171f6ba7b65202921b/457 | ✅ 现行锚吻合 |
+| m2_trade.sql | 645e6095…/540 | \`645e609513ecf89966ced2d2b168adc3\`/540 行 | ✅ |
+| TradeSchemaTest | 2af736ec…/512 | \`2af736ec8647a9755f108e5b9335b173\`/512 | ✅ |
+| TradeDm8EquivalentIntegrationTest | 7641d740…/374 | \`7641d740f4b7234d162edeaf3bd59d1d\`/374 | ✅ |
+| 2da10c8 守卫修复 diff | 恰 5 token 加空格（+3/−3） | \`DaoColumnAlignmentTest.java\` 唯一文件，+3/−3；5 个 token \`CONSTRAINT/PRIMARY/FOREIGN/UNIQUE/CHECK\` 各补尾空格 | ✅ |
+
+**树锚守恒核算**：378（f6d3f29 java/src）+ 29（T-043 java 文件）+ 50（T-044 java 文件）= **457** = 现行实测 ⇒ 一致（产出方 30/51 为含 docs 的 commit 级计数）。
+
+## 1. 门禁独立复现（隔离副本 /root/t043iso，五件齐 docs/java/cpp/tools/proto，按 <root>/{docs,java} 布局）
+
+- **命令**：\`cd java && mvn -B -o clean test\`（全量）
+- **surefire 实测**（以 target/surefire-reports/*.txt 聚合，权威）：**classes=91，tests=720，failures=0，errors=0，skipped=0**；\`BUILD SUCCESS\`
+- **arch-check**：\`bash tools/arch-check/arch-check.sh\` ⇒ **rc=0**，E1–E8 全 0（汇总 通过(0)=8）
+- 模块用例：TradeSchemaTest **5/0**、TradeDm8EquivalentIntegrationTest **4/0**（与自述一致）
+
+> ⚠️ 观察 O-5：编排者派单预期「≥723 run」，独立实测 surefire 实数 **720**（两处口径不同：派单为估计值）。产出方 commit 自述亦为 720，二者自洽；据实报 720。
+
+## 2. DATA_MODEL §2.6 独立对账（自写解析器，不采信产出方测试）
+
+方法：python 解析 \`DATA_MODEL.md\` §2.6（行 1968–2369，TB-TRADE-1~9）字段表 + 索引表，与 \`m2_trade.sql\`（9×CREATE TABLE + UNIQUE/CHECK/FK + CREATE INDEX）**逐列双向 diff**，并独立复核全部唯一键/普通索引的名称与字段构成。
+
+**逐列 diff 结果（49→2）**：业务列名/类型（含精度）/非空 **全部一致**；唯一键与普通索引 **名称与字段列表全部一致**；仅剩 2 项为已知披露项（见 §4）。外键实测 **28 条**（t_trade_order 7〔5 内联 + 2 文件末 ALTER〕、order_report 2、fill 6、reason 4、position 3、pre_trade_reject 2、command_flow 1、option_strategy 3、replay_log 0）= 文档 FK 标注数 28 ✅。
+
+| 项 | 产出方自述 | 独立实测 | 判定 |
+|---|---|---|---|
+| 表数/表名 | 9 张 TB-TRADE-1~9 | 9/9，名称集合一致 | ✅ |
+| 「165 列」逐列一致 | 165 列 | **不可复现**：文档字段行 156（折叠）/ 159（展开合并行）；+9 张 id = 165；SQL 业务列 158 + 通用审计 54 = 212。**实质「逐列一致」成立**，数字口径不同 | ✅ 实质 / O-1 |
+| 验收2 \`uk_trade_fill_id\` / \`limit_layer\`(ck 5 值) / 敞口快照列 | 有 | t_trade_fill UNIQUE(trade_id)=uk_trade_fill_id ✅；ck_reject_limit_layer IN('SUB_PRODUCT','SUB_INSTRUMENT','ACCOUNT_PRODUCT','AUTH_QUOTA','NONE')=5 值 ✅；exposure_snapshot_id/time ✅ | ✅ |
+| 验收3 子账户 NOT NULL 8 / 可空 0 / 无该列 1 | 8/0/1 | SQL 实测 8/0/1（t_replay_log 无该列）✅；与 §4.6.3(1) TRADE 行 + (5) E3 逐字一致 | ✅ |
+| 验收4 事件幂等唯一键 | 4 键 | uk_trade_fill_id(trade_id)、uk_order_report_idem(order_sys_id,order_status,volume_traded)、uk_command_flow_idem(client_order_ref,flow_type,flow_ts_ms)、uk_pre_trade_reject_idem(client_order_ref,rule_id) 逐字段吻合 | ✅ |
+| 9 接口 ↔ 9 DmTrade*Dao | 全配对无延后 | 9 接口各恰有 1 个 \`implements\` 的 Dm* 实现类（自动化映射 9/9）；无 Trade* 接口缺实现 | ✅ |
+
+## 3. 变异台账（隔离副本 /root/t043mut，纪律：count 预检 → build rc0 先证 → 必红 → 复位 cmp 逐字节 → touch 源文件重编复绿）
+
+| # | 变异点 | 形态 | 预期 | 实测 | 判定 |
+|---|---|---|---|---|---|
+| MUT-B（复现） | \`DmTradeFillDao.readBusiness:83\` | \`string(rs,"trade_id")\` → \`string(rs,"order_sys_id")\` | 必红 | **1 red**：\`allNineDaosInsertAndReadBack\` expected \<TRD-1\> but was \<null\>；编译 rc0 | ✅ 承重 |
+| SELF-1（自设） | \`m2_trade.sql\` uk_order_report_idem | 整条 UNIQUE 约束删除 | 必红 | **1 red**（2 项）：TradeSchemaTest 缺 \`uk_order_report_idem\` | ✅ 承重 |
+| PROBE-1（盲区探针） | \`ck_reject_limit_layer\` | 5 值 → +'BOGUS'（6 值） | 期望探出盲区 | **9/9 全绿（未红）** | ⚠️ O-2 |
+| PROBE-2（盲区探针） | \`uk_order_report_idem\` | (order_sys_id,order_status,volume_traded) → (order_sys_id) | 期望探出盲区 | **9/9 全绿（未红）** | ⚠️ O-2 |
+
+复位：4 次均 \`cp .orig\` 后 \`cmp\` **逐字节相同**（DmTradeFillDao a2ccbbe2…、m2_trade.sql 645e6095…）；\`touch\` 双源文件后重编 **9/9 绿**。共享树全程未动（复核后 m2_trade.sql=645e6095…、java/src 树锚=c3a9be3b…/457 不变）。
+
+## 4. 披露复核
+
+1. **文件头执行顺序（披露）** — m2_trade.sql 头部**如实**写明：跨文件两阶段（m1_plan.sql 末尾 \`fk_trade_plan_strategy→t_option_strategy\` 与本文件互为前置）；同文件内 \`t_trade_order.strategy_id/trade_reason_id\` 为模块内后置 FK，置于文件末 ALTER 段。**独立验证**：\`m1_plan.sql:406-411\` 确有该跨模块 FK 与「执行顺序前置」注记 ⇒ 披露准确 ✅
+2. **验收 5 字面（裁定）** — 验收 5 原文**只要求**「每个 DAO 接口均有对应 \`Dm*\` 实现类；若不需实现须显式登记延后」。实测 **9/9 全实现、无延后项**；9 个 \`DmTrade*Dao\` **未在 Bootstrap 装配**（src/main 仅 \`DmTradePlanDao\` 被 Bootstrap:387 引用）。**裁定：未装配符合验收 5 字面（合规，非缺陷）**；接线属 \`T-046 TradeService\`，见 O-6。
+3. **验收 1「DM8 建表成功」** — 本环境无 DM8 实例，未实机执行；以 \`InMemoryDmEngine\` 按 DDL 语义建表 + 真实 DAO 读写/约束强制做等价证据，文件头与测试 javadoc **均显式声明未实测** ⇒ 可接受，DM8 实机归 \`T-052\`（O-4）。
+4. **TB-TRADE-4 \`modified_by/modified_time\` 类型「—」推定裁定** — DATA_MODEL 全库仅此一处，类型列标「—」、约束列标「—」，说明「修改人与时间（可空）」。产出方自定 \`modified_by BIGINT NULL\` / \`modified_time TIMESTAMP NULL\`。比对文档全局约定：§0.2「用户/外部 ID → BIGINT」「时间戳 → TIMESTAMP」，§0.3 \`updated_by BIGINT\`/\`updated_time TIMESTAMP\` 同形，且「（可空）」⇒ NULL。**裁定：推定合理、与本体例一致**（属「文档未规定类型的工程补齐」，非不一致）✅
+
+## 5. 观察（均不阻断）
+
+- **O-1** 「165 列」数字不可复现（实质逐列一致成立）：文档字段行 156 + 9×id = 165；更严谨口径为「业务列 158 + 通用审计 54 = SQL 总列 212」。建议产出方报告改用可复算口径。
+- **O-2** **测试强度盲区**（T-043 DDL 本身正确，非制品缺陷）：两用例对 CHECK/唯一键**只断言「名称存在」，不断言取值域/字段构成** ⇒ \`ck_reject_limit_layer\` 扩为 6 值、\`uk_order_report_idem\` 字段缩为单列，**9/9 全绿**。claim 2「5 值域」与 claim 4「复合幂等键」在本单**无测试承重**，仅靠静态名称。建议后续（或 T-046）补「值域/字段构成」断言。
+- **O-3** 见 §4.4（modified_by/time 推定合理）。
+- **O-4** 验收 1「DM8 建表成功」未实机执行（无实例），以等价引擎替代并已披露；归 T-052。
+- **O-5** 全量 surefire 实数 720（非派单估计 ≥723）；0 失败。
+- **O-6** 9 个 \`DmTrade*Dao\` 在 \`src/main\` 生产代码中**零引用**（未接线）；符合验收 5 字面，接线归 T-046。
+
+## 6. 结论
+
+**通过（0 阻断缺陷，6 观察，0 条件）**。产出方 5 项声明全部经独立证据证实（数字「165」口径除外，见 O-1，且不影响实质）；逐列/索引/外键对账一致；子账户 8/0/1 与 §4.6.3 吻合；幂等唯一键齐备；9↔9 DAO 全配对无延后；文件头执行顺序披露准确。门禁独立复现：全量 **720/0/0/0**、arch-check **rc=0**。MUT-B 复现必红、SELF-1 自设必红，另探出 2 处测试强度盲区（O-2）。
+
+**建议**：不推荐即时退回（无阻断）；可将 O-2 作为 T-046 的补测输入登记。
+
+
+---
+
+# T-044 「SETTLE 模块 16 张表 DDL 与 DAO」独立复核报告
+
+- 复核席：**te-verify-t044**（独立复核；**只读，未改动仓库任何源码**）
+- 复核时间：2026-10-04（本机）
+- 对象制品：`docs/DEPLOY/schema/m2_settle.sql` + 16 实体/16 DAO 接口/16 Dm*Dao 实现 + 2 测试
+- 复核方式：隔离副本全量门禁 + 独立对账脚本 + 4 组变异/负控 + 原文回读
+
+---
+
+## 0. 结论
+
+**有条件通过 · 0 阻断级缺陷 · 1 低缺陷 · 4 观察。**
+
+产出方（`be-t044`）**6 项声明逐项经独立实测成立**；独立对账（16 表全列/类型/索引/外键/具名 CHECK）与产出方自带测试**结论一致、无分歧**；门禁独立复现 **720/0/0/0 + arch-check rc 0**；4 组变异/负控全部按预期翻转并逐字节复位。
+
+唯一低缺陷 `TE-T044-001` 系 **CFG 编号误引**（`block_scope` 误写 `CFG-18`，应为 `CFG-11`），**根因在上游 `DATA_MODEL.md` §2.7**，本单 DDL 系**忠实转录**；不阻断 T-044 转 DONE，但建议随上游一并订正。
+
+---
+
+## 1. 冻结链与锚点（开工实时复测）
+
+| 项 | 产出方声明 | 独立实测 | 判定 |
+|---|---|---|---|
+| HEAD | `2da10c8` | `2da10c8c805b7aeabbd2f4c126ff8910eeaf42be` | ✅ |
+| 链 | 458687c(T-043)→7cdd310(T-044)→2da10c8(守卫修复) | `git log` 逐笔吻合；7cdd310=51 文件/+4124；2da10c8=1 文件/+3/−3 | ✅ |
+| m2_settle.sql | `dbed0b51…/765` | `dbed0b512f187ea13b7188213ffe5e4f`/765 | ✅ |
+| M2SettleSchemaTest | `d9534ffb…/353` | `d9534ffbeb61e416799e4a51353c4b04`/353 | ✅ |
+| M2SettleDaoMappingAndWriteTest | `7d22fc8d…/310` | `7d22fc8d979c1ae022b0effc5d563168`/310 | ✅ |
+| `java/src` 树锚@7cdd310 | `73672cf8…/457` | **`73672cf8b39da17df15412377e90f7ea`/457（复现成功）** | ✅ |
+| `java/src` 树锚@HEAD | （未声明） | `c3a9be3b2814dc171f6ba7b65202921b`/457（仅因 2da10c8 改了 1 个测试文件而异） | 备注 |
+| 51 文件内容级锚 | `e24caa40…` | **不可复现**（见 §6.5） | ⚠️ 观察 |
+
+树锚口径：`cd java/src && find . -type f | LC_ALL=C sort | xargs md5sum | md5sum`。
+对账基线制品：`docs/DATA_MODEL.md` = `d17bce0c37e513a0a236304b9cb3f25d`/5252（v1.3.5，与 DDL 头注自称一致）。
+
+---
+
+## 2. 门禁独立复现
+
+隔离副本：`/root/t044v2`（保留 `{docs,java,tools,cpp,proto,web}` 布局；`TMPDIR=/root/t044tmp`，未用 /tmp）。
+
+- **`mvn -B -o clean test`：`Tests run: 720, Failures: 0, Errors: 0, Skipped: 0`，BUILD SUCCESS，`MVN_RC=0`**（surefire 聚合 XML 实测：91 个类 / 720；全仓 `grep -c @Test` = 720，两数一致）。
+- **`arch-check` rc = 0**：绑定 `validate` 阶段，随 `test` 自动执行；日志实测 **E1–E8 逐条退出码 0**、聚合 0（E8 为 `T-170` 新判据）。
+- ⚠️ **「预期 ≥723」与实数 720 不符**：当前 HEAD 实数即 720（产出方自述亦为 720）；如系编排者期望值偏差，请据实订正期望，勿据此判缺陷。
+
+---
+
+## 3. 两栏对账（产出方声明 vs 独立实测）
+
+| # | 产出方声明 | 独立实测方法 | 结果 |
+|---|---|---|---|
+| 1 | 16 表与 §2.7 逐列一致 | 自写解析器：§2.7 字段表↔DDL，**全 16 表**逐列比对表名/列集合/声明顺序/类型（含精度） | ✅ 无差异 |
+| 2 | position/fund/pnl.`sub_account_id` NOT NULL；`uk_check_signature_task_role=(check_task_id,sign_role)` | 解析 DDL 约束 | ✅ 三条 NOT NULL、唯一约束列组逐字一致 |
+| 3 | `t_agg_diff_candidate` 7 业务列 + `t_reconcile_difference.sub_account_id` 可空；`findBlockingCandidates` 返 {PENDING,CONFIRMED} | 解析 DDL + 读实现 SQL | ✅ 7 列齐、三态 CHECK 齐、实现 SQL `resolution_status IN ('PENDING','CONFIRMED')` |
+| 4 | 16 接口 ↔ 16 Dm*Dao 全配对、无延后 | 目录枚举 + 声明匹配 + `UnsupportedOperationException` 扫描 | ✅ 16/16/16，0 处 Unsupported |
+| 5 | 测试 4 例 + 7 例，md5 如上 | `md5sum` | ✅ |
+| 6 | 变异 A/B/C 各红 3 断言、复位逐字节 | 复现 MUT-A + 自设 3 组 | ✅（见 §7） |
+
+**索引/外键独立对账**（额外，产出方未单列）：16 表**索引（名+列+唯一/普通）逐条与 §2.7 一致**；**26 个外键全部 `ON DELETE RESTRICT ON UPDATE RESTRICT`，0 处 CASCADE**，与 §0.4 一致。**具名 CHECK**：`ck_check_task_scope_sentinel` / `ck_check_signature_scope_sentinel` 与 §4.3 权威 DDL、§2 表定义**逐字一致**（三处一致成立）。
+
+---
+
+## 4. 专项核
+
+### 4.1 「不可代签」唯一约束语义匹配 ✅
+`uk_check_signature_task_role UNIQUE (check_task_id, sign_role)` —— 含 **sign_role 维度**，把「同任务同角色只签一次」下沉为 DB 级约束，与 §2.7 TB-SETTLE-15 备注及 §4.4「不可代签」行口径**一致**（跨角色代签由服务层 `signer_role_code==sign_role` 校验，DB 约束为其结构前提，**非** DB 可独立完成的全部语义——与文档明文相符）。
+
+### 4.2 CFG-11/Q-11 机判字段链齐备 ✅（附一处编号误引，见 §8）
+回读 `ARCHITECTURE.md:2816`（`CFG-11=settle.aggregation.block_scope`，默认 `DIFF_SUB_NON_CLOSE`）与 `DATA_MODEL.md:4509 §4.4.1`：
+- 候选态 `t_agg_diff_candidate`：`aggregation_check_id`→`sub_account_id`(NOT NULL)+candidate_rank+diff_amount+resolution_status+reconcile_difference_id+evidence_desc ✅
+- 定位态 `t_reconcile_difference.sub_account_id`（可空，可定位时非空）✅
+- 阻断生效集合 `resolution_status ∈ {PENDING,CONFIRMED}` 与 §4.4.1 断言柄**逐字一致**；实现 SQL 同；`possible_sub_accounts` 降级为展示缓存（DDL 备注同）✅
+
+### 4.3 守卫修复复核（2da10c8）✅
+- diff **恰 5 token 加空格**（`CONSTRAINT`/`PRIMARY`/`FOREIGN`/`UNIQUE`/`CHECK` 各补尾随空格），1 文件 +3/−3，**逐字核对无其它改动**。
+- **独立负控**：把 `m1_config_auth.sql:83` 的 `config_key`→`config_key_x` ⇒ `DaoColumnAlignmentTest.daoColumnsMatchDdlBusinessColumns` **精确红**（70 表已比对，问题仅指向该列两向：`DAO 有而 DDL 无 [config_key]` / `DDL 有而 DAO 无 [config_key_x]`）；复原 `e9dc4ee7…` 后 **3/0/0/0 复绿**。**修复未放水**。
+- 「全库关键字前缀列仅 SETTLE 6 处」实测：全 schema `(check|primary|foreign|unique|constraint)_*` 列名共 **6 处**（check_conclusion/check_items/check_task_id/check_time/check_type×2），**均为 SETTLE**，与声明一致。
+
+### 4.4 披露复核
+- **① 无 DM8 / InMemoryDmEngine 等价执行**：m2_settle.sql 头注有 `[未实测声明]`；与先例 `m3_risk.sql`（「未在 DM8 实机执行，见 T-004/T-061」）、`m1_plan.sql`（「未实测声明」）口径**一致**。✅
+- **② `t_fund_ledger` 跨模块外键 / 执行顺序**：实测 `docs/DEPLOY/schema/` **无 FUND 脚本**（T-045 未交付），`t_fund_ledger` 全仓仅被 m2_settle.sql 引用（CREATE TABLE = 0）。头注**已如实列出** `t_fund_ledger（FUND）` 为前置并写明「须在上述脚本之后执行」⇒ **执行顺序披露成立**。⚠️ 观察：未像 `m1_config_auth.sql`/`m2_trade.sql` 那样**显式点明「该前置脚本本里程碑尚未提供」**，读者无法从脚本本身得知「现在执行必因缺表失败」。
+- **③ CH-016 口径**：`ARCHITECTURE.md` v1.5.17 明载「DM8 口径**适用生产环境**；开发/测试可用 SQLite」，DDL 面向生产 DM8 **未换轨**与现行架构文**一致**。✅
+
+### 4.5 ROUNDS 对照：R-SETTLE-8 边界（抽 2 表）✅
+- `t_settle_fund`（TB-SETTLE-7）↔ `FR-SETTLE-3/7`：`fund_ledger_id` FK→`t_fund_ledger` 为**共享台账引用**（非另立余额）；`R-SETTLE-8` 允许共享资金台账，SETTLE 管核对/加总、FUND 管流水/调拨——**在边界内**，无越界承载。
+- `t_agg_diff_candidate`（TB-SETTLE-16）↔ `FR-SETTLE-8`：承载加总差异候选归属，属 SETTLE 域——**在边界内**。
+- 16 表中**无**持有他模块业务表数据的越界承载。
+
+---
+
+## 5. 独立对账明细（不采信产出方测试）
+
+自写脚本（未调用其任何测试代码）对 §2.7 与 DDL 做**表名集合 / 列集合 / 声明顺序 / 类型（含精度）/ NOT NULL / DEFAULT / 唯一·普通索引（名+列+类型）/ 外键目标 / 具名 CHECK** 全量比对：
+
+- **16/16 表列与类型 100% 一致；索引 100% 一致；外键 26 条全 RESTRICT。**
+- 全表列数（业务列 = 总列 − 6 审计列）：1→11、2→9、3→11、4→10、5→17、6→11、7→19、8→9、9→11、10→19、11→12、16→7、12→11、13→16、15→12、14→9，**逐一与 §2.7 相符**。
+- 实体字段（含 id）与 DDL 列**逐表 1:1**（16/16）。
+
+---
+
+## 6. 变异台账（复位均逐字节）
+
+| 编号 | 变异点 | 形态 | 预期 | 实测 | 复位 |
+|---|---|---|---|---|---|
+| MUT-A（复现） | `m2_settle.sql` 删 `CONSTRAINT uk_check_signature_task_role` | DDL | 红 | **红 3 断言**：ddlMatchesDataModel（缺唯一约束）、settleAddUpAndNoProxySign（唯一列=[]）、checkSignatureUniqueConstraintEnforced（未抛异常） | `dbed0b51…` ✅ 复绿 11/0/0/0 |
+| MUT-S1（自设） | `DmSettleAggDiffCandidateDao.findBlockingCandidates` 去掉 `CONFIRMED` | 逻辑 | 红 | **红**：aggDiffCandidateBlockingSet `expected<2> but was<1>` | `963fea55…` ✅ |
+| MUT-S2（自设，读侧盲区探针） | `DmSettleCheckSignatureDao.readBusiness` 的 `checkTaskId` 改从 `signer_id` 列读 | 映射 | 应红 | **绿（存活）= 盲区** | `6a787023…` ✅ |
+| NEG-CTL（守卫修复负控） | `m1_config_auth.sql:83 config_key→config_key_x` | 负控 | 红 | **精确红**（仅指该列） | `e9dc4ee7…` ✅ 复绿 3/0/0/0 |
+
+隔离副本内两处被改 DDL/Java 及两处被改数据脚本，复核后与共享树**逐字节一致**（md5 全部吻合）。
+
+---
+
+## 7. 缺陷与观察
+
+### TE-T044-001（低）—— `block_scope` 的配置项编号误引
+- 位置：`docs/DEPLOY/schema/m2_settle.sql:525` `COMMENT ON COLUMN t_aggregation_check.block_scope IS '阻断范围（CFG-18）'`。
+- 事实：`ARCHITECTURE.md:2816 §11.1` 明定 **`CFG-11 = settle.aggregation.block_scope`**；`CFG-18 = spot.price.scope`（现货价口径，`ARCHITECTURE.md:2826`）。二者非同项。
+- 根因：`DATA_MODEL.md:2694 §2.7 TB-SETTLE-11` 与 `:2710` 备注**同样误引 `CFG-18`** ⇒ 本单 DDL **忠实转录**了上游错误，非本单新引入。
+- 影响：审计/追溯时按 `CFG-18` 找不到「阻断范围」配置；不影响建表、不影响机判字段链。
+- 建议：随上游 `DATA_MODEL.md` 一并订正为 `CFG-11`（DDL 同步），**不阻断 DONE**。
+
+### 观察（不阻断）
+- **O-1（守卫强度事实）**：MUT-S2 证明 **T-044 测试不守卫 `DmSettleCheckSignatureDao` 的读侧列名映射**——`findByTaskAndRole` 仅 `assertNotNull`，不校验读回字段值；同类「读侧同类型列错位」在真机 DM8 上会**静默读错值**（无异常）。建议：`DaoColumnAlignmentTest` 增一条「`bindBusiness`/`readBusiness` 的列名字符串必须 ∈ DDL 列集合」的机械判据（即可杀 MUT-S2），或为各 DAO 补读回值断言。**代码本身正确，属判据覆盖面事实，非代码缺陷。**
+- **O-2**：`m2_settle.sql` 头注未显式点明「`t_fund_ledger` 所属 FUND 脚本本里程碑尚未提供」，较 `m1_config_auth.sql`/`m2_trade.sql` 的跨文件前置披露惯例略弱。
+- **O-3**：产出方自述「51 文件内容级锚 `e24caa40…`」**不可复现**（试 concat raw / `./` 前缀 / git 顺序 / 路径级四种形态均不中）；**替身（可复现）**：对 7cdd310 的 51 文件按 `git show 7cdd310:<path> | md5sum` 逐条 + 路径排序拼接 ⇒ **`1d989cb47d500e0e7722d0db16e051b7`**。仅归因瑕疵，不影响交付。
+- **O-4**：编排者派单预期「≥723 run」与当前 HEAD 实数 **720** 不符；产出方自述亦 720。请据实订正期望值。
+
+---
+
+## 8. 不覆盖项（本报告未验证，明示）
+
+1. **无 DM8 实机**：全部结论基于源码/文档静态对账 + InMemoryDmEngine 等价执行，**不构成 DM8 实机验证**（与 T-004/T-005 先例同口径）。
+2. 未核 DM8 对 `CLOB`/`IDENTITY`/`COMMENT ON` 的实际建表成功性。
+3. 未核 T-047 `SettleService` 对「只增不改（R-SETTLE-10）」「不可代签服务层校验」的实现（T-047 BLOCKED，非本单范围）；本单 DAO 经 BaseDao 暴露 update/delete 属通用基座设计，**未判为越界**。
+4. 未核前端/WS 面与 SETTLE 的衔接（本单无前端产物）。
+5. 树锚/内容锚仅覆盖 `java/src` 与 51 文件交付集，未覆盖 `cpp/`、`proto/`。
+
+---
+
+## 9. 复核结论与移交
+
+- **判定：有条件通过（0 阻断 / 1 低 / 4 观察）。** 满足 T-044 六项复核要求（独立门禁、独立对账、变异复现+自设、守卫修复负控、披露复核、ROUNDS 对照）。
+- **是否转 DONE：由编排者裁定**；本席不自行转 DONE。建议 `TE-T044-001` 与 `O-2` 随上游文档订正、`O-1` 择优增判据，均不阻断。
+
+（本报告仅新增 `/root/t044-review.md`，未改动仓库源码与 `docs/TEST_RESULT.md`。）
