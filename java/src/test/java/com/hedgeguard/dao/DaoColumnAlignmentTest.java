@@ -149,9 +149,9 @@ class DaoColumnAlignmentTest {
                         continue;
                     }
                     String upper = line.toUpperCase(Locale.ROOT);
-                    if (upper.startsWith("CONSTRAINT") || upper.startsWith("PRIMARY")
-                            || upper.startsWith("FOREIGN") || upper.startsWith("UNIQUE")
-                            || upper.startsWith("CHECK")) {
+                    if (upper.startsWith("CONSTRAINT ") || upper.startsWith("PRIMARY ")
+                            || upper.startsWith("FOREIGN ") || upper.startsWith("UNIQUE ")
+                            || upper.startsWith("CHECK ")) {
                         continue;
                     }
                     Matcher id = IDENTIFIER_LINE.matcher(line);
