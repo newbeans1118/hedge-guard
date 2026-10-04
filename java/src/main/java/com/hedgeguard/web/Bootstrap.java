@@ -51,7 +51,14 @@ import com.hedgeguard.dao.impl.DmSpotPriceDao;
 import com.hedgeguard.dao.impl.DmSubAccountDao;
 import com.hedgeguard.dao.impl.DmSubInstrumentQuotaDao;
 import com.hedgeguard.dao.impl.DmSubProductWhitelistDao;
+import com.hedgeguard.dao.impl.DmTradeCommandFlowDao;
+import com.hedgeguard.dao.impl.DmTradeFillDao;
+import com.hedgeguard.dao.impl.DmTradeOrderDao;
+import com.hedgeguard.dao.impl.DmTradeOrderReportDao;
 import com.hedgeguard.dao.impl.DmTradePlanDao;
+import com.hedgeguard.dao.impl.DmTradePositionDao;
+import com.hedgeguard.dao.impl.DmTradePreTradeRejectDao;
+import com.hedgeguard.dao.impl.DmTradeReasonDao;
 import com.hedgeguard.dao.impl.DmUnauthorizedAttemptDao;
 import com.hedgeguard.dao.impl.DmUserAccountDao;
 import com.hedgeguard.dao.impl.DmUserRoleDao;
@@ -73,6 +80,7 @@ import com.hedgeguard.service.ConfigService;
 import com.hedgeguard.service.ParamDispatchService;
 import com.hedgeguard.service.PlanService;
 import com.hedgeguard.service.SpotService;
+import com.hedgeguard.service.TradeService;
 import com.hedgeguard.service.VarietyService;
 import com.hedgeguard.service.impl.ParamDispatchServiceImpl;
 import com.hedgeguard.web.handler.PingHandler;
@@ -81,6 +89,7 @@ import com.hedgeguard.web.handler.config.ConfigRoutes;
 import com.hedgeguard.web.handler.plan.PlanRoutes;
 import com.hedgeguard.web.handler.product.ProductRoutes;
 import com.hedgeguard.web.handler.spot.SpotRoutes;
+import com.hedgeguard.web.handler.trade.TradeRoutes;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -416,6 +425,17 @@ public final class Bootstrap {
         ProductRoutes.register(router, varietyService);
         SpotRoutes.register(router, spotService);
         PlanRoutes.register(router, planService);
+
+        // M2 交易执行服务（T-046）：提交指令不落库（零写语句），事件流回传后由 Java 统一落库。
+        // 复用共享 DAO 实例（DAO 无状态，仅持 TxTemplate）。
+        TradeService tradeService = new TradeService(tx, bridge, authService,
+                new DmTradePlanDao(tx), exposureDao,
+                new DmTradeOrderDao(tx), new DmTradeReasonDao(tx),
+                new DmTradeOrderReportDao(tx), new DmTradeFillDao(tx),
+                new DmTradePositionDao(tx), new DmTradePreTradeRejectDao(tx),
+                new DmTradeCommandFlowDao(tx));
+        TradeRoutes.register(router, tradeService);
+
         registerRiskIntradayRoute(router, config, bridge, paramDispatchService, authService);
         return authService;
     }

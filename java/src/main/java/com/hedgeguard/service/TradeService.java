@@ -1,0 +1,991 @@
+package com.hedgeguard.service;
+
+import com.hedgeguard.bridge.AckResult;
+import com.hedgeguard.bridge.PlaceOrderCmd;
+import com.hedgeguard.bridge.PlaceOrderResult;
+import com.hedgeguard.bridge.TradingBridge;
+import com.hedgeguard.common.Clocks;
+import com.hedgeguard.dao.BizNoGenerator;
+import com.hedgeguard.dao.ExposureDao;
+import com.hedgeguard.dao.TradeCommandFlowDao;
+import com.hedgeguard.dao.TradeFillDao;
+import com.hedgeguard.dao.TradeOrderDao;
+import com.hedgeguard.dao.TradeOrderReportDao;
+import com.hedgeguard.dao.TradePlanDao;
+import com.hedgeguard.dao.TradePositionDao;
+import com.hedgeguard.dao.TradePreTradeRejectDao;
+import com.hedgeguard.dao.TradeReasonDao;
+import com.hedgeguard.dao.entity.Exposure;
+import com.hedgeguard.dao.entity.TradeCommandFlow;
+import com.hedgeguard.dao.entity.TradeFill;
+import com.hedgeguard.dao.entity.TradeOrder;
+import com.hedgeguard.dao.entity.TradeOrderReport;
+import com.hedgeguard.dao.entity.TradePlan;
+import com.hedgeguard.dao.entity.TradePosition;
+import com.hedgeguard.dao.entity.TradePreTradeReject;
+import com.hedgeguard.dao.entity.TradeReason;
+import com.hedgeguard.dao.tx.TxTemplate;
+import com.hedgeguard.web.BizException;
+import com.hedgeguard.web.ErrorCode;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/**
+ * 交易执行服务（{@code ARCHITECTURE.md} §3.8 {@code TradeService}；{@code FR-TRADE-1}~{@code 18}）。
+ *
+ * <p><b>三条结构性保证</b>：
+ * <ol>
+ *   <li><b>提交指令不落库</b>（{@code FR-TRADE-1} 验收 5 / {@code PROJECT.md} §10-23 / {@code ARCHITECTURE.md} §4.2.6(4) 第 ③ 步）：
+ *       {@link #submitOrder} 只做鉴权、理由结构化权威校验与参数校验，随后经 {@link TradingBridge#placeOrder} 下发，
+ *       <b>不产生任何 INSERT/UPDATE/DELETE</b>。写库只发生在事件流回传之后（{@link #onOrderAccepted} 等）。</li>
+ *   <li><b>交易理由结构化必填</b>（{@code CFG-13} / {@code FR-TRADE-10}）：关联类型 + 关联对象（计划 ID + 敞口 ID，
+ *       <b>提交时校验同子账户</b>）+ 时点说明，三项缺一即拒。三层时点中的<b>第①层（Java 提交时权威，DB 读事务内）</b>
+ *       由 {@link #validateReasonStructured} 落实；第③层（落库复核）由 {@link #reviewAndPersistReason} 落实。
+ *       第②层（C++ {@code 0x1019} 纯内存兜底）在 {@code cpp/**}，不在本类写域。</li>
+ *   <li><b>{@code assertCanTrade} 的 M2 服务端强制点</b>（{@code T-102} 裁定；{@code FR-AUTH-9}/{@code R-AUTH-13}）：
+ *       {@link #submitOrder}/{@link #confirmOrder}/{@link #cancelOrder} <b>前置</b>调用
+ *       {@link AuthService#assertCanTrade}（负责人/管理层禁操盘 析取判据 + 交易岗能力），随后写面
+ *       {@link AuthService#assertSubAccountWritable}（{@code T-115}）。</li>
+ * </ol>
+ *
+ * <p><b>与 {@code Project.md} §10-23 的口径说明（据实披露）</b>：架构正文（§4.2.6(4) 第 ③ 步注记、§6.1④）
+ * 把该保证表述为「Java <b>不预写库</b> / 不产生 SQL」，而 {@code FR-TRADE-10} 第①层又明确要求权威校验
+ * 「Java，<b>DB 事务内</b>」，且 {@code assertCanTrade} 本身读库 ⇒ 提交路径必然产生 SELECT。
+ * 本类据此把「零 DB」落实为<b>零写语句</b>（{@link #submitOrder} 不调用任何 DAO 写方法），
+ * 并在自测中对 100 笔下单同时报告写语句数（=0）与读语句数。该 READ 口径若与本条验收的字面理解不同，
+ * 属<b>待裁定项</b>，已在交付回执单列。
+ *
+ * <p>分层纪律（{@code §3.8}）：不出现 SQL；不依赖 HTTP 类型；只经 DAO 接口访问数据；
+ * 只经 {@link TradingBridge} 与 C++ 交互。
+ */
+public final class TradeService {
+
+    private static final Logger LOG = Logger.getLogger(TradeService.class.getName());
+
+    /** 交易理由关联类型取值域（{@code ck_trade_reason_related_type}，8 值；提交路径前 6 值为主，后 2 值为 CTP 直生）。 */
+    public static final Set<String> RELATED_TYPES = unmodifiable(
+            "NEW_EXPOSURE", "EXPOSURE_DECREASE", "PLAN_EXECUTION", "ROLLOVER",
+            "RISK_DISPOSAL", "ERROR_CORRECTION", "FORCE_CLOSE", "DELIVERY");
+
+    /** 交易理由时点说明取值域（{@code ck_trade_reason_time_desc}，5 值）。 */
+    public static final Set<String> TIME_DESCS = unmodifiable(
+            "CONTRACT_SIGNED", "PRICE_TRIGGERED", "MONTHLY_REBALANCE", "EXPIRY_ROLLOVER", "RISK_REQUIRED");
+
+    /** 买卖方向取值域（{@code ck_trade_order_direction}）。 */
+    public static final Set<String> DIRECTIONS = unmodifiable("BUY", "SELL");
+
+    /** 开平标志取值域（{@code ck_trade_order_offset}）。 */
+    public static final Set<String> OFFSET_FLAGS = unmodifiable("OPEN", "CLOSE", "CLOSE_TODAY");
+
+    /** 价格类型取值域（{@code ck_trade_order_price_type}）。 */
+    public static final Set<String> PRICE_TYPES = unmodifiable("LIMIT", "MARKET");
+
+    /** 指令状态：待确认（C++ 受理后）。 */
+    public static final String STATUS_PENDING_CONFIRM = "PENDING_CONFIRM";
+
+    /** 指令状态：事前风控拒绝。 */
+    public static final String STATUS_REJECTED_PRECHECK = "REJECTED_PRECHECK";
+
+    /** 指令状态：已撤单。 */
+    public static final String STATUS_CANCELLED = "CANCELLED";
+
+    /** 指令状态：已失效（确认超时）。 */
+    public static final String STATUS_EXPIRED = "EXPIRED";
+
+    /** 指令状态：已发 CTP。 */
+    public static final String STATUS_SENT_CTP = "SENT_CTP";
+
+    /** 桥回执等待上限（毫秒）；超时按组件不可用拒绝（{@code COMPONENT_UNAVAILABLE}）。 */
+    private static final long BRIDGE_TIMEOUT_MS = 10_000L;
+
+    private final TxTemplate tx;
+    private final TradingBridge bridge;
+    private final AuthService authService;
+    private final TradePlanDao tradePlanDao;
+    private final ExposureDao exposureDao;
+    private final TradeOrderDao tradeOrderDao;
+    private final TradeReasonDao tradeReasonDao;
+    private final TradeOrderReportDao tradeOrderReportDao;
+    private final TradeFillDao tradeFillDao;
+    private final TradePositionDao tradePositionDao;
+    private final TradePreTradeRejectDao preTradeRejectDao;
+    private final TradeCommandFlowDao commandFlowDao;
+
+    /** 幂等键当日序号（应用层内存分配，{@code HG<yyyyMMdd><seq(6)>}）；不读库以保交易路径零写。 */
+    private final Object orderRefLock = new Object();
+    private LocalDate orderRefDay;
+    private long orderRefSeq;
+
+    /**
+     * 构造。
+     *
+     * @param tx                事务模板（仅事件流落库 / 理由落库用；提交路径不使用）
+     * @param bridge            组件桥（{@code TradingBridge}）
+     * @param authService       认证服务（{@code assertCanTrade} 强制点 + 子账户写面断言）
+     * @param tradePlanDao      交易计划 DAO（进度 / 占用回写 + 理由同子账户权威校验）
+     * @param exposureDao       实货敞口 DAO（理由同子账户权威校验）
+     * @param tradeOrderDao     交易指令 DAO（事件流回传后落库）
+     * @param tradeReasonDao    交易理由 DAO
+     * @param tradeOrderReportDao 委托回报 DAO
+     * @param tradeFillDao      成交 DAO
+     * @param tradePositionDao  持仓 DAO
+     * @param preTradeRejectDao 事前风控拒绝 DAO
+     * @param commandFlowDao    指令流水镜像 DAO
+     */
+    public TradeService(TxTemplate tx, TradingBridge bridge, AuthService authService,
+                        TradePlanDao tradePlanDao, ExposureDao exposureDao,
+                        TradeOrderDao tradeOrderDao, TradeReasonDao tradeReasonDao,
+                        TradeOrderReportDao tradeOrderReportDao, TradeFillDao tradeFillDao,
+                        TradePositionDao tradePositionDao, TradePreTradeRejectDao preTradeRejectDao,
+                        TradeCommandFlowDao commandFlowDao) {
+        this.tx = tx;
+        this.bridge = bridge;
+        this.authService = authService;
+        this.tradePlanDao = tradePlanDao;
+        this.exposureDao = exposureDao;
+        this.tradeOrderDao = tradeOrderDao;
+        this.tradeReasonDao = tradeReasonDao;
+        this.tradeOrderReportDao = tradeOrderReportDao;
+        this.tradeFillDao = tradeFillDao;
+        this.tradePositionDao = tradePositionDao;
+        this.preTradeRejectDao = preTradeRejectDao;
+        this.commandFlowDao = commandFlowDao;
+    }
+
+    // ================================================================== 一、提交指令（不落库）
+
+    /**
+     * 提交交易指令（{@code FR-TRADE-1}；{@code POST /api/v1/trade/order} 的服务端入口）。
+     *
+     * <p>顺序：① 参数与格式 → ② {@code assertCanTrade} + 写面可见性 → ③ 交易理由结构化权威校验（同子账户）
+     * → ④ 计划一致性（品种 / 方向 / 剩余可下单量）→ ⑤ 组装 {@link PlaceOrderCmd} 并下发。
+     * <b>全程不写库</b>。
+     *
+     * @param req        提交请求
+     * @param operatorId 操作人（取自会话，{@code 0} 视为非法）
+     * @return 下单受理结果（含 C++ 指令号与事前风控判定）
+     * @throws BizException 鉴权失败 / 理由不合法 / 组件不可用 / 事前风控阻断
+     */
+    public PlaceOrderResult submitOrder(SubmitRequest req, long operatorId) {
+        if (req == null) {
+            throw invalid("请求体不得为空：复现=提供 subAccountId/tradePlanId/…（FR-TRADE-1）");
+        }
+        int subAccountId = requirePositive(req.subAccountId, "subAccountId（随指令显式携带，R-TRADE-1）");
+        long tradePlanId = requirePositive(req.tradePlanId, "tradePlanId（交易指令必须绑定计划，FR-TRADE-1）");
+
+        // ② 服务端权限强制点（T-102 裁定：M2 Java 下单写路径）
+        authService.assertCanTrade(operatorId, subAccountId);
+        authService.assertSubAccountWritable(operatorId, subAccountId);
+
+        // ③ 交易理由结构化必填（CFG-13 / FR-TRADE-10 第①层：Java 提交时权威，同子账户）
+        validateReasonStructured(req.reason, subAccountId, operatorId);
+
+        // ④ 计划一致性（FR-TRADE-1 验收 4/5）
+        TradePlan plan = tradePlanDao.findById(tradePlanId);
+        if (plan == null || plan.subAccountId == null || plan.subAccountId.intValue() != subAccountId) {
+            throw invalid("交易计划不存在或不属于该子账户：tradePlanId=" + tradePlanId
+                    + " subAccountId=" + subAccountId + "；复现=核对 t_trade_plan 归属（FR-TRADE-1）");
+        }
+        if (req.productId != null && plan.productId != null && plan.productId.longValue() != req.productId) {
+            throw invalid("合约品种与交易计划不一致：计划品种=" + plan.productId
+                    + " 请求品种=" + req.productId + "；复现=按计划指定品种下单（FR-TRADE-1 验收4）");
+        }
+        if (req.direction == null || !DIRECTIONS.contains(req.direction)) {
+            throw invalid("买卖方向非法：direction=" + req.direction + "（取值 BUY/SELL）");
+        }
+        if (plan.direction != null && !plan.direction.equals(req.direction)) {
+            throw invalid("指令方向与交易计划方向相反：计划=" + plan.direction + " 指令=" + req.direction
+                    + "；复现=按计划方向下单（FR-TRADE-1 验收5）");
+        }
+        requireText(req.instrumentId, "instrumentId");
+        if (req.offsetFlag == null || !OFFSET_FLAGS.contains(req.offsetFlag)) {
+            throw invalid("开平标志非法：offsetFlag=" + req.offsetFlag + "（OPEN/CLOSE/CLOSE_TODAY）");
+        }
+        String priceType = req.priceType == null ? "LIMIT" : req.priceType;
+        if (!PRICE_TYPES.contains(priceType)) {
+            throw invalid("价格类型非法：priceType=" + priceType + "（LIMIT/MARKET）");
+        }
+        if (req.volume == null || req.volume <= 0) {
+            throw invalid("指令数量必须为正：volume=" + req.volume + "；复现=补齐 volume>0（FR-TRADE-1）");
+        }
+        if ("LIMIT".equals(priceType) && (req.price == null || req.price.trim().isEmpty())) {
+            throw invalid("限价单必须给出价格：priceType=LIMIT；复现=补齐 price");
+        }
+        if (plan.planQty != null && plan.executedQty != null && plan.orderedQty != null) {
+            BigDecimal remaining = plan.planQty.subtract(plan.executedQty).subtract(plan.orderedQty);
+            if (BigDecimal.valueOf(req.volume).compareTo(remaining) > 0) {
+                throw invalid("数量超过交易计划剩余可下单量：请求=" + req.volume + " 剩余=" + remaining
+                        + "；复现=减小 volume（FR-TRADE-1 验收3）");
+            }
+        }
+
+        // ⑤ 组装并下发（不落库）
+        PlaceOrderCmd cmd = new PlaceOrderCmd();
+        cmd.subAccountId = subAccountId;
+        cmd.tradePlanId = tradePlanId;
+        cmd.productId = req.productId == null ? (plan.productId == null ? 0L : plan.productId) : req.productId;
+        cmd.instrumentId = req.instrumentId;
+        cmd.side = req.direction;
+        cmd.offsetFlag = req.offsetFlag;
+        cmd.priceType = priceType;
+        cmd.price = req.price;
+        cmd.volume = String.valueOf(req.volume);
+        cmd.tradeReasonId = 0L; // 理由尚未落库（提交路径不写库）；结构化内容随理由对象在事件回传后落库
+        cmd.operatorId = operatorId;
+        cmd.confirmToken = req.confirmToken;
+        cmd.clientOrderRef = nextOrderRef();
+
+        PlaceOrderResult result = await(bridge.placeOrder(cmd));
+        if (result == null) {
+            throw BizException.of(ErrorCode.COMPONENT_UNAVAILABLE,
+                    "交易组件未返回受理结果：复现=检查 hg-trading 是否就绪（FR-TRADE-2 验收4）");
+        }
+        if (result.systemNotReady) {
+            throw BizException.of(ErrorCode.COMPONENT_UNAVAILABLE,
+                    "交易组件未就绪（0x0401）：" + result.message
+                            + "；复现=等待组件重放完成后重试（FR-TRADE-15 验收2）");
+        }
+        if (!result.accepted) {
+            // 阻断类（10012）四项齐备：由 C++ 事前风控判定结果逐字段承载（NFR-USE-3/4）
+            throw blocked(nvl(result.ruleId, "R-RISK-2"), nvl(result.current, "-"),
+                    nvl(result.threshold, "-"), nvl(result.nextStep, "请调整后重试"),
+                    "事前风控阻断下单：code=0x" + Integer.toHexString(result.componentCode)
+                            + " ruleId=" + result.ruleId + (result.message == null ? "" : " msg=" + result.message));
+        }
+        return result;
+    }
+
+    // ================================================================== 二、人工确认 / 撤单
+
+    /**
+     * 人工确认指令（{@code FR-TRADE-2}；强制环节，系统不做自动交易）。
+     *
+     * <p>{@code operatorId} 为线格式 {@code CmdConfirmOrder.operator_id} 的逐字段承载；
+     * 与 {@code confirmToken} 分列（{@code CH-018}）。操作人须与提交人一致——由 C++ 复核（{@code 0x0305}）。
+     *
+     * @param orderId      C++ 指令号
+     * @param operatorId   操作人
+     * @param confirmToken 确认令牌
+     * @return 回执
+     */
+    public AckResult confirmOrder(long orderId, long operatorId, String confirmToken) {
+        if (orderId <= 0) {
+            throw invalid("指令号必须为正：orderId=" + orderId);
+        }
+        authService.assertCanTrade(operatorId, null);
+        requireText(confirmToken, "confirmToken（线格式必填）");
+        AckResult ack = await(bridge.confirmOrder(orderId, operatorId, confirmToken));
+        if (ack == null) {
+            throw BizException.of(ErrorCode.COMPONENT_UNAVAILABLE,
+                    "交易组件未返回确认回执：orderId=" + orderId);
+        }
+        return ack;
+    }
+
+    /**
+     * 撤单（{@code FR-TRADE-6}；仅未成交部分，{@code R-TRADE-7}）。
+     *
+     * @param orderId    C++ 指令号
+     * @param reason     撤单原因（可空）
+     * @param operatorId 操作人（{@code FR-TRADE-6} 验收 4：审计可查操作人）
+     * @return 回执
+     */
+    public AckResult cancelOrder(long orderId, String reason, long operatorId) {
+        if (orderId <= 0) {
+            throw invalid("指令号必须为正：orderId=" + orderId);
+        }
+        authService.assertCanTrade(operatorId, null);
+        AckResult ack = await(bridge.cancelOrder(orderId, reason, operatorId));
+        if (ack == null) {
+            throw BizException.of(ErrorCode.COMPONENT_UNAVAILABLE,
+                    "交易组件未返回撤单回执：orderId=" + orderId);
+        }
+        return ack;
+    }
+
+    // ================================================================== 三、交易理由（三层时点之第①层）
+
+    /**
+     * <b>交易理由结构化权威校验</b>（{@code CFG-13} / {@code FR-TRADE-10} 第①层，<b>提交时</b>，Java）。
+     *
+     * <p>三项必填：① 关联类型（8 值）；② 关联对象（计划 ID + 敞口 ID，<b>且须与指令同子账户</b>）；
+     * ③ 时点说明（5 值）。提交路径<b>不得</b>缺任一关联对象（缺即拒——{@code CH-004} 明确「提交路径未提供任一
+     * 关联对象即拒绝提交，强制性不变」；补填路径另走 {@link #reviewAndPersistReason}）。
+     *
+     * <p>「同子账户」为跨表归属比对（C++ 不访问 DB，无法判定），故<b>必须</b>在 Java 权威层读库校验
+     * （{@code CH-004}「不得只依赖 C++」）。
+     *
+     * @param r            理由（可空 ⇒ 直接拒绝）
+     * @param subAccountId 指令子账户
+     * @param operatorId   操作人（留痕用）
+     * @throws BizException 任一项不通过即抛（{@code 10012} 合规门禁）
+     */
+    public void validateReasonStructured(ReasonInput r, int subAccountId, long operatorId) {
+        if (r == null) {
+            throw invalid("交易理由结构化必填（CFG-13）：须给出 relatedType/relatedPlanId/relatedExposureId/timeDesc"
+                    + "；复现=补齐交易理由三项");
+        }
+        if (r.relatedType == null || !RELATED_TYPES.contains(r.relatedType)) {
+            throw invalid("交易理由关联类型必填且须为 8 值之一：relatedType=" + r.relatedType
+                    + "（NEW_EXPOSURE/EXPOSURE_DECREASE/PLAN_EXECUTION/ROLLOVER/RISK_DISPOSAL/"
+                    + "ERROR_CORRECTION/FORCE_CLOSE/DELIVERY）");
+        }
+        if (r.timeDesc == null || !TIME_DESCS.contains(r.timeDesc)) {
+            throw invalid("交易理由时点说明必填且须为 5 值之一：timeDesc=" + r.timeDesc
+                    + "（CONTRACT_SIGNED/PRICE_TRIGGERED/MONTHLY_REBALANCE/EXPIRY_ROLLOVER/RISK_REQUIRED）");
+        }
+        if (r.relatedPlanId == null || r.relatedExposureId == null) {
+            throw invalid("提交路径必须提供关联对象（计划 ID + 实货敞口 ID）：relatedPlanId=" + r.relatedPlanId
+                    + " relatedExposureId=" + r.relatedExposureId
+                    + "；复现=补齐两项（FR-TRADE-10 验收2；CH-004 提交路径不得暂缺）");
+        }
+        TradePlan rp = tradePlanDao.findById(r.relatedPlanId);
+        if (rp == null) {
+            throw invalid("交易理由关联的计划不存在：relatedPlanId=" + r.relatedPlanId
+                    + "；复现=核对 t_trade_plan.id");
+        }
+        Exposure re = exposureDao.findById(r.relatedExposureId);
+        if (re == null) {
+            throw invalid("交易理由关联的实货敞口不存在：relatedExposureId=" + r.relatedExposureId
+                    + "；复现=核对 t_exposure.id");
+        }
+        if (rp.subAccountId == null || re.subAccountId == null
+                || rp.subAccountId.intValue() != subAccountId
+                || re.subAccountId.intValue() != subAccountId
+                || rp.subAccountId.intValue() != re.subAccountId.intValue()) {
+            // 0x1019 语义：阻断类（10012）四项齐备（CH-004 裁定该拒绝成立且不得只依赖 C++）
+            throw blocked("R-TRADE-9", "subAccountId=" + subAccountId,
+                    "计划/敞口同子账户", "改用本子账户的计划与敞口",
+                    "交易理由关联的计划与实货敞口须与指令同子账户（0x1019）：subAccountId=" + subAccountId
+                            + " 计划子账户=" + rp.subAccountId + " 敞口子账户=" + re.subAccountId
+                            + "；复现=改用本子账户的计划与敞口（FR-TRADE-10 验收3）");
+        }
+    }
+
+    /**
+     * <b>交易理由落库复核并保存</b>（{@code FR-TRADE-10} 第③层，<b>落库复核</b>，Java）。
+     *
+     * <p>与第①层同源判据、再次比对——防止「提交后归属被并发变更」。本方法允许<b>补填态</b>暂缺关联对象
+     * （{@code forSubmitPath=false}）：两列皆空时必须标 {@code related_object_missing_flag='Y'}
+     * （{@code ck_trade_reason_related_or_missing} 结构强制）。
+     *
+     * @param orderId      已落库的交易指令主键
+     * @param r            理由
+     * @param operatorId   操作人
+     * @param forSubmitPath {@code true}=提交路径（关联对象必须齐备）；{@code false}=补填路径（可缺失并标记）
+     * @return 理由主键
+     */
+    public long reviewAndPersistReason(long orderId, ReasonInput r, long operatorId,
+                                       boolean forSubmitPath) {
+        TradeOrder order = tradeOrderDao.findById(orderId);
+        if (order == null || order.subAccountId == null) {
+            throw invalid("交易指令不存在或未携带子账户：orderId=" + orderId
+                    + "；复现=先由事件流落库指令（FR-TRADE-10 第③层）");
+        }
+        int subAccountId = order.subAccountId;
+        boolean missing = r == null || r.relatedPlanId == null || r.relatedExposureId == null;
+        if (forSubmitPath) {
+            validateReasonStructured(r, subAccountId, operatorId);
+        } else if (r != null && !missing) {
+            // 补填态给出完整关联对象时同样按权威同子账户校验（不得借补填路径绕开）
+            validateReasonStructured(r, subAccountId, operatorId);
+        }
+        TradeReason entity = new TradeReason();
+        entity.subAccountId = subAccountId;
+        entity.tradeOrderId = orderId;
+        entity.relatedType = r == null || r.relatedType == null ? "ERROR_CORRECTION" : r.relatedType;
+        entity.relatedPlanId = r == null ? null : r.relatedPlanId;
+        entity.relatedExposureId = r == null ? null : r.relatedExposureId;
+        entity.timeDesc = r == null || r.timeDesc == null ? "RISK_REQUIRED" : r.timeDesc;
+        entity.reasonText = r == null ? null : r.reasonText;
+        entity.forcedByFreqAlert = r != null && "Y".equals(r.forcedByFreqAlert) ? "Y" : "N";
+        boolean relatedMissing = missing;
+        entity.relatedObjectMissingFlag = relatedMissing ? "Y" : "N";
+        entity.operatorId = operatorId;
+        entity.fillTime = Clocks.now();
+        entity.isModified = "N";
+        entity.reasonMissingFlag = "N";
+        return tx.inTransaction(connection -> {
+            if (tradeReasonDao.insert(entity, operatorId) != 1) {
+                throw BizException.of(ErrorCode.UNIQUE_CONFLICT,
+                        "该指令已有交易理由（uk_trade_reason_order）：orderId=" + orderId);
+            }
+            return entity.id;
+        });
+    }
+
+    // ================================================================== 四、事件流回传后落库（FR-TRADE-4/5/14）
+
+    /**
+     * <b>{@code EVT_ORDER_ACCEPTED}</b>：指令被 C++ 受理 ⇒ 落 {@code t_trade_order}（{@code PENDING_CONFIRM}）
+     * 与交易理由（第③层落库复核），并<b>占用</b>交易计划量（{@code ordered_qty += volume}）。
+     *
+     * <p>⚠️ <b>事件源接线缺口（据实披露）</b>：{@code HgcpClient} 当前对 {@code EVT_*} 仅推进水位、不投递 L3，
+     * 生产无订阅者（{@code T-050} 复核 {@code D-1}）。本方法为<b>服务侧接缝</b>，供事件面接线单（{@code T-172}）
+     * 落地时调用；本任务不改 {@code bridge/**}。
+     */
+    public void onOrderAccepted(OrderAcceptedEvent e) {
+        if (e == null || e.subAccountId == null || e.tradePlanId == null) {
+            throw invalid("受理事件缺少必要字段：subAccountId/tradePlanId");
+        }
+        tx.inTransaction(connection -> {
+            TradeOrder order = new TradeOrder();
+            order.subAccountId = e.subAccountId;
+            order.clientOrderRef = e.clientOrderRef;
+            order.orderId = e.orderId;
+            order.tradePlanId = e.tradePlanId;
+            order.exposureId = e.exposureId;
+            order.productId = e.productId;
+            order.instrumentId = e.instrumentId;
+            order.instrumentType = e.instrumentType == null ? "FUTURES" : e.instrumentType;
+            order.direction = e.direction;
+            order.offsetFlag = e.offsetFlag;
+            order.priceType = e.priceType;
+            order.limitPrice = dec(e.limitPrice);
+            order.volume = e.volume;
+            order.operatorId = e.operatorId;
+            order.status = STATUS_PENDING_CONFIRM;
+            order.acceptTime = Clocks.now();
+            order.submitTime = e.submitTime == null ? Clocks.now() : e.submitTime;
+            order.clientTsMs = e.clientTsMs;
+            order.expireTime = e.expireTime;
+            if (tradeOrderDao.insert(order, e.operatorId == null ? 0L : e.operatorId) != 1) {
+                throw BizException.of(ErrorCode.UNIQUE_CONFLICT,
+                        "指令重复受理（uk_trade_order_order_id/client_order_ref）：orderId=" + e.orderId
+                                + " ref=" + e.clientOrderRef);
+            }
+            if (e.reason != null) {
+                persistReasonInternal(order.id, e.subAccountId, e.reason, e.operatorId, true);
+            }
+            occupyPlan(e.tradePlanId, e.volume);
+            return null;
+        });
+    }
+
+    /**
+     * <b>{@code EVT_ORDER_REPORT}</b>：委托回报 ⇒ 落 {@code t_trade_order_report}（幂等键 order_sys_id+status+volume_traded）
+     * 并更新指令状态。
+     */
+    public void onOrderReport(OrderReportEvent e) {
+        if (e == null || e.orderId == null) {
+            throw invalid("委托回报事件缺少 orderId");
+        }
+        tx.inTransaction(connection -> {
+            TradeOrderReport existing = tradeOrderReportDao.findByIdem(
+                    e.orderSysId, e.orderStatus, e.volumeTraded == null ? 0 : e.volumeTraded);
+            if (existing != null) {
+                return null; // 幂等：重复回报不重复落库（FR-TRADE-4 验收2）
+            }
+            TradeOrderReport row = new TradeOrderReport();
+            row.subAccountId = e.subAccountId;
+            row.orderSysId = e.orderSysId;
+            row.orderId = e.orderId;
+            row.orderLocalId = e.orderLocalId;
+            row.exchangeId = e.exchangeId;
+            row.instrumentId = e.instrumentId;
+            row.direction = e.direction;
+            row.offsetFlag = e.offsetFlag;
+            row.orderStatus = e.orderStatus;
+            row.limitPrice = dec(e.limitPrice);
+            row.volumeTotal = e.volumeTotal;
+            row.volumeTraded = e.volumeTraded;
+            row.volumeLeft = e.volumeLeft;
+            row.ctpErrorId = e.ctpErrorId;
+            row.ctpErrorMsg = e.ctpErrorMsg;
+            row.reportTsMs = e.reportTsMs;
+            row.reportTime = Clocks.now();
+            row.eventSeq = e.eventSeq;
+            tradeOrderReportDao.insert(row, 0L);
+            TradeOrder order = tradeOrderDao.findByOrderId(e.orderId);
+            if (order != null && e.mappedOrderStatus != null) {
+                order.status = e.mappedOrderStatus;
+                tradeOrderDao.updateById(order, 0L);
+            }
+            return null;
+        });
+    }
+
+    /**
+     * <b>{@code EVT_TRADE_FILL}</b>：成交 ⇒ 落 {@code t_trade_fill}（幂等键 trade_id）、更新持仓、
+     * 回写交易计划进度（{@code executed_qty += fillVolume}，并释放等量占用 {@code ordered_qty -= fillVolume}）。
+     */
+    public void onFill(FillEvent e) {
+        if (e == null || e.tradeId == null || e.fillVolume == null || e.fillVolume <= 0) {
+            throw invalid("成交事件缺少 tradeId 或 fillVolume<=0");
+        }
+        tx.inTransaction(connection -> {
+            if (tradeFillDao.findByTradeId(e.tradeId) != null) {
+                return null; // 幂等：同一成交回报重复推送不重复创建（FR-TRADE-5 验收4）
+            }
+            TradeFill fill = new TradeFill();
+            fill.subAccountId = e.subAccountId;
+            fill.tradeId = e.tradeId;
+            fill.orderId = e.orderId;
+            fill.orderSysId = e.orderSysId;
+            fill.tradePlanId = e.tradePlanId;
+            fill.exposureId = e.exposureId;
+            fill.productId = e.productId;
+            fill.instrumentId = e.instrumentId;
+            fill.instrumentType = e.instrumentType == null ? "FUTURES" : e.instrumentType;
+            fill.direction = e.direction;
+            fill.offsetFlag = e.offsetFlag;
+            fill.fillPrice = dec(e.fillPrice);
+            fill.fillVolume = e.fillVolume;
+            fill.contractMultiplier = dec(e.contractMultiplier);
+            fill.commission = dec(e.commission);
+            fill.tradeTsMs = e.tradeTsMs;
+            fill.tradeDate = e.tradeDate == null ? Clocks.today() : e.tradeDate;
+            fill.fillTime = Clocks.now();
+            fill.eventSeq = e.eventSeq;
+            fill.settledFlag = "N";
+            tradeFillDao.insert(fill, 0L);
+            if (e.tradePlanId != null) {
+                TradePlan plan = tradePlanDao.findById(e.tradePlanId);
+                if (plan != null) {
+                    plan.executedQty = nz(plan.executedQty).add(BigDecimal.valueOf(e.fillVolume));
+                    BigDecimal orderedAfter = nz(plan.orderedQty).subtract(BigDecimal.valueOf(e.fillVolume));
+                    plan.orderedQty = orderedAfter.signum() < 0 ? BigDecimal.ZERO : orderedAfter;
+                    tradePlanDao.updateById(plan, 0L);
+                }
+            }
+            return null;
+        });
+    }
+
+    /**
+     * <b>{@code EVT_POSITION_CHANGE}</b>：持仓变化 ⇒ 按四元键 {@code upsert} {@code t_position}。
+     */
+    public void onPositionChange(PositionChangeEvent e) {
+        if (e == null || e.subAccountId == null || e.instrumentId == null) {
+            throw invalid("持仓变化事件缺少 subAccountId/instrumentId");
+        }
+        tx.inTransaction(connection -> {
+            TradePosition p = tradePositionDao.findByKey(e.subAccountId, e.instrumentId,
+                    e.direction, e.positionType);
+            if (p == null) {
+                p = new TradePosition();
+                p.subAccountId = e.subAccountId;
+                p.instrumentId = e.instrumentId;
+                p.productId = e.productId;
+                p.direction = e.direction;
+                p.positionType = e.positionType;
+                p.positionQty = nz(e.positionQty);
+                p.availableQty = nz(e.availableQty);
+                p.frozenQty = nz(e.frozenQty);
+                p.avgOpenPrice = dec(e.avgOpenPrice);
+                p.lastSettlementPrice = dec(e.lastSettlementPrice);
+                p.hedgePlanId = e.hedgePlanId;
+                p.asOfTime = e.asOfTime == null ? Clocks.now() : e.asOfTime;
+                p.eventSeq = e.eventSeq;
+                tradePositionDao.insert(p, 0L);
+            } else {
+                p.positionQty = nz(e.positionQty);
+                p.availableQty = nz(e.availableQty);
+                p.frozenQty = nz(e.frozenQty);
+                p.avgOpenPrice = dec(e.avgOpenPrice);
+                p.lastSettlementPrice = dec(e.lastSettlementPrice);
+                p.asOfTime = e.asOfTime == null ? Clocks.now() : e.asOfTime;
+                p.eventSeq = e.eventSeq;
+                tradePositionDao.updateById(p, 0L);
+            }
+            return null;
+        });
+    }
+
+    /**
+     * <b>{@code EVT_PRE_TRADE_REJECT}</b>：事前风控拒绝（合规证据，只增不改不删）⇒ 落 {@code t_pre_trade_reject}
+     * （幂等键 client_order_ref+rule_id）。
+     */
+    public void onPreTradeReject(PreTradeRejectEvent e) {
+        if (e == null || e.clientOrderRef == null) {
+            throw invalid("事前风控拒绝事件缺少 clientOrderRef");
+        }
+        tx.inTransaction(connection -> {
+            if (preTradeRejectDao.findByIdem(e.clientOrderRef, e.ruleId) != null) {
+                return null;
+            }
+            TradePreTradeReject row = new TradePreTradeReject();
+            row.subAccountId = e.subAccountId;
+            row.clientOrderRef = e.clientOrderRef;
+            row.orderDigest = e.orderDigest;
+            row.productId = e.productId;
+            row.instrumentId = e.instrumentId;
+            row.direction = e.direction;
+            row.volume = e.volume;
+            row.ruleId = e.ruleId;
+            row.rejectCode = e.rejectCode;
+            row.limitLayer = e.limitLayer;
+            row.currentValue = e.currentValue == null ? "-" : e.currentValue;
+            row.thresholdValue = e.thresholdValue == null ? "-" : e.thresholdValue;
+            row.rejectReason = e.rejectReason;
+            row.operatorId = e.operatorId;
+            row.rejectTsMs = e.rejectTsMs;
+            row.rejectTime = Clocks.now();
+            row.tradeDate = e.tradeDate == null ? Clocks.today() : e.tradeDate;
+            row.eventSeq = e.eventSeq;
+            row.reportedRetryCount = 0;
+            preTradeRejectDao.insert(row, 0L);
+            return null;
+        });
+    }
+
+    /**
+     * <b>{@code EVT_COMMAND_FLOW}</b>：指令流水镜像（只增不改）⇒ 落 {@code t_command_flow}
+     * （幂等键 client_order_ref+flow_type+flow_ts_ms）。
+     */
+    public void onCommandFlow(CommandFlowEvent e) {
+        if (e == null || e.clientOrderRef == null || e.flowType == null) {
+            throw invalid("指令流水事件缺少 clientOrderRef/flowType");
+        }
+        tx.inTransaction(connection -> {
+            TradeCommandFlow row = new TradeCommandFlow();
+            row.subAccountId = e.subAccountId;
+            row.orderId = e.orderId;
+            row.clientOrderRef = e.clientOrderRef;
+            row.flowType = e.flowType;
+            row.flowDetail = e.flowDetail;
+            row.flowTsMs = e.flowTsMs;
+            row.flowTime = Clocks.now();
+            row.eventSeq = e.eventSeq;
+            row.replayMarker = e.replayMarker == null ? "LIVE" : e.replayMarker;
+            commandFlowDao.insert(row, 0L);
+            return null;
+        });
+    }
+
+    /**
+     * <b>{@code EVT_ORDER_CANCEL_RESULT} / {@code EVT_ORDER_EXPIRED}</b>：终态 ⇒ 更新指令状态并
+     * <b>释放</b>未成交的占用（{@code ordered_qty -= releaseVolume}）。
+     */
+    public void onOrderTerminal(OrderTerminalEvent e) {
+        if (e == null || e.orderId == null || e.status == null) {
+            throw invalid("指令终态事件缺少 orderId/status");
+        }
+        tx.inTransaction(connection -> {
+            TradeOrder order = tradeOrderDao.findByOrderId(e.orderId);
+            if (order == null) {
+                return null;
+            }
+            order.status = e.status;
+            if (STATUS_CANCELLED.equals(e.status)) {
+                order.cancelReason = e.cancelReason;
+                order.cancelOperatorId = e.operatorId;
+                order.cancelTime = Clocks.now();
+            }
+            tradeOrderDao.updateById(order, e.operatorId == null ? 0L : e.operatorId);
+            if (order.tradePlanId != null && e.releaseVolume != null && e.releaseVolume > 0) {
+                TradePlan plan = tradePlanDao.findById(order.tradePlanId);
+                if (plan != null) {
+                    BigDecimal after = nz(plan.orderedQty).subtract(BigDecimal.valueOf(e.releaseVolume));
+                    plan.orderedQty = after.signum() < 0 ? BigDecimal.ZERO : after;
+                    tradePlanDao.updateById(plan, 0L);
+                }
+            }
+            return null;
+        });
+    }
+
+    // ================================================================== 内部工具
+
+    /** 占用交易计划量（受理时 {@code ordered_qty += volume}）。 */
+    private void occupyPlan(long tradePlanId, Integer volume) {
+        if (volume == null || volume <= 0) {
+            return;
+        }
+        TradePlan plan = tradePlanDao.findById(tradePlanId);
+        if (plan == null) {
+            return;
+        }
+        plan.orderedQty = nz(plan.orderedQty).add(BigDecimal.valueOf(volume));
+        tradePlanDao.updateById(plan, 0L);
+    }
+
+    /** 理由落库（内部，不重复开事务——由调用方事务承载）。 */
+    private void persistReasonInternal(long orderId, int subAccountId, ReasonInput r, Long operatorId,
+                                       boolean forSubmitPath) {
+        if (forSubmitPath) {
+            validateReasonStructured(r, subAccountId, operatorId == null ? 0L : operatorId);
+        }
+        TradeReason entity = new TradeReason();
+        entity.subAccountId = subAccountId;
+        entity.tradeOrderId = orderId;
+        entity.relatedType = r.relatedType;
+        entity.relatedPlanId = r.relatedPlanId;
+        entity.relatedExposureId = r.relatedExposureId;
+        entity.timeDesc = r.timeDesc;
+        entity.reasonText = r.reasonText;
+        entity.forcedByFreqAlert = "Y".equals(r.forcedByFreqAlert) ? "Y" : "N";
+        entity.relatedObjectMissingFlag = "N";
+        entity.operatorId = operatorId;
+        entity.fillTime = Clocks.now();
+        entity.isModified = "N";
+        entity.reasonMissingFlag = "N";
+        tradeReasonDao.insert(entity, operatorId == null ? 0L : operatorId);
+    }
+
+    /** 生成当日幂等键（应用层内存分配，不读库）。 */
+    private String nextOrderRef() {
+        synchronized (orderRefLock) {
+            LocalDate today = Clocks.today();
+            if (!today.equals(orderRefDay)) {
+                orderRefDay = today;
+                orderRefSeq = 0L;
+            }
+            orderRefSeq++;
+            return BizNoGenerator.orderRef(today, orderRefSeq);
+        }
+    }
+
+    /** 等待桥异步结果（提交/确认/撤单同姿态）。 */
+    private static <T> T await(CompletableFuture<T> future) {
+        if (future == null) {
+            return null;
+        }
+        try {
+            return future.get(BRIDGE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            throw BizException.of(ErrorCode.COMPONENT_UNAVAILABLE,
+                    "交易组件回执超时（" + BRIDGE_TIMEOUT_MS + " ms）：复现=检查 hg-trading 连通性");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw BizException.of(ErrorCode.COMPONENT_UNAVAILABLE, "等待交易组件回执被中断");
+        } catch (ExecutionException e) {
+            LOG.log(Level.WARNING, "交易组件调用异常", e.getCause());
+            throw BizException.of(ErrorCode.COMPONENT_UNAVAILABLE,
+                    "交易组件调用异常：" + (e.getCause() == null ? e.getMessage() : e.getCause().getMessage()));
+        }
+    }
+
+    /** 参数 / 结构化校验失败（{@code 10001}，非阈值型）。 */
+    private static BizException invalid(String message) {
+        return BizException.of(ErrorCode.PARAM_INVALID, message);
+    }
+
+    /** 阈值型阻断（{@code 10012}，四项必填；{@code NFR-USE-3/4}）。 */
+    private static BizException blocked(String ruleId, String current, String threshold,
+                                        String nextStep, String message) {
+        return BizException.blocking(ErrorCode.COMPLIANCE_GATE_FAILED, message,
+                ruleId, current, threshold, nextStep);
+    }
+
+    private static int requirePositive(Integer value, String what) {
+        if (value == null || value <= 0) {
+            throw invalid(what + " 必填且必须为正：值=" + value);
+        }
+        return value;
+    }
+
+    private static long requirePositive(Long value, String what) {
+        if (value == null || value <= 0) {
+            throw invalid(what + " 必填且必须为正：值=" + value);
+        }
+        return value;
+    }
+
+    private static void requireText(String value, String what) {
+        if (value == null || value.trim().isEmpty()) {
+            throw invalid(what + " 不得为空；复现=补齐后重试");
+        }
+    }
+
+    private static BigDecimal dec(String value) {
+        return value == null || value.trim().isEmpty() ? null : new BigDecimal(value);
+    }
+
+    private static BigDecimal nz(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
+    }
+
+    private static String nvl(String value, String fallback) {
+        return value == null || value.trim().isEmpty() ? fallback : value;
+    }
+
+    private static Set<String> unmodifiable(String... values) {
+        return Collections.unmodifiableSet(new LinkedHashSet<>(Arrays.asList(values)));
+    }
+
+    // ================================================================== DTO
+
+    /** 提交请求（{@code POST /trade/order} 请求体）。 */
+    public static final class SubmitRequest {
+        /** 子账户（显式携带，必填）。 */
+        public Integer subAccountId;
+        /** 交易计划 ID（必填）。 */
+        public Long tradePlanId;
+        /** 实货敞口 ID（订单侧，可空；权威校验以 reason 内为准）。 */
+        public Long exposureId;
+        /** 品种 ID（可空；非空时须与计划一致）。 */
+        public Long productId;
+        /** 合约代码（必填）。 */
+        public String instrumentId;
+        /** 买卖方向 BUY/SELL（必填，须与计划一致）。 */
+        public String direction;
+        /** 开平标志 OPEN/CLOSE/CLOSE_TODAY（必填）。 */
+        public String offsetFlag;
+        /** 价格类型 LIMIT/MARKET（缺省 LIMIT）。 */
+        public String priceType;
+        /** 委托价（LIMIT 必填）。 */
+        public String price;
+        /** 数量（手，必填且 >0）。 */
+        public Integer volume;
+        /** 二次确认令牌（价格偏离告警区间时必填，{@code 0x1018}）。 */
+        public String confirmToken;
+        /** 交易理由（结构化必填）。 */
+        public ReasonInput reason;
+    }
+
+    /** 交易理由结构化输入（{@code CFG-13}）。 */
+    public static final class ReasonInput {
+        /** 关联类型（8 值，必填）。 */
+        public String relatedType;
+        /** 关联对象①计划 ID（提交路径必填）。 */
+        public Long relatedPlanId;
+        /** 关联对象②实货敞口 ID（提交路径必填）。 */
+        public Long relatedExposureId;
+        /** 时点说明（5 值，必填）。 */
+        public String timeDesc;
+        /** 可选补充说明。 */
+        public String reasonText;
+        /** 是否触发频繁开平仓强制填写（Y/N，可空）。 */
+        public String forcedByFreqAlert;
+    }
+
+    /** {@code EVT_ORDER_ACCEPTED} 事件载荷。 */
+    public static final class OrderAcceptedEvent {
+        public Integer subAccountId;
+        public Long orderId;
+        public String clientOrderRef;
+        public Long tradePlanId;
+        public Long exposureId;
+        public Long productId;
+        public String instrumentId;
+        public String instrumentType;
+        public String direction;
+        public String offsetFlag;
+        public String priceType;
+        public String limitPrice;
+        public Integer volume;
+        public Long operatorId;
+        public Long clientTsMs;
+        public LocalDateTime submitTime;
+        public LocalDateTime expireTime;
+        public ReasonInput reason;
+    }
+
+    /** {@code EVT_ORDER_REPORT} 事件载荷。 */
+    public static final class OrderReportEvent {
+        public Integer subAccountId;
+        public Long orderId;
+        public String orderSysId;
+        public String orderLocalId;
+        public String exchangeId;
+        public String instrumentId;
+        public String direction;
+        public String offsetFlag;
+        public String orderStatus;
+        public String limitPrice;
+        public Integer volumeTotal;
+        public Integer volumeTraded;
+        public Integer volumeLeft;
+        public Integer ctpErrorId;
+        public String ctpErrorMsg;
+        public Long reportTsMs;
+        public Long eventSeq;
+        /** 映射后的指令状态（可空；空则不更新指令）。 */
+        public String mappedOrderStatus;
+    }
+
+    /** {@code EVT_TRADE_FILL} 事件载荷。 */
+    public static final class FillEvent {
+        public Integer subAccountId;
+        public String tradeId;
+        public Long orderId;
+        public String orderSysId;
+        public Long tradePlanId;
+        public Long exposureId;
+        public Long productId;
+        public String instrumentId;
+        public String instrumentType;
+        public String direction;
+        public String offsetFlag;
+        public String fillPrice;
+        public Integer fillVolume;
+        public String contractMultiplier;
+        public String commission;
+        public Long tradeTsMs;
+        public LocalDate tradeDate;
+        public Long eventSeq;
+    }
+
+    /** {@code EVT_POSITION_CHANGE} 事件载荷。 */
+    public static final class PositionChangeEvent {
+        public Integer subAccountId;
+        public String instrumentId;
+        public Long productId;
+        public String direction;
+        public String positionType;
+        public BigDecimal positionQty;
+        public BigDecimal availableQty;
+        public BigDecimal frozenQty;
+        public String avgOpenPrice;
+        public String lastSettlementPrice;
+        public Long hedgePlanId;
+        public LocalDateTime asOfTime;
+        public Long eventSeq;
+    }
+
+    /** {@code EVT_PRE_TRADE_REJECT} 事件载荷。 */
+    public static final class PreTradeRejectEvent {
+        public Integer subAccountId;
+        public String clientOrderRef;
+        public String orderDigest;
+        public Long productId;
+        public String instrumentId;
+        public String direction;
+        public Integer volume;
+        public String ruleId;
+        public String rejectCode;
+        public String limitLayer;
+        public String currentValue;
+        public String thresholdValue;
+        public String rejectReason;
+        public Long operatorId;
+        public Long rejectTsMs;
+        public LocalDate tradeDate;
+        public Long eventSeq;
+    }
+
+    /** {@code EVT_COMMAND_FLOW} 事件载荷。 */
+    public static final class CommandFlowEvent {
+        public Integer subAccountId;
+        public Long orderId;
+        public String clientOrderRef;
+        public String flowType;
+        public String flowDetail;
+        public Long flowTsMs;
+        public Long eventSeq;
+        public String replayMarker;
+    }
+
+    /** 指令终态事件载荷（{@code EVT_ORDER_CANCEL_RESULT} / {@code EVT_ORDER_EXPIRED}）。 */
+    public static final class OrderTerminalEvent {
+        public Long orderId;
+        public String status;
+        public String cancelReason;
+        public Long operatorId;
+        public Integer releaseVolume;
+    }
+}

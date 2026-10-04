@@ -116,7 +116,7 @@ class BootstrapAssemblyTest {
     // ------------------------------------------------------------------ 2b. 正分支：直接断言业务路由注册
 
     @Test
-    @DisplayName("🔴 正分支直接断言：配了 hg.db.url（假驱动）时 6 个注册器真的被调用、84 条路由真的注册")
+    @DisplayName("🔴 正分支直接断言：配了 hg.db.url（假驱动）时 7 个注册器真的被调用、87 条路由真的注册")
     void configuredDatabaseRegistersAllBusinessRoutes() {
         System.setProperty(Config.KEY_DB_URL, "jdbc:dm://127.0.0.1:5236/HG");
         System.setProperty(Config.KEY_DB_DRIVER, FakeJdbcDriver.class.getName());
@@ -146,8 +146,13 @@ class BootstrapAssemblyTest {
             //   /risk/mirror-status、ARCHITECTURE.md §3.11 J5 事中风控 REST 面）——RiskRoutes 于既有已声明
             //   路径上新增 1 个 (方法,路径) 对（GET），RISK 由 0 增为 1，业务路由 82
             //   （AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK1）+ ping 2 = 84。非为过测试而放宽断言。
-            assertEquals(84, assembly.routeCount(),
-                    "业务路由必须全部注册：82（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK1）+ ping 2");
+            // 【T-046 订正（加注）】断言值由 84 订正为 87：订正理由 = 需求面（`ApiRoutes` 声明 TRADE 模块
+            //   12 条路径；`ARCHITECTURE.md` §3.8 `TradeService` 交易执行主链）。本任务只注册交易执行
+            //   最小写/动作面 3 条 POST（`/trade/order`、`/trade/order/{id}/confirm`、`/trade/order/{id}/cancel`），
+            //   TRADE 由 0 增为 3，业务路由 85（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK1/TRADE3）+ ping 2 = 87。
+            //   非为过测试而放宽断言。
+            assertEquals(87, assembly.routeCount(),
+                    "业务路由必须全部注册：85（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK1/TRADE3）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。
             // （不真发 HTTP：经 RequestDispatcher 进程内分发；handler 因无真实库而 4xx/5xx 皆可，
