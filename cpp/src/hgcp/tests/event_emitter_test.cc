@@ -797,6 +797,66 @@ void test_emit_without_loop() {
   HG_REQUIRE_EQ(em.rebuild_count(), 0u);
 }
 
+// ── 验收 1（O-1 增量）：补齐编码类型化包装器的 **wire type 守卫** ──────────────
+// 既有用例经通用 emit() 覆盖 body/schema，未触达类型化包装器；本用例逐一调用
+// emit_command_flow / emit_fund_receipt / emit_market_quote / emit_ctp_state /
+// emit_trading_alert（emit_position_change 已由全量重建用例覆盖），捕获出站帧并
+// 断言帧 wire type **恰等于**对应 MessageType —— 包装器误用他类型（MUT-J 形态：
+// emit_ctp_state 传 kEvtTradingAlert）时本用例必判红（原 8 用例全绿无法发现）。
+void test_typed_wrapper_wire_types() {
+  HgcpServerLoop srv;
+  HG_REQUIRE(srv.start() == BindStatus::kOk);
+  EventEmitter em(&srv);
+  TestClient* cli = 0;
+  bring_up(&srv, &em, &cli);
+
+  // 每类一个最小合法载荷（标记值互异，防串帧）。
+  pbv1::EvtCommandFlow cf;
+  cf.set_order_id(101);
+  cf.set_flow_type(pbv1::FLOW_TYPE_SENT);
+  cf.set_flow_ts_ms(1);
+  pbv1::EvtFundReceipt fr;
+  fr.set_idempotency_key("K101");
+  fr.set_apply_id("A101");
+  fr.set_result(pbv1::FUND_RESULT_SUCCESS);
+  fr.set_amount("100.0000");
+  fr.set_receipt_ts_ms(2);
+  pbv1::EvtMarketQuote mq;
+  mq.set_instrument_id("CU2601");
+  mq.set_last_price("70000");
+  mq.set_quote_ts_ms(3);
+  pbv1::EvtCtpState cs;
+  cs.set_trade_connected(true);
+  cs.set_md_connected(false);
+  cs.set_state_change_ts_ms(4);
+  pbv1::EvtTradingAlert ta;
+  ta.set_alert_code(60001);
+  ta.set_level(pbv1::ALERT_LEVEL_WARNING);
+  ta.set_alert_ts_ms(5);
+
+  // 经**类型化包装器**（非通用 emit）出站 ⇒ 各自 kSent。
+  HG_REQUIRE(em.emit_command_flow(cf) == EmitStatus::kSent);
+  HG_REQUIRE(em.emit_fund_receipt(fr) == EmitStatus::kSent);
+  HG_REQUIRE(em.emit_market_quote(mq) == EmitStatus::kSent);
+  HG_REQUIRE(em.emit_ctp_state(cs) == EmitStatus::kSent);
+  HG_REQUIRE(em.emit_trading_alert(ta) == EmitStatus::kSent);
+
+  // 逐帧接收：wire type 必须与调用顺序**一一对应**（任一位错位即包装器类型实参错）。
+  const std::uint16_t want[5] = {
+      mt(MessageType::kEvtCommandFlow), mt(MessageType::kEvtFundReceipt),
+      mt(MessageType::kEvtMarketQuote), mt(MessageType::kEvtCtpState),
+      mt(MessageType::kEvtTradingAlert)};
+  for (int i = 0; i < 5; ++i) {
+    Frame f;
+    HG_REQUIRE(cli->recv_frame(1000, &f));
+    HG_REQUIRE_EQ(f.header.type, want[i]);
+    // 附：body 仍可由**对应类型**校验（类型↔载荷一致，非仅帧头贴标）。
+    HG_REQUIRE(PbPayloadCodec().validate(want[i], f.body));
+  }
+  em.detach();
+  cli->close();
+}
+
 }  // namespace
 
 int main() {
@@ -808,5 +868,6 @@ int main() {
   test_gap_too_large_0306_and_full_rebuild();
   test_stress_1000_in_order();
   test_emit_without_loop();
+  test_typed_wrapper_wire_types();
   return ::hg::hgcp::testutil::report("hgcp.event_emitter_test");
 }
