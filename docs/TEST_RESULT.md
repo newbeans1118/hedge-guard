@@ -16290,3 +16290,25 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **观察（7，不阻断）**：O-2 生产装配未接线（登记承接点）；O-3 窗口 1000ms 工程取值（ARCH 仅「短窗口」、§11 无 CFG 键，可覆写）；O-4 boot_seen_ 只增不删（加入前提=令牌已过，低风险）；O-5 空 boot_id 跳过重放（真联时定「是否应拒」）；O-6 server_loop.h:19 顶部注释仍写 verify_audited（归 T-176 顺带微修）；O-7 verify_audited 无生产调用点（公共 API+测试仍用，清理须走接口变更流程）。
 
 **编排者亲核记录**：回执四要素（提交面 10 文件/proto 红线/关键符号 auth.h:26-33 与 auth.cc:91/:106/树锚 90f8bac0…/138）交付当日亲测与复核席独立实测一致。
+
+---
+
+## T-176 独立复核证据（席 te-verify-t176；2026-10-05 第 192 轮 · 编排者逐字转录）
+
+**结论：通过 / 0 缺陷 / 6 观察。**
+
+**冻结点与范围**：HEAD 8c4e1e1；恰 7 文件 +351/−15 全在 cpp/src/hgcp/**（session.cc/h、server_loop.cc/h、CMakeLists、tests/seq_out_of_order_test.cc 新 299 行、tests/event_emitter_test.cc 驱动修复）；proto/hgcp.proto md5 a1762e53f51e937f0ec6975d45125c43 未动；树锚（cpp/src 口径）90f8bac0db95144fca8201fede84ffa3/138 → 48097049da86ddae31fa374deeaa595d/139。
+
+**语义对 ARCH（逐字）**：§4.3.2:1343 触发条件「SEQ ≤ 已收最大 或 出现缺口」——核心分支 last_received_seq_!=0 && seq<=last_received_seq_ 逐字对应；seq_out_of_order_ 与 seq_gap_ 逐帧互斥；回退不回退 last_received_seq_；连接保持（0x0106 无连接生命周期明文，处置=触发补数须同连接 ⇒ 一致；与 T-175 鉴权失败立即断连差别恰当）。
+
+**门禁独立复跑（隔离副本 /root/t176v = git archive HEAD）**：stub ctest 45/45（#44 seq_out_of_order_test PASS）、arch rc0（E1–E8 全 0）；checks：seq 45 / session 51 / transport 3070 / protocol_special 114 / event_emitter 95862 不回归。
+
+**变异独立重做**：M1 session.cc:104 检出中和 ⇒ 3 fail（:205/:219/:271）rc1；M2 server_loop.cc:172 回码中和 ⇒ 2 fail（:268/:271）rc1；复原 md5 与 git blob 逐字节一致、targeted 复绿 45/0。★方法学留痕：首次 M2 因 tar 保留旧 mtime 致 make 跳过 session.cc 重编、读到 M1 残留假结果 ⇒ touch 后重做得净结果（构建产物永不作锚点的又一实证）。
+
+**自设探针 + 误报面反证**：probe_reconnect_duplicate_exclusive（11 checks）：重连复位一次性信号但 last 保留 ⇒ 低 SEQ 检出不置 gap；重复帧（==已收最大）检出；gap 与回退逐帧互斥。正常前向 2→3 与既有缺口 5(缺4) 显式断言 150ms 无帧不误报；补数回放（CH-007 线路侧 SEQ 连续）为 C→J 出站不经 C++ 入站检出面，与 0x0106 不冲突。
+
+**event_emitter 驱动修复独立追认（编排者裁定 + 复核席确认）**：旧假夹具重连 HELLO 复用 seq=1（do_handshake :179/:413/:480 三调用点）、cli2 RESUME_REQ 复用 ⇒ 均被 T-176 检出（正确命中，旧码无检出故旧测可过）；修法仅 next_client_seq() 单调计数器、6 调用点、断言零增删；95862 checks 与基线一致；交叉核 Java：HgcpClient 单例 AtomicLong nextSeq=1 无重置、唯一使用点 writeFrame(:908) ⇒ 生产客户端本就跨重连单调，修复=夹具对齐真实语义，非掩盖缺陷。
+
+**观察（6，不阻断）**：O-1 ARCH :1343「出现缺口」亦列 0x0106 触发条件，本实现缺口路径仅置标志、seq_gap_pending() 生产零消费者 ⇒「缺口→补数」C++ 端到端未闭环（按「不自行加缓冲」限定口径，非本单缺陷）⇒ 承接点真联编排；O-2 连接保持=ARCH 未明文但与处置一致（表述细化）；O-3 Java onError 对 0x0106 仅 LOG.warning 不触发补数 ⇒ 跨端闭环缺位（承接真联/Java 单）；O-4 回退帧仍交付（feed 先 push 后检出），下游靠 business_id 幂等兜底（§4.2.6/NFR-REL-5）；O-5 夹具 static 计数器跨实例单调（形态提示）；O-6 「0x0106→补数」生产消费者缺位（与 T-175 O-2 同态，登记承接点）。
+
+**编排者亲核记录**：回执四要素（提交面 7 文件/proto 红线/关键点 session.cc:104、server_loop.cc:172-173/树锚 48097049…/139）交付当日亲测与复核席独立实测一致；「红线命中 1」系 commit message 正文 grep 误报（--name-only 含 message，T-158 镜像判例）；驱动修复裁定依 ARCH :981/:786 明文作出。
