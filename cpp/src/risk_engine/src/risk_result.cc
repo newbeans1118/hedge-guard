@@ -14,6 +14,7 @@ const char* ruleIdName(RuleId r) {
     case RuleId::kTerm: return "R-RISK-6";
     case RuleId::kPermission: return "R-RISK-7";
     case RuleId::kPriceDeviation: return "R-RISK-8";
+    case RuleId::kRelatedObject: return "R-TRADE-9";
     case RuleId::kInput: return "R-INPUT";
     case RuleId::kNone: default: return "NONE";
   }
@@ -64,6 +65,7 @@ const char* riskCodeName(std::uint32_t code) {
     case 0x1016: return "RISK_MARKET_ORDER_DEVIATION_NA";
     case 0x1017: return "RISK_SUB_INSTRUMENT_QUOTA_INSUFFICIENT";
     case 0x1018: return "RISK_PRICE_DEVIATION_WARN";
+    case 0x1019: return "RISK_RELATED_OBJECT_SUB_MISMATCH";
     case 0x3003: return "UNSUPPORTED_OPERATION";
     default: return "UNKNOWN";
   }

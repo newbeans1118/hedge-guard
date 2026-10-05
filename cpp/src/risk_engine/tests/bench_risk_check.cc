@@ -138,6 +138,8 @@ int main() {
   OrderRequest q;
   q.client_order_ref = 1;
   q.trade_plan_id = 1000;
+  q.related_plan_id = 1000;        // T-173：关联对象（plan 1000 @ sub=1）
+  q.related_exposure_id = 5;
   q.sub_account_id = 1;
   q.product_id = 1;
   q.instrument_id = 1;

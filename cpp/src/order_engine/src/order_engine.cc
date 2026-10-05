@@ -140,6 +140,9 @@ OrderRequest OrderEngine::buildRequest(const OrderRecord& rec) const {
   req.client_order_ref = rec.order_id;  // 数值域引用（真实字符串引用在档案）
   req.trade_plan_id = rec.input.trade_plan_id;
   req.exposure_id = rec.input.exposure_id;
+  // T-173：交易理由关联对象透传至风控入参（0x1019 兜底复核所需）。
+  req.related_plan_id = rec.input.related_plan_id;
+  req.related_exposure_id = rec.input.related_exposure_id;
   req.sub_account_id = rec.input.sub_account_id;
   req.product_id = rec.input.product_id;
   req.instrument_id = rec.input.instrument_key;

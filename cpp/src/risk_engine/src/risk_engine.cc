@@ -66,6 +66,7 @@ const std::uint32_t kErrPriceBlock = 0x1010;
 const std::uint32_t kErrNoBasePrice = 0x1015;
 const std::uint32_t kErrSubInstrumentQuota = 0x1017;
 const std::uint32_t kErrPriceWarn = 0x1018;
+const std::uint32_t kErrRelatedObjectSubMismatch = 0x1019;
 const std::uint32_t kErrInvalidRequest = 0x3003;
 
 // ---- 数值工具 ----
@@ -478,6 +479,36 @@ void evalPrice(const OrderRequest& req, const RiskThresholds& th, RiskResult& r)
   }
 }
 
+// =============================================================================
+// 交易理由关联对象兼容性（0x1019；`FR-TRADE-10` / `R-TRADE-9`；T-173 / `CH-020`）
+//   三层时点第②层（C++ 兜底）——**纯内存独立实现，不采信 Java 结论**：
+//     ① 关联对象存在性：`related_plan_id` / `related_exposure_id` 任一为 0 ⇒ 拒绝
+//        （协议级必填；`CmdPlaceOrder` 字段 19/20 标「必」）。
+//     ② 关联计划归属：`related_plan_id` 若能在本快照 `PlanState` 中解析，则其 `sub_account_id`
+//        必须等于指令 `sub_account_id`，否则拒绝（跨子账户）。
+//   ⚠️ **判据边界（诚实披露）**：本快照 `ExposureState` 键为 (子账户, 品种, 方向)，**不含
+//      `exposure_id`** ⇒ C++ 无法按 id 判定 `related_exposure_id` 的跨表归属。此与
+//      `REQUIREMENTS/TRADE.md` `R-TRADE-9`「C++ 不访问 DB，无法判定跨表归属」一致 ——
+//      `related_exposure_id` 的 id 级归属由 Java 第①层权威校验（DB 事务内）与第③层落库复核保证。
+//      `related_plan_id` 在快照中不可解析时（计划未随参数下发）**不误拒**（无法判定 ≠ 不一致）。
+// =============================================================================
+void evalRelatedObject(const RiskSnapshot& s, const OrderRequest& req, RiskResult& r) {
+  if (req.related_plan_id == 0 || req.related_exposure_id == 0) {
+    addEntry(r, RuleId::kRelatedObject, kErrRelatedObjectSubMismatch, LimitLayer::kNone, 0,
+             ValueScale::kCount, 1, ValueScale::kCount,
+             "related object missing (related_plan_id / related_exposure_id required)");
+    markReject(r, RuleId::kRelatedObject, kErrRelatedObjectSubMismatch);
+    return;
+  }
+  const PlanEntry* related = findPlan(s, req.related_plan_id);
+  if (related != nullptr && related->sub_account_id != req.sub_account_id) {
+    addEntry(r, RuleId::kRelatedObject, kErrRelatedObjectSubMismatch, LimitLayer::kNone,
+             related->sub_account_id, ValueScale::kCount, req.sub_account_id, ValueScale::kCount,
+             "related plan sub_account mismatch (0x1019)");
+    markReject(r, RuleId::kRelatedObject, kErrRelatedObjectSubMismatch);
+  }
+}
+
 }  // namespace
 
 // =============================================================================
@@ -564,6 +595,9 @@ RiskResult RiskEngine::check(const OrderRequest& req) const {
   evalTerm(*s, req, thresholds_, today, is_open, r);
   evalPermission(*s, req, r);
   evalPrice(req, thresholds_, r);
+  // 关联对象兼容性（0x1019；T-173）：不属 R-RISK-1~8 规范序，列于其后求值——
+  //   仅当其余规则均未拒绝时才成为上报规则；无论顺序，命中项均入 entries[]（审计可见）。
+  evalRelatedObject(*s, req, r);
   return r;
 }
 

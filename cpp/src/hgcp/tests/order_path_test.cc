@@ -102,8 +102,16 @@ struct Rig {
   CommandHandler h{&state};
 
   Rig() {
-    HG_ABORT_IF(!bind(&state, &risk,
-                      hg::risk_engine::testutil::happyBatch(1)));
+    // T-173：在基础批上加入属于 sub=2 的外来计划 2000（验证 0x1019 关联计划跨子账户拒绝链）。
+    hg::risk_state::LoadBatch b = hg::risk_engine::testutil::happyBatch(1);
+    hg::risk_state::PlanEntry p2;
+    p2.sub_account_id = 2;
+    p2.product_id = 10;
+    p2.status = hg::risk_state::PlanStatus::kActive;
+    p2.term_start_date = 20260101;
+    p2.term_end_date = 20260601;
+    b.putPlan(2000, p2);
+    HG_ABORT_IF(!bind(&state, &risk, b));
     HG_ABORT_IF(!flow.open("/root/t036-path-flow.log"));
     eng.setPrevSettlement("100", 1000000);  // 昨结算 = 限价 ⇒ 偏离 0
     h.set_order_engine(&eng);
@@ -261,6 +269,32 @@ void test_lazy_expire_event() {
   HG_CHECK_EQ(r.eng.find(1)->status, hg::order_engine::OrderStatus::kExpired);
 }
 
+// ── 8. T-173：交易理由关联对象跨子账户 ⇒ 0x1019（承载链 pb→OrderInput→buildRequest→risk_engine）
+void test_place_related_object_cross_sub_rejected() {
+  Rig r;
+  // 正控：related_plan_id=1000 @ sub=1（与指令同子账户）⇒ 受理。
+  {
+    const CommandOutcome ok =
+        r.h.handle(mt(MessageType::kCmdPlaceOrder), enc(basePlace("HG9")), 9, 1000);
+    HG_CHECK(ok.reply.type == mt(MessageType::kMsgAck));
+    HG_CHECK_EQ(ok.events.size(), static_cast<std::size_t>(1));
+    HG_CHECK_EQ(ok.events[0].type, mt(MessageType::kEvtOrderAccepted));
+  }
+  // 命中：related_plan_id=2000 @ sub=2（跨子账户）⇒ 0x1019 + EVT_PRE_TRADE_REJECT。
+  {
+    pbv1::CmdPlaceOrder m = basePlace("HG10");
+    m.set_related_plan_id(2000);
+    const CommandOutcome o = r.h.handle(mt(MessageType::kCmdPlaceOrder), enc(m), 10, 1000);
+    HG_CHECK(is_err(o, 0x1019));
+    HG_CHECK_EQ(o.events.size(), static_cast<std::size_t>(1));
+    HG_CHECK_EQ(o.events[0].type, mt(MessageType::kEvtPreTradeReject));
+    pbv1::EvtPreTradeReject e;
+    HG_CHECK(PbPayloadCodec::decode(o.events[0].body, &e));
+    HG_CHECK_EQ(e.reason_code(), static_cast<std::uint32_t>(0x1019));
+    HG_CHECK(e.rule_id() == "R-TRADE-9");
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -272,5 +306,6 @@ int main() {
   test_confirm_path();
   test_cancel_path();
   test_lazy_expire_event();
+  test_place_related_object_cross_sub_rejected();
   return report("hgcp.order_path");
 }

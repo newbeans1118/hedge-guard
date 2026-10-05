@@ -46,7 +46,8 @@ set(RISK_ENGINE_UNIT_TESTS
   risk_engine_price_deviation_test
   risk_engine_double_layer_test
   risk_engine_purity_test
-  risk_engine_close_exemption_test)
+  risk_engine_close_exemption_test
+  risk_engine_related_object_test)
 
 foreach(_t ${RISK_ENGINE_UNIT_TESTS})
   add_executable(risk_engine_${_t} "tests/${_t}.cc")

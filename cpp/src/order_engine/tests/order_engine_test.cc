@@ -83,6 +83,9 @@ OrderInput baseInput(const char* ref) {
   in.client_order_ref = ref;
   in.trade_plan_id = 1000;
   in.exposure_id = 5;
+  // T-173：关联对象（协议级必填；与 happyBatch 的 plan 1000 @ sub=1 一致）。
+  in.related_plan_id = 1000;
+  in.related_exposure_id = 5;
   in.sub_account_id = 1;
   in.product_id = 10;
   in.instrument_id = "cu2601";

@@ -40,7 +40,12 @@ struct OrderRequest {
   // ---- 溯源自 `CMD_PLACE_ORDER` ----
   std::uint64_t client_order_ref = 0;  // 客户端指令引用（唯一）
   std::uint64_t trade_plan_id = 0;     // 交易计划 ID（§6.1 协议级必填）
-  std::uint64_t exposure_id = 0;       // 实货敞口 ID（§6.1 协议级必填）
+  std::uint64_t exposure_id = 0;       // 实货敞口 ID（§6.1 协议级必填；源自计划绑定）
+  // 交易理由关联对象（`CmdPlaceOrder.related_plan_id`(19) / `related_exposure_id`(20)，协议级必填）。
+  //   T-173 / `CH-020`：0x1019 兜底复核的入参。C++ 侧按内存快照 `PlanState` 判定 related_plan_id
+  //   与 `sub_account_id` 同属一个子账户；受限见 `evalRelatedObject` 说明。
+  std::uint64_t related_plan_id = 0;   // 关联对象①：计划 ID（0 = 缺失）
+  std::uint64_t related_exposure_id = 0;  // 关联对象②：实货敞口 ID（0 = 缺失）
   std::uint32_t sub_account_id = 0;    // 子账户（0 = 非法，拒绝）
   std::uint32_t product_id = 0;        // 品种（0 = 非法，拒绝）
   std::uint32_t instrument_id = 0;     // 合约（0 = 非法，拒绝）

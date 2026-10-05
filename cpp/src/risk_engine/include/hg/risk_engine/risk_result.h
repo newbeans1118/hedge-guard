@@ -35,7 +35,8 @@ enum class RuleId : std::uint8_t {
   kTerm = 6,            // R-RISK-6
   kPermission = 7,      // R-RISK-7
   kPriceDeviation = 8,  // R-RISK-8
-  kInput = 9            // 入参非法（`ARCHITECTURE.md` §3.3 备注「非法判定值一律拒绝」）
+  kInput = 9,           // 入参非法（`ARCHITECTURE.md` §3.3 备注「非法判定值一律拒绝」）
+  kRelatedObject = 10   // 交易理由关联对象缺失/子账户不一致（0x1019；`R-TRADE-9`/`FR-TRADE-10`，T-173）
 };
 
 const char* ruleIdName(RuleId r);
