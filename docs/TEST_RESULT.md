@@ -16126,3 +16126,21 @@ void evalRelatedObject(const RiskSnapshot& s, const OrderRequest& req, RiskResul
 **观察（6，不阻断，随 T-057 执行消化）**：O-1 TC-M2-22 预期含「每种 ≥1 条 + 计数=实际帧数」与 §4 单值口径的措辞张力；O-2 TC-M2-18/32 落点宜用 ctest 名 `hgcp.replay_gate`；O-3 TC-M2-36 已被 emptyLastBatchIsTolerated 覆盖但备注不对称；O-4 §7.3 未登记 NFR-PERF-6 第二适用域 FR-RISK-11；O-5 实现侧注释「EVT_MARKET_QUOTE 可丢不占 SEQ」与 ARCH「所有业务帧同一 SEQ 计数器」措辞张力（设计取 ARCH 口径正确）；O-6 transport_test「742 checks」grep 不可证（源码 HG_CHECK|HG_REQUIRE 计 277），非判据仅记。
 
 **编排者独立核验记录**：设计期发现 A（CH-007 消费侧缺口）亲核代码成立（HgcpClient.java:322-331 无批次标识；onEvent default 分支 advanceWatermark + notifyConsumed）⇒ 立号 T-174（P0）；Δ 回执四要素亲核（hunk 恰 4、预期段逐字节未触）；微修 delta 亲核（上段）；三账联动提交见 BOARD § 第 187 轮。
+
+---
+
+## T-174 独立复核证据（席 te-verify-t174；2026-10-05 第 188 轮 · 编排者逐字转录）
+
+**结论：通过 / 0 缺陷 / 6 观察。产出方全部自述逐项独立证实。**
+
+**冻结点与指纹**：HEAD 27d6c26；交付面恰 2 文件 +360/−1：`HgcpClient.java`（md5 a5d9da854cc2a09d0cffea00f87d177a，+33/−1）+ `HgcpResumeMarketQuoteDropTest.java`（327 行，md5 8ecc7a95f906a29f1c772643fdddea99）；proto/hgcp.proto md5 a1762e53f51e937f0ec6975d45125c43/802 未动；树锚（cd java/src 口径）f1276acf7ae7e24cf08da520090dcf53/562 → adc273f35af8e5f75fbb7ec37764c836/563 逐字复现。⚠️ 仓库根口径变体得 cff9e486…/563（前缀差异，非内容差）。
+
+**门禁独立复跑**：mvn -B -o -Punit clean test = 870/0/0/0（@Test==surefire==testcase==870，110 类；新类 Tests run: 3）；arch-check E1–E8 全 rc 0。
+
+**机制四不（逐条亲读）**：丢弃分支（HgcpClient.java:281-285）在 onEvent 之前 return ⇒ 不 advanceWatermark、不 notifyConsumed、不透传 listener；MirrorState 无行情缓存（grep=0）、WsServer.publishQuote 生产调用=0 ⇒ 无缓存可入、无前端可推；只拦 0x020C（fromResumeBatch && type==EVT_MARKET_QUOTE）；批内 0x0202..0x020B 与 0x020D/E 照常消费；唯一批内重喂点 = onResumeData:361（全仓 grep 排除 .codebuddy/ 证实）；公开接缝 onFrame(Decoded) 签名未变（:233 委托 false）。
+
+**变异独立重做（隔离纯净副本 /root/t174-mut，git archive HEAD；单实例）**：(a) 中和丢弃分支 if(false && …) ⇒ targeted 3 run / 2 FAIL（两补数用例红）rc=1；(b) 放宽为无来源判别 if(type==0x020C) ⇒ 1 FAIL（quoteOutsideResumeBatchIsNotDropped 红：expected [524] but was []）rc=1 ⇒ 选择性守卫有牙（守一刀切丢弃的过度实现）；复原 cmp==HEAD、md5 一致、touch 重建后 targeted 3/3 绿；无残留。
+
+**观察（6，不阻断）**：O-1 lastReceivedSeq 于丢弃前仍推进 —— 正确且必需（ARCH 4.2.6 补数完成判据以线路帧为准）；O-2 批内 0x020D/0x020E 照常消费（复核席自设探针：消费序=[0x020D,0x020E]、水位=2、0x020C 未推水位 ⇒ CH-007 范围内正确）；O-3 HgcpConstants.java:92 既有注释「可丢，不占 SEQ」与 ARCH 同一 SEQ 计数器口径张力（注释级，归后续微修，非本单缺陷）；O-4 测试只断言消费侧水位，接收侧 lastReceivedSeq 由 HgcpResumeDataReplayTest 间接覆盖（覆盖边界）；O-5 可观测效果 = 不再推水位/不触发 onEventConsumed 评估泵；O-6 C++ 消费面归 T-057 执行时实测。
+
+**编排者亲核记录**：回执四要素（提交面/proto 红线/关键改动点 :233/:252/:281/:361/树锚）交付当日亲测与复核席独立实测一致；裁定：0x020D/0x020E 不扩范围。
