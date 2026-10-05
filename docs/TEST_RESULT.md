@@ -16475,3 +16475,21 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 - 不自评 DONE；缺陷 5 项 + 观察 1 项请编排者裁定（是否立号/归属）。
 - 本席实测与工单不符项：**无**（工单预期「真联跳过、零DB/加总/划拨变体可执行」均与实测一致；另发现 5 项 schema↔实现不一致，属工单预期外的 e2e 收获）。
 
+
+---
+
+## T-058 独立复核证据（席 te-verify-t058；2026-10-05 第 197 轮 · 编排者逐字转录）
+
+**结论：有条件通过 / 0 阻断 ⇒ 五缺陷经用户裁定立号 T-178 承接（003 采服务侧对齐冻结免 CH；001b 转技术席），T-058 转 DONE。**
+
+**冻结与范围**：HEAD caba570；恰 3 文件 +932（M2EndToEndAcceptanceTest.java 642 行/10 用例、M2E2eSeed.java 183 行〔dao/testsupport/，E5 过〕、TEST_RESULT §T-058 证据章，head-16370=89cd3e1d… 保全）；树锚 5bc0f3bd…/564 → f4bb5441…/566。
+
+**门禁独立复跑**：885/0/0/0（@Test 与 surefire 均 885，基线 875 独立复算）；mvn validate E1–E8 rc0。双变异独立重做：M1 SettleService:976 buildCheck 恒真，acceptance36 FAIL，复位 md5 40e42ecf…；M2 FundService:830-831 realOk 恒真，acceptance37 FAIL（expected ROLLED_BACK but was POSTED），复位 md5 2399df34…。
+
+**五缺陷独立复现（隔离副本自写探针 6 例全命中；判据侧冻结文件逐一核实）**：001 复现 PENDING_DATA 超 CHECK 域（m2_settle.sql:42）——细化为 a 服务侧字面量（:154 PARSE_PARSED 与 OK 不符）+ b 冻结域缺口（FR-SETTLE-1 三态无「未到达」承载，须裁定）；002 复现 CMD_UPDATE_RISK_THRESHOLD 超 ck_param_dispatch_type（m3_risk.sql:53-55；:721 全仓唯一 .name() 持久化）；003 复现 fk_trade_reason_plan 指向 t_hedge_plan（m2_trade.sql:277）与服务校验互斥（DATA_MODEL:2136 冻结明定 + CmdPlaceOrder 已有独立 trade_plan_id(2) 冗余论证，倾向服务侧偏离）；004 复现 C++ 指令号 100001 无对应 t_trade_order.id（实测打印）+ 同构第二表 t_trade_order_report（:153）；005 复现 retry_count NOT NULL（:31；显式 NULL 不触发 DEFAULT，NOT NULL 先于 CHECK 故到达分支 PARSED 仅代码级越界）。
+
+**覆盖盲区定性（T-136「假 DAO 掩盖」同族）**：001/005——SettleServiceTest 假 DAO 无 DDL 强制且 :108/:125 锁越界期望值，全仓无真实 DmSettleCtpBatchDao+引擎驱动 ingestCtpData 用例；002——ParamDispatch 两测试均假 DAO；003——TradeDm8Equivalent reason 工厂 related_object_missing_flag=Y 两关联列均 null 恰绕 FK；004——工厂夹具用 order.id 正确值故不红；M2SettleDaoMappingAndWriteTest:126 显式 OK 亦规避。
+
+**观察**：O-2 交付测试以同值计划/dbOrderId 观察窗绕过缺陷（「部分」诚实）；O-3 §10-36 证据起始于直插批次（加总逻辑充分、摄入腿缺）；O-4 五缺陷无在树回归用例（复核席探针补齐，是否随 T-178 补植由其裁定）；O-5 基线 @Test=875 可复算（派单「62 个测试」口径不可复算，不影响结论）。
+
+**编排者裁定与亲核**：003 服务侧对齐冻结（权威制品优先，免 CH；留痕产品他日确认则 CH）；001b 不自行放行转技术席；红线 grep「web/」命中系测试包合法路径（非禁触 web/**）。
