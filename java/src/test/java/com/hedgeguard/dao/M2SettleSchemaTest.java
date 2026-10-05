@@ -302,6 +302,14 @@ class M2SettleSchemaTest {
                     .matcher(t.group(2));
             while (fk.find()) out.add(t.group(1) + "." + fk.group(1) + "->" + fk.group(2));
         }
+        // T-179 伴随：T-179 将 fk_t_settle_fund_ledger 后置为文件末尾 ALTER（消解 SETTLE<->FUND 环），
+        // 故须同时解析「ALTER TABLE <t> ADD CONSTRAINT <n> FOREIGN KEY (<c>) REFERENCES <p>(…)」（形态镜像 FundSchemaTest）。
+        Matcher alter = Pattern.compile(
+                "(?s)ALTER TABLE\\s+([a-z0-9_]+)\\s+ADD CONSTRAINT\\s+\\w+\\s+FOREIGN KEY\\s*\\(([a-z0-9_]+)\\)"
+                        + "\\s*REFERENCES\\s+([a-z0-9_]+)").matcher(text);
+        while (alter.find()) {
+            out.add(alter.group(1) + "." + alter.group(2) + "->" + alter.group(3));
+        }
         return out;
     }
 
