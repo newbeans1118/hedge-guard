@@ -15893,3 +15893,218 @@ cd /root/iso-t048b && bash tools/arch-check/arch-check.sh
 - **关键数字**：全量 **863/0/0/0**；arch-check **rc=0（8/0/0）**；探针 8+9+4=**20/0/0/0**；MUT-A **6 红**后复位逐字节复绿。
 - **锚点**：HEAD `217e814`；service `ed7ac746…`；test `0038c139…`；java/src 树锚 `0a16707b…/562`。
 - **证据留痕**：隔离副本 `/root/iso-t048b`（探针/日志）；受审仓库源码 **0 改动**。
+
+---
+
+# T-173 全链独立复核证据章（编排者逐字转录）
+
+- **转录说明**：复核席报告落笔于 /root/t173-review.md（md5 c5aec138054860f9fe69222295c761f3 / 207 行），编排者逐字转录、未改写任何数字或措辞；转录时点基线 = 15895 行。
+- **背景**：T-173 双域交付 719331a（Java 5 文件 +238）+ 4eec834（C++ 11 文件 +227/−5）〔CH-020 已批〕；te-verify-t173 通过（0 阻断/0 缺陷/6 观察）——proto 6 字段逐字对照全对、evalRelatedObject 判据独立核全过、变异复现+自设 A/B 全红（B 实证 D-3 三处隔离用例恰红）、独立 867 + 43/43 + 47/47；**三层时点终局：FR-TRADE-10 验收 3 成立，T-173 闭合第②层**。
+
+# T-173 独立复核报告（te-verify-t173）
+
+- 复核席：`te-verify-t173`（独立复核，未改动任何仓库源码）
+- 日期：2026-10-05
+- 复核对象：`T-173` 「`0x1019` 关联对象兼容性拒绝承载链补齐」（CH-020 已批，P1/12 人时）
+- 证据副本：`/root/t173-iso`（`git archive HEAD 4eec834` 纯净树；不含 target/），日志见 `/root/t173-iso/*.log`
+- 结论：**通过（0 阻断 / 0 缺陷 / 6 观察）**；产出方 5 项声明全部实测吻合；1 项口径分解不实（O-1，不影响门禁结论）
+
+---
+
+## 一、冻结链与锚点（开工实时复测）
+
+| 项 | 产出方声明 | 独立实测 | 判定 |
+|---|---|---|---|
+| HEAD | `4eec834` | `4eec834b2f79bae795defb97035ad7599109a5cf` | ✅ |
+| 链 | 719331a（Java 5 文件 +238）→ 4eec834（C++ 11 文件 +227/−5） | `git show --stat` 逐字吻合（Java 5 文件 +238；C++ 11 文件 +227/−5） | ✅ |
+| 基线 | `9d30860` | `git log` 第 4 笔 = `9d30860` | ✅ |
+| `proto/hgcp.proto` | a1762e53…/802 零改动 | md5 `a1762e53f51e937f0ec6975d45125c43`/802；`git diff 9d30860 4eec834 -- proto/hgcp.proto` **全空** | ✅ 零改动 |
+
+**交付物 md5（共享树实时）**——全部逐字吻合：
+
+```
+b10a9138872c9eb41125cefffe4b414d   88  java/src/main/java/com/hedgeguard/bridge/PlaceOrderCmd.java
+c65379e5192c99c72703fb68be1d4c7a 1056  java/src/main/java/com/hedgeguard/bridge/HgcpClient.java
+8562d8622f81f1c0b27a68016d131072 1566  java/src/main/java/com/hedgeguard/service/TradeService.java
+4e2e9a6ce3448cb40c367127e76e1027  605  cpp/src/risk_engine/src/risk_engine.cc
+c2cd468f528724c7b6c2c84c06d40e09  133  cpp/src/risk_engine/tests/risk_engine_related_object_test.cc
+```
+
+**树锚口径（内容级：`find <dir> -type f | LC_ALL=C sort | xargs md5sum | md5sum`）**：
+- `java/src` = `fc8c4f1ec5bb1db675d8b4d700bd50a6`/562（声明 fb30ddfe…/562 → fc8c4f1e…/562，末态吻合，文件数 562→562）
+- `cpp/src` = `683b52ffd2f00d89139e5b9a223b499b`/137（声明 00b3d0ee…/136 → 683b52ff…/137，吻合；+1 = 新测试文件）
+- 说明：多形态哈希（路径级 `md5` / 内容级 / 含 target 级）互异属已知判例，本报告一律采用上式**内容级、排除构建产物**口径。
+
+---
+
+## 二、两栏对账（产出方自述 vs 独立实测）
+
+| # | 产出方声明 | 独立实测 | 判定 |
+|---|---|---|---|
+| 1 | Java：PlaceOrderCmd 增 6 字段（proto 名逐字 camelCase）；HgcpClient 六 set；TradeService 填充 | proto 逐字对照全对（见 §四）；六 `set*` 逐一在位；TradeService:281-289 六赋值在位 | ✅ 属实 |
+| 2 | `tradeReasonText` null ⇒ 空串 | `HgcpClient.java` `setTradeReasonText(... == null ? "" : ...)`；测试 `placeOrderCarries…`+null 用例断言 wire=="" | ✅ 属实 |
+| 3 | exposure_id←`plan.exposureId` 计划绑定 | ARCH:865 「`exposure_id` … **实货敞口 ID（源自计划绑定）**」；代码 `plan.exposureId == null ? 0L : plan.exposureId` | ✅ 语义正确（见 §七） |
+| 4 | 遗留 `tradeReasonId` 无 proto 对应保留未动 | `PlaceOrderCmd.tradeReasonId` 仍存在；T-173 diff 未触碰 | ✅ 属实 |
+| 5 | C++ `evalRelatedObject`：①存在性 ②findPlan 可解析则子账户须一致 ③不可解析不误拒 ④次序列 R-RISK-1~8 之后 | 源码与测试逐条核（见 §五/§六/§八） | ✅ 属实 |
+| 6 | 门禁：Java 867/0/0/0（**836+31**）；C++ stub 43/43 + ctp_found 47/47；arch rc0 | Java **867/0/0/0** ✅；stub **43/43**、ctp **47/47** ✅；arch E1–E8 **rc0** ✅ | ⚠️ 头数对、**分解不实**（见 O-1） |
+| 7 | 变异 M1/M2/M3 红、复位逐字节 | 复现 M1 红；自设 A/B 双红；复位逐字节（见 §八） | ✅ 属实 |
+| 8 | D-1/D-2/D-4 披露 | 逐条核（见 §七/§九/§十） | ✅ 如实 |
+
+**O-1（口径分解不实，低）**：声明「867（836+31）」不可复现。独立实测 `git grep -c '@Test'`：719331a^ = **863**、HEAD = **867**，Δ = **+4**（T-173 仅新增 2 个 `HgcpClientGuardTest` + 2 个 `TradeServiceTest` 用例，见 719331a diff）。mvn surefire 聚合 `Tests run: 867` 与 `@Test` 863→867 一致，故最终总数 **867 正确**；「836+31」的分解系误推（836 疑源自 BOARD:458 第 185 轮 CH-020 登记行的陈旧「Java 基线 836 绿」，同文件第 184 轮实为 863）。**不影响门禁结论**，但请编排者校正口径。
+
+---
+
+## 三、门禁独立复现（`/root/t173-iso` 纯净树）
+
+| 轨 | 命令 | 实测 | 声明 | 判定 |
+|---|---|---|---|---|
+| Java 全量 | `mvn -B -o clean test`（iso/java） | `Tests run: 867, Failures: 0, Errors: 0, Skipped: 0`；BUILD SUCCESS | 867/0/0/0 | ✅ |
+| arch-check | mvn 内 exec（E1–E8） | `通过(0)=8 命中(1)=0 用法/前置错误(2)=0`；`arch-check 通过…（退出码 0）` | rc0 | ✅ |
+| C++ stub | `cmake -DCTP_SDK_ROOT=` + `ctest` | CTP_FOUND=OFF；**43/43 passed** | 43/43 | ✅ |
+| C++ ctp_found | `-DCTP_SDK_ROOT=/root/myspace/hedge-guard/sdk/v6.7.13_20260225_api` + `ctest` | CTP_FOUND=ON（style=CLASSIC）；**47/47 passed** | 47/47 | ✅ |
+| fetch 轨 | — | **未跑**（联网） | 未跑（据实披露） | ✅ 与披露一致 |
+
+protobuf：系统包 3.21.12（major=3 校验通过），两轨同源。
+
+---
+
+## 四、proto 逐字对照（719331a PlaceOrderCmd 6 字段 vs proto `CmdPlaceOrder` 389-410）
+
+| proto 字段号 | proto 名 / 类型 / 必填 | PlaceOrderCmd 字段 | HgcpClient `set*` | 判定 |
+|---|---|---|---|---|
+| 3 | `exposure_id` uint64 **必** | `public long exposureId` | `.setExposureId(cmd.exposureId)` | ✅ |
+| 16 | `trade_reason_code` TradeReasonCode **必** | `public String tradeReasonCode` | `.setTradeReasonCode(mapTradeReasonCode(...))` | ✅ |
+| 17 | `trade_reason_time_desc` TradeReasonTimeDesc **必** | `public String tradeReasonTimeDesc` | `.setTradeReasonTimeDesc(mapTradeReasonTimeDesc(...))` | ✅ |
+| 18 | `trade_reason_text` string 可 | `public String tradeReasonText` | `.setTradeReasonText(null?"":…)` | ✅ |
+| 19 | `related_plan_id` uint64 **必** | `public long relatedPlanId` | `.setRelatedPlanId(cmd.relatedPlanId)` | ✅ |
+| 20 | `related_exposure_id` uint64 **必** | `public long relatedExposureId` | `.setRelatedExposureId(cmd.relatedExposureId)` | ✅ |
+
+字段名逐字 camelCase（`tradeReasonTimeDesc` 取 proto 全名，**不采** te-verify-t046 转述短名 `timeDesc`，与 D-1 一致）。Javadoc 字段号 3/16/17/18/19/20 与 proto 逐一对应。**6/6 吻合**。
+
+---
+
+## 五、C++ `evalRelatedObject` 判据独立核（risk_engine.cc:495-511）
+
+```cpp
+void evalRelatedObject(const RiskSnapshot& s, const OrderRequest& req, RiskResult& r) {
+  if (req.related_plan_id == 0 || req.related_exposure_id == 0) {   // ① 存在性
+    addEntry(...); markReject(r, RuleId::kRelatedObject, kErrRelatedObjectSubMismatch); return;
+  }
+  const PlanEntry* related = findPlan(s, req.related_plan_id);      // ② 归属
+  if (related != nullptr && related->sub_account_id != req.sub_account_id) {
+    addEntry(...); markReject(r, RuleId::kRelatedObject, kErrRelatedObjectSubMismatch);
+  }                                                                 // ③ null ⇒ 不误拒
+}
+```
+
+- ① 存在性：`related_plan_id`/`related_exposure_id` 任一为 0 ⇒ 拒 `0x1019`。✅（协议级必填，CmdPlaceOrder 19/20 标「必」）
+- ② 归属：`findPlan` 解析成功且 `sub_account_id` 不一致 ⇒ 拒。✅
+- ③ 不可解析（`related == nullptr`）⇒ **不误拒**。✅
+- ④ 求值次序：`check()` 中 `evalRelatedObject` 在 `evalWhitelist…evalPrice`（R-RISK-1~8）**之后**（risk_engine.cc:589-600）。`markReject` **仅首次拒绝写 rule/code**（risk_engine.cc:119-127），故后置保证只在其余规则均未拒时才成为上报规则；命中项无论顺序均入 `entries[]`。✅
+- 错误码/名称映射：`risk_result.cc` `kRelatedObject → "R-TRADE-9"`、`0x1019 → "RISK_RELATED_OBJECT_SUB_MISMATCH"`，与 ARCH:1386 名单一致。✅
+- 透传链：`command_handler.cc:683-684`（`pb→OrderInput`，**基线既有、未改**，实测 `git show 9d30860` 已存在）→ `order_engine.cc:143-144`（`buildRequest` 新增 2 行，**基线不存在**）→ `OrderRequest.related_*`（新增字段）→ risk_engine。✅
+
+---
+
+## 六、端到端与单测复现（隔离副本自建）
+
+- `risk_engine_related_object_test`（新）：**20 checks, 0 failures -> PASS**（正控同子账户放行 / 缺计划拒 / 缺敞口拒 / 外子账户计划拒 + 同批同子账户放行 / 不可解析不误拒 / 平仓单亦复核）。
+- `hgcp.order_path`（含 T-173 新增第 8 段）：**55 checks, 0 failures -> PASS**。端到端实证：`pb→OrderInput→buildRequest→risk_engine`，外来 plan 2000@sub=2 ⇒ `0x1019` + `EVT_PRE_TRADE_REJECT`（`reason_code=0x1019`、`rule_id="R-TRADE-9"`）；同子账户 plan 1000@sub=1 ⇒ 受理 + `EVT_ORDER_ACCEPTED`。
+- 两轨 ctest 全绿（§三）。
+
+---
+
+## 七、D-5 语义核（exposure_id 取源）
+
+- ARCH:865 明文：`exposure_id`（字段 3，必）= **实货敞口 ID（源自计划绑定）**。
+- 代码取源：`cmd.exposureId = plan.exposureId == null ? 0L : plan.exposureId`（TradeService:283）。
+- 对照 `SubmitRequest.exposureId`（订单侧，可空；`TradeService.java:1404` 注释「权威校验以 reason 内为准」）与 `ReasonInput.relatedExposureId`（关联对象②，必填）。
+- **判定：取 `plan.exposureId` 正确**——协议字段 3 语义即「计划绑定」，与理由侧 `related_exposure_id` 分属两义，不得混用。`TradePlan.exposureId` 由 `PlanService` 绑定写入（`row.exposureId = bind.exposureId`），非空；`null→0L` 为防御分支。测试 `submitOrderFillsRelatedObjectAndReasonFields` 实测 `cmd.exposureId == EXPOSURE_ID == plan.exposureId`。✅
+
+---
+
+## 八、变异台账（复位逐字节）
+
+| 编号 | 类别 | 变异 | 结果 | 复位 |
+|---|---|---|---|---|
+| M1 | 复现（产出方）| `HgcpClient` `setRelatedPlanId(cmd.relatedPlanId)` → `setRelatedPlanId(0L)` | `HgcpClientGuardTest` **1 red**：`字段 19 related_plan_id 须逐字承载 expected:<9002> but was:<0>`（:243） | md5 `c65379e5…`/1056 逐字节复原 ✅ |
+| A | 自设 ≥1 | C++ 存在性守卫禁用 `if (false)`（evalRelatedObject） | `risk_engine_related_object_test` **6 checks red**（:59-61 缺计划、:73-75 缺敞口） | md5 `4e2e9a6c…`/605 逐字节复原 ✅ |
+| B | 自设（D-3 机理）| `evalRelatedObject` 调用**前移至 `evalWhitelist` 之前** | ctest **恰 3 tests failed**：`whitelist_test` / `quota_layers_test` / `double_layer_test`（`related_object_test` 仍绿） | 复原后 ctest 回 **43/43** ✅ |
+
+**D-3 机理独立确认**：上述 3 例正是「三处隔离用例」——`baseOrder()`（related_plan_id=1000@sub=1）后改 `sub_account_id=2`，期望命中 `kWhitelist`(0x1001) / 层③限额(0x1005) / `kAccountProduct` 层；若 `evalRelatedObject` 置最前，则抢先拒绝为 `kRelatedObject`(0x1019) ⇒ 三例必红。**产出方 D-3 陈述（「置最前会抢先上报致三处隔离用例红」）实测成立，且恰为 3 例。**
+
+---
+
+## 九、TradeReasonCode 对照表（D-2 裁定输入）
+
+`ReasonInput.relatedType` 取值域 = `TradeService.RELATED_TYPES`（**8 值**，:85-87）vs proto `enum TradeReasonCode`（**6 值 + UNSET**，hgcp.proto:169-177）：
+
+| # | relatedType（8 值）| 线格式 TradeReasonCode | 落值 | 备注 |
+|---|---|---|---|---|
+| 1 | `NEW_EXPOSURE` | `TRADE_REASON_CODE_NEW_EXPOSURE`=1 | ✅ | |
+| 2 | `EXPOSURE_DECREASE` | `…_EXPOSURE_DECREASE`=2 | ✅ | |
+| 3 | `PLAN_EXECUTION` | `…_PLAN_EXECUTION`=3 | ✅ | |
+| 4 | `ROLLOVER` | `…_ROLLOVER`=4 | ✅ | |
+| 5 | `RISK_DISPOSAL` | `…_RISK_DISPOSAL`=5 | ✅ | |
+| 6 | `ERROR_CORRECTION` | `…_ERROR_CORRECTION`=6 | ✅ | CTP 直生（DATA_MODEL:4502）亦可，proto 有值 |
+| **7** | **`FORCE_CLOSE`** | **无对应** | **UNSET=0** | CTP 直生专用（非本系统下单路径）|
+| **8** | **`DELIVERY`** | **无对应** | **UNSET=0** | 同上 |
+
+- 时间说明 `TradeReasonTimeDesc`：`TIME_DESCS`（5 值）= proto 枚举 1-5，**全对，无缺口**。
+- **超出枚举的 2 值（FORCE_CLOSE / DELIVERY）落 UNSET**，实现见 `HgcpClient.mapTradeReasonCode`（无匹配 ⇒ UNSET）。与 D-2 披露一致。
+- **D-2 张力实证（O-3）**：`validateReasonStructured` 按 **8 值**放行，故 **提交路径**（本系统下单）若传 `FORCE_CLOSE`/`DELIVERY` 亦可通过层①校验，线上落 UNSET；C++ `evalRelatedObject` 不校验 `trade_reason_code`，该 UNSET 不会被拒 ⇒ 理由码语义在线上丢失。属**需求侧口径待裁**（映射/拒收/扩枚举），**非承载链缺陷**；建议编排者裁定：提交路径是否应仅限前 6 值（拒 FORCE_CLOSE/DELIVERY），或扩 proto 枚举。
+- 补充：`mapTradeReasonCode` 用 `endsWith` 而非精确 `equals`（O-2）。当前 8 值**无后缀碰撞**（实测 8×6 无互配），行为正确；仅就健壮性提示。
+
+---
+
+## 十、D-4 披露核（C++ 不可判 exposure-id 级归属）
+
+- 源码注释（risk_engine.cc:488-493）声明：快照 `ExposureState` 键为 `(子账户, 品种, 方向)`，不含 `exposure_id` ⇒ C++ 无法按 id 判 `related_exposure_id` 跨表归属；与 `R-TRADE-9`「C++ 不访问 DB，无法判定跨表归属」一致。
+- **独立核**：`cpp/src/risk_state/include/hg/risk_state/model.h:197-208` `struct ExposureEntry` **确无 `exposure_id` 字段**；`risk_snapshot.h:111` `findExposure(sub_account_id, product_id, dir)` 键不含 id。`REQUIREMENTS/TRADE.md:239/385` 明文「C++ 不访问 DB，无法判定跨表归属」。⇒ **注释与披露如实**。
+- 与 ARCH:882（`related_exposure_id`「服务层与 C++ **均须**校验同子账户」）存在字面张力：C++ 侧仅校验**存在性**，id 级归属下沉 Java ①/③。此为编排者已裁「三层防御既定边界」；**本席仅确认披露如实**，裁定归编排者。
+
+---
+
+## 十一、三层时点终局核（FR-TRADE-10 验收 3）
+
+验收 3 原文：「关联的计划与实货敞口**不属于同一子账户**时被拒绝。」
+
+| 层 | 承载 | 独立核 | 对验收 3 |
+|---|---|---|---|
+| ① 权威（Java 提交时，DB 事务内）| T-046 `validateReasonStructured`（:379-424）| 读 `tradePlanDao.findById`/`exposureDao.findById`，判 `rp.subAccountId==subAccountId==re.subAccountId`，不通过抛 `blocked("R-TRADE-9", …)`（10012） | **完整覆盖**（计划+敞口双侧）✅ |
+| ② 兜底（C++ 下发前，纯内存）| **T-173 `evalRelatedObject`** | 存在性 + `related_plan_id` 子账户一致（可解析时）+ 不误拒；`related_exposure_id` id 级不可判（D-4）| **计划侧覆盖、敞口侧按披露边界** ✅ |
+| ③ 落库复核（Java 事件流/补填）| T-046 `reviewAndPersistReason`（:435-450）| 提交路径 `forSubmitPath=true` 复调 `validateReasonStructured`；补填路径给出完整关联对象时同校 | **完整覆盖** ✅ |
+
+**终局结论**：三层聚合后 **验收 3 成立**。「不得只依赖 C++」满足——Java ①/③ 为权威层且俱在；② 层为兜底（存在性 + 计划子账户），其敞口 id 级缺口系快照结构所限、已诚实披露且不与 ①/③ 冲突。对 T-046 验收 3 的终局口径：**可由 T-173 闭合第②层 ⇒ 验收 3 三层齐备**。
+
+---
+
+## 十二、观察清单（6 项，均不阻断）
+
+- **O-1（低·口径）**：门禁 Java 口径分解「836+31」不可复现（实测 863+4=867）；最终 867 正确。请校正（疑源 BOARD:458 CH-020 行陈旧「836」）。
+- **O-2（低·健壮性）**：`mapTradeReasonCode` 用 `endsWith` 而非精确匹配；当前无碰撞、行为正确，仅提示。
+- **O-3（中·待裁 = D-2 输入）**：`FORCE_CLOSE`/`DELIVERY` 经层①（8 值）放行却落 UNSET，且 C++ 不校验 `trade_reason_code` ⇒ 提交路径可携 UNSET 理由码；属需求口径待裁（提交路径是否限 6 值 / 扩枚举），非承载链缺陷。
+- **O-4（低·预存）**：ARCH:1386 述 0x1019 业务码 `10023`，实现用 `10012`；`java/CONTRACTS.md:119` O-3 已裁定过渡期「按 10012 处理」。**非 T-173**（归 T-004/O-3），仅提示 ARCH 行待同步。
+- **O-5（低·范围）**：`order_engine.cc`（buildRequest 透传 +2 行）**不在** BOARD:458 声明写域（bridge 最小 + risk_engine + TradeService + 测试）内；属链路必需的最小透传，请编排者确认追认。
+- **O-6（低·防御）**：C++ `orderRequestInvalidReason` 不校验 `exposure_id`/`related_*`；`related_*` 已由 `evalRelatedObject` 覆盖，`exposure_id` 于 `plan.exposureId` 非空的前提下无缺口（null→0 为防御分支）。
+
+---
+
+## 十三、不覆盖项（诚实声明）
+
+1. **fetch 轨**（`CTP_USE_FETCH_DEPS=ON`）未跑（联网）；与产出方披露一致。
+2. **真实 CTP 联调**未做（无前置）——本单仅 C++ 内存判据 + 集成链。
+3. `java/CONTRACTS.md` 之外的正交需求（如 `trade_reason_text` ≤500 字符上限、理由落库留痕）**未逐条核**（非 T-173 范围）。
+4. 本次复核为**只读**：仅改 `/root/t173-iso` 副本做变异，共享树 `git status` 干净（除既有 `dev-team/`、`.verify/`）。
+
+---
+
+## 十四、锚点口径
+
+- 冻结点：`git rev-parse HEAD` = `4eec834b2f79bae795defb97035ad7599109a5cf`（实时）。
+- 树锚：`java/src` = `fc8c4f1ec5bb1db675d8b4d700bd50a6`/562；`cpp/src` = `683b52ffd2f00d89139e5b9a223b499b`/137（内容级、`LC_ALL=C sort`、排除构建产物）。
+- 口径提示：路径级 `md5` / 内容级 / 含 `target` 级互异为已知判例，引用一律注明口径。
+
+---
+
+**结论：T-173 通过（0 阻断 / 0 缺陷 / 6 观察）。不转 DONE（待编排者裁定 O-3/D-2 与追认 O-5）。**
