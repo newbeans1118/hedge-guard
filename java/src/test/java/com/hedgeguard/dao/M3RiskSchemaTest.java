@@ -49,6 +49,47 @@ class M3RiskSchemaTest {
         SENTINEL.put("t_risk_threshold", "ck_risk_threshold_scope_sentinel");
     }
 
+    /**
+     * RISK 模块 11 表（{@code T-094} 的 10 表 + 第 11 表 {@code t_param_dispatch}）逐表具名 CHECK 清单。
+     *
+     * <p>本案（{@code TE-T094-001}）盲区＝「非哨兵 CHECK 无人校验」：{@code ck_limit_usage_ratio_nonneg}
+     * 由 {@code DATA_MODEL.md} §4.3「精度相关的强约束均已在各表 CHECK 中声明」点名却漏落生产 DDL。
+     * 故此处以「表 → 约束名集合」数据驱动做<b>双向</b>比对（缺一必红 / 未登记的新增也必红）。
+     */
+    private static final Map<String, List<String>> NAMED_CHECKS = namedChecks();
+
+    private static Map<String, List<String>> namedChecks() {
+        Map<String, List<String>> m = new LinkedHashMap<>();
+        m.put("t_param_dispatch", Arrays.asList(
+                "ck_param_dispatch_type", "ck_param_dispatch_status", "ck_param_dispatch_batch"));
+        m.put("t_annual_scale", Arrays.asList(
+                "ck_annual_scale_scope_sentinel", "ck_annual_scale_scope_type",
+                "ck_annual_scale_category", "ck_annual_scale_dispatch_status"));
+        m.put("t_risk_threshold", Arrays.asList(
+                "ck_risk_threshold_scope_sentinel", "ck_risk_threshold_value_type",
+                "ck_risk_threshold_redline", "ck_risk_threshold_scope_type",
+                "ck_risk_threshold_dispatch_status"));
+        m.put("t_mirror_watermark", Arrays.asList(
+                "ck_mirror_watermark_stream_type", "ck_mirror_watermark_lag_alarm",
+                "ck_mirror_watermark_conn_state"));
+        m.put("t_risk_disposal", Arrays.asList(
+                "ck_risk_disposal_is_global", "ck_risk_disposal_type",
+                "ck_risk_disposal_scan_scope", "ck_risk_disposal_hint_accepted",
+                "ck_risk_disposal_dispatch_status"));
+        m.put("t_risk_alert", Arrays.asList(
+                "ck_risk_alert_type", "ck_risk_alert_level", "ck_risk_alert_disposed"));
+        m.put("t_abnormal_order_stat", Arrays.asList(
+                "ck_abnormal_stat_is_abnormal", "ck_abnormal_stat_action"));
+        m.put("t_post_risk_report", Arrays.asList("ck_post_risk_report_type"));
+        m.put("t_risk_violation", Arrays.asList(
+                "ck_risk_violation_type", "ck_risk_violation_severity", "ck_risk_violation_source"));
+        m.put("t_limit_usage_stat", Arrays.asList(
+                "ck_limit_usage_limit_type", "ck_limit_usage_hint_level",
+                "ck_limit_usage_ratio_nonneg"));
+        m.put("t_risk_metric_snapshot", Arrays.asList("ck_risk_metric_source"));
+        return m;
+    }
+
     private static final Map<String, String> AUDIT = audit();
 
     private static Map<String, String> audit() {
@@ -149,6 +190,27 @@ class M3RiskSchemaTest {
             assertTrue(sqlBlock(sql, e.getKey()).contains("CONSTRAINT " + e.getValue() + " CHECK ("),
                     e.getKey() + " 表定义缺具名 CHECK：" + e.getValue());
         }
+    }
+
+    @Test
+    @DisplayName("具名 CHECK 清单：RISK 11 表逐表比对（缺一必红；未登记新增同红）")
+    void namedChecksPresent() throws IOException {
+        Path repo = repoRoot();
+        String sql = new String(Files.readAllBytes(repo.resolve("docs/DEPLOY/schema/m3_risk.sql")),
+                StandardCharsets.UTF_8);
+        List<String> problems = new ArrayList<>();
+        for (Map.Entry<String, List<String>> e : NAMED_CHECKS.entrySet()) {
+            TreeSet<String> actual = namedCheckNames(sqlBlock(sql, e.getKey()));
+            TreeSet<String> expected = new TreeSet<>(e.getValue());
+            if (!expected.equals(actual)) {
+                TreeSet<String> missing = new TreeSet<>(expected);
+                missing.removeAll(actual);
+                TreeSet<String> extra = new TreeSet<>(actual);
+                extra.removeAll(expected);
+                problems.add(e.getKey() + " 缺=" + missing + " 多=" + extra);
+            }
+        }
+        assertTrue(problems.isEmpty(), "具名 CHECK 与清单不一致：\n  - " + String.join("\n  - ", problems));
     }
 
     @Test
@@ -318,6 +380,27 @@ class M3RiskSchemaTest {
             type = type.trim();
             boolean notNull = line.toUpperCase(Locale.ROOT).contains("NOT NULL");
             out.put(name, new String[]{type, Boolean.toString(notNull)});
+        }
+        return out;
+    }
+
+    /** 抽取某表 DDL（去注释）中「CONSTRAINT <名> CHECK」的约束名集合。 */
+    private static TreeSet<String> namedCheckNames(String block) {
+        TreeSet<String> out = new TreeSet<>();
+        for (String raw : stripComments(block).split("\n", -1)) {
+            String line = raw.trim();
+            if (!line.startsWith("CONSTRAINT ")) {
+                continue;
+            }
+            String rest = line.substring("CONSTRAINT ".length()).trim();
+            int sp = firstWhitespace(rest);
+            if (sp <= 0) {
+                continue;
+            }
+            String name = rest.substring(0, sp).trim();
+            if (isLowerIdent(name) && rest.substring(sp).trim().startsWith("CHECK ")) {
+                out.add(name);
+            }
         }
         return out;
     }

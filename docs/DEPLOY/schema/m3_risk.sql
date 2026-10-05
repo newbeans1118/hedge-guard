@@ -445,6 +445,7 @@ CREATE TABLE t_limit_usage_stat (
         'PRODUCT_QUOTA','POSITION_LIMIT','SCALE_REDLINE','FUND_QUOTA','AUTH_QUOTA')),
     CONSTRAINT ck_limit_usage_hint_level CHECK (hint_level IN (
         'NORMAL','HINT','WARNING','EXCEEDED')),
+    CONSTRAINT ck_limit_usage_ratio_nonneg CHECK (usage_ratio >= 0),
     CONSTRAINT uk_limit_usage_stat UNIQUE (stat_date, sub_account_id, product_id, limit_type),
     CONSTRAINT fk_limit_usage_sub FOREIGN KEY (sub_account_id) REFERENCES t_sub_account (id),
     CONSTRAINT fk_limit_usage_product FOREIGN KEY (product_id) REFERENCES t_product (id)
