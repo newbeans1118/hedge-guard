@@ -16368,3 +16368,110 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **观察（6，不阻断）**：O-1 classpath 缺依赖时诊断不友好（NoClassDefFoundError→通用「启动超时」）；O-2 已随微修闭环；O-3 CFG-01~31 工单口径陈旧（产出方按架构静默对齐 33 正确）；O-4 3/3 PASS 为构建态相关（产出方已如实标注）；O-5 计数以 surefire 为准未虚高；O-6 未知参数退 2 与「2=前置缺失」措辞张力（CLI 惯例采现状留痕）。
 
 **编排者亲核记录**：提交面/红线（--format=）/U-4 三处 FK 在树（m2_settle.sql:315、m2_fund.sql:112/:216/:398）/README 与 start-all.sh 指纹——交付当日亲测与复核席独立实测一致。
+
+## T-058 执行 M2 端到端测试证据章（席 te-t058；2026-10-05 · 纯追加）
+
+**任务**：T-058 执行 M2 端到端（模拟盘期货+期权 / 零 DB / 加总 / 划拨），P0 / 32 人时。
+**需求追溯**：`PROJECT.md` §9 M2 验收 + §10-1/21/23/30/35/36/37；`docs/TASKS.md` §2 T-058 验收 1–5。
+**开工锚点**：HEAD `45691ac`；`java/src` 树锚 `5bc0f3bd9ca6b9104e9c4a5c0d01cc7a` / 564。
+**收工锚点**：`java/src` 树锚 `f4bb5441f0f33a11679caa9324b0ab20` / 566（+2 测试文件）；**生产代码零改动**。
+（锚点口径：`cd java/src && find . -type f | LC_ALL=C sort | xargs md5sum | md5sum`；全仓 grep 排除 `.codebuddy/`。）
+
+### 一、门禁计数（收工实测）
+
+| 轨 | 命令 | 基线 | 收工 | 结论 |
+|----|------|------|------|------|
+| Java 单测 | `cd java && mvn -B -o -Punit clean test` | 875/0/0/0 | **885/0/0/0**（BUILD SUCCESS，EXIT=0） | ✅ `@Test`==surefire==885（新增 10） |
+| 架构门禁 | `mvn -B -o validate` 内 E1–E8 | rc0 | **rc0**（八判据全 0） | ✅ |
+| C++ 侧 | — | — | **零改动、零运行**（遵派单口径） | ✅ |
+
+`@Test` 全量计数由 `grep -rho '@Test' src/test | wc -l` = **885**，与 surefire 报告合计 **885** 一致。
+
+### 二、新增测试文件（2 个；均落在写域 `java/src/test/**`）
+
+| 文件 | md5 / 行数 | 用途 |
+|------|-----------|------|
+| `java/src/test/java/com/hedgeguard/web/M2EndToEndAcceptanceTest.java` | `5b632c8c8632336394e1c4bc172efa54` / 642 | 10 个 `@Test`：§10-36（2）/§10-37（3）/§10-23+35（1）/§10-30（2）/§10-21（1）/§10-1（1） |
+| `java/src/test/java/com/hedgeguard/dao/testsupport/M2E2eSeed.java` | `84944facfafafae1bc11bc89b7c90471` / 183 | M2 前置最小播种件（含 M1 段最小行；SQL 落 `dao` 命名空间满足 E5） |
+
+> **层次与边界**：本单为**服务装配级**端到端——真实 `AuthService/TradeService/SettleService/FundService` + 真实 `Dm*Dao`，跑在 T-023 的 `InMemoryDmEngine`（按 SQL 语义求值）上；跨组件侧以 `InMemoryTradingBridge`（`NFR-TEST-4` 明文允许的进程内桩）替代 C++。**不构成跨进程真联、不构成 DM8 实机验证**。
+> **M1 段说明**：敞口/套保计划/交易计划由 `M2E2eSeed` 播种（M1 链已由 T-024 端到端验收覆盖），本单聚焦 M2 段（交易→结算→资金）。
+
+### 三、T-058 验收标准逐条处置
+
+| 验收 | 判据 | 结果 | 证据/未达原因 |
+|------|------|------|--------------|
+| 1 | CTP 模拟盘一笔期货开平 + 一笔期权策略，每单可追溯子账户与计划 | **部分**（期货链路进程内达成；期权与 CTP 真联未达） | `acceptance35`/`acceptance1`：下单携带 `subAccountId`+`tradePlanId`；`acceptance30`：受理/成交落库携带子账户与计划。**未达**：`cpp/src/main.cc` 为工程骨架（不监听/不握手/不加载配置）⇒ 真联不可达；期权策略未构造（无 CTP 环境）。 |
+| 2 | 交易路径零 DB（SQL=0 或停库验证） | **部分** | `acceptance23And35`：`submitOrder` 前后**全表行数逐一不变** ⇒ Java 下单路径**零写库**。**未达**：C++ 侧零 DB（`PROJECT.md` §10-29）由静态判据 E4 承接（本单零运行 C++，未复跑）。 |
+| 3 | 子账户加总与真实账户一致；人为不一致→告警 | **达成** | `acceptance36AggregationConsistent`（Σ=真实⇒四类全 `CONSISTENT`）；`acceptance36InconsistentTriggersAlertAndBlock`（构造 100 差额⇒`INCONSISTENT_BLOCKED`+告警时间+候选+结算单 `BLOCKED`）。 |
+| 4 | 划拨后加总不变；出入金经 CTP 回执回写 | **部分**（划拨达成；回执回写 in-process 达成；CTP 真联未达） | `acceptance37*`（A 减/B 增/Σ 不变/审批留痕/回滚/同人拒绝）；`acceptance21`（回执→台账+凭证号）。**未达**：真实银期转账经 CTP（`PROJECT.md` §4.1 ⑨-a）无 CTP 环境。 |
+| 5 | 组件通信双向可用（C++→Java 落库 / Java→C++ 参数生效） | **部分** | `acceptance30EventToJavaPersistence`（事件→落库）；`acceptance30ParamDispatchToComponent`（Java→C++ 控制通道+回执，进程内桩）。**未达**：跨进程真联（骨架）；且服务编排留痕路径被 **TE-T058-002** 阻断。 |
+
+### 四、§10 追溯逐条处置
+
+| # | 结论 | 证据（目标#方法 / 摘录） |
+|---|------|------------------------|
+| §10-1 端到端闭环 | **部分**（M2 段装配级达成；CTP 与会计凭证未达） | `acceptance1EndToEndNoBreak`：下单→受理→成交→收盘结算→加总一致→资金台账；「CTP 下单/成交」真联未达，「会计凭证」属 M4（模块⑧）不在 M2。 |
+| §10-21 银期转账经 CTP | **部分**（回执→台账回写路径已验；CTP 真联未达） | `acceptance21DepositWithdrawReceiptBooked`：入金回执成功⇒可用资金 1000→1300 + `FV` 凭证号落库。 |
+| §10-23 交易路径零 DB | **部分** | `acceptance23And35`：下单前后全表行数不变（零写库）。C++ 零 DB 归 E4/T-060。 |
+| §10-30 双向通信 | **部分** | `acceptance30EventToJavaPersistence`（① 事件→落库）+ `acceptance30ParamDispatchToComponent`（② 控制通道+回执）。跨进程未达；服务编排留痕被 TE-T058-002 阻断。 |
+| §10-35 子账户标识+风控分层 | **部分** | `acceptance23And35`：`PlaceOrderCmd.subAccountId==子账户` 且 `tradePlanId` 绑定。分层风控在 C++ `risk_engine`（本单未运行 C++；既有 `T-035`/`T-126` ctest 已覆盖，未复跑）。 |
+| §10-36 子账户加总对账 | **达成** | 见验收 3。 |
+| §10-37 子账户间划拨 | **达成** | 见验收 4。 |
+
+### 五、用例级执行表（10 用例）
+
+| # | 用例 | 结果 | 关键断言 |
+|---|------|------|---------|
+| 1 | `acceptance36AggregationConsistent` | PASS | `res.consistent`；四类 `CONSISTENT`；Σ `t_settle_cycle.equity` == `t_ctp_settle_fund.equity` |
+| 2 | `acceptance36InconsistentTriggersAlertAndBlock` | PASS | `FUND` 差额 100；`alertTime` 非空；候选≥1；结算单 `BLOCKED` |
+| 3 | `acceptance37TransferKeepsTotalInvariant` | PASS | A 800 / B 700 / Σ 1500；`POSTED`+`aggCheckPassed=Y`；成对流水 2；复核记录≥1 |
+| 4 | `acceptance37TransferRollsBackWhenAggregationFails` | PASS | 真实账户给错值 ⇒ `ROLLED_BACK`+`N`；A/B 台账复原；Σ 不变 |
+| 5 | `acceptance37SelfApprovalRejected` | PASS | 发起人=审批人 ⇒ `POSITION_SEPARATION_CONFLICT` |
+| 6 | `acceptance23And35OrderPathZeroDbWriteAndTraceable` | PASS | 全表行数不变；`cmd.subAccountId`/`tradePlanId` 逐字一致 |
+| 7 | `acceptance30EventToJavaPersistence` | PASS | `t_trade_order`/`t_trade_fill` 各 1 行且子账户=SUB_A |
+| 8 | `acceptance30ParamDispatchToComponent` | PASS | `ack.acknowledged`；`bridge.dispatchedChanges()` 收到该 `Type` |
+| 9 | `acceptance21DepositWithdrawReceiptBooked` | PASS | 可用资金 1300；流水含非空 `voucher_no` |
+| 10 | `acceptance1EndToEndNoBreak` | PASS | 成交 `trade_plan_id`==计划；末段加总一致；台账期末余额非空 |
+
+### 六、缺陷清单（TE-T058-nnn；**报告不自行改**，立号由编排者裁定）
+
+> 全部为**装配级 e2e** 在「真实 DAO + 按 DDL 语义求值引擎」上实测复现的 **schema↔实现取值/引用不一致**。判据取 `docs/DATA_MODEL.md`（冻结模型）+ `docs/DEPLOY/schema/m*.sql`（冻结 DDL）。
+
+| 编号 | 级别 | 现象 | 行号级证据 | 影响 |
+|------|------|------|-----------|------|
+| **TE-T058-001** | 高 | `t_ctp_settle_batch.parse_status` 写入值越出冻结域：服务写 `PARSED` / `PENDING_DATA`，域仅 `OK/PARTIAL/FAILED` | `SettleService.java:154`(`PARSE_PARSED="PARSED"`)、`:156`(`PARSE_PENDING="PENDING_DATA"`)、`:296`/`:309`（两分支写入）；`m2_settle.sql:42`；`DATA_MODEL.md:2386`。**实测**：`违反 CHECK ck_t_ctp_settle_batch_parse_status：parse_status=PENDING_DATA 超出取值域` | FR-SETTLE-1 接收**两条路径**在真实库均不可落库（`PARSED` 由代码级确认同域外） |
+| **TE-T058-002** | 高 | `t_param_dispatch.dispatch_type` 写入值越出冻结域：服务写枚举名 `CMD_*`，域为无前缀 8 值 | `ParamDispatchServiceImpl.java:721`（`row.dispatchType = change.type.name()`）；`ParamChange.java` Type 枚举名 `CMD_UPDATE_RISK_THRESHOLD` 等；`m3_risk.sql:53-55`；`DATA_MODEL.md:2989`。**实测**：`违反 CHECK ck_param_dispatch_type：dispatch_type=CMD_UPDATE_RISK_THRESHOLD 超出取值域` | 经 `ParamDispatchServiceImpl` 的**所有**参数下发留痕在真实库均不可落库（Java→C++ 控制链路留痕侧全断） |
+| **TE-T058-003** | 高 | `t_trade_reason.related_plan_id` 语义错位：Java 校验/落库按**交易计划**，DB 外键指向**套保计划** | 校验 `TradeService.java:399`（`tradePlanDao.findById(r.relatedPlanId)`）；落库 `:1274`（`entity.relatedPlanId = r.relatedPlanId`）；FK `m2_trade.sql:277`（`→ t_hedge_plan(id)`）；`DATA_MODEL.md:2136`。**实测**：传交易计划 ID ⇒ `违反外键 fk_trade_reason_plan：related_plan_id=303 在 t_hedge_plan.id 无对应行`；传套保计划 ID ⇒ 校验报「关联的计划不存在」 | 交易理由落库（受理事件/复核路径）在真实库**不可达** |
+| **TE-T058-004** | 高 | `t_trade_fill.order_id`（及 `t_trade_order_report.order_id` 同构）写入 **C++ 指令号**，外键指向 `t_trade_order(id)`（DB 自增主键） | 写值 `TradeService.java:674`（`fill.orderId = e.orderId`，`onOrderReport` 同构）；FK `m2_trade.sql:205`；`DATA_MODEL.md` TB-TRADE-3 `order_id`（FK→`t_trade_order(id)`）；既有 DAO 测试亦以 `order.id`（DB 主键）为成交/回报 `order_id`（`TradeDm8EquivalentIntegrationTest.java:104`）。**实测**：`违反外键 fk_trade_fill_order：t_trade_fill.order_id=100001 在 t_trade_order.id 无对应行` | C++→Java 成交/委托回报落库（§10-30① 后半）在真实库**不可达** |
+| **TE-T058-005** | 中 | 新鲜批次 + 数据到达时 `retry_count` 未初始化：到达分支不设 `retryCount`，DAO insert 显式写 NULL，而 DDL 为 `NOT NULL DEFAULT 0`（显式 NULL 不触发 DEFAULT） | `SettleService.java:309-315`（到达分支未设 `retryCount`，仅 `:296` 未到达分支自增）；`DmSettleCtpBatchDao.java:26/64`（`retry_count` 在插入列且绑 `e.retryCount`）；`m2_settle.sql:31`。**实测**：`违反 NOT NULL 约束：t_ctp_settle_batch.retry_count` | FR-SETTLE-1 首次接收到达数据的批次插入失败（与 TE-T058-001 叠加，接收面两条路径均不可达） |
+
+> **观察（非缺陷，供裁定）**：`SettleServiceTest.java:108/125` 以假 DAO 断言 `"PARSED"/"PENDING_DATA"` 为期望值——即 TE-T058-001 的口径已被既存单测**锁定**；修 schema 或修服务须同步处理该断言。
+
+### 七、变异证据（守卫用例「关掉守卫必红」）
+
+| 变异 | 手段（临时改、单实例、逐字节复原） | 结果 | 复原 |
+|------|----------------------------------|------|------|
+| M1 | `SettleService.buildCheck` 的 `if (c.difference.signum() == 0)` → `if (true)`（永远 CONSISTENT） | `acceptance36InconsistentTriggersAlertAndBlock` **FAIL**（2 run/1 fail）；正控 `acceptance36AggregationConsistent` 仍绿 | `SettleService.java` md5 复原为 `40e42ecf4cd64fe9fb99a33cb1eda438` |
+| M2 | `FundService.postTransfer` 的 `realOk` 计算 → `boolean realOk = true;` | `acceptance37TransferRollsBackWhenAggregationFails` **FAIL**（2 run/1 fail）；正控 `acceptance37TransferKeepsTotalInvariant` 仍绿 | `FundService.java` md5 复原为 `2399df34a7e0ed79b68ce872127d18a8` |
+
+> 划拨「加总不变」守卫另引用 T-049 既有变异结论（`FundServiceTest` 覆盖），本单未重做。
+
+### 八、真联档（未达-前置缺失，跳过并留痕）
+
+`cpp/src/main.cc` 为工程骨架（不监听 / 不握手 / 不加载配置）⇒ **跨进程真联前置缺失**。本单所有「组件间」结论均为**进程内桩**（`InMemoryTradingBridge`）或**单侧服务装配**，**不冒充跨进程联调**；CTP 模拟盘（期货开平/期权策略/银期转账）亦无环境。真联档须待 main.cc 实化 + 模拟盘接入后由真联编排任务承接。
+
+### 九、不覆盖项（诚实声明）
+
+- 跨进程 TCP 时序抖动、真实 CTP 回报时序；DM8 实机（本机无实例/驱动，引擎为等价执行）。
+- C++ 侧零 DB / C++11 合规 / 分层风控运行时（归 E4 / T-035 / T-060，本单零运行 C++）。
+- 期权策略（领口等）、真实银期转账、会计凭证（M4 模块⑧）。
+- 引擎固有边界：条件唯一索引 `WHERE` 谓词、JOIN/聚合、多列外键、事务回滚（本单链路不依赖）。
+
+### 十、回执要点
+
+- 写域：`java/src/test/**`（+2 文件）、`docs/TEST_RESULT.md`（纯追加本章）。**生产代码零改动**（变异期临时改、已逐字节复原，见 §七）；禁触面（`java/src/main`、`proto/`、`CONTRACTS.md`、`cpp/**`、`web/**`、TASKS/BOARD、其它 docs）**零触及**。
+- 产出说明：工单「产出 = `docs/TEST_PLAN/M2-report.md`」**不在本单写域**（属「其它 docs」），故证据按 T-057 先例落 `docs/TEST_RESULT.md` §T-058；`M2-report.md` **未生成**（如需请另行授权）。
+- 不自评 DONE；缺陷 5 项 + 观察 1 项请编排者裁定（是否立号/归属）。
+- 本席实测与工单不符项：**无**（工单预期「真联跳过、零DB/加总/划拨变体可执行」均与实测一致；另发现 5 项 schema↔实现不一致，属工单预期外的 e2e 收获）。
+
