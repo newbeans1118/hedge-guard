@@ -341,6 +341,22 @@ public interface TransferApplyDao extends BaseDao<TransferApply, Long> {
     // T-049 追加：按单号前缀取当日字典序最大单号（§3.5「当日最大序号 + 1」；专用 SQL，走 uk_transfer_apply_no 前缀区间）
     String findMaxApplyNoByPrefix(String applyNoPrefix);
 }
+
+// —— TB-RISK-7/8/9 事后风险报表（FR-RISK-17 / FR-RISK-18；T-180 纯增量）——
+// ⚠️ 本组为事后风控（日终批量）**报表落库面**，全账户汇总口径、无子账户 scoped 方法；
+//    子账户隔离面（FR-RISK-19 查询）不属本单。随本单登记以免「DAO 面变更未登记」。
+public interface PostRiskReportDao extends BaseDao<PostRiskReport, Long> {
+    // T-180 追加：按幂等键（uk_post_risk_report：report_date, report_type, sub_account_id）定位
+    PostRiskReport findByKey(LocalDate reportDate, String reportType, Integer subAccountId);
+}
+public interface RiskViolationDao extends BaseDao<RiskViolation, Long> {
+    List<RiskViolation> findByDate(LocalDate violationDate);          // T-180 追加：按发生日期归集
+    long countByNaturalKey(int subAccountId, LocalDate violationDate, String violationType,
+                           String ruleId, String source);             // T-180 追加：派生落库幂等判据
+}
+public interface LimitUsageStatDao extends BaseDao<LimitUsageStat, Long> {
+    List<LimitUsageStat> findByDate(LocalDate statDate);              // T-180 追加：按统计日期归集
+}
 ```
 
 - **`HedgePlanDao`**：`findPageScoped` / `findByIdScoped`（**`T-100` 交付，纯增量**；实现 `dao/impl/DmHedgePlanDao`，复用 `AbstractDmDao.findPageScoped`）——列表与详情面同接同一过滤；`findByIdScoped` 语义：**不可见 ≡ 不存在**（同一返回，不泄露存在性）。另加 **`findMaxPlanNoByPrefix`（`T-137` 交付，纯增量）**：`DATA_MODEL.md` §3.5「当日最大序号 + 1」取数（`t_hedge_plan` 无业务日列，业务日隐含于 `plan_no` 前缀；通用 WHERE 原子表达不了前缀匹配 ⇒ 专用 SQL `plan_no LIKE ?`，走 `uk_hedge_plan_no` 唯一索引区间）；**不使用 `SELECT MAX(...) FOR UPDATE`**（§3.5 明令禁止）。
@@ -348,6 +364,7 @@ public interface TransferApplyDao extends BaseDao<TransferApply, Long> {
 - **`ProductDao`**：`findPageScoped` / `findAllScoped` / `findAllOrderByCreatedDesc`（**`T-105` 交付**）/ `findByIdScoped`（**`T-106` 追加**）—— **共四处纯增量**；实现 `dao/impl/DmProductDao`——**载体差异**：`t_product` 无 `sub_account_id` 列，故 scope 的 `sub_account_id` 谓词落在 **`t_sub_product_whitelist` 子查询**上（`id IN (SELECT product_id FROM t_sub_product_whitelist WHERE <scope.sql()>)`），即"可见品种 = 可见子账户白名单覆盖品种之并集"；`findAllOrderByCreatedDesc` 为**不加过滤**（跨账户只读 / 哨兵 0）路径，服务层据哨兵择一调用。
 - **`ExposureDao`**：`findPageScoped` / `findByIdScoped`（**`T-107` 交付，两处纯增量**；实现 `dao/impl/DmExposureDao`，`findPageScoped` 复用 `AbstractDmDao.findPageScoped`）——`t_exposure` 有 `sub_account_id` 列 ⇒ scope 谓词**直接落在本表列**（`sub_account_id IN (...)`，同 `HedgePlanDao`/`TradePlanDao`）；详情面 `findByIdScoped` 语义：**不可见 ≡ 不存在**（`WHERE id = ? AND <scope.sql()>`，同一返回，不泄露存在性）。**同批删除**旧 `findPendingHedge(int)`（可见集由调用方 `subAccountId` 决定 ⇒ 越权面，`NFR-SEC-7`；唯一调用方 `SpotService` 同批改，无其它引用 ⇒ 非破坏性）。
 - **`FundQuotaDao`**：`findScoped`（**`T-049` 交付，一只纯增量**；实现 `dao/impl/DmFundQuotaDao`）——`t_fund_quota` 有 `sub_account_id` 列 ⇒ scope 谓词**直接落在本表列**（`sub_account_id IN (...)`，同 `HedgePlanDao`/`ExposureDao`）；服务层对 `quota_scope='SUB_ACCOUNT'` 接 `AuthService.visibleSubAccountIds` → `SubAccountScope.of`，**空集恒假**；账户级（哨兵 `NULL`）**不走**此过滤（同 `T-112` 层③口径）。**另加 `DepositWithdrawApplyDao.findMaxApplyNoByPrefix` / `TransferApplyDao.findMaxApplyNoByPrefix`（`T-049` 交付，各一只纯增量）**：`DATA_MODEL.md` §3.5「当日最大序号 + 1」取数（单据表无业务日列、业务日隐含于 `apply_no` 前缀 ⇒ 专用 SQL `apply_no LIKE ?`，走 `uk_dw_apply_no`/`uk_transfer_apply_no` 前缀区间；**不使用 `SELECT MAX(...) FOR UPDATE`**，先例 `T-137`/`T-141`）。
+- **事后风控报表 DAO 组（`T-180` 交付，三接口纯增量）**：`PostRiskReportDao.findByKey` / `RiskViolationDao.findByDate` / `RiskViolationDao.countByNaturalKey` / `LimitUsageStatDao.findByDate`——承载 `FR-RISK-17`/`FR-RISK-18` 的日终报表落库（`t_post_risk_report` / `t_risk_violation` / `t_limit_usage_stat`，`DATA_MODEL.md` §2.8 TB-RISK-7/8/9）；实现 `dao/impl/DmPostRiskReportDao` / `DmRiskViolationDao` / `DmLimitUsageStatDao`。**本组无子账户 scoped 方法**（全账户汇总报表口径；`FR-RISK-19` 查询面的隔离不属本单）。⚠️ 上述三表 DDL 尚由 `T-094` 收口（本单测试以内联转录 `DATA_MODEL.md` §2.8 驱动，不触 `docs/**`）。
 - 语义（各 scoped 方法一致，冻结；`ProductDao` 的子查询形态为经登记的载体差异）：由服务层构造 `SubAccountScope` 后传入；本层**不解析权限语义**，只把
   `scope.appendTo(...)` 的条件与既有条件合并（`ProductDao` 为包一层白名单子查询）；**空集合 ⇒ 恒假条件**（返回空），**绝不**退化为不过滤；
   **计数口径**（`findPageScoped`）：`total` 为**叠加 scope 与 `extraWhere` 过滤后**的总行数（分页实现独立执行 `COUNT`），**不得**取全表行数。
