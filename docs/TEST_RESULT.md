@@ -16565,3 +16565,23 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **观察（5，不阻断）**：O-1 settle_reconcile_key VARCHAR(64) 多单可截断（代码注释已自认）；O-2 幂等「计数+插入」非原子、t_risk_violation 无 uk（日终单批低风险）；O-3 发生数下降不回删（与 R-RISK-11 告警留痕口径相容）；O-4 锚链口径混用但可复现无内容矛盾（各代次口径全列）；O-5 内联 DDL 另含标准审计列与一条 §2.8 未列 CHECK（属所列范围外）。
 
 **登记与移交**：ruleId→六类映射转权威席追认（②(b) 归组判断 + FREQUENT_TRADE 已正名 FR-RISK-14 + R-PLAN 分支疑死代码待确认）；FR-RISK-19 查询面无承接任务 ⇒ 登记承接点（te-verify-t180 O-4）；T-094 范围微调已加注（DAO 三件归 T-180，余 DDL + m3_risk.sql:15-16 头注释订正）。
+
+---
+
+## T-094 独立复核证据（席 te-verify-t094 + te-verify-t094b delta；2026-10-05 第 203 轮 · 编排者逐字转录）
+
+**结论：有条件通过（TE-T094-001 中）⇒ 退修后 delta 复核通过 / 0 缺陷 ⇒ T-094 转 DONE。**
+
+**交付与冻结**：HEAD 链 b8ba663（主体 27 文件 +2586/−44，23A/4M）→ 1824b41（退修 2 文件 +84/−0）；proto/cpp/web/TASKS/BOARD/DATA_MODEL 零触及；树锚（java/src 口径）da9ccabc…/585 → f11e001a…/608 → 63402ff0…/585（见锚点谱系）；DATA_MODEL 现行 v1.3.5 d17bce0c…/5252。
+
+**te-verify-t094 前审（判据实测）**：10 表对 §2.8 独立脚本比对——列集/类型/NOT NULL/默认值/唯一约束/普通索引/索引列组成（含序）/FK 数全 0 差异；CREATE TABLE=11；哨兵 CHECK 三处 compact 逐字相等 + §4.3 双向联动语义核；CONTRACTS numstat +27/−1 唯一删除=T-180 bullet 过时句（前缀保留）、A∖B=∅；DaoColumnAlignmentTest 豁免回收无残留死代码、RiskParamDispatchSchemaTest 限域正确；门禁隔离复跑 906/0/0/0 + arch 8/8；负控三组全红后逐字节复原（m3_risk.sql=d78ebfa9…）；抽样回归 6 SchemaTest+JobTest 全绿。
+
+**TE-T094-001（中）与闭环**：t_limit_usage_stat 生产 DDL 缺 usage_ratio >= 0 CHECK（判据链 = DATA_MODEL:4316 明列 + :4305 总则 + §4.3 委派 §3.2 + T-180 夹具 M3RiskReportDdl.java:119 已含 + §3.2 同族 m1_product/m1_spot/m1_plan/m2_trade 全落地唯此一漏；绿测掩盖根因 = M3RiskSchemaTest 不校验非哨兵 CHECK）。**be-t094b 退修 1824b41**：CHECK 补入（:448）+ **NAMED_CHECKS 数据驱动双向清单断言**（RISK 全 11 表 33 条具名 CHECK，缺登记/未登记新增皆红）。
+
+**te-verify-t094b delta（独立解析+双变异+注释负控）**：① 独立解析实际 DDL = 11 表/33 条具名 CHECK，与清单逐表 set 比对 MISMATCH=0；全文件 grep 无游离/未具名 CHECK；② 变异 α（删 ck_limit_usage_ratio_nonneg）⇒ FAIL「缺=[ck_limit_usage_ratio_nonneg]」、同批 4 例仍绿（守卫精确）；变异 β（t_risk_alert 加未登记 ck_risk_alert_bogus）⇒ FAIL「多=[ck_risk_alert_bogus]」；③ 注释负控两形态（独立注释行形似 CONSTRAINT/行尾 -- CONSTRAINT）⇒ 仍绿（stripComments 正确）；④ 门禁 907/0/0/0（@Test==surefire==907）+ arch rc0 + M3RiskSchemaTest 5/5。
+
+**锚点谱系澄清（编排者定案）**：63402ff0…/585 = 1824b41 现行态（**含** be-t180c javadoc——HEAD:RiskViolationDao md5=6eaf4ff4…、工作树同、status 干净）；da9ccabc…/585 = te-verify-t094b 沙箱快照（非本仓对象，故 12 口径不可复现成立且无内容矛盾——其复核即现行态）；f22dffd = be-t180c 在分叉沙箱的孤儿重复提交（parent=daaeb01，内容已被 1824b41 落地，不可达、无损害）。
+
+**观察登记**：O-1 新断言只锚约束名不锚条件体——31 条非哨兵 CHECK 条件改写仍绿（哨兵 2 条有 sentinelChecksThreeWayConsistent 护）；条件级判据如需彻底闭环另行立号（存量面、非本 delta 缺陷）；O-2 NAMED_CHECKS 为 DDL 快照非 DATA_MODEL 派生——复核建议 javadoc 明示「快照式冻结守卫，权威源 = DATA_MODEL §2.8/§4.3」（登记随下次触改）。诚实披露三项（复杂 CHECK 取值域/DM8 未执行/RiskAlert 同名异包）te-verify-t094 逐一证实属实。
+
+**编排者亲核记录**：终态指纹（m3_risk f9e755ed…/507、M3RiskSchemaTest cfdb0e13…、RiskViolationDao 6eaf4ff4…、锚 63402ff0…/585、fk-order-check PASS）交付当日亲测与双复核席独立实测一致；TE-T094-001 三处行号（:424/:433/:443-450）与 CONTRACTS 删除行当日亲核吻合。
