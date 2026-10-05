@@ -1,5 +1,6 @@
 package com.hedgeguard.web.handler.settle;
 
+import com.hedgeguard.service.SettleCheckService;
 import com.hedgeguard.service.SettleService;
 import com.hedgeguard.web.ApiRoutes;
 import com.hedgeguard.web.Router;
@@ -11,15 +12,15 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@code T-047} SETTLE 路由**可达性**判据（{@code BUG-004} 教训：注册 ≠ 可达）。
+ * {@code SETTLE} 路由**可达性**判据（{@code BUG-004} 教训：注册 ≠ 可达）。
  *
- * <p>验证：① 已注册路径全部落在 {@code ApiRoutes} 冻结清单内；② 占位符动作路由不会被同段数静态路由
- * 吞并（实例路径回查命中自身模式）；③ 未注册路径（{@code monthly-check}/{@code quarterly-report}，
- * 归 {@code T-048}）确为「未注册」；④ 处理函数非空。
+ * <p>{@code T-047} 覆盖结算主链 11 对；{@code T-048} 增补核对任务与电子签署 4 对
+ * （{@code monthly-check}/{@code quarterly-report} 各 {@code GET}/{@code POST}）⇒ 合计 15 对。
+ * 验证：① 已注册路径全部落在 {@code ApiRoutes} 冻结清单内；② 占位符动作路由不被同段数静态路由吞并；
+ * ③ 处理函数非空。
  */
 class SettleRouteDispatchTest {
 
@@ -27,17 +28,22 @@ class SettleRouteDispatchTest {
         SettleService service = new SettleService(null, userId -> Arrays.asList(101, 102),
                 null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null);
+        SettleCheckService checkService = new SettleCheckService(null,
+                userId -> Arrays.asList(101, 102), userId -> Arrays.asList(),
+                userId -> false, key -> null, null, null, null, null);
         Router router = new Router();
         SettleRoutes.register(router, service);
+        SettleCheckRoutes.register(router, checkService);
         return router;
     }
 
     @Test
-    @DisplayName("SETTLE 已注册路径 ∈ ApiRoutes；占位符动作路由不被吞并（实例路径回查命中自身）")
+    @DisplayName("SETTLE 已注册路径 ∈ ApiRoutes；占位符动作路由不被吞并；核对签署面可达")
     void registeredRoutesAreReachableAndContractual() {
         Router router = assemble();
         List<String> registered = router.routes();
-        assertEquals(11, registered.size(), "SETTLE 最小注册面应为 11 个 (方法,路径) 对：" + registered);
+        assertEquals(15, registered.size(),
+                "SETTLE 注册面 = 结算 11 + 核对签署 4：\n" + registered);
         List<String> all = ApiRoutes.all();
         for (String entry : registered) {
             String path = entry.substring(entry.indexOf(' ') + 1);
@@ -53,8 +59,10 @@ class SettleRouteDispatchTest {
                 router.match("POST", "/api/v1/settle/cycle/5/aggregate").pattern());
         assertEquals("/api/v1/settle/cycle/{id}/close",
                 router.match("POST", "/api/v1/settle/cycle/5/close").pattern());
-        // 未注册（归 T-048）：路径已声明但未注册 ⇒ 匹配为空
-        assertNull(router.match("POST", "/api/v1/settle/monthly-check"));
-        assertNull(router.match("POST", "/api/v1/settle/quarterly-report"));
+        // T-048：核对任务与电子签署面（GET 只读查询 + POST 生成/签署）
+        assertNotNull(router.match("GET", "/api/v1/settle/monthly-check").handler());
+        assertNotNull(router.match("POST", "/api/v1/settle/monthly-check").handler());
+        assertNotNull(router.match("GET", "/api/v1/settle/quarterly-report").handler());
+        assertNotNull(router.match("POST", "/api/v1/settle/quarterly-report").handler());
     }
 }

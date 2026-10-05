@@ -10,6 +10,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * {@code t_check_signature} 的达梦实现（{@code DATA_MODEL.md} §2.7 TB-SETTLE-15）。
@@ -103,5 +104,12 @@ public final class DmSettleCheckSignatureDao extends AbstractDmDao<SettleCheckSi
         String sql = "SELECT " + selectList() + " FROM " + tableName()
                 + " WHERE check_task_id = ? AND sign_role = ?";
         return queryOne(sql, Arrays.asList(checkTaskId, signRole), this::mapRow);
+    }
+
+    @Override
+    public List<SettleCheckSignature> findByTask(long checkTaskId) {
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE check_task_id = ? ORDER BY id ASC";
+        return queryList(sql, Arrays.asList(checkTaskId), this::mapRow);
     }
 }

@@ -6,6 +6,7 @@ import com.hedgeguard.web.handler.fund.FundRoutes;
 import com.hedgeguard.web.handler.plan.PlanRoutes;
 import com.hedgeguard.web.handler.product.ProductRoutes;
 import com.hedgeguard.risk_intraday.RiskRoutes;
+import com.hedgeguard.web.handler.settle.SettleCheckRoutes;
 import com.hedgeguard.web.handler.settle.SettleRoutes;
 import com.hedgeguard.web.handler.spot.SpotRoutes;
 import com.hedgeguard.web.handler.trade.TradeRoutes;
@@ -62,8 +63,13 @@ final class FullWebAssembly {
      * transfer/{id}/approve / quota[GET,POST] / margin / reconcile / export）
      * ⇒ {@code 96 → 111}（非为过测试而放宽：{@code ApiRoutes} 已声明 FUND 12 条路径，本任务只做
      * <b>最小注册</b>，路径逐字取自冻结清单）。
+     *
+     * <p>【{@code T-048}】核对任务与电子签署（{@code FR-SETTLE-13/14/17}）在 {@code SETTLE} 模块的
+     * 已声明路径 {@code /settle/monthly-check}、{@code /settle/quarterly-report} 上各注册
+     * {@code GET}/{@code POST}（只读查询 + 生成/签署）⇒ {@code 111 → 115}（非为过测试而放宽：
+     * 未新增路径，路径逐字取自 {@code ApiRoutes}）。
      */
-    static final int ROUTE_COUNT = 111;
+    static final int ROUTE_COUNT = 115;
 
     private FullWebAssembly() {
     }
@@ -86,6 +92,9 @@ final class FullWebAssembly {
         // cycle/{id}/{reconcile,aggregate,close} / difference / report / margin / stress-test / export）。
         // 服务入参 null：装配期只调用 router.register(...) 构造 Handler，不驱动任何业务逻辑。
         SettleRoutes.register(router, null);
+        // T-048：核对任务与电子签署（4 个 (方法,路径) 对：monthly-check/quarterly-report 各 GET/POST）。
+        // 服务入参 null：装配期只调用 router.register(...) 构造 Handler，不驱动任何业务逻辑。
+        SettleCheckRoutes.register(router, null);
         // T-049：FUND 资金管理最小注册面（15 个 (方法,路径) 对）。服务入参 null：装配期只调用
         // router.register(...) 构造 Handler，不驱动任何业务逻辑。
         FundRoutes.register(router, null);

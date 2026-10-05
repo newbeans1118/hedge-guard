@@ -10,6 +10,8 @@ import java.time.LocalDateTime;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * {@code t_check_task} 的达梦实现（{@code DATA_MODEL.md} §2.7 TB-SETTLE-13）。
@@ -104,5 +106,20 @@ public final class DmSettleCheckTaskDao extends AbstractDmDao<SettleCheckTask, L
     @Override
     protected void applyGeneratedId(SettleCheckTask entity, long generated) {
         entity.id = generated;
+    }
+
+    @Override
+    public SettleCheckTask findByPeriod(String checkType, String periodKey, int subAccountId) {
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE check_type = ? AND period_key = ? AND sub_account_id = ?";
+        return queryOne(sql, Arrays.asList(checkType, periodKey, subAccountId), this::mapRow);
+    }
+
+    @Override
+    public List<SettleCheckTask> findOverdue(LocalDate asOf) {
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE status <> 'COMPLETED' AND deadline_date < ?"
+                + " ORDER BY deadline_date ASC, id ASC";
+        return queryList(sql, Arrays.asList(asOf), this::mapRow);
     }
 }

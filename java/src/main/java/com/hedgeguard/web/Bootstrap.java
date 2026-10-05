@@ -62,6 +62,8 @@ import com.hedgeguard.dao.impl.DmSettleCtpBatchDao;
 import com.hedgeguard.dao.impl.DmSettleCtpFundDao;
 import com.hedgeguard.dao.impl.DmSettleCtpPositionDao;
 import com.hedgeguard.dao.impl.DmSettleCtpTradeDao;
+import com.hedgeguard.dao.impl.DmSettleCheckSignatureDao;
+import com.hedgeguard.dao.impl.DmSettleCheckTaskDao;
 import com.hedgeguard.dao.impl.DmSettleCycleDao;
 import com.hedgeguard.dao.impl.DmSettleFundDao;
 import com.hedgeguard.dao.impl.DmSettlePnlDao;
@@ -106,6 +108,7 @@ import com.hedgeguard.service.FundService;
 import com.hedgeguard.service.ParamDispatchService;
 import com.hedgeguard.service.PlanService;
 import com.hedgeguard.service.SpotService;
+import com.hedgeguard.service.SettleCheckService;
 import com.hedgeguard.service.SettleService;
 import com.hedgeguard.service.TradeService;
 import com.hedgeguard.service.VarietyService;
@@ -117,6 +120,7 @@ import com.hedgeguard.web.handler.fund.FundRoutes;
 import com.hedgeguard.web.handler.plan.PlanRoutes;
 import com.hedgeguard.web.handler.product.ProductRoutes;
 import com.hedgeguard.web.handler.spot.SpotRoutes;
+import com.hedgeguard.web.handler.settle.SettleCheckRoutes;
 import com.hedgeguard.web.handler.settle.SettleRoutes;
 import com.hedgeguard.web.handler.trade.TradeRoutes;
 
@@ -476,6 +480,19 @@ public final class Bootstrap {
                 new DmSettleAggregationCheckDao(tx), new DmSettleAggDiffCandidateDao(tx),
                 new DmSettleReportDao(tx), new DmSettleStressTestDao(tx));
         SettleRoutes.register(router, settleService);
+
+        // M2 核对任务与电子签署（T-048）：核对任务 + 三级签署 + 不可代签（DC-022）+ 逾期巡检 +
+        // 合规证据导出 + 审计只读查询。快照接缝未装配（snapshotProvider=null）⇒ 快照哈希以请求携带值为准；
+        // 六段快照的 SHA-256 生产计算待跨模块读面就绪（ARCHITECTURE.md §6.14，据实披露）。
+        SettleCheckService settleCheckService = new SettleCheckService(tx, authService,
+                authService::roleCodesOf, authService::hasTradingRole,
+                key -> {
+                    com.hedgeguard.dao.entity.ConfigItem ci = configService.getConfig(key);
+                    return ci == null ? null : ci.configValue;
+                },
+                null, new DmSettleCheckTaskDao(tx), new DmSettleCheckSignatureDao(tx),
+                new DmUnauthorizedAttemptDao(tx));
+        SettleCheckRoutes.register(router, settleCheckService);
 
         // M2 资金管理服务（T-049）：台账/出入金/双人复核/划拨/额度/对账。
         // 回执处理与 CTP 下发以「服务方法 + 接缝」承接（bridge 未承载 CMD_FUND_TRANSFER(0x011D)/

@@ -116,7 +116,7 @@ class BootstrapAssemblyTest {
     // ------------------------------------------------------------------ 2b. 正分支：直接断言业务路由注册
 
     @Test
-    @DisplayName("🔴 正分支直接断言：配了 hg.db.url（假驱动）时 7 个注册器真的被调用、87 条路由真的注册")
+    @DisplayName("🔴 正分支直接断言：配了 hg.db.url（假驱动）时业务注册器真的被调用、117 条路由真的注册")
     void configuredDatabaseRegistersAllBusinessRoutes() {
         System.setProperty(Config.KEY_DB_URL, "jdbc:dm://127.0.0.1:5236/HG");
         System.setProperty(Config.KEY_DB_DRIVER, FakeJdbcDriver.class.getName());
@@ -165,9 +165,14 @@ class BootstrapAssemblyTest {
             //   margin / reconcile / export），FUND 由 0 增为 15，业务路由 111
             //   （AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK1/TRADE3/SETTLE11/FUND15）+ ping 2 = 113。
             //   非为过测试而放宽断言。
-            assertEquals(113, assembly.routeCount(),
-                    "业务路由必须全部注册：111（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK1/TRADE3/"
-                            + "SETTLE11/FUND15）+ ping 2");
+            // 【T-048 订正（加注）】断言值由 113 订正为 117：订正理由 = 需求面（{@code ApiRoutes} 声明 SETTLE
+            //   模块 /settle/monthly-check、/settle/quarterly-report；{@code FR-SETTLE-13/14/17}、
+            //   ARCHITECTURE.md §6.14）——SettleCheckRoutes 于既有已声明路径上各注册 GET/POST（4 对），
+            //   SETTLE 由 11 增为 15，业务路由 115（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK1/TRADE3/
+            //   SETTLE15/FUND15）+ ping 2 = 117。非为过测试而放宽断言。
+            assertEquals(117, assembly.routeCount(),
+                    "业务路由必须全部注册：115（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK1/TRADE3/"
+                            + "SETTLE15/FUND15）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。
             // （不真发 HTTP：经 RequestDispatcher 进程内分发；handler 因无真实库而 4xx/5xx 皆可，
