@@ -15558,3 +15558,338 @@ P0 核心资金不变量（记账完整性、双人复核、异步幂等、划�
 - 日志：`/root/t049c-fulltest.log`（全量）、`/root/t049c-probe.log`（探针）、`/root/t049c-mut1.log`/`t049c-mut2.log`（变异）
 - 提交 diff：`/root/t049c-show.txt` = fb06023366f1c1e033a7d30bb9de4570（385 行）
 - 共享树 java/src：`git diff HEAD` 空、md5 FundService = 2399df34…（还原证）
+
+---
+
+# T-048 独立复核 + delta 证据章（编排者逐字转录）
+
+- **转录说明**：以下两份报告由复核席分别落笔于 /root/t048-review.md（md5 c574f4143baacee98a5f86c23bc7e613 / 197 行）与 /root/t048-review-delta.md（md5 e720aafb46075e9be58a90456bb9d451 / 126 行），编排者逐字转录、未改写任何数字或措辞；转录时点基线 = 15560 行。
+- **背景**：T-048 交付 67f9349（14 文件 +2021/−16）；复核不通过（阻断 2 + 中 1）→ 修复 217e814（sign() 三段式：判据移出写入事务、留痕/重置独立提交）→ te-verify-t048b delta 裁定三缺陷全部闭环 ⇒ 可转 DONE（O-1 角色映射张力 / O-3 FR-AUDIT-13 归属登记转权威席）。
+
+# T-048 「实现核对任务与电子签署」门禁级独立复核报告
+
+- 复核席：`te-verify-t048`（独立复核，未改动受审仓库任何源码）
+- 受审提交：`67f9349`（HEAD，T-048 交付，14 文件 +2021/−16）；基线 `80e2b5b`
+- 复核对象仓：`/root/myspace/hedge-guard`
+- 隔离副本：`/root/iso-t048`（rsync，含 docs/java/tools/proto/web/cpp 源码；排除 .git/.codebuddy/.verify/dev-team/target/build）
+- 探针/脚本：均带席位后缀（`/root/iso-t048*`、`/root/t048-*`）
+- 结论：**不通过**（2 项阻断级缺陷 + 1 项中；核心逻辑与计数独立复现一致）
+
+> 说明：报告自身 md5 不在正文写死（自指口径，以实时 `md5sum` 为准，回执给出）。
+
+---
+
+## 一、结论摘要
+
+| 维度 | 复核结果 |
+|------|----------|
+| 独立复现门禁 | ✅ 全量 `mvn -B -o clean test` = **859/0/0/0**（surefire 独立实测，108 测试类）；`arch-check` **E1–E8 全 0 / rc=0** |
+| 增量自洽 | ✅ 859 − 836 = **23** = 新增 @Test 19（ServiceTest）+ 4（HandlerTest）= 23 |
+| 核心逻辑独立测试 | ✅ 复核席自写 9 用例全绿（月度三方/代签/多角色显式/逾期/审计跨账户/截止域/快照内存语义/季度次序/年度+CASHIER） |
+| 生产事务语义 | ❌ **两项「写后抛异常」在同一事务内 ⇒ 真实 TxTemplate 回滚 ⇒ 留痕/重置丢失**（TE-T048-001/002） |
+| 导出完整性 | ❌ 导出硬编码 size=100 ⇒ >100 静默截断（TE-T048-003） |
+| 计数与路由 | ✅ 117=115+2、SETTLE 15 对、SETTLE 声明路径余量 0，均独立复算一致 |
+| 变异承重 | ✅ M1（角色持有判定）/M3（截止天数域门禁）/S1 自设（重复签署守卫）三例全红；复位逐字节一致（md5 复原） |
+| 最小侵入主张 | ✅ 属实：SettleService.java 不在 14 改动文件内（0 改动）；伴生类 + Bootstrap 双注册块各 1 |
+| 角色词表 FINANCE→SETTLER | ⚠️ 倾向成立（两栏论据见 §七），但**须产品裁定/登记**（DC-022 字面在 DDL 词表下不可同时成立） |
+
+---
+
+## 二、冻结链与锚点（开工实时复测）
+
+- `git rev-parse HEAD` = `67f93492e18622736aeb62e11bebf90f7c89584c`（= 67f9349）
+- 交付件 `SettleCheckService.java` md5 = `53c7a1823ae31843616f7b6d6acc8865`（与声明一致）
+- 关键工作树 md5：
+  - SettleCheckHandler.java `9a28f10ddfbf2b1cc5ebf7355e0302b5`
+  - SettleCheckRoutes.java `d25b8ce09dfccb0741cf534afe7ce1ae`
+  - SettleCheckServiceTest.java `5329e5c2a3f4fcd125aba0bd2cb96c6a`
+  - SettleCheckFakes.java `5e043e8c0502f3181e40d78b4963ec27`
+  - SettleCheckHandlerTest.java `b25e3dfb8257ce3dc81b7d5b17474ebd`
+  - Bootstrap.java `1e66238f866ad4d3419108b17a3623b1`
+- **java/src 树锚口径已定位并可复现**（多形态哈希判例）：
+~~~
+cd <repo>/java/src && find . -type f | LC_ALL=C sort | xargs md5sum | md5sum
+# HEAD 67f9349 : 277f8cac010d21029f8b51627f234457  (561 文件)
+# 基线 80e2b5b : 208e788741133d56d42908821b458de0  (555 文件)
+~~~
+  ⇒ 声明的 `277f8cac…/561`、`208e7887…/555` **逐位复现**（口径 = cwd=java/src、相对 `./` 路径）。
+  另注：以仓库根为 cwd（路径带 `java/src/` 前缀）得另一值 `13c5822e…/561`，属已知多形态差异，非不一致。
+- 基线 836 vs 编排者交底 834：编排者已自认陈旧；本席以「859 − 新增 23」独立佐证基线 = 836（**未另跑基线全量**，此项为算术佐证）。
+
+---
+
+## 三、独立复现门禁（隔离副本）
+
+~~~
+# 隔离副本（纯源，无 target/.git 污染）
+rsync -a --exclude ".git" --exclude ".codebuddy" --exclude ".verify" \
+      --exclude "dev-team" --exclude "sdk" --exclude target --exclude build \
+      /root/myspace/hedge-guard/ /root/iso-t048/
+cd /root/iso-t048/java && mvn -B -o clean test      # DONE_RC=0
+grep -E "Tests run: [0-9]+, Failures" ... | tail        # Tests run: 859, Failures: 0, Errors: 0, Skipped: 0
+cd /root/iso-t048 && bash tools/arch-check/arch-check.sh   # 通过(0)=8 命中(0)=0 用法(2)=0 ⇒ rc=0
+~~~
+
+- 全量 surefire：**859/0/0/0**（独立实测，与声明一致）。
+- `arch-check` 聚合 **E1–E8 全 0，rc=0**（E8 也已接线并通过）。
+- 增量 23 = 19 + 4，与 836→859 自洽。
+
+---
+
+## 四、核心逻辑独立测试（复核席自写，未改产出方文件）
+
+探针文件（仅加入隔离副本）：`java/src/test/java/com/hedgeguard/service/T048VerifyProbeTest.java` —— **9/9 绿**：
+1. 月度生成 ⇒ 应签 `RISK,TRADE,FINANCE`、截止 10-30、三方齐 ⇒ COMPLETED（provider=null，快照取请求值）；
+2. 无岗位角色者签应签角色 ⇒ `FUNCTION_PERMISSION_DENIED` + `t_unauthorized_attempt` 1 行 + REJECTED 行 proxyRejected=Y；
+3. 多角色账号显式提交其所持合法角色 ⇒ 通过；同账号换角色 ⇒ `POSITION_SEPARATION_CONFLICT`；
+4. 逾期 scan ⇒ OVERDUE + overdue_alerted=Y + 二次不重复；
+5. 审计席哨兵 0 跨账户可见；空可见集/不含目标子账户 ⇒ fail-closed 空；
+6. 截止域 1/120 通过、0/121 拒绝、缺省 30；
+7. 快照变更 ⇒ 内存语义回 PENDING_SIGN + 新基线（FakeTx 不建模回滚）；
+8. 季度 MANAGE 次序 + MANAGE 持交易权被拒；
+9. 年度 AUDITOR 单签完成；CASHIER 持有人签月度 FINANCE 被拒（印证映射张力）。
+
+> 结论：**服务内逻辑（判据、状态机、域校验、可见性）实现正确**；缺陷不在判据算法，而在**事务提交语义**与**导出完整性**（见下）。
+
+---
+
+## 五、缺陷（TE-T048-xxx）
+
+### TE-T048-001（阻断，P1）代签/越权留痕在同一事务内「写后抛异常」⇒ 真实事务回滚，留痕丢失
+
+- **位置**：`SettleCheckService.rejectProxy`（`SettleCheckService.java:663` 起，`attemptDao.insert` 在 `:676`）：先 `attemptDao.insert(...)` 与 `signatureDao.insert(REJECTED…)`，随后 `throw BizException.of(code, reason)`；且**整个过程在 `sign()` 的同一 `tx.inTransaction` 内**（`sign()` → `tx.inTransaction(conn -> signInTx(...))`）。
+- **机制**：`TxTemplate.inTransaction` 捕获 `RuntimeException | Error` 一律 `rollbackQuietly`（`TxTemplate.java:73,76`）；`BizException extends RuntimeException`（`BizException.java:10`）；DAO 写经 `tx.execute` 加入当前事务（`AbstractDmDao.java:114,617` + `TxTemplate.execute` 在事务中复用绑定连接、不提交）⇒ 回滚丢弃本事务全部写。
+- **本仓已确立的正确范式**：`AuthService.recordAttempt` 把越权插入**单独包一个 `tx.inTransaction`**（独立提交），抛异常不影响留痕（`AuthService.java:1597-1610`）。
+- **违反**：`DC-022`（「任一不满足 → 拒绝签署、置 `proxy_rejected=Y`、记 `t_unauthorized_attempt`」）/ `FR-SETTLE-17` 验收 2 / `AUTH.md` 越权尝试记录「必须记录」（`R-AUTH-8`）。
+- **独立证据（生产事务语义探针，rollback 真实生效）**：`T048RollbackProbeTest`
+  - 对照（合法签署）`successfulSignPersists` ✅ 绿 ⇒ 探针 commit 通路有效；
+  - `rejectAttemptSurvivesRejection` ❌ 红：`expected: <1> but was: <0>`（拒绝后 `t_unauthorized_attempt` 为 **0**），REJECTED 行亦不存在。
+- **影响**：生产下**越权/代签证据静默丢失**（合规红线：不得静默缺失）。
+- **修复方向**：按 `AuthService.recordAttempt` 范式，把越权尝试插入独立事务提交（或先提交留痕再抛）；REJECTED 行同理。
+
+### TE-T048-002（阻断，P1）快照变更「重置任务」写后抛异常 ⇒ 回滚，重置不生效、任务永久无法重签
+
+- **位置**：`SettleCheckService.signInTx` 快照分支（`SettleCheckService.java:379-385` 区段）：`taskDao.updateById(task, userId)`（置 `PENDING_SIGN` + 新 hash）后立即 `throw BizException.of(STATE_NOT_ALLOWED, …)`，同一事务。
+- **机制**：同上，回滚丢弃 `updateById`。
+- **后果**：任务仍保持原状态与原基线；而调用方每次按提示携「新快照」重签时，变更比较 `current(new) != task.snapshotHash(old)` **再次命中 ⇒ 再次抛出** ⇒ **任务在该快照下永久无法重签**（死锁），除非客户端回退提交旧基线值。
+- **违反**：`FR-SETTLE-17` 验收 4（「签署后快照变更须重新签署」）/ `R-SETTLE-11`（「不可签后改快照——快照变更须重签」）。
+- **独立证据**：`T048RollbackProbeTest.snapshotResetSurvives` ❌ 红：`expected: <PENDING_SIGN> but was: <PARTIAL_SIGNED>`（任务未回 PENDING_SIGN、基线仍 `H1`）。
+- **修复方向**：重置的持久化必须独立提交（或改为「返回需重签」而不回滚已提交的重置）。
+
+### TE-T048-003（中，P2）导出硬编码 size=100 ⇒ 超量静默截断
+
+- **位置**：`SettleCheckService.export`（`SettleCheckService.java:631`）：`query(in, PageQuery.of("1","100",null,"generated_time","desc"), userId)` —— 单页 100 且无翻页迭代。
+- **影响**：当符合条件任务 > 100 时，CSV 静默丢失后续行（合规证据不完整）。
+- **同类先例**：`T-049` 的 `TE-T049-001`（导出截断+列缺失）为同族缺陷。
+- **违反**：`FR-SETTLE-13` 验收 5 / `FR-SETTLE-14` 验收 4（核对与签署记录作为合规证据可导出）。
+- **修复方向**：全量分页迭代（或 `count` 后循环取页）。
+
+---
+
+## 六、计数与路由对账（独立复算）
+
+- **routeCount**：113 → **117**；构成 = 115 业务对 + 2 ping。115 = AUTH17 + CONFIG18 + PRODUCT13 + SPOT15 + PLAN18 + RISK1 + TRADE3 + **SETTLE15** + FUND15（逐项相加 = 115，复算一致）。
+- **SETTLE 对账**：T-047 结算主链 **11 对** + T-048 **4 对**（`/settle/monthly-check`、`/settle/quarterly-report` 各 GET/POST）= **15 对**；`SettleRouteDispatchTest` 断言 `registered.size()==15` 且在 859 全量中绿。
+- **路径来源**：两条路径**逐字取自 `ApiRoutes.BY_MODULE["SETTLE"]`（未新增路径）**；SETTLE 声明 12 路径现全部被注册覆盖。
+- **未注册余量清单**：SETTLE 模块 **0**；T-048 范围外 = AUDIT 模块 11 条声明路径整体未实现/未注册（`/audit/**`，无 handler）。
+- **FR-AUDIT-13 承载路径张力**：`ARCHITECTURE.md:2639` 映射到 `/audit/check-task`，但该路径**既不在 ApiRoutes 也不存在 handler**；本单经 `GET /settle/monthly-check|quarterly-report` 承接审计只读。见 O-3。
+
+---
+
+## 七、FINANCE → SETTLER 两栏论据（关键裁定输入）
+
+三方原始证据：
+- `t_check_signature.sign_role` DDL 取值域 = `RISK/TRADE/FINANCE/MANAGE/AUDITOR`（`DATA_MODEL.md:2832`，标注 FINANCE=财务岗）。
+- `t_role` 预置业务角色**无「财务岗」**：FIN_RISK=财务/风控岗、TRADER=期货交易岗、SETTLER=结算岗、CASHIER=资金岗、APPROVER=管理层、AUDITOR=审计/合规岗（`data-init.sql:132-136`）。
+- `AUTH.md`（= `docs/REQUIREMENTS/AUTH.md:40`）：「核对任务的应签角色映射为 风控岗（发起+核对）/ 交易岗（确认持仓成交）/**财务岗（确认资金账务）**/管理层（签收）/审计岗（年度全覆盖）」。
+- `t_report_period_config` 播种（`data-init.sql:231`）：MONTHLY_CHECK = `FIN_RISK,TRADER,SETTLER`（三人）；QUARTERLY_REPORT=`FIN_RISK,TRADER,APPROVER`；ANNUAL_REPORT=`AUDITOR`。
+
+| 栏 | 论据 |
+|----|------|
+| **A. SETTLER 推得成立（本席倾向）** | ① 月度三方 = 风控/交易/财务，而周期配置月度三类恰为 `FIN_RISK,TRADER,SETTLER`，排除 RISK→FIN_RISK、TRADE→TRADER 后 **FINANCE→SETTLER** 由消去法唯一确定；② 岗位互斥种子 `TRADER↔FIN_RISK`、`TRADER↔SETTLER`、`FIN_RISK↔SETTLER` 构成**两两互斥三角形**（`data-init.sql:168-172`），与 FR-SETTLE-13「三个参与角色须为不同账号」严丝合缝；若取 CASHIER，则 FIN_RISK 与 CASHIER **不互斥**（同人可兼），构不成独立第三方；③ AUTH.md「财务岗（确认资金账务）」与「结算岗」账务语义最接近。 |
+| **B. 应为 CASHIER（须改映射或登记张力）** | ① 字面：CASHIER=资金岗，而 AUTH.md 对财务岗描述含「**资金**账务」，FIN_RISK 名中亦含「财务」；② 冻结文档**没有** FINANCE→t_role 的直接映射条文，消去法非明文，属**推得**；③ 若产品口径确为「资金岗（CASHIER）」，则 `SIGN_ROLE_ALIAS` 与周期配置/互斥三角均需重估。 |
+
+> 建议：**登记为待产品裁定项**（不宜由工程单方默定）。现状实现（SETTLER）倾向成立，但需产品席书面确认 MONTHLY_CHECK 三星角色中第三方的业务身份。实证：本席探针 `T048VerifyProbeTest.annualAndCashier` 显示 **CASHIER 持有人按现映射签 FINANCE 被拒**（若产品意为 CASHIER，则为误拒）。
+
+另注：DC-022 判据字面要求「② signer_role_code ∈ required_sign_roles、③ 显式提交的 sign_role 等于 signer_role_code」——在 DDL 词表下 sign_role（域码）与 signer_role_code（岗位码）**取值域不同**，②③**无法字面同时成立**；实现以 `SIGN_ROLE_ALIAS` 一一映射桥接（sign_role 落域码、signer_role_code 落岗位码）是自洽的工程消解，但**该映射表本身无冻结明文来源**，建议随 FINANCE 裁定一并登记（DATA_MODEL §4.4 判据链或 CONTRACTS）。
+
+---
+
+## 八、快照接缝核（披露 ④）
+
+- 生产装配 `Bootstrap` 传 `snapshotProvider = null`（已核 Bootstrap.java 新增块）。
+- 结论：
+  1. **「以请求携带值为准」在 provider=null 下成立**，比较逻辑可运行；但它是**弱检测**——仅当调用方提交与基线**不同**的快照值才触发变更判定；提交相同值或省略即永不判定 ⇒ **不是服务端计算的完整性校验**，可被调用方「以同值规避」。
+  2. **生成侧**：provider=null 且请求未带 snapshotHash ⇒ `DATA_INSUFFICIENT` **拒绝生成**（`resolveSnapshotHash`）。即 REST 侧**无法在无快照源情形下自动生成任务**——「按周期自动生成」目前无调度器/无服务端快照源，需外部提供 hash。
+  3. **即使检测到变更，重置也因回滚不生效**（TE-T048-002）⇒ 「变更检测仍可判定」仅对**检测**成立，对**处置（回 PENDING_SIGN 重签）**在生产**不成立**。
+- 六段快照 SHA-256 跨模块源未接线（T-172 面）属实；本单以接缝承接、未臆算缺失分量，**属诚实披露**。
+
+---
+
+## 九、变异台账（全红 + 逐字节复位）
+
+| 变异 | 目标判据 | 改动 | 结果 | 日志 |
+|------|----------|------|------|------|
+| **M1**（复现产出方声明） | 代签角色持有判定 | `if (held==null || !held.contains(actualRoleCode))` → `if (false)` | ✅ 红：产出方 `proxyMissingRoleRejected` + 本席 `T048VerifyProbeTest.proxyMissingRole` 双双失败 | `/root/t048-mut1.log` |
+| **M3**（复现产出方声明） | 截止天数域门禁 | `if (days<MIN || days>MAX)` → `if (false)` | ✅ 红：`deadlineFromConfig` + 本席 `deadlineDomain` 失败 | `/root/t048-mut3.log` |
+| **S1**（本席自设） | 同任务同角色重复签署守卫 | `if (existing!=null && SIGNED && current==snapshotHash)` → `if (false)` | ✅ 红：`duplicateSignRejected` 失败 | `/root/t048-muts1.log` |
+
+- 复位：`cp /root/t048-svc.orig-t048 <svc>; touch` ⇒ md5 复原 `53c7a182…`；`diff` 与 .orig 及**仓库同名文件**均**逐字节空**；复跑 `SettleCheckServiceTest + T048VerifyProbeTest` = 28/0/0/0 绿。
+
+---
+
+## 十、观察（不阻断，供登记/裁定）
+
+- **O-1** 角色词表落差与 SIGN_ROLE_ALIAS（见 §七）——待产品裁定；DC-022 ②③字面在 DDL 词表下不可同时成立。
+- **O-2** 快照接缝生产未装配（§八）：弱检测 + 生成需外部 hash + 无调度器 ⇒「周期自动生成」在 M2 尚未成立（外因 T-172）。
+- **O-3** FR-AUDIT-13 承载路径：实现经 SETTLE 的 GET 端点；ARCH §4.1.2 指向的 `/audit/check-task` 未在 ApiRoutes 声明、AUDIT 模块整体未注册 ⇒ 建议登记归属（AUDIT 模块任务承接）；另 FR-AUDIT-13 验收 2/3（逾期筛选、年度完成率汇总）**未实现**，且不在 T-048 需求追溯内（TASKS.md 追溯 = FR-SETTLE-13/14/17/CFG-14/R-SETTLE-11），**不应记为 T-048 缺陷**，但 handler 文档自称 FR-AUDIT-13，建议澄清覆盖边界。
+- **O-4** FR-SETTLE-17 文字「截止口径：期间结束后的**下一自然月内**」与 CFG-14/DATA_MODEL:2794「期间结束 + N 天（默认 30）」措辞张力；实现依 CFG-14（可判定、有界 1–120），建议统一口径文字（FR 侧）。
+- **O-5** `sign()` 对**非法域码** signRole（不在 SIGN_ROLES）走 `PARAM_INVALID`，**不进 rejectProxy、不留越权痕**；对「未知角色」的越权尝试无 t_unauthorized_attempt。低（可辩解为参数错误），供裁定是否需留痕。
+- **O-6** `rejectProxy` 在「不在应签清单」分支把 signerRoleCode 落为**域码**（如 AUDITOR）而非岗位码，与列语义「实际角色编码」略偏（仅 REJECTED 行）。低。
+- **O-7** 快照重置异常文案 `原基线= in.snapshotHash` 语义标注反向（原基线应为 task.snapshotHash）。文案级。
+- **O-8** CFG-14 注「角色集合（≥2，**互斥校验生效**）」：实现仅校验「≥2 + 域合法」，未在配置装载时校验集合内角色互斥（互斥实际体现在签署人岗位互斥三角）。供口径确认。
+- **O-9** 最小侵入主张属实：SettleService.java **0 改动**（不在 14 文件内）；伴生 SettleCheckService + Bootstrap 双注册块（SettleRoutes、SettleCheckRoutes 各 1）并存，无路由冲突。功能面对齐但**字面产出面**（TASKS 写 SettleService.java）由伴生类承接，如属边界事项请编排者留痕。
+
+---
+
+## 十一、复核要求符合性
+
+1. 独立复现门禁（隔离副本五件齐 + 全量 + arch）✅
+2. 核心逻辑独立测试 ①–⑤ ✅（9/9）
+3. 变异 M1/M3 复现 + S1 自设 ✅，复位逐字节 ✅
+4. 代签三级判据审读 ✅（§五 TE-001 + §七；判据算法正确，缺陷在事务提交）
+5. FINANCE→SETTLER 两栏 ✅（§七）
+6. 计数与路由 ✅（§六）
+7. 快照接缝核（自写探针：同值不重置 / 值变重置）✅（§八；同值两次不触发、值变触发但**处置因回滚失效**，由 §五 TE-002 实证）
+
+**综合判定：不通过**（阻断 2 + 中 1）。核心逻辑与门禁达成，但**两项验收（验收 2 越权留痕、验收 4 快照变更重签）在真实事务下不成立**；修复面小（独立事务提交 / 导出分页）。**不转 DONE。**
+
+
+---
+
+# T-048 退回修复 delta 复检报告（te-verify-t048b）
+
+- 复检席：`te-verify-t048b`（独立复核，未改动受审仓库任何源码；证据仅落隔离副本 /root/iso-t048b）
+- 受审提交：`217e814956f7e0645f67f941eeffe08192df3ca8`（T-048 修复，2 文件 +425/−37）；前态 `67f9349`
+- 前席报告：`/root/t048-review.md`（md5 `c574f4143baacee98a5f86c23bc7e613`/197 行）
+- 结论：**三缺陷（TE-T048-001/002/003）全部闭环；T-048 可转 DONE**（O-1 角色映射张力、O-3 FR-AUDIT-13 归属由编排者转权威席，非本席范围）
+
+> 本报告自身 md5 不写死（自指口径），以回执实时 `md5sum` 为准。
+
+---
+
+## 一、结论摘要
+
+| 维度 | 结果 |
+|------|------|
+| 锚点复测 | ✅ HEAD=217e814；service md5 `ed7ac746…`、test md5 `0038c139…`；java/src 树锚 `0a16707b…/562`（前态 `277f8cac…/561`）逐位吻合 |
+| 独立事务语义核 ①②③ | ✅ 拒绝/重置路径 `rollbackCount==0` 且留痕/重置已持久化 ⇒ 顶层独立事务、抛出在提交之后（TxTemplate depth 机制实测） |
+| 独立事务语义核 ④ | ✅ signInTx 中段注入失败 ⇒ 写事务回滚，已独立提交的快照重置**存活** |
+| 前席探针复用 | ✅ `rejectAttemptSurvivesRejection`/`snapshotResetSurvives`/`exportNotTruncatedOver100` 全绿（按修复后拓扑修正回滚断言，见 §三） |
+| 新形态（本席自设） | ✅ 同帧先越权后合法签署 ⇒ 留痕与成功签署并存；重置后可重签无死锁；恰 100 边界 |
+| 变异承重 | ✅ MUT-A（sign 收回单事务）⇒ 6 探针红（5 F + 1 E），对照/导出仍绿；复位逐字节 ⇒ 20/20 复绿 |
+| 独立全量门禁 | ✅ `mvn -B -o clean test` = **863/0/0/0**（surefire 独立实测）；`arch-check` **E1–E8 全 0 / rc=0** |
+| 产出方声明核对 | ✅ 963 命中 0 偏差（863、锚点、md5、行为变更披露均属实） |
+
+---
+
+## 二、锚点复测
+
+```
+git rev-parse HEAD                     => 217e814956f7e0645f67f941eeffe08192df3ca8
+md5 SettleCheckService.java            => ed7ac746d3e6173b085aabd7c8c91d5d
+md5 SettleCheckT048bFixTest.java       => 0038c13959b1eaf6d740a2b773ff542e
+cd java/src && find . -type f | LC_ALL=C sort | xargs md5sum | md5sum
+                                       => 0a16707b41bf96ca8b873a3beea4beec   (562 文件)
+前态 service (git show 67f9349:...)    => 53c7a1823ae31843616f7b6d6acc8865
+```
+隔离副本 `/root/iso-t048b`（rsync，排除 .git/.codebuddy/.verify/dev-team/sdk/target/build）复测树锚 = `0a16707b…/562`，与受审树一致。受审仓库源码 **0 改动**（复检后 `git status` 无 java/ 改动）。
+
+---
+
+## 三、独立事务语义核（关键）
+
+**机制依据（源码实测）**：`TxTemplate.java:52-58` 同线程嵌套 = `depth++` **加入外层事务**；`:73/:76` 对 `RuntimeException|Error` 一律 `rollbackQuietly`。故在旧「`sign()` 单事务包裹」结构内**无法**让「写后抛异常」的留痕独立提交——修复必须把该动作移出写入事务。修复后 `sign()` 三段式：`resolveTaskForSign`（独立提交）→ `precheckSign`（**事务之外**，其中 `rejectProxy`/快照重置各自 `tx.inTransaction` 顶层提交后再抛）→ `signInTx`（写事务）。
+
+**探针法**：事务感知内存库（连接级 commit/rollback 真实生效，回滚恢复快照）。断言 `rollbackCount`/`commitCount` 与持久化结果：
+
+| 核验项 | 断言 | 实测 |
+|--------|------|------|
+| ① rejectProxy 留痕顶层独立事务 | 拒绝后 `attempts==1` + REJECTED 行存在 + `rollbackCount==0` + `commitCount>=1` | ✅ 绿 |
+| ② 快照重置 updateById 同理 | 重置后 task=PENDING_SIGN/**H2**/signedRoles 空 + `rollbackCount==0` | ✅ 绿 |
+| ③ 抛出在提交之后 | 若抛在提交前，事务感知库必回滚致 `attempts==0`；实测 `attempts==1` 且无回滚 | ✅  |
+| ④ signInTx 中段失败不吞独立提交 | 重置提交后，写事务内 `signatureDao.insert` 注入失败 ⇒ `rollbackCount+1`，但 task 仍 PENDING_SIGN/**H2** | ✅ 绿 |
+
+---
+
+## 四、独立复现（隔离副本 /root/iso-t048b）
+
+探针文件（仅入副本，不入受审仓库）：
+- `SettleCheckT048bDeltaProbeTest.java`（本席，8 用例）
+- `T048VerifyProbeTest.java`（前席功能探针，原样复用，9 用例）
+- `SettleCheckT048bFixTest.java`（产出方回归，4 用例）
+
+```
+mvn -B -o -Dtest='SettleCheckT048bDeltaProbeTest,T048VerifyProbeTest,SettleCheckT048bFixTest' test
+  => T048VerifyProbeTest                9/0/0/0
+  => SettleCheckT048bDeltaProbeTest     8/0/0/0
+  => SettleCheckT048bFixTest            4/0/0/0
+  => Tests run: 20, Failures: 0, Errors: 0, Skipped: 0 / BUILD SUCCESS
+```
+
+**前席探针复用说明（诚实披露）**：前席 `T048RollbackProbeTest` 的拒绝/重置用例含 `assertTrue(store.rollbackCalled)`——该断言编码的是**前态缺陷形状**（旧代码在写事务内抛 ⇒ 必回滚）。修复后拒绝路径**不再有外层回滚**，该断言按修复后拓扑改为 `rollbackCount==0`（并加断「留痕确实已持久化 + commitCount>=1」，更强）。前席 `T048VerifyProbeTest`（9 用例，功能面，不涉回滚）**原样通过**。
+
+**新形态（前席未覆盖）**：
+- `rejectThenLegalSignCoexist`：同帧先越权（仅 TRADER 者签 RISK）后应签本人（持 FIN_RISK）合法签署同一 (task,role) ⇒ `attempts` 保持 **1**（留痕不被冲销），REJECTED 槽位被合法 SIGNED 覆盖（`signerId=11`）⇒ 留痕与成功签署**并存**，uk 槽位不阻塞应签本人。✅
+- `snapshotResetThenResignSucceeds`：重置独立提交后携新快照重签 ⇒ 成功、无死锁（TE-002 闭环实质）。✅
+- `exportExactHundred`：恰 100 条 ⇒ 全量且不多取空页。✅
+
+---
+
+## 五、变异承重
+
+| 变异 | 目标 | 结果 |
+|------|------|------|
+| **MUT-A 独立提交通路中和** | 把 `sign()` 的 resolve+precheck+write 收回单个 `tx.inTransaction`（重演原单事务） | ✅ **6 探针红**：delta(`rejectAttemptSurvivesRejection`/`snapshotResetSurvives`/`rejectThenLegalSignCoexist` 3F + `snapshotResetThenResignSucceeds` 1E) + fix(`rejectAttemptSurvivesRejection`/`snapshotResetSurvives` 2F)；导出相关用例仍绿（符合预期） |
+| 复位 | `cp /root/t048b-svc.fixed.verify <svc>` | md5 复原 `ed7ac746…`，`diff` 逐字节空；20/20 复绿 |
+
+（MUT-B 导出分页退化由产出方自检覆盖；本席经 `exportNotTruncatedOver100` 的 `pageCalls>=2` + 101 全量已独立承重。）
+
+---
+
+## 六、独立全量门禁（隔离副本，纯源）
+
+```
+cd /root/iso-t048b/java && mvn -B -o clean test
+  => Tests run: 863, Failures: 0, Errors: 0, Skipped: 0   (BUILD SUCCESS, 2:09 min)
+cd /root/iso-t048b && bash tools/arch-check/arch-check.sh
+  => 通过(0)=8  命中(1)=0  用法(2)=0 ; E1–E8 全 0 ; rc=0
+```
+全量 863 = 基线 859 + 新增 4（`SettleCheckT048bFixTest`），与前态复核报告 859（+23 自洽）衔接一致。
+
+---
+
+## 七、逐缺陷闭环裁定
+
+| 缺陷 | 修复声明 | delta 实测 | 裁定 |
+|------|----------|-----------|------|
+| **TE-T048-001**（阻断）越权/代签留痕被回滚吞 | rejectProxy 移出写事务、独立提交后再抛 | ①③ + `rejectAttemptSurvivesRejection` + `rejectThenLegalSignCoexist` 绿；MUT-A 可致红 | **闭环** |
+| **TE-T048-002**（阻断）快照重置被回滚、任务死锁 | 重置独立事务提交后再抛 | ②④ + `snapshotResetSurvives` + `snapshotResetThenResignSucceeds`（无死锁）绿；MUT-A 可致红 | **闭环** |
+| **TE-T048-003**（中）导出硬编码 100 截断 | 全量分页迭代取尽 | `exportNotTruncatedOver100`（101 全量 + pageCalls>=2）+ `exportExactHundred`（100 边界）绿 | **闭环** |
+
+---
+
+## 八、观察（不阻断）
+
+- **OB-1 行为变更（产出方已披露，本席证实）**：`sign()` 三段事务化后，**按期间发起并签署**场景下任务生成**先独立提交**——被越权拒绝时任务保留（原随主事务回滚）。本席认为该后果**合理**（核对任务本应存在、留痕与任务同行更符合 DC-022/R-AUTH-8 合规意图），且不构成提权（任务会被任意合法签署人正常使用）。建议随修复一并登记为**已接受的行为变更**。
+- **OB-2 并发窗口（非本次引入的既有面）**：拆三段后「precheck 与 signInTx」之间窗口略增；`updateTaskStatus` 仍**从 DB 重算** `signedRoles`（`SettleCheckService.java:742-760`），并未依赖陈旧内存值。跨会话并发下「不同角色同时签署」的理论丢失更新窗口在旧单事务实现中同样存在（每 `sign()` 本就是独立事务），**非本修复新引入**，不在本次裁定范围。
+- **OB-3** 前席 O-1（FINANCE→SETTLER 映射张力）、O-2（快照 provider 生产未装配）、O-3（FR-AUDIT-13 归属）**状态不变**，由编排者转权威席，非本席范围。
+
+---
+
+## 九、回执要点
+
+- **结论**：TE-T048-001/002/003 **全部闭环**；修复实现与声明一致；**T-048 可转 DONE**。
+- **关键数字**：全量 **863/0/0/0**；arch-check **rc=0（8/0/0）**；探针 8+9+4=**20/0/0/0**；MUT-A **6 红**后复位逐字节复绿。
+- **锚点**：HEAD `217e814`；service `ed7ac746…`；test `0038c139…`；java/src 树锚 `0a16707b…/562`。
+- **证据留痕**：隔离副本 `/root/iso-t048b`（探针/日志）；受审仓库源码 **0 改动**。
