@@ -141,6 +141,10 @@ class HgcpSession {
   void set_last_received_seq(std::uint64_t s) { last_received_seq_ = s; }
   bool seq_gap_pending() const { return seq_gap_; }
   void clear_seq_gap() { seq_gap_ = false; }
+  // 回退 / 重复检出（`SEQ` ≤ 已收最大，§4.3.2 `:1343` ⇒ `0x0106`）——与前向缺口
+  //   **互斥**；**一次性**信号：装配层（`server_loop`）回码后调用 clear 清除。
+  bool seq_out_of_order() const { return seq_out_of_order_; }
+  void clear_seq_out_of_order() { seq_out_of_order_ = false; }
   std::uint64_t last_sent_seq() const { return last_sent_seq_; }
 
   // --- 补数装配 ---
@@ -172,6 +176,7 @@ class HgcpSession {
   std::uint64_t last_sent_seq_;
   std::uint64_t next_msg_id_;
   bool seq_gap_;
+  bool seq_out_of_order_;
 };
 
 }  // namespace hgcp

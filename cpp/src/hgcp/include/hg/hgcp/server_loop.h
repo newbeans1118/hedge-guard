@@ -15,10 +15,11 @@
 // ⚠️ 全程**不解释消息字段**（payload 不透明）：握手/控制帧/补数批的 body 均由
 //    `TransportPolicy` 接缝注入（**单一接缝，不新增第二套符号**；入站侧的
 //    `hello_auth_token` 同属该接缝，T-171）。
-//    令牌**决策**（SHA-256 + 常量时间比较）由 `TokenVerifier`（auth.h，已验收组件）完成；
-//    本类只做**接线**：HELLO 到达且已注入 verifier ⇒ 经接缝取 token → `verify_audited`
+//    令牌/版本/重放**决策**（SHA-256 + 常量时间比较 + 版本 0x0203 + 重放 0x0204）由
+//    `AuthGuard`（auth.h，已验收组件）完成；本类只做**接线**：HELLO 到达且已启用鉴权 ⇒
+//    经接缝取 token / `token_version` / `client_boot_id` → `AuthGuard::verify`
 //    ⇒ 失败回 `MSG_AUTH_FAIL`(0x0003，body 经接缝编码) + 断连（FR-CONFIG-9 验收 4）。
-//    verifier 为 null（未配置令牌）⇒ 维持帧级门禁行为（向后兼容，不因未配置而拒连）。
+//    未启用鉴权 ⇒ 维持帧级门禁行为（向后兼容，不因未配置而拒连）。
 //
 // 设计要点：
 //   · `pump()` 为**单步**事件循环，由调用方按自身节拍驱动 ⇒ 可确定性单测（真实回环）。

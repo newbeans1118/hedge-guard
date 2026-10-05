@@ -56,7 +56,8 @@ HgcpSession::HgcpSession()
       last_received_seq_(0),
       last_sent_seq_(0),
       next_msg_id_(0),
-      seq_gap_(false) {}
+      seq_gap_(false),
+      seq_out_of_order_(false) {}
 
 void HgcpSession::configure(std::int64_t heartbeat_interval_ms, int heartbeat_miss,
                             std::size_t resume_capacity) {
@@ -67,6 +68,7 @@ void HgcpSession::configure(std::int64_t heartbeat_interval_ms, int heartbeat_mi
 void HgcpSession::on_connected(std::int64_t now_ms) {
   hb_.restart(now_ms);
   seq_gap_ = false;
+  seq_out_of_order_ = false;
 }
 
 void HgcpSession::on_disconnected() {
@@ -96,8 +98,12 @@ FrameStatus HgcpSession::feed(const std::uint8_t* data, std::size_t n,
 }
 
 void HgcpSession::note_received_seq(std::uint64_t seq) {
-  if (last_received_seq_ != 0 && seq > last_received_seq_ + 1) {
-    seq_gap_ = true;  // 跳号 ⇒ 触发补数（§4.2.6 `:972`）
+  // §4.3.2 `0x0106 ERR_SEQ_OUT_OF_ORDER`：触发条件 = 「`SEQ` ≤ 已收最大 **或** 出现缺口」。
+  //   两分支**互斥**：回退/重复（≤ 已收最大）与前向跳号（> 已收最大 + 1）分开判定。
+  if (last_received_seq_ != 0 && seq <= last_received_seq_) {
+    seq_out_of_order_ = true;  // 回退 / 重复 ⇒ 装配层回 `0x0106`（不回退 last_received_seq_）
+  } else if (last_received_seq_ != 0 && seq > last_received_seq_ + 1) {
+    seq_gap_ = true;  // 前向跳号 ⇒ 触发补数（§4.2.6 `:972`）；既有机制，保持不变
   }
   if (seq > last_received_seq_) {
     last_received_seq_ = seq;

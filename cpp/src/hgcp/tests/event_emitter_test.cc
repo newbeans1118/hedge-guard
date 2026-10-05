@@ -149,10 +149,19 @@ int connect_client(std::uint16_t port) {
   return fd;
 }
 
-// 完成帧级握手：客户端发 HELLO(seq=1)，服务端 pump 处理，客户端收 HELLO_ACK。
+// 客户端出站 SEQ：**通道级单调递增**（§4.2.6「所有业务帧使用同一个单调递增 SEQ
+//   计数器」）。本文件多处用例的假客户端须共用**同一个递增计数器**（含重连握手 / 后续
+//   控制帧）——否则「SEQ ≤ 已收最大」会被服务端按 §4.3.2 `0x0106` **正确检出**（T-176）。
+std::uint64_t next_client_seq() {
+  static std::uint64_t s = 0;
+  return ++s;
+}
+
+// 完成帧级握手：客户端发 HELLO（连续 SEQ），服务端 pump 处理，客户端收 HELLO_ACK。
 bool do_handshake(HgcpServerLoop* srv, TestClient* cli) {
+  const std::uint64_t cseq = next_client_seq();
   std::vector<std::uint8_t> hw;
-  if (hg::hgcp::make_frame(mt(MessageType::kMsgHello), 0u, 1u, 1u,
+  if (hg::hgcp::make_frame(mt(MessageType::kMsgHello), 0u, cseq, cseq,
                            std::vector<std::uint8_t>(), &hw) != FrameStatus::kOk) {
     return false;
   }
@@ -323,8 +332,9 @@ void test_seq_monotonic_across_frame_kinds() {
   // 控制帧回执：CMD_QUERY_STATUS → MSG_ACK（seq 6）。指令消费由调用方路由
   //（pump 只返回入站帧；回执经 send_frame 上线 ⇒ 与事件帧共用 SEQ 计数器）。
   {
+    const std::uint64_t cseq = next_client_seq();
     std::vector<std::uint8_t> cw;
-    HG_REQUIRE(hg::hgcp::make_frame(mt(MessageType::kCmdQueryStatus), 0u, 7u, 7u,
+    HG_REQUIRE(hg::hgcp::make_frame(mt(MessageType::kCmdQueryStatus), 0u, cseq, cseq,
                                     std::vector<std::uint8_t>(), &cw) ==
                FrameStatus::kOk);
     HG_REQUIRE(cli->send_wire(cw));
@@ -428,8 +438,9 @@ void test_retention_mode_no_loss_and_quote_drop() {
     req.set_session_id("t");
     std::vector<std::uint8_t> body;
     HG_REQUIRE(PbPayloadCodec::encode(req, &body));
+    const std::uint64_t cseq = next_client_seq();
     std::vector<std::uint8_t> wire;
-    HG_REQUIRE(hg::hgcp::make_frame(mt(MessageType::kMsgResumeReq), 0u, 2u, 2u, body,
+    HG_REQUIRE(hg::hgcp::make_frame(mt(MessageType::kMsgResumeReq), 0u, cseq, cseq, body,
                                     &wire) == FrameStatus::kOk);
     HG_REQUIRE(cli2->send_wire(wire));
     std::vector<Frame> in2;
@@ -537,9 +548,10 @@ void send_resume_req_and_check(TestClient* cli, HgcpServerLoop* srv,
   req.set_session_id("t");
   std::vector<std::uint8_t> body;
   HG_REQUIRE(PbPayloadCodec::encode(req, &body));
+  const std::uint64_t cseq = next_client_seq();
   std::vector<std::uint8_t> wire;
-  HG_REQUIRE(hg::hgcp::make_frame(mt(MessageType::kMsgResumeReq), 0u, last_seq + 1u,
-                                  last_seq + 1u, body, &wire) == FrameStatus::kOk);
+  HG_REQUIRE(hg::hgcp::make_frame(mt(MessageType::kMsgResumeReq), 0u, cseq, cseq, body,
+                                  &wire) == FrameStatus::kOk);
   HG_REQUIRE(cli->send_wire(wire));
   std::vector<Frame> in;
   srv->pump(300, 0, &in);
@@ -641,8 +653,9 @@ void test_gap_too_large_0306_and_full_rebuild() {
   req.set_session_id("t");
   std::vector<std::uint8_t> body;
   HG_REQUIRE(PbPayloadCodec::encode(req, &body));
+  const std::uint64_t cseq = next_client_seq();
   std::vector<std::uint8_t> wire;
-  HG_REQUIRE(hg::hgcp::make_frame(mt(MessageType::kMsgResumeReq), 0u, 9u, 9u, body,
+  HG_REQUIRE(hg::hgcp::make_frame(mt(MessageType::kMsgResumeReq), 0u, cseq, cseq, body,
                                   &wire) == FrameStatus::kOk);
   HG_REQUIRE(cli->send_wire(wire));
   std::vector<Frame> in;
@@ -695,8 +708,9 @@ void test_gap_too_large_0306_and_full_rebuild() {
 
   // 0x0401 单一门卫回归：拒新指令仍唯一由 system_ready() 承载（本单未立第二拒点）。
   hg::hgcp::CommandHandler handler(&state);  // 快照非空 ⇒ ready（参数面）
+  const std::uint64_t cseq2 = next_client_seq();
   std::vector<std::uint8_t> cw;
-  HG_REQUIRE(hg::hgcp::make_frame(mt(MessageType::kCmdPlaceOrder), 0u, 4u, 4u,
+  HG_REQUIRE(hg::hgcp::make_frame(mt(MessageType::kCmdPlaceOrder), 0u, cseq2, cseq2,
                                   std::vector<std::uint8_t>(), &cw) ==
              FrameStatus::kOk);
   HG_REQUIRE(cli->send_wire(cw));

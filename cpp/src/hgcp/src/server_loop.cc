@@ -165,6 +165,16 @@ int HgcpServerLoop::pump(int timeout_ms, std::int64_t now_ms, std::vector<Frame>
         close_conn();
         break;
       }
+      // SEQ 回退 / 重复（`SEQ` ≤ 已收最大）⇒ §4.3.2 `:1343` 触发条件（`0x0106`
+      //   `ERR_SEQ_OUT_OF_ORDER`）：尽力回 `MSG_ERROR{0x0106}`（body 经 `TransportPolicy`
+      //   接缝编码）；**连接保持**（处理建议 = 触发补数，非断连）。信号一次性，回码后即清。
+      //   前向缺口（跳号）不由本分支处理：它走 `session` 既有 gap 机制（不在此回码）。
+      if (session_.seq_out_of_order()) {
+        session_.clear_seq_out_of_order();
+        send_frame(mt(MessageType::kMsgError), fl(kFlagIsError),
+                   policy_->error_body(
+                       static_cast<std::uint32_t>(ErrorCode::kErrSeqOutOfOrder)));
+      }
     }
   }
 
