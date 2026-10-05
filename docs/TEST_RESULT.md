@@ -16543,3 +16543,25 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **条件兑现与观察**：条件 = rule_id 同号异义（ruleIdName(kTradingSuspend)="R-RISK-5" 与空间乙 kNetPosition/0x1009 同串，经 command_handler.cc:724 上 wire）登记两空间冲突清单转权威席——本轮 DONE 注记即登记点；reason_code 0x1009/0x1011 可消歧（复核独立意见认同采现状，释放编号不可发明）。观察 5 项：O-2 parseSuspendThresholds 手工复制真值集漂移风险（低）；O-3 scan_scope 未校验（当前枚举仅 OPEN_ONLY）；O-4 非原子成员沿用既有 RCU 模式（非本单引入）；O-5 生产未装配（与 T-175/176/177 同态，真联编排承接）；O-1 同条件项。
 
 **编排者亲核记录**：提交面/红线/越域件（+4 纯只读）/判定挂点（:525/:657）/树锚 dfa4bd80…/140 交付当日亲测与复核席独立实测一致。
+
+---
+
+## T-180 delta 复核证据（席 te-verify-t180b；2026-10-05 第 202 轮 · 编排者逐字转录；前审 te-verify-t180 不通过退修）
+
+**结论：退修后通过 / 0 阻断 / 5 观察 ⇒ T-180 转 DONE。**
+
+**冻结与范围**：HEAD f22dffd；提交链 5f0d468（主体，前审通过基面）→ 7601166（第 201 轮 ledger）→ daaeb01（退修恰 3 文件 +193/−39 全 java/**）→ f22dffd（RiskViolationDao javadoc +6/−2 纯注释）；树锚（java/src 口径）7f36d44f…/567 → 25631a53…/585 → da9ccabc…/585；git diff 5f0d468..7601166 -- java/ = 0（ledger 中间提交零代码）。
+
+**TE-T180-001 修复语义核（最重）**：persistDerivedViolations 分组键 subAccountId|type|ruleId|source 与 countByNaturalKey 五参对齐；补插下界 = max(0, 本次发生数 − 已落库数)（for i=min(existing,size); i<size）⇒ 同规则 2 条 = 2 行、二次运行 existing==size ⇒ 0 插幂等、旧实现少落场景自愈；NULL 面排除（t_pre_trade_reject.sub_account_id NOT NULL m2_trade.sql:344 + 告警原始 int 守卫 ⇒ 自然键无 NULL；t_risk_violation 无 uk 无 DM8 uk-NULL 顾虑）；FR-RISK-18 验收 1「类型与次数」达成。
+
+**门禁独立复跑**：901/0/0/0（@Test==surefire==901，114 文件；JobTest 7=3+4）；arch E1–E8 rc0。
+
+**变异独立重做（隔离 git archive HEAD）**：M-A 补插封顶（existing+1）⇒ violationCountsPreservedAndIdempotentOnRerun 红 @:245（exp 2 got 1）；M-B 删 R-RISK-4 case ⇒ generateReport 红 @:180（OVER_SCALE 缺失）；复核自设加做 M-C 去 frozen ⇒ usageRatio 红 @:277、M-D 常量回 R-RISK-14 ⇒ frequentTrade 红 @:312、M-B2 settle_reconcile_key 回退 cycles.size() ⇒ reconcileKey 红 @:293——三加做同跑仅命中各自目标、无旁伤；全部逐字节复原（service md5 a2f1d4f6…、树锚 da9ccabc…/585）。
+
+**自设探针（隔离副本，验后已删）**：TeProbeT180bTest——R-RISK-1×2/R-RISK-2×3/R-RISK-3×1/R-RISK-6×1/R-RISK-7×1 + 同子账户 2 告警 ⇒ 10 行；byType OVER_PRODUCT=2/OVER_SCALE=4/OVER_TERM=1/OVER_AUTH=1/FREQUENT_TRADE=2；按规则 R-RISK-2=3、R-RISK-3=1；重跑仍 10 行；再增 1 条 R-RISK-2 ⇒ 11 行且 R-RISK-2=4（下界补插成立）。
+
+**A/B/C/D/E 对源证实**：A FR-RISK-14=异常下单监控（RISK.md:296/401）、R-RISK-14=阈值集中配置（:414）⇒ 旧值确误标；B DATA_MODEL:3147=trade_date+结算单号（旧 cycles.size() 不承载单号）；C ARCH §3.3:442 R-RISK-2 分子=used+frozen；D 裁剪披露与 DDL 实况一致（三可空 FK 列已转录、约束未内联、仅此三处）；E 幂等守卫 :253-261 成立。
+
+**观察（5，不阻断）**：O-1 settle_reconcile_key VARCHAR(64) 多单可截断（代码注释已自认）；O-2 幂等「计数+插入」非原子、t_risk_violation 无 uk（日终单批低风险）；O-3 发生数下降不回删（与 R-RISK-11 告警留痕口径相容）；O-4 锚链口径混用但可复现无内容矛盾（各代次口径全列）；O-5 内联 DDL 另含标准审计列与一条 §2.8 未列 CHECK（属所列范围外）。
+
+**登记与移交**：ruleId→六类映射转权威席追认（②(b) 归组判断 + FREQUENT_TRADE 已正名 FR-RISK-14 + R-PLAN 分支疑死代码待确认）；FR-RISK-19 查询面无承接任务 ⇒ 登记承接点（te-verify-t180 O-4）；T-094 范围微调已加注（DAO 三件归 T-180，余 DDL + m3_risk.sql:15-16 头注释订正）。
