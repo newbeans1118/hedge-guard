@@ -8,6 +8,7 @@ import com.hedgeguard.bridge.PlaceOrderResult;
 import com.hedgeguard.bridge.stub.InMemoryTradingBridge;
 import com.hedgeguard.common.Clocks;
 import com.hedgeguard.dao.ExposureDao;
+import com.hedgeguard.dao.HedgePlanDao;
 import com.hedgeguard.dao.PageQuery;
 import com.hedgeguard.dao.PageResult;
 import com.hedgeguard.dao.RoleDao;
@@ -25,6 +26,7 @@ import com.hedgeguard.dao.UserAccountDao;
 import com.hedgeguard.dao.UserRoleDao;
 import com.hedgeguard.dao.UserSubAccountPermDao;
 import com.hedgeguard.dao.entity.Exposure;
+import com.hedgeguard.dao.entity.HedgePlan;
 import com.hedgeguard.dao.entity.Role;
 import com.hedgeguard.dao.entity.TradeCommandFlow;
 import com.hedgeguard.dao.entity.TradeFill;
@@ -94,6 +96,7 @@ class TradeServiceTest {
     private FakeUserRoleDao userRoleDao;
     private FakePermDao permDao;
     private FakeTradePlanDao planDao;
+    private FakeHedgePlanDao hedgePlanDao;
     private FakeExposureDao exposureDao;
     private FakeTradeOrderDao orderDao;
     private FakeTradeOrderReportDao reportDao;
@@ -123,9 +126,12 @@ class TradeServiceTest {
                 null, null, null, null, permDao, attemptDao, null, null, null, null, null);
 
         planDao = new FakeTradePlanDao(audit);
+        hedgePlanDao = new FakeHedgePlanDao();
         exposureDao = new FakeExposureDao();
         orderDao = new FakeTradeOrderDao(audit);
         planDao.plans.put(PLAN_ID, plan(PLAN_ID, SUB_A, EXPOSURE_ID));
+        // 交易理由关联计划（related_plan_id）按套保计划校验（TE-T058-003；FK→t_hedge_plan）
+        hedgePlanDao.plans.put(PLAN_ID, hedgePlan(PLAN_ID, SUB_A));
         exposureDao.rows.put(EXPOSURE_ID, exposure(EXPOSURE_ID, SUB_A));
 
         bridge = new InMemoryTradingBridge();
@@ -135,7 +141,7 @@ class TradeServiceTest {
         preTradeRejectDao = new FakePreTradeRejectDao(audit);
         commandFlowDao = new FakeCommandFlowDao(audit);
         service = new TradeService(FakeTx.newTemplate(), bridge, authService,
-                planDao, exposureDao,
+                planDao, hedgePlanDao, exposureDao,
                 orderDao, new FakeTradeReasonDao(audit),
                 reportDao, fillDao,
                 positionDao, preTradeRejectDao,
@@ -266,10 +272,10 @@ class TradeServiceTest {
     @Test
     @DisplayName("验收3（第①层）：关联计划与敞口跨子账户 ⇒ 拒绝（0x1019 语义，业务码 10012）")
     void submitRejectsCrossSubAccountRelatedObject() {
-        // 计划归属另一子账户
-        planDao.plans.put(PLAN_ID, plan(PLAN_ID, SUB_A + 1, EXPOSURE_ID));
+        // 关联计划（= 套保计划，TE-T058-003 后按 t_hedge_plan 校验）归属另一子账户
+        hedgePlanDao.plans.put(PLAN_ID, hedgePlan(PLAN_ID, SUB_A + 1));
         assertBlocked(() -> service.submitOrder(request(validReason()), TRADER_ID), "关联计划跨子账户");
-        planDao.plans.put(PLAN_ID, plan(PLAN_ID, SUB_A, EXPOSURE_ID));
+        hedgePlanDao.plans.put(PLAN_ID, hedgePlan(PLAN_ID, SUB_A));
 
         // 敞口归属另一子账户
         exposureDao.rows.put(EXPOSURE_ID, exposure(EXPOSURE_ID, SUB_A + 1));
@@ -365,7 +371,7 @@ class TradeServiceTest {
         TradeService.FillEvent fill = new TradeService.FillEvent();
         fill.subAccountId = SUB_A;
         fill.tradeId = "T-FILL-1";
-        fill.orderId = 555L;
+        fill.orderId = 1001L; // acceptedEvent 的 C++ 指令号（TE-T058-004 后须可解析出父行 DB 主键）
         fill.tradePlanId = PLAN_ID;
         fill.instrumentId = "cu2612";
         fill.fillVolume = 4;
@@ -446,7 +452,7 @@ class TradeServiceTest {
     @Test
     @DisplayName("T-172 富化全链②：submitOrder → 成交事件（线格式无 product_id）→ 落库含品种/计划/持仓归属")
     void enrichmentFillFromSubmitContext() {
-        PlaceOrderResult r = service.submitOrder(request(validReason()), TRADER_ID);
+        PlaceOrderResult r = submitAndAccept();
         TradeService.FillEvent wire = new TradeService.FillEvent();
         wire.tradeId = "T-FILL-ENRICH";
         wire.orderId = r.orderId;
@@ -472,7 +478,7 @@ class TradeServiceTest {
     @Test
     @DisplayName("T-172 富化全链③：submitOrder → 委托回报（线格式无 sub_account_id/品种）→ 落库含富化字段")
     void enrichmentOrderReportFromSubmitContext() {
-        PlaceOrderResult r = service.submitOrder(request(validReason()), TRADER_ID);
+        PlaceOrderResult r = submitAndAccept();
         TradeService.OrderReportEvent e = new TradeService.OrderReportEvent();
         e.orderId = r.orderId;
         e.orderSysId = "SYS-R1";
@@ -590,7 +596,7 @@ class TradeServiceTest {
     @Test
     @DisplayName("T-172 接缝适配：中立 EvtTradeFill → 帧头 SEQ 补入 → 富化落库（event_seq 有源、Q-5 品种级）")
     void hgcpEventSinkFillEndToEnd() {
-        PlaceOrderResult r = service.submitOrder(request(validReason()), TRADER_ID);
+        PlaceOrderResult r = submitAndAccept();
         TradeService.HgcpEventSink sink = service.new HgcpEventSink();
         HgcpEventListener.TradeFill wire = new HgcpEventListener.TradeFill();
         wire.tradeId = "T-SINK-1";
@@ -632,6 +638,16 @@ class TradeServiceTest {
         assertNotNull(e.threshold(), what + " 阻断须带 threshold");
         assertNotNull(e.nextStep(), what + " 阻断须带 nextStep");
         assertEquals(0, bridge.placedOrders().size(), what + " 被拒不得下发");
+    }
+
+    /** 提交并受理（建立父指令行；TE-T058-004 后子表 order_id 须可解析出父行 DB 主键）。 */
+    private PlaceOrderResult submitAndAccept() {
+        PlaceOrderResult r = service.submitOrder(request(validReason()), TRADER_ID);
+        TradeService.OrderAcceptedEvent accepted = new TradeService.OrderAcceptedEvent();
+        accepted.orderId = r.orderId;
+        accepted.clientOrderRef = r.clientOrderRef;
+        service.onOrderAccepted(accepted);
+        return r;
     }
 
     private static TradeService.SubmitRequest request(TradeService.ReasonInput reason) {
@@ -757,6 +773,15 @@ class TradeServiceTest {
         p.orderedQty = BigDecimal.ZERO;
         p.execDeadline = LocalDate.of(2026, 12, 31);
         p.status = "EXECUTING";
+        return p;
+    }
+
+    private static HedgePlan hedgePlan(long id, int subAccountId) {
+        HedgePlan p = new HedgePlan();
+        p.id = id;
+        p.subAccountId = subAccountId;
+        p.planNo = "HP2026100400001";
+        p.status = "APPROVED";
         return p;
     }
 
@@ -1008,6 +1033,41 @@ class TradeServiceTest {
         @Override
         public Exposure findByIdScoped(long id, SubAccountScope s) {
             throw FakeDao.unsupported("findByIdScoped");
+        }
+    }
+
+    private static final class FakeHedgePlanDao extends UnsupportedBaseDao<HedgePlan, Long>
+            implements HedgePlanDao {
+        final Map<Long, HedgePlan> plans = new LinkedHashMap<>();
+
+        @Override
+        public HedgePlan findById(Long id) {
+            return plans.get(id);
+        }
+
+        @Override
+        public HedgePlan findByPlanNo(String planNo) {
+            throw FakeDao.unsupported("findByPlanNo");
+        }
+
+        @Override
+        public PageResult<HedgePlan> findPageScoped(PageQuery q, SubAccountScope s, String w, List<Object> a) {
+            throw FakeDao.unsupported("findPageScoped");
+        }
+
+        @Override
+        public String findMaxPlanNoByPrefix(String planNoPrefix) {
+            throw FakeDao.unsupported("findMaxPlanNoByPrefix");
+        }
+
+        @Override
+        public HedgePlan findByIdScoped(long id, SubAccountScope s) {
+            throw FakeDao.unsupported("findByIdScoped");
+        }
+
+        @Override
+        public int deleteById(Long id) {
+            throw FakeDao.unsupported("deleteById");
         }
     }
 

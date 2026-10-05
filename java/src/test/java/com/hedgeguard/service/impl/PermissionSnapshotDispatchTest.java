@@ -224,7 +224,8 @@ class PermissionSnapshotDispatchTest {
 
         assertEquals(1, dispatchDao.rows.size());
         ParamDispatch row = dispatchDao.rows.get(0);
-        assertEquals("CMD_UPDATE_PERMISSION", row.dispatchType);
+        // 冻结域（m3_risk.sql:53-55）无 CMD_ 前缀；持久化去前缀（TE-T058-002）
+        assertEquals("UPDATE_PERMISSION", row.dispatchType);
         assertEquals("SUCCESS", row.dispatchStatus);
         assertEquals(42L, row.operatorId);
         assertTrue(row.paramVersion > 0, "paramVersion 由服务层分配（单调）");

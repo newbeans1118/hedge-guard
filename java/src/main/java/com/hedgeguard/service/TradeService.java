@@ -9,6 +9,7 @@ import com.hedgeguard.bridge.TradingBridge;
 import com.hedgeguard.common.Clocks;
 import com.hedgeguard.dao.BizNoGenerator;
 import com.hedgeguard.dao.ExposureDao;
+import com.hedgeguard.dao.HedgePlanDao;
 import com.hedgeguard.dao.TradeCommandFlowDao;
 import com.hedgeguard.dao.TradeFillDao;
 import com.hedgeguard.dao.TradeOrderDao;
@@ -18,6 +19,7 @@ import com.hedgeguard.dao.TradePositionDao;
 import com.hedgeguard.dao.TradePreTradeRejectDao;
 import com.hedgeguard.dao.TradeReasonDao;
 import com.hedgeguard.dao.entity.Exposure;
+import com.hedgeguard.dao.entity.HedgePlan;
 import com.hedgeguard.dao.entity.TradeCommandFlow;
 import com.hedgeguard.dao.entity.TradeFill;
 import com.hedgeguard.dao.entity.TradeOrder;
@@ -26,6 +28,7 @@ import com.hedgeguard.dao.entity.TradePlan;
 import com.hedgeguard.dao.entity.TradePosition;
 import com.hedgeguard.dao.entity.TradePreTradeReject;
 import com.hedgeguard.dao.entity.TradeReason;
+import com.hedgeguard.dao.impl.DmHedgePlanDao;
 import com.hedgeguard.dao.tx.TxTemplate;
 import com.hedgeguard.web.BizException;
 import com.hedgeguard.web.ErrorCode;
@@ -121,6 +124,8 @@ public final class TradeService {
     private final TradingBridge bridge;
     private final AuthService authService;
     private final TradePlanDao tradePlanDao;
+    /** 套保计划 DAO（交易理由 {@code related_plan_id} 的冻结外键对象，{@code m2_trade.sql:277}）。 */
+    private final HedgePlanDao hedgePlanDao;
     private final ExposureDao exposureDao;
     private final TradeOrderDao tradeOrderDao;
     private final TradeReasonDao tradeReasonDao;
@@ -163,14 +168,61 @@ public final class TradeService {
     private long orderRefSeq;
 
     /**
-     * 构造。
+     * 构造（生产装配：显式注入套保计划 DAO）。
      *
      * @param tx                事务模板（仅事件流落库 / 理由落库用；提交路径不使用）
      * @param bridge            组件桥（{@code TradingBridge}）
      * @param authService       认证服务（{@code assertCanTrade} 强制点 + 子账户写面断言）
-     * @param tradePlanDao      交易计划 DAO（进度 / 占用回写 + 理由同子账户权威校验）
+     * @param tradePlanDao      交易计划 DAO（进度 / 占用回写 + 指令绑定计划一致性）
+     * @param hedgePlanDao      套保计划 DAO（<b>交易理由关联计划的权威对象</b>：
+     *                          {@code t_trade_reason.related_plan_id} 冻结外键指向
+     *                          {@code t_hedge_plan(id)}，{@code m2_trade.sql:277}；{@code TE-T058-003}）
      * @param exposureDao       实货敞口 DAO（理由同子账户权威校验）
      * @param tradeOrderDao     交易指令 DAO（事件流回传后落库）
+     * @param tradeReasonDao    交易理由 DAO
+     * @param tradeOrderReportDao 委托回报 DAO
+     * @param tradeFillDao      成交 DAO
+     * @param tradePositionDao  持仓 DAO
+     * @param preTradeRejectDao 事前风控拒绝 DAO
+     * @param commandFlowDao    指令流水镜像 DAO
+     */
+    public TradeService(TxTemplate tx, TradingBridge bridge, AuthService authService,
+                        TradePlanDao tradePlanDao, HedgePlanDao hedgePlanDao, ExposureDao exposureDao,
+                        TradeOrderDao tradeOrderDao, TradeReasonDao tradeReasonDao,
+                        TradeOrderReportDao tradeOrderReportDao, TradeFillDao tradeFillDao,
+                        TradePositionDao tradePositionDao, TradePreTradeRejectDao preTradeRejectDao,
+                        TradeCommandFlowDao commandFlowDao) {
+        this.tx = tx;
+        this.bridge = bridge;
+        this.authService = authService;
+        this.tradePlanDao = tradePlanDao;
+        this.hedgePlanDao = hedgePlanDao;
+        this.exposureDao = exposureDao;
+        this.tradeOrderDao = tradeOrderDao;
+        this.tradeReasonDao = tradeReasonDao;
+        this.tradeOrderReportDao = tradeOrderReportDao;
+        this.tradeFillDao = tradeFillDao;
+        this.tradePositionDao = tradePositionDao;
+        this.preTradeRejectDao = preTradeRejectDao;
+        this.commandFlowDao = commandFlowDao;
+    }
+
+    /**
+     * 兼容构造（<b>历史签名：不含套保计划 DAO</b>）。
+     *
+     * <p><b>保留原因</b>：{@code T-058} 交付的装配级 e2e {@code M2EndToEndAcceptanceTest}
+     * 系冻结验收件（不得改动），按此签名装配；其真实 {@link TxTemplate} 足以派生套保计划 DAO。
+     * 生产装配（{@code Bootstrap}）一律走含 {@link HedgePlanDao} 的主构造。
+     *
+     * <p>套保计划 DAO 由 {@code tx} 派生（{@link DmHedgePlanDao}）；交易理由关联计划仍以
+     * {@code t_hedge_plan} 为权威校验对象（{@code TE-T058-003}），语义与主构造一致。
+     *
+     * @param tx                事务模板
+     * @param bridge            组件桥
+     * @param authService       认证服务
+     * @param tradePlanDao      交易计划 DAO
+     * @param exposureDao       实货敞口 DAO
+     * @param tradeOrderDao     交易指令 DAO
      * @param tradeReasonDao    交易理由 DAO
      * @param tradeOrderReportDao 委托回报 DAO
      * @param tradeFillDao      成交 DAO
@@ -184,18 +236,9 @@ public final class TradeService {
                         TradeOrderReportDao tradeOrderReportDao, TradeFillDao tradeFillDao,
                         TradePositionDao tradePositionDao, TradePreTradeRejectDao preTradeRejectDao,
                         TradeCommandFlowDao commandFlowDao) {
-        this.tx = tx;
-        this.bridge = bridge;
-        this.authService = authService;
-        this.tradePlanDao = tradePlanDao;
-        this.exposureDao = exposureDao;
-        this.tradeOrderDao = tradeOrderDao;
-        this.tradeReasonDao = tradeReasonDao;
-        this.tradeOrderReportDao = tradeOrderReportDao;
-        this.tradeFillDao = tradeFillDao;
-        this.tradePositionDao = tradePositionDao;
-        this.preTradeRejectDao = preTradeRejectDao;
-        this.commandFlowDao = commandFlowDao;
+        this(tx, bridge, authService, tradePlanDao, new DmHedgePlanDao(tx), exposureDao,
+                tradeOrderDao, tradeReasonDao, tradeOrderReportDao, tradeFillDao,
+                tradePositionDao, preTradeRejectDao, commandFlowDao);
     }
 
     // ================================================================== 一、提交指令（不落库）
@@ -396,10 +439,12 @@ public final class TradeService {
                     + " relatedExposureId=" + r.relatedExposureId
                     + "；复现=补齐两项（FR-TRADE-10 验收2；CH-004 提交路径不得暂缺）");
         }
-        TradePlan rp = tradePlanDao.findById(r.relatedPlanId);
+        // TE-T058-003：related_plan_id 的冻结外键指向 t_hedge_plan(id)（m2_trade.sql:277），
+        // 故关联计划须按套保计划（而非交易计划）解析；同子账户归属亦以套保计划为准。
+        HedgePlan rp = hedgePlanDao.findById(r.relatedPlanId);
         if (rp == null) {
             throw invalid("交易理由关联的计划不存在：relatedPlanId=" + r.relatedPlanId
-                    + "；复现=核对 t_trade_plan.id");
+                    + "；复现=核对 t_hedge_plan.id（related_plan_id 冻结外键指向 t_hedge_plan，TE-T058-003）");
         }
         Exposure re = exposureDao.findById(r.relatedExposureId);
         if (re == null) {
@@ -596,10 +641,13 @@ public final class TradeService {
             if (existing != null) {
                 return null; // 幂等：重复回报不重复落库（FR-TRADE-4 验收2）
             }
+            // TE-T058-004：子表 order_id 外键指向 t_trade_order(id)（DB 主键），事件携带的是
+            // C++ 指令号（t_trade_order.order_id 业务键）⇒ 先解析父行、写其 DB 主键。
+            TradeOrder order = requireParentOrder(e.orderId, "EVT_ORDER_REPORT");
             TradeOrderReport row = new TradeOrderReport();
             row.subAccountId = subAccountId;
             row.orderSysId = e.orderSysId;
-            row.orderId = e.orderId;
+            row.orderId = order.id;
             row.orderLocalId = e.orderLocalId;
             row.exchangeId = e.exchangeId;
             row.instrumentId = instrumentId;
@@ -616,8 +664,7 @@ public final class TradeService {
             row.reportTime = Clocks.now();
             row.eventSeq = e.eventSeq;
             tradeOrderReportDao.insert(row, 0L);
-            TradeOrder order = tradeOrderDao.findByOrderId(e.orderId);
-            if (order != null && e.mappedOrderStatus != null) {
+            if (e.mappedOrderStatus != null) {
                 order.status = e.mappedOrderStatus;
                 tradeOrderDao.updateById(order, 0L);
             }
@@ -671,7 +718,8 @@ public final class TradeService {
             TradeFill fill = new TradeFill();
             fill.subAccountId = fSubAccountId;
             fill.tradeId = e.tradeId;
-            fill.orderId = e.orderId;
+            // TE-T058-004：t_trade_fill.order_id 外键指向 t_trade_order(id) ⇒ 写父行 DB 主键。
+            fill.orderId = requireParentOrder(e.orderId, "EVT_TRADE_FILL").id;
             fill.orderSysId = e.orderSysId;
             fill.tradePlanId = tradePlanId;
             fill.hedgePlanId = fHedgePlanId;
@@ -1259,6 +1307,36 @@ public final class TradeService {
         }
         plan.orderedQty = nz(plan.orderedQty).add(BigDecimal.valueOf(volume));
         tradePlanDao.updateById(plan, 0L);
+    }
+
+    /**
+     * 解析父交易指令（{@code t_trade_order}）——子表 {@code order_id} 外键指向其 DB 主键
+     * （{@code t_trade_fill}/{@code t_trade_order_report}，{@code TE-T058-004}）。
+     *
+     * <p>事件线格式携带的是 C++ 指令号（{@code t_trade_order.order_id} 业务键），子表外键要求
+     * DB 主键 ⇒ 先按业务键 {@code findByOrderId} 解析；兼容以 DB 主键直接传入的调用（历史/桩），
+     * 再按主键 {@code findById} 解析。两者皆无 ⇒ 数据异常，抛 {@link ErrorCode#REFERENCE_CONFLICT}
+     * （宁拒不写坏外键）。
+     *
+     * @param eventOrderId 事件携带的指令标识（C++ 指令号或 DB 主键）
+     * @param eventType    事件类型（诊断用）
+     * @return 命中的父指令行（含 DB 主键 {@code id}）
+     */
+    private TradeOrder requireParentOrder(Long eventOrderId, String eventType) {
+        if (eventOrderId != null) {
+            TradeOrder byBusinessKey = tradeOrderDao.findByOrderId(eventOrderId);
+            if (byBusinessKey != null) {
+                return byBusinessKey;
+            }
+            TradeOrder byPrimaryKey = tradeOrderDao.findById(eventOrderId);
+            if (byPrimaryKey != null) {
+                return byPrimaryKey;
+            }
+        }
+        throw BizException.of(ErrorCode.REFERENCE_CONFLICT,
+                "事件引用父指令无法解析（" + eventType + "）：orderId=" + eventOrderId
+                        + " 在 t_trade_order.order_id / t_trade_order.id 均无对应行"
+                        + "；复现=核对事件线格式 order_id（TE-T058-004）");
     }
 
     /** 理由落库（内部，不重复开事务——由调用方事务承载）。 */

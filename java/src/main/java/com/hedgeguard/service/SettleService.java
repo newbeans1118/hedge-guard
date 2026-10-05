@@ -150,8 +150,8 @@ public final class SettleService {
     /** 归因来源：无法归属。 */
     public static final String ATTR_UNABLE = "UNABLE_TO_ATTRIBUTE";
 
-    /** CTP 批次解析状态：已解析。 */
-    public static final String PARSE_PARSED = "PARSED";
+    /** CTP 批次解析状态：已解析（完整）。冻结域 {@code {OK, PARTIAL, FAILED}}（{@code m2_settle.sql:42}）。 */
+    public static final String PARSE_PARSED = "OK";
     /** CTP 批次解析状态：数据未到达，待重试。 */
     public static final String PARSE_PENDING = "PENDING_DATA";
     /** CTP 批次解析状态：解析失败。 */
@@ -308,6 +308,8 @@ public final class SettleService {
             }
             batch.parseStatus = PARSE_PARSED;
             batch.parseError = null;
+            // 到达分支：清零重试计数（DDL DEFAULT 0 对显式 NULL 不生效，须显式置 0；TE-T058-005）。
+            batch.retryCount = 0;
             batch.isConfirmed = "Y";
             if (existing == null) {
                 batchDao.insert(batch, operatorId);

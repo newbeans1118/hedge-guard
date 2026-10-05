@@ -249,9 +249,10 @@ class ParamDispatchServiceImplTest {
                 "2026-10-01", 7L);
 
         assertEquals(3, acks.size(), "三阶段各一次下发");
-        assertEquals("CMD_SET_TRADING_SUSPEND", dao.rows.get(0).dispatchType);
-        assertEquals("CMD_UPDATE_QUOTA", dao.rows.get(1).dispatchType);
-        assertEquals("CMD_SET_TRADING_SUSPEND", dao.rows.get(2).dispatchType);
+        // 冻结域（m3_risk.sql:53-55）无 CMD_ 前缀；持久化去前缀（TE-T058-002）
+        assertEquals("SET_TRADING_SUSPEND", dao.rows.get(0).dispatchType);
+        assertEquals("UPDATE_QUOTA", dao.rows.get(1).dispatchType);
+        assertEquals("SET_TRADING_SUSPEND", dao.rows.get(2).dispatchType);
         assertEquals("SUB_PRODUCT", bridge.sent.get(1).payloadView()
                 .get(ParamDispatchServiceImpl.KEY_LIMIT_LAYER));
         assertEquals("3", bridge.sent.get(1).payloadView()

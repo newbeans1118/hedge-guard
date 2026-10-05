@@ -462,7 +462,7 @@ public final class Bootstrap {
         // M2 交易执行服务（T-046）：提交指令不落库（零写语句），事件流回传后由 Java 统一落库。
         // 复用共享 DAO 实例（DAO 无状态，仅持 TxTemplate）。
         TradeService tradeService = new TradeService(tx, bridge, authService,
-                new DmTradePlanDao(tx), exposureDao,
+                new DmTradePlanDao(tx), new DmHedgePlanDao(tx), exposureDao,
                 new DmTradeOrderDao(tx), new DmTradeReasonDao(tx),
                 new DmTradeOrderReportDao(tx), new DmTradeFillDao(tx),
                 new DmTradePositionDao(tx), new DmTradePreTradeRejectDao(tx),

@@ -105,7 +105,7 @@ class SettleServiceTest {
         assertEquals(1, r1.fundCount);
         SettleCtpBatch b = batches.rows.get(0);
         assertEquals("Y", b.isConfirmed);
-        assertEquals("PARSED", b.parseStatus);
+        assertEquals("OK", b.parseStatus, "冻结域 {OK,PARTIAL,FAILED}（TE-T058-001a）");
         assertNotNull(b.receivedTime, "接收记录须含接收时间（FR-SETTLE-1 验收4）");
         assertEquals("CTP-20261004", b.sourceIdentifier);
         int posBefore = ctpPositions.rows.size();
