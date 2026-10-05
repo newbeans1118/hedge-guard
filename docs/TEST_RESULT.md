@@ -16521,3 +16521,25 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **闭环证据**：① 独立另写解析脚本重算——全库 REFERENCES 150 处 = 144 条唯一有向非自引用边 + 5 处重复（t_position_conflict→t_position_group ×2、t_hedge_ratio_calc→t_custom_hedge_rule ×2、t_fund_flow→t_sub_account ×2、t_transfer_apply→t_sub_account ×3）+ 1 条自引用（t_deposit_withdraw_apply 合理跳过），与工具「144 unique」精确一致；② 原假绿探针（m2_fund 模块内后置 ALTER 父表→t_annual_scale）修后 FAIL rc1；③ 负控2（fk_t_settle_fund_ledger 内联复原）FAIL rc1；④ -v 明细确认 m2_trade/m2_fund 四条模块内后置 ALTER 逐条被检；⑤ README 无 145 残留。去重口径 first-wins 经核不掩盖违例（created 单调 ⇒ 最早检查点即最严点）。
 
 **TE-T179-002（低·latent·新发现）**：时点模型对「既含模块内后置 ALTER、又含跨模块后置 ALTER、且该文件在 PLAN 有独立回补步」的文件偏松（现仅 m1_plan.sql——工具将其全部 ALTER 置回补步，而 README §7.1 步 5 只暂缓跨模块段、其模块内 3 条随步 5 执行）。构造性反例（probe3）：m1_plan 的 fk_ratio_calc_applied_rule 父表改 t_option_strategy（step 6 才建）工具 PASS 而 README 步 5 实执将失败。**现网无实害**（3 条模块内边父表均 m1_plan 自建，两模型同判）。处置：登记观察；复核建议 ①按「父表是否本文件自建」拆分时点或 ②docstring/README 显式声明建模简化——编排者采 ②，随下次工具触改一并落地。
+
+---
+
+## T-181 独立复核证据（席 te-verify-t181；2026-10-05 第 201 轮 · 编排者逐字转录）
+
+**结论：有条件通过 / 0 阻断缺陷 / 5 观察 / 1 条件 ⇒ 条件（rule_id 同号异义登记两空间冲突清单）随本轮兑现。**
+
+**冻结与范围**：HEAD 7b2f9b4；恰 8 文件 +230/−5 全 cpp/src/**（risk_engine .h/.cc、risk_result.h/.cc、CMakeLists、risk_state/risk_snapshot.h +4 纯只读、hgcp/command_handler.cc +5 自注更正、新测试 risk_engine_trading_suspend_test.cc 144 行/6 场景/21 checks）；proto/java/docs/web 零触及；树锚（cpp/src 口径）8ed64be9…/139 → dfa4bd80cbab76537704db5c4afec132/140。
+
+**语义对 ARCH（逐字）**：§4.3.2:1378（0x1011 OPEN_ONLY：阻断开仓/平仓放行/R-RISK-5）+ §3.11:568（平仓减仓跳过判定 = if(!is_open) return）；触发键名 risk.trading.suspend / risk.trading.suspend.sub.<id> 与 command_handler.cc:554-561 map_trading_suspend 逐字一致；既有佐证 command_handler_test.cc:408-419、data_model_test.cc:296 在。
+
+**性能红线核**：判定路径 = bool + unordered_set::count（O(1)/零分配/零锁/零 I/O）；解析（允许分配）在写侧 applySnapshot 一次性完成；thresholds() const 访问器全仓仅 parseSuspendThresholds(:558) 使用，判定路径 0 误用（§4.4.2/E4 守住）。
+
+**门禁独立复跑（隔离 git archive HEAD + 自建 build_stub）**：ctest 46/46、arch E1–E8 rc0；新测试 21 checks/0 fail；六计数不回归（transport 3100/seq 45/session 51/crypto 48/protocol_special 114/event_emitter 95862）。
+
+**变异独立重做（先证 build rc=0）**：M1（:529 中和 suspended=false）⇒ 7 failures；M2（:528 去平仓豁免）⇒ 2 failures；复原 md5 5df82a0e…、树锚 dfa4bd80…/140、targeted 复绿。
+
+**自设探针（隔离副本 risk_engine_t181_probe_test，15 checks/0 fail）**：P1 规范序（白名单先违规+同时暂停 ⇒ 上报 kWhitelist 而非 0x1011、entries[] 仍含 kTradingSuspend）；P2 幂等（重复 check/applySnapshot 不变）；P3 真值集 "1" 亦生效；P4 子账户显式 false/未列名 ⇒ pass 不误伤。
+
+**条件兑现与观察**：条件 = rule_id 同号异义（ruleIdName(kTradingSuspend)="R-RISK-5" 与空间乙 kNetPosition/0x1009 同串，经 command_handler.cc:724 上 wire）登记两空间冲突清单转权威席——本轮 DONE 注记即登记点；reason_code 0x1009/0x1011 可消歧（复核独立意见认同采现状，释放编号不可发明）。观察 5 项：O-2 parseSuspendThresholds 手工复制真值集漂移风险（低）；O-3 scan_scope 未校验（当前枚举仅 OPEN_ONLY）；O-4 非原子成员沿用既有 RCU 模式（非本单引入）；O-5 生产未装配（与 T-175/176/177 同态，真联编排承接）；O-1 同条件项。
+
+**编排者亲核记录**：提交面/红线/越域件（+4 纯只读）/判定挂点（:525/:657）/树锚 dfa4bd80…/140 交付当日亲测与复核席独立实测一致。
