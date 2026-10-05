@@ -170,6 +170,39 @@ class TradeServiceTest {
     }
 
     @Test
+    @DisplayName("T-173/CH-020：submitOrder 组装的 PlaceOrderCmd 六字段须与理由/计划绑定逐字一致")
+    void submitOrderFillsRelatedObjectAndReasonFields() {
+        TradeService.ReasonInput reason = validReason();
+        reason.relatedType = "ROLLOVER";
+        reason.relatedPlanId = PLAN_ID;
+        reason.relatedExposureId = EXPOSURE_ID;
+        reason.timeDesc = "EXPIRY_ROLLOVER";
+        reason.reasonText = "到期展期置换";
+
+        service.submitOrder(request(reason), TRADER_ID);
+
+        assertEquals(1, bridge.placedOrders().size(), "桥接应收到 1 笔下单");
+        PlaceOrderCmd cmd = bridge.placedOrders().get(0);
+        // 字段 3：实货敞口 ID「源自计划绑定」（plan.exposureId = EXPOSURE_ID）。
+        assertEquals(EXPOSURE_ID, cmd.exposureId, "exposureId 须取计划绑定的敞口");
+        // 字段 19/20：关联对象逐字承载。
+        assertEquals(PLAN_ID, cmd.relatedPlanId, "relatedPlanId 须逐字承载理由的计划 ID");
+        assertEquals(EXPOSURE_ID, cmd.relatedExposureId, "relatedExposureId 须逐字承载理由的敞口 ID");
+        // 字段 16/17/18：结构化理由逐字承载。
+        assertEquals("ROLLOVER", cmd.tradeReasonCode, "tradeReasonCode 须逐字承载 relatedType");
+        assertEquals("EXPIRY_ROLLOVER", cmd.tradeReasonTimeDesc, "tradeReasonTimeDesc 须逐字承载 timeDesc");
+        assertEquals("到期展期置换", cmd.tradeReasonText, "tradeReasonText 须逐字承载 reasonText");
+    }
+
+    @Test
+    @DisplayName("T-173：reasonText 缺省时 tradeReasonText 为 null，不臆造值")
+    void submitOrderLeavesReasonTextNullWhenAbsent() {
+        service.submitOrder(request(validReason()), TRADER_ID);
+        PlaceOrderCmd cmd = bridge.placedOrders().get(0);
+        assertEquals(null, cmd.tradeReasonText, "reasonText 缺省 ⇒ DTO 保持 null，由桥侧映射空串");
+    }
+
+    @Test
     @DisplayName("验收5 非空转（正控）：事件落库确实产生写调用 ⇒ 记录器有牙")
     void writeAuditHasTeeth() {
         service.onPreTradeReject(preTradeReject("HG20261004000001", "R-RISK-2"));

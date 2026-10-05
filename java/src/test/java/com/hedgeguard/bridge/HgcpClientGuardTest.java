@@ -198,6 +198,95 @@ class HgcpClientGuardTest {
         assertEquals(555L, cmd.getOrderId());
     }
 
+    // ==================== T-173：0x1019 承载链（proto CmdPlaceOrder 3/16/17/18/19/20）====================
+
+    @Test
+    @DisplayName("T-173/CH-020：placeOrder 的 CmdPlaceOrder 六字段（exposure_id/trade_reason_*/related_*）须逐字上 wire")
+    void placeOrderCarriesRelatedObjectAndReasonFieldsOnTheWire() {
+        RecordingTransport transport = new RecordingTransport();
+        HgcpClient client = authenticatedClient(transport);
+        assertTrue(client.isReady(), "夹具：鉴权成功且镜像 READY ⇒ placeOrder 可下发");
+
+        PlaceOrderCmd cmd = new PlaceOrderCmd();
+        cmd.clientOrderRef = "HG20261004000007";
+        cmd.tradePlanId = 9001L;
+        cmd.exposureId = 7001L;
+        cmd.subAccountId = 101;
+        cmd.productId = 55L;
+        cmd.instrumentId = "cu2612";
+        cmd.side = "BUY";
+        cmd.offsetFlag = "OPEN";
+        cmd.priceType = "LIMIT";
+        cmd.price = "70000";
+        cmd.volume = "10";
+        cmd.operatorId = 1L;
+        cmd.tradeReasonCode = "PLAN_EXECUTION";
+        cmd.tradeReasonTimeDesc = "CONTRACT_SIGNED";
+        cmd.tradeReasonText = "月度调仓";
+        cmd.relatedPlanId = 9002L;
+        cmd.relatedExposureId = 7002L;
+        client.placeOrder(cmd);
+
+        assertEquals(1, transport.sent.size(), "placeOrder 须恰好下发一帧命令");
+        HgcpFrame.Decoded d = decode(transport.last());
+        assertEquals(HgcpConstants.CMD_PLACE_ORDER, d.header.type,
+                "帧类型须为 CMD_PLACE_ORDER（0x0101）");
+
+        Hgcp.CmdPlaceOrder wire;
+        try {
+            wire = Hgcp.CmdPlaceOrder.parseFrom(d.payload);
+        } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+            throw new AssertionError("出站 payload 须为合法 CmdPlaceOrder", e);
+        }
+
+        assertEquals(7001L, wire.getExposureId(), "字段 3 exposure_id 须逐字承载");
+        assertEquals(9002L, wire.getRelatedPlanId(), "字段 19 related_plan_id 须逐字承载");
+        assertEquals(7002L, wire.getRelatedExposureId(), "字段 20 related_exposure_id 须逐字承载");
+        assertEquals(Hgcp.TradeReasonCode.TRADE_REASON_CODE_PLAN_EXECUTION, wire.getTradeReasonCode(),
+                "字段 16 trade_reason_code 须映射为线格式枚举");
+        assertEquals(Hgcp.TradeReasonTimeDesc.TRADE_REASON_TIME_DESC_CONTRACT_SIGNED,
+                wire.getTradeReasonTimeDesc(), "字段 17 trade_reason_time_desc 须映射为线格式枚举");
+        assertEquals("月度调仓", wire.getTradeReasonText(), "字段 18 trade_reason_text 须逐字承载");
+        // 非空正面守卫：缺任一项即第②层结构性不可判（TE-T046-002 缺口本体）。
+        assertNotEquals(0L, wire.getExposureId());
+        assertNotEquals(0L, wire.getRelatedPlanId());
+        assertNotEquals(0L, wire.getRelatedExposureId());
+        assertNotEquals(Hgcp.TradeReasonCode.TRADE_REASON_CODE_UNSET, wire.getTradeReasonCode());
+        assertNotEquals(Hgcp.TradeReasonTimeDesc.TRADE_REASON_TIME_DESC_UNSET,
+                wire.getTradeReasonTimeDesc());
+    }
+
+    @Test
+    @DisplayName("T-173：trade_reason_text 为 null ⇒ 线格式空串（proto3 标量不得 null）")
+    void placeOrderNullReasonTextBecomesEmptyOnTheWire() {
+        RecordingTransport transport = new RecordingTransport();
+        HgcpClient client = authenticatedClient(transport);
+
+        PlaceOrderCmd cmd = new PlaceOrderCmd();
+        cmd.clientOrderRef = "HG20261004000008";
+        cmd.tradePlanId = 9001L;
+        cmd.subAccountId = 101;
+        cmd.productId = 55L;
+        cmd.instrumentId = "cu2612";
+        cmd.side = "BUY";
+        cmd.offsetFlag = "OPEN";
+        cmd.priceType = "LIMIT";
+        cmd.price = "70000";
+        cmd.volume = "10";
+        cmd.operatorId = 1L;
+        cmd.relatedPlanId = 9002L;
+        cmd.relatedExposureId = 7002L;
+        client.placeOrder(cmd);
+
+        Hgcp.CmdPlaceOrder wire;
+        try {
+            wire = Hgcp.CmdPlaceOrder.parseFrom(decode(transport.last()).payload);
+        } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+            throw new AssertionError("出站 payload 须为合法 CmdPlaceOrder", e);
+        }
+        assertEquals("", wire.getTradeReasonText(), "null ⇒ 空串（不得触发 NPE）");
+    }
+
     // ==================== TE-T042-003：事件幂等去重 ====================
 
     @Test

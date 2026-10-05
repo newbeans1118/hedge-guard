@@ -276,6 +276,14 @@ public final class TradeService {
         cmd.priceType = priceType;
         cmd.price = req.price;
         cmd.volume = String.valueOf(req.volume);
+        // T-173 / CH-020：交易理由关联对象与结构化内容上 wire（proto CmdPlaceOrder 3/16/17/18/19/20）。
+        // 实货敞口 ID「源自计划绑定」（ARCHITECTURE.md §4.2.4 字段 3）；其余取已过第①层权威校验的理由对象。
+        cmd.exposureId = plan.exposureId == null ? 0L : plan.exposureId;
+        cmd.relatedPlanId = req.reason.relatedPlanId;
+        cmd.relatedExposureId = req.reason.relatedExposureId;
+        cmd.tradeReasonCode = req.reason.relatedType;
+        cmd.tradeReasonTimeDesc = req.reason.timeDesc;
+        cmd.tradeReasonText = req.reason.reasonText;
         cmd.tradeReasonId = 0L; // 理由尚未落库（提交路径不写库）；结构化内容随理由对象在事件回传后落库
         cmd.operatorId = operatorId;
         cmd.confirmToken = req.confirmToken;

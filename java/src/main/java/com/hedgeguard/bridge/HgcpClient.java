@@ -661,6 +661,7 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
             Hgcp.CmdPlaceOrder.Builder b = Hgcp.CmdPlaceOrder.newBuilder()
                     .setClientOrderRef(cmd.clientOrderRef)
                     .setTradePlanId(cmd.tradePlanId)
+                    .setExposureId(cmd.exposureId)
                     .setSubAccountId(cmd.subAccountId)
                     .setProductId((int) cmd.productId)
                     .setInstrumentId(cmd.instrumentId)
@@ -670,6 +671,11 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
                     .setPriceType(mapPriceType(cmd.priceType))
                     .setVolume(Integer.parseInt(cmd.volume))
                     .setOperatorId(cmd.operatorId)
+                    .setTradeReasonCode(mapTradeReasonCode(cmd.tradeReasonCode))
+                    .setTradeReasonTimeDesc(mapTradeReasonTimeDesc(cmd.tradeReasonTimeDesc))
+                    .setTradeReasonText(cmd.tradeReasonText == null ? "" : cmd.tradeReasonText)
+                    .setRelatedPlanId(cmd.relatedPlanId)
+                    .setRelatedExposureId(cmd.relatedExposureId)
                     .setClientTsMs(Clocks.epochMilli());
             if (cmd.price != null && !cmd.price.isEmpty()) {
                 b.setLimitPrice(cmd.price);
@@ -935,6 +941,69 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
             return Hgcp.PriceType.PRICE_TYPE_MARKET;
         }
         return Hgcp.PriceType.PRICE_TYPE_UNSET;
+    }
+
+    /**
+     * 交易理由关联类型映射（{@code T-173}/{@code CH-020}）。接受 {@code ReasonInput.relatedType} 的
+     * 8 值字面量；其中 {@code FORCE_CLOSE}/{@code DELIVERY} 为 CTP 直生成交专用，
+     * 协议枚举 {@code TradeReasonCode} <b>无</b>对应值 ⇒ 映射为 {@code ..._UNSET}（见 T-173 披露项）。
+     *
+     * @param code 关联类型字面量
+     * @return 线格式枚举
+     */
+    public static Hgcp.TradeReasonCode mapTradeReasonCode(String code) {
+        if (code == null) {
+            return Hgcp.TradeReasonCode.TRADE_REASON_CODE_UNSET;
+        }
+        String s = code.trim().toUpperCase(java.util.Locale.ROOT);
+        if (s.endsWith("NEW_EXPOSURE")) {
+            return Hgcp.TradeReasonCode.TRADE_REASON_CODE_NEW_EXPOSURE;
+        }
+        if (s.endsWith("EXPOSURE_DECREASE")) {
+            return Hgcp.TradeReasonCode.TRADE_REASON_CODE_EXPOSURE_DECREASE;
+        }
+        if (s.endsWith("PLAN_EXECUTION")) {
+            return Hgcp.TradeReasonCode.TRADE_REASON_CODE_PLAN_EXECUTION;
+        }
+        if (s.endsWith("ROLLOVER")) {
+            return Hgcp.TradeReasonCode.TRADE_REASON_CODE_ROLLOVER;
+        }
+        if (s.endsWith("RISK_DISPOSAL")) {
+            return Hgcp.TradeReasonCode.TRADE_REASON_CODE_RISK_DISPOSAL;
+        }
+        if (s.endsWith("ERROR_CORRECTION")) {
+            return Hgcp.TradeReasonCode.TRADE_REASON_CODE_ERROR_CORRECTION;
+        }
+        return Hgcp.TradeReasonCode.TRADE_REASON_CODE_UNSET;
+    }
+
+    /**
+     * 交易理由时点说明映射（{@code T-173}/{@code CH-020}）。接受 5 值字面量。
+     *
+     * @param desc 时点说明字面量
+     * @return 线格式枚举
+     */
+    public static Hgcp.TradeReasonTimeDesc mapTradeReasonTimeDesc(String desc) {
+        if (desc == null) {
+            return Hgcp.TradeReasonTimeDesc.TRADE_REASON_TIME_DESC_UNSET;
+        }
+        String s = desc.trim().toUpperCase(java.util.Locale.ROOT);
+        if (s.endsWith("CONTRACT_SIGNED")) {
+            return Hgcp.TradeReasonTimeDesc.TRADE_REASON_TIME_DESC_CONTRACT_SIGNED;
+        }
+        if (s.endsWith("PRICE_TRIGGERED")) {
+            return Hgcp.TradeReasonTimeDesc.TRADE_REASON_TIME_DESC_PRICE_TRIGGERED;
+        }
+        if (s.endsWith("MONTHLY_REBALANCE")) {
+            return Hgcp.TradeReasonTimeDesc.TRADE_REASON_TIME_DESC_MONTHLY_REBALANCE;
+        }
+        if (s.endsWith("EXPIRY_ROLLOVER")) {
+            return Hgcp.TradeReasonTimeDesc.TRADE_REASON_TIME_DESC_EXPIRY_ROLLOVER;
+        }
+        if (s.endsWith("RISK_REQUIRED")) {
+            return Hgcp.TradeReasonTimeDesc.TRADE_REASON_TIME_DESC_RISK_REQUIRED;
+        }
+        return Hgcp.TradeReasonTimeDesc.TRADE_REASON_TIME_DESC_UNSET;
     }
 
     /**

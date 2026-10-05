@@ -38,6 +38,45 @@ public final class PlaceOrderCmd {
     /** 幂等键（{@code client_order_ref}，{@code HG<yyyyMMdd><seq(6)>}，应用层生成）。 */
     public String clientOrderRef;
 
+    /**
+     * 实货敞口 ID（线格式 {@code CmdPlaceOrder.exposure_id}，字段号 <b>3</b>，{@code uint64}·必）——
+     * <b>源自计划绑定</b>（{@code TradePlan.exposureId}；{@code FR-TRADE-1}、{@code ARCHITECTURE.md} §4.2.4）。
+     */
+    public long exposureId;
+
+    /**
+     * 交易理由关联类型（线格式 {@code CmdPlaceOrder.trade_reason_code}，字段号 <b>16</b>，
+     * {@code TradeReasonCode} 枚举·必）——取 {@code ReasonInput.relatedType} 的字符串值
+     * （如 {@code PLAN_EXECUTION}），由 {@link HgcpClient} 映射为线格式枚举；{@code T-173}/{@code CH-020}。
+     */
+    public String tradeReasonCode;
+
+    /**
+     * 交易理由时点说明（线格式 {@code CmdPlaceOrder.trade_reason_time_desc}，字段号 <b>17</b>，
+     * {@code TradeReasonTimeDesc} 枚举·必）——取 {@code ReasonInput.timeDesc} 的字符串值
+     * （如 {@code CONTRACT_SIGNED}），由 {@link HgcpClient} 映射。
+     */
+    public String tradeReasonTimeDesc;
+
+    /**
+     * 交易理由自由补充说明（线格式 {@code CmdPlaceOrder.trade_reason_text}，字段号 <b>18</b>，
+     * {@code string}·可）——取 {@code ReasonInput.reasonText}（可 {@code null}）。
+     */
+    public String tradeReasonText;
+
+    /**
+     * 关联对象①：计划 ID（线格式 {@code CmdPlaceOrder.related_plan_id}，字段号 <b>19</b>，
+     * {@code uint64}·必）——取 {@code ReasonInput.relatedPlanId}；C++ 侧据快照 {@code PlanState}
+     * 复核其与 {@code subAccountId} 同属一个子账户（{@code 0x1019} 兜底，{@code FR-TRADE-10}）。
+     */
+    public long relatedPlanId;
+
+    /**
+     * 关联对象②：实货敞口 ID（线格式 {@code CmdPlaceOrder.related_exposure_id}，字段号 <b>20</b>，
+     * {@code uint64}·必）——取 {@code ReasonInput.relatedExposureId}。
+     */
+    public long relatedExposureId;
+
     /** 交易理由 ID（{@code t_trade_reason.id}；结构化必填，{@code Q-13}）。 */
     public long tradeReasonId;
 
