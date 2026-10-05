@@ -101,9 +101,11 @@ class RiskParamDispatchSchemaTest {
                 problems.add("缺少文档声明的唯一约束：" + idx);
             }
         }
-        assertEquals(spec.fkTargets, countForeignKeys(ddlText),
+        // T-094：m3_risk.sql 已扩为 11 张 RISK 表 ⇒ 外键计数须限定在本表块内（原按整文件计数）
+        String tableBlock = extractTableBlock(ddlText, TABLE);
+        assertEquals(spec.fkTargets, countForeignKeys(tableBlock),
                 "外键不一致：文档 FK 标注数=" + spec.fkTargets
-                        + " 脚本 FOREIGN KEY 数=" + countForeignKeys(ddlText));
+                        + " 脚本 FOREIGN KEY 数=" + countForeignKeys(tableBlock));
         assertTrue(problems.isEmpty(), "脚本与文档不一致：\n  - " + String.join("\n  - ", problems));
         assertTrue(ddl.size() >= 19, "列数过少（" + ddl.size() + "），疑似解析失效");
     }
@@ -250,6 +252,17 @@ class RiskParamDispatchSchemaTest {
             i += "FOREIGN KEY".length();
         }
         return n;
+    }
+
+    /** 抽取某张表的 CREATE TABLE 主体（括号内文本）；T-094 起文件含多表，计数须限定块内。 */
+    private static String extractTableBlock(String sql, String table) {
+        int start = sql.indexOf("CREATE TABLE " + table + " (");
+        if (start < 0) {
+            return "";
+        }
+        int open = sql.indexOf('(', start);
+        int end = sql.indexOf("\n);", open);
+        return end < 0 ? sql.substring(open + 1) : sql.substring(open + 1, end);
     }
 
     private static List<String> splitRow(String line) {
