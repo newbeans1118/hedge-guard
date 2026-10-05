@@ -291,8 +291,8 @@ python3 docs/DEPLOY/tools/reconcile-schema.py --json     # 机读
 - `m2_fund.sql`：`t_fund_flow.settle_cycle_id → t_settle_cycle`、`t_transfer_apply.agg_check_id → t_aggregation_check`、`t_fund_reconcile.agg_check_id → t_aggregation_check`（`SETTLE`，**均内联**）
 - ⇒ **SETTLE 与 FUND 互为前置**，且**两侧均未**按 `m1_plan.sql` 的「文件末尾后置 ALTER」先例暂缓任一侧 ⇒ 在 DM8 上**无任一单遍执行顺序可成功**。
 
-**最小修订建议（承接归 schema 责任任务，非本席写域）**：将 `m2_settle.sql` 的 `fk_t_settle_fund_ledger` 改置文件末尾 ALTER 段（与 `m1_plan.sql` 同口径）；
-随后执行顺序为 `… → m2_trade.sql → m2_settle.sql → m2_fund.sql → 回补 settle 后置外键 → m3_risk.sql → data-init.sql`。
+**最小修订建议（承接归 schema 责任任务，非本席写域）**：将 `m2_settle.sql` 的 `fk_t_settle_fund_ledger` 改置文件末尾 ALTER 段（与 `m1_plan.sql` 同口径），并**分段执行**——`m2_settle.sql` 的建表段须先于 `m2_fund.sql` 执行，后置的 `fk_t_settle_fund_ledger` 段在 `m2_fund.sql` 之后回补（与 §7.1 的回补步同口径）；
+随后执行顺序为 `… → m2_trade.sql → m2_settle.sql（建表段） → m2_fund.sql → 回补 settle 后置外键 → m3_risk.sql → data-init.sql`。
 本席**未擅自改动 schema**（属既有任务制品），在此登记并上报。
 
 另注：`CONFIG↔PRODUCT`（config 侧已后置）、`PLAN↔TRADE`（plan 侧已后置）两处循环**已有**脚本作者的后置处理，按 §7.1 两阶段可解。

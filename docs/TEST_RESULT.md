@@ -16350,3 +16350,21 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **观察（6，不阻断）**：O-1 TC-M3-14 级别析取宜收紧 WARNING；O-2 TC-M3-29/30 非单一决定性值张力；O-3 已随退修闭环；O-4 0x1011「归 T-036」归因陈旧（T-036 已 DONE 无产出）⇒ T-073 执行前重裁定；O-5 TC-M3-32 前置措辞 SENT/PLACED 语义区分；O-6 §3.1 未列 risk_engine.selector（非缺陷）。
 
 **移交菜单（待用户裁定）**：§11-A 事后报表层实现（FR-RISK-17/18，TC-M3-27/28 落点待建）；§11-B/O-4 0x1011 接线归属。
+
+---
+
+## T-052 独立复核证据（席 te-verify-t052；2026-10-05 第 196 轮 · 编排者逐字转录）
+
+**结论：有条件通过 / 0 阻断 / 1 低缺陷 / 6 观察 ⇒ 条件经 be-t052b 微修闭环（exit 2 双分支实跑复现 RC=2）。**
+
+**冻结与范围**：交付 436215d，恰 11 文件 +1163/−0 全在 docs/DEPLOY/**（4）与 scripts/deploy/**（7）；proto/java/src/web/TASKS/BOARD 零触及；复核期 HEAD 前移至 df8556b（第 195 轮台账）但两提交在交付域 diff 为空 ⇒ 对象逐字节未变。
+
+**探针 17 项（全独立重跑）**：reconcile-schema.py RC=0（建表 81/DATA_MODEL 111/doc-only 30 属实）；env-check RC=0（JDK 11.0.32.1/Maven 3.9.12/cmake 4.2.3/libprotoc 3.21.12；DM 驱动与 5236 均 WARN）；CTP run_probe PASS=12/FAIL=0（自报 v6.7.13_20260225，四头 md5 逐字对）；health-check 无组件 RC=1（0/5）、建依赖起 hg-biz 后 3/3 PASS（ping code0/status UP）+ trading 2/2 FAIL（骨架如实）；start-all 缺省 RC=0、HG_REQUIRE_TRADING_READY=1 严格模式 RC=1（hg-biz 未启）；stop-all 优雅停机；rejectSecrets JVM 探针（javac+java 实跑）：hg.auth.password_min_length ⇒ REJECTED（Config.java:153-166 一致）⇒「口令策略项陷阱」主张成立；SchemaTest 28/28（5+8+4+4+2+5）；DM8 不可达属实（ss/进程/驱动三查）；CTP 头 md5 四件全对；protobuf 双轨一致（HgDependencies.cmake:191 SHA256、pom 3.21.12）；零落盘 11 文件全量 grep 仅表名/词义命中、无真实凭据。
+
+**TE-T052-001（低）与闭环**：health-check.sh:9 与 README:197/:311 声明「0/1/2」但无 exit 2 路径（die 恒退 1）⇒ be-t052b 实现 exit 2 双分支（前置缺失/未知参数），**实跑复现**：未知参数 RC=2、受限 PATH 前置缺失 RC=2；README a8c7ad74…/343 §8.4 分段执行明写（O-2）。
+
+**U-4 独立定性（跨模块循环外键）**：m2_settle.sql:315→t_fund_ledger（FUND）内联；m2_fund.sql:112/:216/:398→t_settle_cycle/t_aggregation_check（SETTLE）内联（m2_fund 后置段 :413-419 不含此三条）⇒ SETTLE⇄FUND 双向内联、无单遍序（DM8 无 DEFERRABLE）；全 schema FK 有向图扫描 = **恰 3 个文件级环**（config↔product、plan↔trade 已后置；fund↔settle 唯一未处置）；最小修订 = 仅后置 fk_t_settle_fund_ledger 一条边（备选后置 fund 三条非最小）；修订后全序可成。**承接建议**：立 schema 修复单（或退回 T-044 补修），#java2，动作 = 后置 FK + README §7.1/§8.4 同步；属 T-044/T-045 既有交付「执行序可满足性」未覆盖的潜在缺陷；**不阻断 T-052 其余验收**，但验收 5 在修复+DM8 环境具备前无法通过。
+
+**观察（6，不阻断）**：O-1 classpath 缺依赖时诊断不友好（NoClassDefFoundError→通用「启动超时」）；O-2 已随微修闭环；O-3 CFG-01~31 工单口径陈旧（产出方按架构静默对齐 33 正确）；O-4 3/3 PASS 为构建态相关（产出方已如实标注）；O-5 计数以 surefire 为准未虚高；O-6 未知参数退 2 与「2=前置缺失」措辞张力（CLI 惯例采现状留痕）。
+
+**编排者亲核记录**：提交面/红线（--format=）/U-4 三处 FK 在树（m2_settle.sql:315、m2_fund.sql:112/:216/:398）/README 与 start-all.sh 指纹——交付当日亲测与复核席独立实测一致。

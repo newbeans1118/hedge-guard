@@ -18,7 +18,10 @@ _here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 . "${_here}/common.sh"
 
-require_cmd curl
+if ! command -v curl >/dev/null 2>&1; then
+  printf '[%s] ERROR: 缺少命令：curl（前置缺失，见 docs/DEPLOY/README.md 环境依赖清单）\n' "$(date '+%Y-%m-%d %H:%M:%S')" >&2
+  exit 2
+fi
 WHAT="${1:-all}"
 
 BIND="$(hg_cfg hg.web.bind 127.0.0.1)"
@@ -68,7 +71,7 @@ case "${WHAT}" in
   biz)     check_biz ;;
   trading) check_trading ;;
   all)     check_biz; check_trading ;;
-  *) die "未知参数：${WHAT}（应为 biz|trading|all）" ;;
+  *) printf '[%s] ERROR: 未知参数：%s（应为 biz|trading|all）\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${WHAT}" >&2; exit 2 ;;
 esac
 
 printf -- "-- 汇总：PASS=${pass} FAIL=${fail} SKIP=${skip} --\n"
