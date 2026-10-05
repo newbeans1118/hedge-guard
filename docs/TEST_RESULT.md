@@ -16144,3 +16144,127 @@ void evalRelatedObject(const RiskSnapshot& s, const OrderRequest& req, RiskResul
 **观察（6，不阻断）**：O-1 lastReceivedSeq 于丢弃前仍推进 —— 正确且必需（ARCH 4.2.6 补数完成判据以线路帧为准）；O-2 批内 0x020D/0x020E 照常消费（复核席自设探针：消费序=[0x020D,0x020E]、水位=2、0x020C 未推水位 ⇒ CH-007 范围内正确）；O-3 HgcpConstants.java:92 既有注释「可丢，不占 SEQ」与 ARCH 同一 SEQ 计数器口径张力（注释级，归后续微修，非本单缺陷）；O-4 测试只断言消费侧水位，接收侧 lastReceivedSeq 由 HgcpResumeDataReplayTest 间接覆盖（覆盖边界）；O-5 可观测效果 = 不再推水位/不触发 onEventConsumed 评估泵；O-6 C++ 消费面归 T-057 执行时实测。
 
 **编排者亲核记录**：回执四要素（提交面/proto 红线/关键改动点 :233/:252/:281/:361/树锚）交付当日亲测与复核席独立实测一致；裁定：0x020D/0x020E 不扩范围。
+
+
+---
+
+## T-057 执行 M2 协议专项测试证据章（席 te-t057；2026-10-05 · 纯追加）
+
+**任务**：T-057 执行 M2 协议专项测试（一致性/保序/补数/幂等/重连），P0 / 32 人时。
+**设计依据**：`docs/TEST_PLAN/M2.md`（开工实测 md5 `a96456d5d762b7e1fcbe2ae2dfd8d25e` / 545 行，与冻结点一致）；`docs/TASKS.md` §2 T-057 验收 1–5；`proto/hgcp.proto`（冻结 v1.0.1）；`java/CONTRACTS.md` §3.2.3。
+**开工锚点**：HEAD `63b1f02`；`java/src` 树锚 `adc273f35af8e5f75fbb7ec37764c836` / 563。
+**收工锚点**：`java/src` 树锚 `5bc0f3bd9ca6b9104e9c4a5c0d01cc7a` / 564（+1 测试文件）；`cpp/src` 树锚 `f21b04c9794503bba19d0a1c4c1f9fef` / 137 → `3b339d6f69ac4e48e2560fb51cae315c` / 138（+1 测试文件 + CMake 注册 1 行）。
+（锚点口径：`cd <dir> && find . -type f | LC_ALL=C sort | xargs md5sum | md5sum`；全仓 grep 排除 `.codebuddy/`。）
+
+### 一、门禁计数（收工实测）
+
+| 轨 | 命令 | 基线 | 收工 | 结论 |
+|----|------|------|------|------|
+| Java 单测 | `cd java && mvn -B -o -Punit clean test` | 870/0/0/0 | **875/0/0/0**（BUILD SUCCESS，EXIT=0） | ✅ @Test==surefire==875（新类 5） |
+| C++ 打桩轨 | `cd cpp/build_stub && ctest --output-on-failure`（无 `CTP_SDK_ROOT`） | 43/43 | **44/44**（EXIT=0） | ✅ 新增 `hgcp.protocol_special_test` 1 目标 |
+| 架构门禁 | `ctest` 聚合内 `arch_check` fixture / `mvn validate` 内 E1–E8 | rc0 | **rc0** | ✅ |
+
+### 二、新增测试文件（2 个 + CMake 注册 1 行）
+
+| 文件 | md5 / 行数 | 用途 |
+|------|-----------|------|
+| `java/src/test/java/com/hedgeguard/bridge/HgcpResumeConvergenceIdempotencyTest.java` | `3c1c9f02606912604e9dfcf47c6aa94d` / 251 | 5 `@Test`：TC-M2-16/19/26/29 + 验收 2（1000 笔） |
+| `cpp/src/hgcp/tests/protocol_special_test.cc` | `f9534c2ff00ca1384a2c4a701fd53609` / 144 | 3 用例：TC-M2-06 + TC-M2-07 + TC-M2-33 |
+| `cpp/src/hgcp/CMakeLists.txt` | `a7e69d4b7f2a9f8926bc1e2510496b3f` | `HGCP_UNIT_TESTS` 追加 `protocol_special_test`（纯增 1 行） |
+
+> 写域说明：仅新增测试文件 + 既有测试零改动；生产代码零改动（`IdempotencyCache.java` 仅在变异期临时改、已逐字节复原，见 §六）。
+
+### 三、TC-M2-01..37 执行总表（37 行）
+
+| TC | 落点 | 结果 | 证据（目标#方法 / 摘录） |
+|----|------|------|------------------------|
+| 01 | C++ ctest + Java JUnit | PASS | `hgcp.frame_test`→`test_reject_bad_magic`（0x0102）；`HgcpFrameTest.framingFailures`（BAD_MAGIC） |
+| 02 | C++ ctest + Java JUnit | PASS | `hgcp.frame_test`→`test_reject_bad_version`（0x0101）；`HgcpFrameTest.framingFailures`（BAD_VERSION） |
+| 03 | C++ ctest + Java JUnit | PASS | `hgcp.frame_test`→`test_reject_crc_mismatch`（0x0103）；`HgcpFrameTest.framingFailures`（CRC_MISMATCH） |
+| 04 | C++ ctest | PASS | `hgcp.transport_test`→`test_frame_too_large_replies_0x0308`（回 `0x0308` 且 `has_connection()==false`） |
+| 05 | C++ ctest + Java JUnit | PASS | `hgcp.frame_test`→`test_reject_frame_too_large`（恰 1 MiB ⇒ kOk；+1 ⇒ kFrameTooLarge=0x0308）；`HgcpFrameTest.frameTooLarge` |
+| 06 | C++ ctest（新增） | PASS（谓词级）+ 缺口注 | `hgcp.protocol_special_test`→`test_unknown_message_type`（`is_known_message_type(0x9999)=false`；`ErrorCode 0x0105`；`validate=false`；CommandHandler 不消费）。「不中断连接」为 server_loop 代码级（未知类型入 inbound 不 close），无 ERROR 帧产生点 |
+| 07 | C++ ctest（新增）+ 既有 | PASS | `hgcp.protocol_special_test`→`test_invalid_payload_bytes_rejected`（已知类型+非法字节 ⇒ 0x0104，未生效）；`hgcp.command_handler_test`→`test_invalid_payload_rejected`（取值域非法 0x0104） |
+| 08 | C++ ctest | PASS | `hgcp.transport_test`→`test_auth_bad_token_rejected`（`MsgAuthFail{0x0201}`+断连）；`hgcp.crypto_auth_test`→`test_audit_on_failure_only`（留痕） |
+| 09 | C++ ctest | PASS | `hgcp.transport_test`→`test_auth_missing_token_rejected`（0x0202）；`hgcp.crypto_auth_test`→`test_token_verifier` |
+| 10 | C++ ctest | **未达-实现缺口** | TE-T057-001：无 0x0203 产生点 |
+| 11 | C++ ctest | **未达-实现缺口** | TE-T057-001：无 0x0204 产生点 |
+| 12 | C++ ctest | PASS | `hgcp.transport_test`→`test_not_handshaken_rejected`（0x0107+断连） |
+| 13 | C++ ctest | PASS（实测 3000ms） | `hgcp.timing_test`→`test_heartbeat_detection`（`timeout_ms()==3000` ≤ 5000）；`hgcp.transport_test`→`test_heartbeat_send_and_timeout_death`（0x0301） |
+| 14 | C++ ctest | PASS | `hgcp.transport_test`→`test_duplicate_connection_rejected`（0x0302）；`hgcp.session_test`→`test_single_connection_and_backoff` |
+| 15 | C++ ctest | PASS（退避）+ 部分 | `hgcp.timing_test`→`test_reconnect_backoff_sequence`（500→1000→2000→4000→8000 封顶；≥10 ⇒ severe）；0x0303 帧无产生点（TE-T057-005） |
+| 16 | Java JUnit（新增）+ C++ ctest | PASS | `HgcpResumeConvergenceIdempotencyTest.resumeBatchDeliversAll200EventsInOrderAndDeduplicatesReplay`（200 消费 / 水位 300 / 重放 0 新增）；`hgcp.resume_buffer_test` |
+| 17 | C++ ctest + Java JUnit | PASS | `hgcp.transport_test`→`test_resume_data_body_schema`（501 ⇒ 2 批 500/1、from/to per-batch、is_last false/true）；`HgcpResumeDataReplayTest.crossBatchSequenceIsContiguous` |
+| 18 | C++ ctest | PASS（缓冲级）+ 部分 | `hgcp.resume_buffer_test`→`test_ring_overwrite_and_gap`（kGapTooLarge=0x0306）；`server_loop.cc:265-270` 发 0x0306（代码级）；`hgcp.replay_gate`→0x0401 恢复期 |
+| 19 | Java JUnit（新增）+ C++ ctest | PASS | 新增 `resumeBatch.../thousandEventStreamNoLossNoReorder`（逐帧 SEQ 保序，水位收敛=线路帧锚）；`hgcp.transport_test`→`test_resume_data_body_schema`（frames 逐元素复解） |
+| 20 | C++ ctest + Java JUnit | PASS | `hgcp.transport_test`→`test_resume_data_body_schema` A（5 帧完整回放，SEQ 2..6 连续）+ `send_resume` 收敛（kNothingToReplay）；`HgcpResumeDataReplayTest` |
+| 21 | Java JUnit | PASS | `HgcpResumeMarketQuoteDropTest.resumeBatchMarketQuoteIsDroppedAndKeyEventsStillConsumed`（行情消费=0，水位止于末关键事件 SEQ） |
+| 22 | Java JUnit | PASS | `HgcpResumeMarketQuoteDropTest.resumeBatchAllTenCriticalEventsSurviveAlongsideQuotes`（0x0202..0x020B 十种全消费；行情 0） |
+| 23 | C++ ctest | PASS（缺口检测）+ 部分 | `hgcp.session_test`→`test_seq_gap_detection`（`seq_gap_pending`）；0x0106 无产生点（TE-T057-002） |
+| 24 | C++ ctest | **未达-实现缺口** | `session.cc:90-96` 对 `seq ≤ last` 不置缺口、无 0x0106（TE-T057-002） |
+| 25 | C++ ctest | **未达-实现缺口** | session 无乱序缓冲/重排（5,3,4 中 5 置缺口、3/4 被忽略）（TE-T057-002） |
+| 26 | Java JUnit（新增） | PASS | `HgcpResumeConvergenceIdempotencyTest.duplicateTradeFillIsConsumedOnce`（重复 3 次 ⇒ 成交回调=1） |
+| 27 | Java JUnit | PASS | `HgcpClientGuardTest.duplicatePositionChangeEventIsDiscarded` + `duplicateFundReceiptEventIsDiscarded` |
+| 28 | C++ ctest | PASS（幂等）+ 部分 | `order_engine.order_engine`→`test_accept_duplicate_ref_idempotent`（duplicate=true、返回既有 confirm_token、不重复冻结）；0x2007 错误帧未回（TE-T057-004） |
+| 29 | Java JUnit（新增） | PASS | `HgcpResumeConvergenceIdempotencyTest.resumeOverlapWithAlreadyConsumedEventIsIdempotent`（重叠不重复落库，仅新帧生效） |
+| 30 | C++ ctest | PASS | `hgcp.command_handler_test`→`test_param_version_monotonic`（`<` ⇒ 0x0403 并丢弃；终值取最新） |
+| 31 | C++ ctest | PASS | 同上（`==` ⇒ 0x0403 并丢弃） |
+| 32 | C++ ctest | PASS（0x0401）+ 部分 | `hgcp.command_handler_test`→`test_readiness_gate_and_status`、`hgcp.replay_gate`→`test_replaying_gate_blocks`（0x0401）；0x0402 仅对分批提交不连续（TE-T057-003） |
+| 33 | C++ ctest（新增） | PASS | `hgcp.protocol_special_test`→`test_preload_100k_fragments_all_effective`（50 批 × 2000 = 100000 全生效；varieties=100000） |
+| 34 | C++ ctest | **未达-实现缺口** | TE-T057-003：未收齐时业务指令实测回 0x0401（非设计 0x0402） |
+| 35 | Java JUnit | PASS | `HgcpResumeDataReplayTest.batchFramesAlignWithFromToSeq` |
+| 36 | Java JUnit | PASS | `HgcpResumeDataReplayTest.emptyLastBatchIsTolerated` |
+| 37 | Java JUnit | PASS | `HgcpResumeMarketQuoteDropTest`（3 用例；`quoteOutsideResumeBatchIsNotDropped` 选择性守卫）；依赖 T-174（commit `27d6c26`） |
+
+**小计**：PASS 31 / PASS（部分+缺口注）4（TC-M2-06/15/18/23/28/32 中的「部分」并入对应行）/ **未达-实现缺口 5**（10/11/24/25/34）。
+
+### 四、任务验收标准对照
+
+| 验收 | 判据 | 结果 |
+|------|------|------|
+| 1 | 逐一执行 T-056 设计用例并留证 | ✅ 37/37 已处置（32 执行通过含部分，5 未达-实现缺口，逐行留证） |
+| 2 | 连续 1000 笔不丢不乱序 | ✅ `HgcpResumeConvergenceIdempotencyTest.thousandEventStreamNoLossNoReorder`：消费 1000、SEQ 1..1000 严格递增、水位 1000 |
+| 3 | 断连→重连→补数，两侧最终一致、不丢关键事件 | ✅ Java 侧 in-process：200 事件全补齐 + 水位收敛 + 重放 0 新增（TC-M2-16/19）；C++ 侧补数批装配/回放（TC-M2-17/20） |
+| 4 | 断连检出 ≤ 5 s（实测约 3 s） | ✅ `hgcp.timing_test`：`HeartbeatMonitor::timeout_ms()==3000`（3×1000ms），且 `transport_test` 于 t=3000 判死回 0x0301 |
+| 5 | CH-007 三层 | ✅ 层①（线路完整回放/SEQ 连续/收敛：TC-M2-20）；层②（接收侧 0x020C 丢弃：TC-M2-21/37，T-174 已落地）；层③（关键事件不误伤+10 种落库：TC-M2-22） |
+
+### 五、缺口/未达清单（TE-T057-nnn；**报告不自行改**，立号由编排者裁定）
+
+| 编号 | 级别 | 现象 | 行号级证据 | 影响用例 |
+|------|------|------|-----------|---------|
+| TE-T057-001 | 中 | 鉴权「令牌版本不符」（0x0203）/「重放」（0x0204）无承载体：`AuthResult` 仅 3 值；server_loop 未读 `MsgHello.token_version` / `client_boot_id` | `cpp/src/hgcp/include/hg/hgcp/auth.h:25-29`（enum 3 值）；`cpp/src/hgcp/src/server_loop.cc:219-243`（仅 `hello_auth_token` 校验） | 10, 11 |
+| TE-T057-002 | 中 | `SEQ` 回退/乱序无检出、无 0x0106 产生点；无乱序缓冲/重排 | `cpp/src/hgcp/src/session.cc:90-96`（`seq > last+1` 才置 `seq_gap_`；`seq ≤ last` 直接忽略）；全仓 `kErrSeqOutOfOrder` 仅 `protocol.cc:78` 命名 | 23（部分）, 24, 25 |
+| TE-T057-003 | 中 | 分片未收齐即下发业务指令回码不符设计：就绪门卫统一回 0x0401（设计 §5.9 期望 0x0402） | `cpp/src/hgcp/src/command_handler.cc:1231-1234`（`!system_ready()` ⇒ 0x0401）；0x0402 仅 `session_result_to_reply`（`:96-99`）对分批提交不连续 | 32（步骤2）, 34 |
+| TE-T057-004 | 低 | 重复下单指令幂等成立（`duplicate=true`、不重复冻结）但协议回码用 ACK detail 而非 `0x2007` 错误帧 | `cpp/src/order_engine/src/order_engine.cc:321-329`；`cpp/src/hgcp/src/command_handler.cc:874`（`detail += ";duplicate=true"`） | 28（部分） |
+| TE-T057-005 | 低/观察 | 重连累计失败告警（0x0303）仅 `reconnect_severe()` 标志，无 ERROR 帧产生点 | `cpp/src/hgcp/include/hg/hgcp/session.h`（`reconnect_severe`）；`kErrReconnectLimit` 仅 `protocol.cc:86` 命名 | 15（部分） |
+| TE-T057-006 | 观察 | 幂等键含 `event_seq`（`business_id + '|' + event_seq`）：同业务键+不同 SEQ 的重复投递不去重；与设计 M2 §5.7「按 business_id 去重」表述存在口径张力（补数重叠因 SEQ 稳定仍可去重） | `java/src/main/java/com/hedgeguard/bridge/IdempotencyCache.java:76`（`key(...)`）；`HgcpClientGuardTest` 既定断言 | 26, 29（行为已按现状留证） |
+
+### 六、变异证据（新守卫用例「关掉守卫必红」）
+
+- **变异点**：`IdempotencyCache.first(String key)` 去重判定中和为 `if (false && seen.containsKey(key))`（临时改、单实例、逐字节复原）。
+- **结果**：`HgcpResumeConvergenceIdempotencyTest` 5 用例 ⇒ **3 FAIL / 2 PASS**（rc=1）：
+  - `duplicateTradeFillIsConsumedOnce` expected:1 but was:3；
+  - `resumeBatchDeliversAll200EventsInOrderAndDeduplicatesReplay` expected:200 but was:400；
+  - `resumeOverlapWithAlreadyConsumedEventIsIdempotent` expected:2 but was:3；
+  - 正控 `distinctTradeIdsAreBothConsumed` 与 `thousandEventStreamNoLossNoReorder` 仍绿（非守卫，符合预期）。
+- **复原**：`cp` 回备份，md5 `19053252b486cda595799c5b31288b32` 与改前逐字节一致，`git diff` 空。
+- **CH-007 层②守卫**：直接引用 T-174 既有变异结论（`te-verify-t174` 双向变异：中和丢弃分支 ⇒ 2 补数用例红；放宽为无来源判别 ⇒ 选择性守卫用例红），本单未重做。
+
+### 七、真联档（未达-前置缺失，跳过并留痕）
+
+M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`」**未达**（`cpp/src/main.cc` 为工程骨架，不监听、不做握手）。故 §5.4/§5.5/§6 的**跨进程**版本**未执行**；本单全部「双侧」结论均为**进程内桩**（Java 接缝 / C++ 单侧 ctest / 环回驱动器），**不冒充跨进程联调**。
+
+### 八、不覆盖项（诚实声明）
+
+- 真实 TCP 时序抖动、跨进程背压、真实时钟抖动（打桩档固有边界）。
+- 0x0203/0x0204/0x0106/0x0303 的**线上 ERROR 帧**（无产生点，见 §五）；本单仅断言到谓词/标志/缓冲状态级。
+- CTP 实盘资金验证、协议 P99 性能（归 `TC-PERF-1`）、行情前端 WS 下发细节（不在本专项）。
+- 100 万+ 规模分片仅验 10 万条（设计 §5.9 口径）。
+
+### 九、回执要点
+
+- 写域：`java/src/test/**`（+1 文件）、`cpp/src/hgcp/tests/**`（+1 文件）、`cpp/src/hgcp/CMakeLists.txt`（+1 行注册）、`docs/TEST_RESULT.md`（纯追加本章）。**生产代码零改动**；既有测试零改动。
+- 禁触面（proto/、CONTRACTS.md、TASKS.md、BOARD.md、web/**、两侧 src/main）**零触及**。
+- 不自评 DONE；缺口 5 项 + 观察 1 项请编排者裁定（是否立号）。
+- 本席实测与工单不符项：**无**（工单预期 TC-M2-21/37 依赖 T-174 已落地 ⇒ 实测绿，与预期一致）。
+

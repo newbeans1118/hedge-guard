@@ -100,7 +100,8 @@ set(HGCP_UNIT_TESTS
   transport_test
   command_handler_test
   order_path_test
-  event_emitter_test)
+  event_emitter_test
+  protocol_special_test)
 
 foreach(_t ${HGCP_UNIT_TESTS})
   add_executable(hgcp_${_t} "tests/${_t}.cc")
