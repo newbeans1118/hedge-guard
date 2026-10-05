@@ -16312,3 +16312,23 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **观察（6，不阻断）**：O-1 ARCH :1343「出现缺口」亦列 0x0106 触发条件，本实现缺口路径仅置标志、seq_gap_pending() 生产零消费者 ⇒「缺口→补数」C++ 端到端未闭环（按「不自行加缓冲」限定口径，非本单缺陷）⇒ 承接点真联编排；O-2 连接保持=ARCH 未明文但与处置一致（表述细化）；O-3 Java onError 对 0x0106 仅 LOG.warning 不触发补数 ⇒ 跨端闭环缺位（承接真联/Java 单）；O-4 回退帧仍交付（feed 先 push 后检出），下游靠 business_id 幂等兜底（§4.2.6/NFR-REL-5）；O-5 夹具 static 计数器跨实例单调（形态提示）；O-6 「0x0106→补数」生产消费者缺位（与 T-175 O-2 同态，登记承接点）。
 
 **编排者亲核记录**：回执四要素（提交面 7 文件/proto 红线/关键点 session.cc:104、server_loop.cc:172-173/树锚 48097049…/139）交付当日亲测与复核席独立实测一致；「红线命中 1」系 commit message 正文 grep 误报（--name-only 含 message，T-158 镜像判例）；驱动修复裁定依 ARCH :981/:786 明文作出。
+
+---
+
+## T-177 独立复核证据（席 te-verify-t177；2026-10-05 第 193 轮 · 编排者逐字转录）
+
+**结论：通过 / 0 缺陷 / 6 观察。T-175/176/177 缺口三单末单；T-057 未达 5 项全闭环。**
+
+**冻结点与范围**：HEAD 393dc9b；恰 5 文件 +155/−3 全在 cpp/src/hgcp/**（session.h/cc、server_loop.h/cc、tests/transport_test.cc）；proto/hgcp.proto md5 a1762e53f51e937f0ec6975d45125c43 未动；树锚（cpp/src 口径）48097049da86ddae31fa374deeaa595d/139 → 8ed64be9606eb1e2b5a7636fc6934e65/139。**工单勘误**：0x0303 实名 ERR_RECONNECT_LIMIT（ARCH §4.3.2:1351、protocol.h:130、protocol.cc:86 三点核实）——编排者工单笔误「ERR_RECONNECT_SEVERE」，产出方沿用既定符号未新造。
+
+**语义对 ARCH**：§4.3.2:1351/§4.2.6:975（累计失败 ≥10、双向、严重告警+提示运维介入）；判定完全沿用既有 is_severe()/attempts()（timing.cc:86）未新增条件；一次性 = 跨档首置位（session.h:166）+ pump 消费即清（server_loop.cc:206）；回帧时机/断连/ACK **ARCH 未明文**，实现取「不断连·不要求 ACK·有活连接才回一帧+告警一次」并按诚实口径注释（T-176 O-2 教训落实）。
+
+**门禁独立复跑（隔离副本 /t177iso = git archive HEAD，TMPDIR=/）**：ctest 45/45 rc0；transport_test 3100 checks/0 fail（基线独立复建 3070/0）；arch-check E1–E8 全 0。
+
+**变异独立重做 + 自设 M3**：M1 产生点 if(false) ⇒ 3081/1 FAIL（transport_test.cc:942 无 0x0303 帧）；M2 去防刷屏闩 ⇒ 3100/3 FAIL（:959/:960/:973 重复告警）；M3 自设 reset_reconnect 不清 emitted_ ⇒ 3096/1 FAIL（:969）⇒ E 段承重非空转；复原 md5 逐字节回 8ed64be9…/139、targeted 复绿 3100/0。
+
+**自设探针**：P1 无 sink + 无活连接：10 次退避 ⇒ pending=1；pump ⇒ stderr 恰 1 行「[HGCP][WARNING] reconnect severe: attempts=10 (0x0303 ERR_RECONNECT_LIMIT)…」、pending 归 0、再 pump 无重复 ⇒ 兜底真可达、信号不丢不误清；P2 生产编码 PbTransportPolicy::error_body(0x0303)=08 83 06（protobuf varint 771，3 字节）⇒ 生产线格式正确（「4 字节大端 00000303」系测试占位口径，O-4 区分）。
+
+**观察（6，不阻断）**：O-1/O-2 生产未接线（next_reconnect_delay_ms 与 pump 本仓零生产调用；set_reconnect_alarm_sink 无生产调用，对比 SessionReadySink/ResumeGapSink 已在 event_emitter.cc:40-41 接线 ⇒ 生产走 stderr 兜底）——与 T-175/176 同态，承接点=真联编排任务；O-3 server_loop.h:71-75「LOG.WARNING 级」非 ARCH 来源（表述微调归后续微修）；O-4 占位/生产线格式口径区分（P2 已证生产正确）；O-5 C 段未显式断 body[1]（由 err_code+size 可推，非阻断）；O-6 stderr 兜底分支零测试覆盖（复核席 P1 独立证可达且恰一行）。
+
+**编排者亲核记录**：回执四要素（提交面 5 文件（--format= 排除 message 误报）/红线/关键符号 session.cc:62、server_loop.h:77/:119/:171、server_loop.cc:200/树锚 8ed64be9…/139）交付当日亲测与复核席独立实测一致；ARCH:1351 名称勘误当日亲核成立。
