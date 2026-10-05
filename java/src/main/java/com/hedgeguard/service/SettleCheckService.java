@@ -340,10 +340,11 @@ public final class SettleCheckService {
             throw BizException.of(ErrorCode.PARAM_INVALID,
                     "signRole 取值非法：" + signRole + "；合法域=" + SIGN_ROLES + "（" + PERIOD_HINT + "）");
         }
-        return tx.inTransaction(conn -> {
-            SettleCheckTask task = resolveTaskForSign(in, userId);
-            return signInTx(task, in, signRole, userId, clientIp);
-        });
+        // 事务边界三段式（TE-T048-001/002）：定位/生成任务、前置校验（越权留痕 / 快照变更重置）
+        // 各自以独立事务提交，最后才开启签署写入事务——避免「写后抛异常」被同一事务回滚吞掉。
+        SettleCheckTask task = tx.inTransaction(conn -> resolveTaskForSign(in, userId));
+        String current = precheckSign(task, in, signRole, userId, clientIp);
+        return tx.inTransaction(conn -> signInTx(task, in, signRole, userId, clientIp, current));
     }
 
     /** 定位待签任务；{@code taskId} 为空时按（类型, 期间, 子账户）定位，缺失则生成（POST = 发起并签署）。 */
@@ -368,7 +369,16 @@ public final class SettleCheckService {
         return generateInTx(checkType, periodKey, subAccountId, gen, userId);
     }
 
-    private SignResult signInTx(SettleCheckTask task, SignCheckInput in, String signRole, long userId,
+    /**
+     * 签署前置校验（{@code FR-SETTLE-17} 验收 2/4；{@code DC-022}）。
+     *
+     * <p><b>事务边界（{@code TE-T048-001/002}）</b>：本方法在<b>签署写入事务之外</b>调用——越权留痕
+     * （{@link #rejectProxy}）与快照变更重置各自以<b>独立事务</b>提交后再抛异常，不随写入事务回滚。
+     * 照 {@code AuthService.recordAttempt} 先例（留痕须提交，不因拒绝而丢失）。
+     *
+     * @return 当前快照哈希（供写入事务复用，使判定与落库同源）
+     */
+    private String precheckSign(SettleCheckTask task, SignCheckInput in, String signRole, long userId,
                                 String clientIp) {
         if (STATUS_COMPLETED.equals(task.status)) {
             throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
@@ -377,10 +387,14 @@ public final class SettleCheckService {
         // ① 快照绑定：当前快照与任务基线不一致 ⇒ 任务回到待签署，以新快照为新基线（验收 4）
         String current = resolveCurrentSnapshot(task, in.snapshotHash);
         if (!current.equals(task.snapshotHash)) {
-            task.status = STATUS_PENDING_SIGN;
-            task.signedRoles = "";
-            task.snapshotHash = current;
-            taskDao.updateById(task, userId);
+            // TE-T048-002：重置须独立事务提交，否则回滚致任务在该快照下永久无法重签
+            tx.inTransaction(conn -> {
+                task.status = STATUS_PENDING_SIGN;
+                task.signedRoles = "";
+                task.snapshotHash = current;
+                taskDao.updateById(task, userId);
+                return null;
+            });
             throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
                     "核对对象快照已变更，任务回到待签署，须以新快照重新签署：task=" + task.id
                             + "；原基线=" + in.snapshotHash + " 现值=" + current
@@ -436,6 +450,15 @@ public final class SettleCheckService {
                     "同任务同角色不可重复签署：task=" + task.id + " role=" + signRole
                             + "（uk_check_signature_task_role / FR-SETTLE-17 验收 1）");
         }
+        return current;
+    }
+
+    /** 签署写入（调用方须已置于事务内；前置判据已由 {@link #precheckSign} 通过）。 */
+    private SignResult signInTx(SettleCheckTask task, SignCheckInput in, String signRole, long userId,
+                                String clientIp, String current) {
+        boolean manage = ROLE_MANAGE.equals(signRole);
+        String actualRoleCode = SIGN_ROLE_ALIAS.get(signRole);
+        SettleCheckSignature existing = signatureDao.findByTaskAndRole(task.id, signRole);
         SettleCheckSignature sig = existing == null ? new SettleCheckSignature() : existing;
         sig.subAccountId = task.subAccountId;
         sig.checkTaskId = task.id;
@@ -628,16 +651,29 @@ public final class SettleCheckService {
                 "requiredSignRoles", "signedRoles", "deadlineDate", "taskSnapshotHash",
                 "signRole", "signerId", "signerRoleCode", "signTime", "signIp",
                 "signatureSnapshotHash", "signResult", "proxyRejected", "manageRoleTradeBlocked");
-        PageResult<CheckTaskView> page = query(in, PageQuery.of("1", "100", null, "generated_time", "desc"),
-                userId);
-        for (CheckTaskView v : page.items()) {
-            if (v.signatures.isEmpty()) {
-                out.rows.add(row(v.task, null));
-            } else {
-                for (SettleCheckSignature s : v.signatures) {
-                    out.rows.add(row(v.task, s));
+        // TE-T048-003：全量分页迭代取尽（原硬编码 size=100 仅第 1 页 ⇒ >100 静默截断）。
+        // 先例：FundService.exportReconcile 的同形循环（逐页追加，终止条件 items.size() < size）。
+        int pageNo = 1;
+        int size = PageQuery.ALLOWED_SIZES.get(PageQuery.ALLOWED_SIZES.size() - 1); // 100（页大小上限）
+        int tasksSeen = 0;
+        while (true) {
+            PageQuery q = PageQuery.of(String.valueOf(pageNo), String.valueOf(size), null,
+                    "generated_time", "desc");
+            PageResult<CheckTaskView> page = query(in, q, userId);
+            for (CheckTaskView v : page.items()) {
+                tasksSeen++;
+                if (v.signatures.isEmpty()) {
+                    out.rows.add(row(v.task, null));
+                } else {
+                    for (SettleCheckSignature s : v.signatures) {
+                        out.rows.add(row(v.task, s));
+                    }
                 }
             }
+            if (page.items().size() < size || tasksSeen >= page.total()) {
+                break;
+            }
+            pageNo++;
         }
         return out;
     }
@@ -673,26 +709,30 @@ public final class SettleCheckService {
         attempt.rejectCode = String.valueOf(code.code());
         attempt.attemptTime = Clocks.now();
         attempt.clientIp = clientIp;
-        attemptDao.insert(attempt, userId);
-
-        // 代签留痕：仅在尚无同（task, role）记录时落一行 REJECTED（避免占用 uk 槽位阻塞应签本人）
-        SettleCheckSignature existing = signatureDao.findByTaskAndRole(task.id, signRole);
-        if (existing == null) {
-            SettleCheckSignature sig = new SettleCheckSignature();
-            sig.subAccountId = task.subAccountId;
-            sig.checkTaskId = task.id;
-            sig.signRole = signRole;
-            sig.signerId = userId;
-            sig.signerRoleCode = actualRoleCode;
-            sig.signTime = Clocks.now();
-            sig.signIp = clientIp == null ? "" : clientIp;
-            sig.snapshotHash = task.snapshotHash;
-            sig.signResult = SIGN_REJECTED;
-            sig.signOpinion = reason;
-            sig.proxyRejected = "Y";
-            sig.manageRoleTradeBlocked = ROLE_MANAGE.equals(signRole) ? "Y" : "N";
-            signatureDao.insert(sig, userId);
-        }
+        // TE-T048-001：留痕经独立事务提交后再抛（照 AuthService.recordAttempt 先例），
+        // 不随签署写入事务回滚——越权/代签证据不得静默丢失（DC-022 / R-AUTH-8 / FR-SETTLE-17 验收2）。
+        tx.inTransaction(conn -> {
+            attemptDao.insert(attempt, userId);
+            // 代签留痕：仅在尚无同（task, role）记录时落一行 REJECTED（避免占用 uk 槽位阻塞应签本人）
+            SettleCheckSignature existing = signatureDao.findByTaskAndRole(task.id, signRole);
+            if (existing == null) {
+                SettleCheckSignature sig = new SettleCheckSignature();
+                sig.subAccountId = task.subAccountId;
+                sig.checkTaskId = task.id;
+                sig.signRole = signRole;
+                sig.signerId = userId;
+                sig.signerRoleCode = actualRoleCode;
+                sig.signTime = Clocks.now();
+                sig.signIp = clientIp == null ? "" : clientIp;
+                sig.snapshotHash = task.snapshotHash;
+                sig.signResult = SIGN_REJECTED;
+                sig.signOpinion = reason;
+                sig.proxyRejected = "Y";
+                sig.manageRoleTradeBlocked = ROLE_MANAGE.equals(signRole) ? "Y" : "N";
+                signatureDao.insert(sig, userId);
+            }
+            return null;
+        });
         LOG.warning("代签/越权签署被拒：task=" + task.id + " role=" + signRole + " signer=" + userId
                 + " reason=" + reason);
         throw BizException.of(code, reason);
