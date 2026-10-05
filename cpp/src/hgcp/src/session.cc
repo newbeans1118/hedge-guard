@@ -57,7 +57,9 @@ HgcpSession::HgcpSession()
       last_sent_seq_(0),
       next_msg_id_(0),
       seq_gap_(false),
-      seq_out_of_order_(false) {}
+      seq_out_of_order_(false),
+      severe_alarm_emitted_(false),
+      severe_alarm_pending_(false) {}
 
 void HgcpSession::configure(std::int64_t heartbeat_interval_ms, int heartbeat_miss,
                             std::size_t resume_capacity) {

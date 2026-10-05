@@ -1,6 +1,7 @@
 // HGCP 回环服务端承载循环实现 —— `tcp` 原语 + `session` 状态机的装配（唯一归属）。
 #include "hg/hgcp/server_loop.h"
 
+#include <cstdio>
 #include <string>
 
 namespace hg {
@@ -8,6 +9,7 @@ namespace hgcp {
 
 SessionReadySink::~SessionReadySink() {}
 ResumeGapSink::~ResumeGapSink() {}
+ReconnectAlarmSink::~ReconnectAlarmSink() {}
 
 namespace {
 
@@ -43,6 +45,7 @@ HgcpServerLoop::HgcpServerLoop(const TcpConfig& cfg)
       auth_audit_sink_(0),
       session_ready_sink_(0),
       resume_gap_sink_(0),
+      reconnect_alarm_sink_(0),
       accepted_(0),
       duplicates_(0),
       frames_in_(0),
@@ -190,6 +193,30 @@ int HgcpServerLoop::pump(int timeout_ms, std::int64_t now_ms, std::vector<Frame>
       for (std::size_t i = 0; i < hb.size(); ++i) {
         send_frame_obj(hb[i]);
       }
+    }
+  }
+  // 4) 重连严重告警产生点（T-177，ARCH 4.2.6 :975 / 4.3.2 :1351）：累计失败跨入 >= 10 档
+  //    （0x0303 ERR_RECONNECT_LIMIT）时**一次性**产生：
+  //      (a) 运维可见告警（LOG.WARNING 级）—— 经 `ReconnectAlarmSink`；未注入则退化为 stderr 行；
+  //      (b) 若有活连接，尽力回 `MSG_ERROR{0x0303}`（body 经 `TransportPolicy` 单一接缝编码）。
+  //    承载形态：ARCH 对该码仅定「严重告警 + 提示运维介入」，**未**规定是否断连/是否须 ACK
+  //      ⇒ 本实现不断连、不要求 ACK（不臆造）。一次性：session 侧跨档首置位，本层消费后清除
+  //      ⇒ 同一严重档不重复刷屏；重连成功 `reset_reconnect()` 后可再次告警。
+  if (session_.reconnect_severe_alarm_pending()) {
+    session_.clear_reconnect_severe_alarm();
+    const int attempts = session_.reconnect_attempts();
+    if (reconnect_alarm_sink_ != 0) {
+      reconnect_alarm_sink_->on_reconnect_severe(attempts);
+    } else {
+      std::fprintf(stderr,
+                   "[HGCP][WARNING] reconnect severe: attempts=%d "
+                   "(0x0303 ERR_RECONNECT_LIMIT); manual intervention required\n",
+                   attempts);
+    }
+    if (conn_fd_ >= 0) {
+      send_frame(mt(MessageType::kMsgError), fl(kFlagIsError),
+                 policy_->error_body(
+                     static_cast<std::uint32_t>(ErrorCode::kErrReconnectLimit)));
     }
   }
   return delivered;

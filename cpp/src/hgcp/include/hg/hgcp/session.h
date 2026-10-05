@@ -158,10 +158,27 @@ class HgcpSession {
   bool connection_active() const { return conn_.active(); }
 
   // --- 断线重连退避 ---
-  std::int64_t next_reconnect_delay_ms() { return backoff_.next_delay_ms(); }
+  // T-177：返回本次应等待的延迟并推进退避；**跨入严重档**（累计失败 >= 10，ARCH 4.2.6 :975）
+  //   的首次即置**一次性**告警待发信号 —— 装配层（server_loop::pump）据此产生
+  //   MSG_ERROR{0x0303} + 运维可见告警（ARCH 4.3.2 :1351）。同一严重档只置位一次（防刷屏）。
+  std::int64_t next_reconnect_delay_ms() {
+    const std::int64_t delay = backoff_.next_delay_ms();
+    if (backoff_.is_severe() && !severe_alarm_emitted_) {
+      severe_alarm_emitted_ = true;
+      severe_alarm_pending_ = true;
+    }
+    return delay;
+  }
   int reconnect_attempts() const { return backoff_.attempts(); }
   bool reconnect_severe() const { return backoff_.is_severe(); }
-  void reset_reconnect() { backoff_.reset(); }
+  // 一次性严重告警待发信号（T-177）：装配层消费后调用 clear。
+  bool reconnect_severe_alarm_pending() const { return severe_alarm_pending_; }
+  void clear_reconnect_severe_alarm() { severe_alarm_pending_ = false; }
+  void reset_reconnect() {
+    backoff_.reset();
+    severe_alarm_emitted_ = false;
+    severe_alarm_pending_ = false;
+  }
 
  private:
   HgcpSession(const HgcpSession&);
@@ -177,6 +194,8 @@ class HgcpSession {
   std::uint64_t next_msg_id_;
   bool seq_gap_;
   bool seq_out_of_order_;
+  bool severe_alarm_emitted_;  // T-177：本严重档是否已产生过告警（一次性）
+  bool severe_alarm_pending_;  // T-177：待装配层产生 0x0303 告警
 };
 
 }  // namespace hgcp

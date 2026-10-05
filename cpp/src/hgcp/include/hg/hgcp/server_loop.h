@@ -68,6 +68,18 @@ class ResumeGapSink {
   virtual void on_resume_gap() = 0;
 };
 
+// ---------------------------------------------------------------------------
+// 重连严重告警接收方（T-177）：重连累计失败**跨入严重档**（>= 10 次，ARCH 4.2.6 :975 /
+//   §4.3.2 :1351，错误码 `0x0303` `ERR_RECONNECT_LIMIT`）时**一次性**回调 ——
+//   **运维可见告警（LOG.WARNING 级）的承载点**（提示运维介入）。
+//   可空持有，生命周期由调用方管理；未注入 ⇒ 装配层退化为 stderr WARNING 行（仍可见）。
+// ---------------------------------------------------------------------------
+class ReconnectAlarmSink {
+ public:
+  virtual ~ReconnectAlarmSink();
+  virtual void on_reconnect_severe(int attempts) = 0;
+};
+
 class HgcpServerLoop {
  public:
   explicit HgcpServerLoop(const TcpConfig& cfg = default_tcp_config());
@@ -103,6 +115,8 @@ class HgcpServerLoop {
   void set_session_ready_sink(SessionReadySink* s) { session_ready_sink_ = s; }
   // 补数缺口接收方（T-039）：0x0306 回发后回调（全量重建决定点）。可空 = 仅回错误帧。
   void set_resume_gap_sink(ResumeGapSink* s) { resume_gap_sink_ = s; }
+  // 重连严重告警接收方（T-177）：可空 = 退化为 stderr 告警行。
+  void set_reconnect_alarm_sink(ReconnectAlarmSink* s) { reconnect_alarm_sink_ = s; }
 
   // 单步事件循环：accept（单连接治理）→ 读帧（粘/半包 + 握手门禁）→ 心跳。
   // 返回本次交付的**完整入站帧数**；入站帧追加到 *inbound（可空）。
@@ -127,6 +141,10 @@ class HgcpServerLoop {
   int reconnect_attempts() const { return session_.reconnect_attempts(); }
   bool reconnect_severe() const { return session_.reconnect_severe(); }
   void reset_reconnect() { session_.reset_reconnect(); }
+  // 一次性严重告警待发信号（T-177，观测/测试用）。
+  bool reconnect_severe_alarm_pending() const {
+    return session_.reconnect_severe_alarm_pending();
+  }
 
   HgcpSession& session() { return session_; }
 
@@ -150,6 +168,7 @@ class HgcpServerLoop {
   AuthAuditSink* auth_audit_sink_;       // 可空；经 AuthGuard::verify 消费
   SessionReadySink* session_ready_sink_;  // 可空；T-039 事件层补发触发
   ResumeGapSink* resume_gap_sink_;        // 可空；T-039 全量重建决定点
+  ReconnectAlarmSink* reconnect_alarm_sink_;  // 可空；T-177 运维告警（LOG.WARNING）
   std::string peer_;                     // 最近 accept 的对端描述（审计用；无敏感信息）
   int accepted_;
   int duplicates_;

@@ -891,6 +891,90 @@ void test_reconnect_backoff() {
   HG_CHECK_EQ(srv.reconnect_attempts(), 0);
 }
 
+// T-177：重连累计失败跨入严重档（>= 10，0x0303 ERR_RECONNECT_LIMIT）告警产生点。
+//   断言：跨档首刻产生一帧 MSG_ERROR{0x0303} + 运维告警回调一次；同一严重档不重复刷屏；
+//   未达严重档不产生；reset_reconnect 后可重入。
+class RecAlarmSink : public hg::hgcp::ReconnectAlarmSink {
+ public:
+  RecAlarmSink() : calls(0), last_attempts(0) {}
+  virtual void on_reconnect_severe(int attempts) {
+    ++calls;
+    last_attempts = attempts;
+  }
+  int calls;
+  int last_attempts;
+};
+
+void test_reconnect_severe_alarm_0x0303() {
+  HgcpServerLoop srv(any_port_cfg());
+  TestPolicy pol;
+  srv.set_policy(&pol);
+  RecAlarmSink sink;
+  srv.set_reconnect_alarm_sink(&sink);
+  const std::uint16_t port = start_loop(&srv);
+  HG_REQUIRE(port != 0);
+  TestClient cli(connect_client(port));
+  HG_REQUIRE(cli.valid());
+
+  std::vector<Frame> in;
+  srv.pump(1000, 0, &in);  // accept
+  HG_REQUIRE(do_handshake(&srv, &cli, &in));
+
+  // A) 未达严重档（前 9 次）⇒ 不产生：无告警帧、无回调。
+  for (int i = 0; i < 9; ++i) {
+    srv.next_reconnect_delay_ms();
+  }
+  HG_CHECK(!srv.reconnect_severe());
+  HG_CHECK(!srv.reconnect_severe_alarm_pending());
+  srv.pump(0, 0, &in);
+  Frame none;
+  HG_CHECK(!cli.recv_frame(120, &none));
+  HG_CHECK_EQ(sink.calls, 0);
+
+  // B) 第 10 次 ⇒ 跨入严重档：一次性待发信号置位。
+  HG_CHECK_EQ(srv.next_reconnect_delay_ms(), static_cast<std::int64_t>(8000));
+  HG_CHECK(srv.reconnect_severe());
+  HG_CHECK(srv.reconnect_severe_alarm_pending());
+
+  // C) pump 消费 ⇒ 回 MSG_ERROR{0x0303}（帧型 + 码值）+ 运维告警一次。
+  srv.pump(0, 0, &in);
+  Frame warn;
+  HG_REQUIRE(cli.recv_frame(1000, &warn));
+  HG_CHECK_EQ(warn.header.type, mt(MessageType::kMsgError));
+  HG_CHECK((warn.header.flags & fl(hg::hgcp::kFlagIsError)) != 0u);
+  HG_REQUIRE_EQ(warn.body.size(), 4u);
+  HG_CHECK_EQ(static_cast<std::uint32_t>(ErrorCode::kErrReconnectLimit), 0x0303u);
+  HG_CHECK_EQ(warn.body[0], 0x00);
+  HG_CHECK_EQ(warn.body[2], 0x03);
+  HG_CHECK_EQ(warn.body[3], 0x03);
+  HG_CHECK_EQ(sink.calls, 1);
+  HG_CHECK_EQ(sink.last_attempts, 10);
+  HG_CHECK(!srv.reconnect_severe_alarm_pending());  // 已消费
+
+  // D) 继续失败（第 11/12 次）⇒ 同一严重档不重复刷屏。
+  srv.next_reconnect_delay_ms();
+  srv.next_reconnect_delay_ms();
+  HG_CHECK(srv.reconnect_severe());
+  srv.pump(0, 0, &in);
+  HG_CHECK(!cli.recv_frame(120, &none));
+  HG_CHECK_EQ(sink.calls, 1);
+
+  // E) 重连成功复位 ⇒ 下一轮失败可再次告警（一次性语义可重入）。
+  srv.reset_reconnect();
+  HG_CHECK_EQ(srv.reconnect_attempts(), 0);
+  for (int i = 0; i < 10; ++i) {
+    srv.next_reconnect_delay_ms();
+  }
+  srv.pump(0, 0, &in);
+  HG_REQUIRE(cli.recv_frame(1000, &warn));
+  HG_CHECK_EQ(warn.header.type, mt(MessageType::kMsgError));
+  HG_REQUIRE_EQ(warn.body.size(), 4u);
+  HG_CHECK_EQ(warn.body[3], 0x03);
+  HG_CHECK_EQ(sink.calls, 2);
+
+  cli.close();
+}
+
 void test_resume_batches() {
   // A) E2E：出站帧入补数缓冲 ⇒ 按对端 last_received_seq 装配补数批并回放
   HgcpServerLoop srv(any_port_cfg());
@@ -1148,6 +1232,7 @@ int main() {
   test_duplicate_connection_rejected();
   test_heartbeat_send_and_timeout_death();
   test_reconnect_backoff();
+  test_reconnect_severe_alarm_0x0303();
   test_resume_batches();
   test_resume_data_body_schema();
   test_auth_bad_token_rejected();
