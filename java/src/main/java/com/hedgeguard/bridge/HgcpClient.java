@@ -225,9 +225,31 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
     /**
      * 处理一帧（供测试直接驱动）。
      *
+     * <p>等价于 {@link #onFrame(HgcpFrame.Decoded, boolean) onFrame(d, false)}——本帧
+     * <b>不来自</b>补数批次。
+     *
      * @param d 已解码帧
      */
     public void onFrame(HgcpFrame.Decoded d) {
+        onFrame(d, false);
+    }
+
+    /**
+     * 处理一帧，并携带「本帧是否来自补数批次」的进程内来源标识（{@code T-174}）。
+     *
+     * <p><b>不改线格式</b>：来源由调用方在进程内传递（{@link #onResumeData} 对
+     * {@code MSG_RESUME_DATA} 批内帧置 {@code true}），不写入 {@code proto/hgcp.proto}、
+     * 不动 32B 帧头。
+     *
+     * <p><b>{@code CH-007} 消费侧规则</b>（{@code ARCHITECTURE.md} §4.2.6）：补数批次中的
+     * {@code EVT_MARKET_QUOTE}（{@code 0x020C}）<b>接收侧一律丢弃</b>——不消费、不推进镜像水位、
+     * 不透传事件监听器、不推前端、不进入行情缓存（行情为「最近值」语义，重放陈旧价会误导）。
+     * 其余事件帧（含全部关键事件）不受影响，同批照常消费。
+     *
+     * @param d               已解码帧
+     * @param fromResumeBatch 是否来自 {@code MSG_RESUME_DATA} 批次
+     */
+    private void onFrame(HgcpFrame.Decoded d, boolean fromResumeBatch) {
         lastReceivedSeq.set(Math.max(lastReceivedSeq.get(), d.header.seq));
         heartbeatMisses = 0;
         try {
@@ -253,6 +275,15 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
                     break;
                 default:
                     if (isEventType(d.header.type)) {
+                        // CH-007 消费侧规则：补数批次中的行情帧接收侧一律丢弃（不消费、不推进水位、
+                        // 不透传监听器、不推前端、不进入行情缓存）。只拦 EVT_MARKET_QUOTE——
+                        // 其余事件类型（含全部关键事件）同批照常消费，不得误伤。
+                        if (fromResumeBatch
+                                && d.header.type == HgcpConstants.EVT_MARKET_QUOTE) {
+                            LOG.fine("补数批次内行情帧（0x" + Integer.toHexString(d.header.type)
+                                    + "）按 CH-007 丢弃：seq=" + d.header.seq);
+                            return;
+                        }
                         onEvent(d);
                     } else {
                         LOG.fine("忽略未知类型帧：0x" + Integer.toHexString(d.header.type));
@@ -326,7 +357,8 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
             if (inner.status != HgcpFrame.Status.OK) {
                 throw new HgcpProtocolException(inner.status);
             }
-            onFrame(inner);
+            // T-174：携带来源标识——本帧来自补数批次，供 CH-007 消费侧规则判别。
+            onFrame(inner, true);
         }
     }
 
