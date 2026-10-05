@@ -15119,3 +15119,442 @@ java/src/test/java/com/hedgeguard/web/CompositeHgcpEventListenerTest.java（新�
 - md5 采用 md5sum（内容级）；树锚口径 find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum（实测 6018f3716f3ebafd52602bf13609fe6c / 539）。
 - 探针/变异脚本与日志均带席位后缀 -t172，落 /root。
 - 本报告为唯一留痕；未改动仓库源码与 docs/TEST_RESULT.md。
+
+---
+
+# T-049 独立复核 + 两轮 delta 证据章（编排者逐字转录）
+
+- **转录说明**：以下三份报告由复核席分别落笔于 /root/t049-review.md（md5 06dd62179056e2f88123ec0785b82552 / 140 行）、/root/t049b-delta-b.md（md5 16324947282e8436c2da47e6b74fdb8f / 142 行）、/root/t049c-delta.md（md5 29e970a1d05490d6513fb051e8f39ee9 / 141 行），编排者逐字转录、未改写任何数字或措辞；转录时点基线 = 15121 行。
+- **背景**：T-049 交付 5cee2b2（19 文件 +3415/−3）；首轮复核有条件通过（3 缺陷）→ 修复 5ba6a58（TE-T049-001/002/003+O-1）→ delta-b 裁定 3 项闭环 + 残留 TE-T049b-001（取号未接三次重试）→ 收尾 22ef3ca → te-verify-t049c delta 裁定完全闭环 ⇒ 可转 DONE（O-b/O-c 具名登记）。
+
+# T-049 独立复核报告（te-verify-t049）
+
+- 复核对象：**T-049 实现资金管理服务 FundService（出入金 + 划拨 + 额度）**
+- 冻结点：**HEAD = 5cee2b2**（基线 cd44d73；19 文件 +3415/−3）
+- 复核方式：隔离副本 **/root/iso-t049-verify**（rsync 全仓，排除 .git/.codebuddy/build*/target/.verify）＋ 自写用例＋变异；**未改动共享树任何源码**
+- 复核时点：2026-10-04（实时锚点为准）
+
+---
+
+## 0. 结论
+
+**有条件通过 / 0 阻断 / 3 缺陷（2 中 + 1 中低）/ 0 观察主项 + 补充观察**。
+P0 核心资金不变量（记账完整性、双人复核、异步幂等、划拨加总/回滚、额度告警不阻断）**独立复现全部成立**；
+门禁（830/0/0/0 + arch-check E1–E8 rc0）**独立复现**；变异 5/5 必红且复位逐字节。
+**不建议直接转 DONE**：须先处置 `TE-T049-001`（导出面）与 `TE-T049-002`（额度读取面 NFR-SEC-7）。
+
+---
+
+## 1. 冻结链实时复测（多形态哈希异为已知判例）
+
+| 制品 | 声明 md5/行 | 独立实测 | 结论 |
+|---|---|---|---|
+| FundService.java | 1c44d54d…/1679 | 1c44d54d3a658b53199e1e7d7afde5f1 / 1679 | ✔ |
+| FundRoutes.java | 58faf495…/63 | 58faf4952b82de96287c915427410525 / 63 | ✔ |
+| Bootstrap.java | a446c4ae…/731 | a446c4ae8458c880b34743d973361eb7 / 731 | ✔ |
+| FundServiceTest.java | efde692f…/423 | efde692fc7b0bb0ca53b7433f3c0d1cd / 423 | ✔ |
+| FundFakes.java | 5ce1d903…/405 | 5ce1d90306d5fb80d72d57efe270a87f / 405 | ✔ |
+| BootstrapAssemblyTest.java | 9fbad128…/252 | 9fbad128e6f6a2cb8a2321ca58c17ee4 / 252 | ✔ |
+| FullWebAssembly.java | 52871841…/94 | 528718410d626cbc2e1cac65b5a74b2a / 94 | ✔ |
+| m2_fund.sql（未动） | 87e760d1… | 87e760d12659ea4dcba26e5baca01301（docs/DEPLOY/schema/） | ✔ |
+| java/src 树锚 | 37c9b3bd…/539 → 1f64ebe3…/555 | **文件数 555 ✔；哈希形态不可复现** | ⚠ 见 O-7 |
+
+- 交付域文件数 **555**（基线 539，净增 **16** = 14 新 main + 2 新 test；3 个修改文件不增计数）——**与 19 文件 +3415/−3 自洽**。
+- 工作树 java/src 与 HEAD **逐字节一致**（`git diff HEAD -- java/src` 空）。
+- 树锚哈希：多种口径（`find .`/`java/` 相对/`git ls-tree`/`LC_ALL=C sort`/`sha256`/绝对路径）实测得 8 个不同值，**均不等于 1f64ebe3…**；文件集/计数一致 ⇒ 判为**哈希口径差异（已知判例）**，非内容漂移。**建议产出方后续写死口径命令**（本会话我采取的口径：`find java/src -type f | LC_ALL=C sort | xargs md5sum | md5sum` = 0babb6577c502a39f583f4af62b3ce1c/555）。
+
+---
+
+## 2. 门禁独立复现（隔离副本）
+
+- `mvn -B -o clean test`（TMPDIR=/root/tmp-t049，非 /tmp）⇒ **Tests run: 830, Failures: 0, Errors: 0, Skipped: 0，BUILD SUCCESS，MVN_EXIT=0**。
+- 计数构成：基线 `git grep @Test cd44d73` = **817**；HEAD = **830**；差 **+13** = FundServiceTest 13 例（surefire 报告 `com.hedgeguard.service.FundServiceTest.txt` = 13）。**830 = 817 + 13 成立**。
+- arch-check（mvn validate 阶段）**E1–E8 全部退出码 0**（E1 SKIP 无 C++ 产物；E4 实扫；E7 §4.2.8↔proto；E8 CONTRACTS↔proto）。
+
+---
+
+## 3. 核心逻辑独立测试（隔离副本自写，未改产出方文件）
+
+文件：`java/src/test/java/com/hedgeguard/service/T049VerifyTest.java`（本人席位；复用 FundFakes/FakeTx 测试基建）。
+**结果：Tests run: 10, Failures: 0, Errors: 0**。
+
+| 用例 | 断言要点 | 结果 |
+|---|---|---|
+| V-1 双人复核 | 出入金/建账同人复核 → 10005 + `self_review_rejected='Y'` 留痕 | ✔ |
+| V-2 划拨 | A 减 B 增 700/800，Σ=1500 不变；成对流水（OUT/IN 各 1，等额）；回滚后复原、流水 4 条 | ✔ |
+| V-3a 超时红线 | PROCESSING 回执 → TIMEOUT_UNKNOWN 且 **flows=0、booked='N'（不假设到账）** | ✔ |
+| V-3b 幂等去重 | 同 idempotencyKey 重复提交 → 仅 1 笔 | ✔ |
+| V-3c 重复回执 | 同 idem+result+ts 重复成功回执 → processed=false 且仅记一次账 | ✔ |
+| V-5 CFG-25 | 0.80/0.95/1.00 → INFO/WARNING/CRITICAL，`blocked_operation='NONE'`，未达阈值无告警 | ✔ |
+| V-4 取号专项 | 见 §4 | ✔（证实碰撞抛错） |
+| V-6 fail-closed | /fund/ledger、/fund/flow（经 service）空可见 → `IN (-1)`；显式不可见子账户 → 10004 | ✔ |
+| V-7 额度读取面 | 见 §5 缺陷 TE-T049-002 | 证实泄漏 |
+| V-8 导出截断面 | 见 §5 缺陷 TE-T049-001 | 证实截断 |
+
+## 4. 取号形态专项（披露④：`BaseDao.count(前缀)+1`）
+
+- 代码：`FundService.nextApplyNo`（DW，`dwDao.count("apply_no LIKE ?")`+1）与 `nextTransferApplyNo`（TF，`transferDao.count`+1）；**无重试、无捕获**。DDL 兜底：`uk_dw_apply_no`/`uk_dw_apply_idem`/`uk_transfer_apply_no`（均 UNIQUE）。
+- 独立实测（V-4，模型化并发交错：count 陈旧读 + apply_no 唯一约束兜底）：服务据陈旧 count 生成同一 `DW<date>00001` → 第二笔被唯一约束 **抛错**（`IllegalStateException`，消息含 UNIQUE）。
+- 参照判例：`BUG-003`/`T-141`（同类「count+1 取号」；后者已改「当日最大序号+1」）。本处 `nextVoucher` 已用 **max+1**，而 **apply_no 仍为 count+1**（对「删除/空档」不鲁棒；并发下同一日第二笔可能碰撞）。
+- **裁定输入（TE-T049-003，中低）**：DB UNIQUE 是**安全网**（不产生重复号），但后果是**并发下第二笔用户可见失败，且无重试**。判定「兜底不充分」倾向成立；建议与 `nextVoucher` 同构改「当日 max(seq)+1」并保留 UNIQUE，或引入序列。注意 `R-FUND-5` 明文「**系统不自动重试**」——故修复应落在**号生成**而非自动重试划转。
+
+## 5. 0x020B 缺口核 + 双到达路径
+
+- **实测属实**：`HgcpClient:466 EVT_FUND_RECEIPT` 分支仅 `mirror.applyFund(v); mirror.advanceWatermark(seq);`，**无 `notifyListener`**；`HgcpEventListener` 仅 8 事件 `0x0201~0x0208`，**无 0x020B 载荷**。承接口径 = 服务方法 `onFundReceipt` + `POST /fund/receipt`；**`bridge/**` 未改动**（与披露一致）。
+- **双轨幂等风险（观察 O-2，前向）**：`uk_capital_receipt_idem UNIQUE(idempotency_key, result, receipt_ts_ms)`，去重键含 result+ts。当前 REST 单轨 + 同 idem 安全（重复成功回执由「`a.status==DW_SUCCESS` 守卫 + UNIQUE」双重拦）。**待 T-172 事件轨接入后**：若事件侧幂等键/时间戳派生与 REST 不同（不同 ts ⇒ UNIQUE 不命中），并发下两笔成功回执可能各自 `a.status!=SUCCESS` 通过守卫 ⇒ **理论双记账窗口**。建议事件轨**复用同一幂等键与 ts 派生**，或对 apply 加行锁/状态 CAS。
+
+## 6. 变异台账（隔离副本；复位逐字节）
+
+| 编号 | 变异 | 期望 | 实测 |
+|---|---|---|---|
+| M1 | （复现 MUT-A）`reviewDepositWithdraw` 同人守卫置 false | 红 | **RED**（2 例失败：FundServiceTest.doubleReviewDeposit + 本席 V-1） |
+| M2 | （自设）`initiateDepositWithdraw` 幂等去重 `if(dup!=null)` 失效 | 红 | **RED**（2 例：asyncIdempotentTimeout + V-3b） |
+| M3 | （自设·验收2 红线）PROCESSING 视同 SUCCESS（假设到账即记账） | 红 | **RED**（1 例：V-3a） |
+| M4 | （复现 MUT-C）超时分支 `DW_TIMEOUT_UNKNOWN`→`DW_FAILED` | 红 | **RED**（3 例：asyncIdempotentTimeout/retryRequiresConfirmation/V-3a） |
+| M5 | （复现 MUT-B）`sumInvariant` 比较符 `==`→`!=` | 红 | **RED**（2 例：transferKeepsSumAndRollback + V-2） |
+
+- 复位：`md5 = 1c44d54d3a658b53199e1e7d7afde5f1` **与原始逐字节相同**，已 `touch`；共享树 FundService.md5 保持 1c44d54d… 不变。
+- M1/M4/M5 复现产出方声明；M2/M3 为自设（含验收 2 红线）。
+
+---
+
+## 7. 缺陷 / 观察
+
+### 缺陷
+
+- **TE-T049-001（中）· FR-FUND-4 导出面不完整**
+  `FundService.exportReconcile` 用 `PageQuery.of("1","100","ledger_date,asc",…)` —— **硬编码分页上限 100 且只取第 1 页**；实测 **150 条源流水 → 导出返回 100 行**（V-8），**静默截断**。且导出列仅 `[subAccountId, ledgerDate, voucherNo, flowType, direction, amount, balanceAfter]`，**缺 FR-FUND-4 处理规则要求的「期初余额 / 各类型发生额小计 / 期末余额」**（`subTotals`/`grandTotal` 为净额，非期初/期末），致**验收 1「期初+发生额小计=期末」在导出产物中不可核**。建议：导出走全量（或明确上限+分页/流式）并补齐期初/期末/按类型小计列。
+
+- **TE-T049-002（中）· NFR-SEC-7 额度读取面跨子账户泄漏**
+  `FundService.listQuota`：`subAccountId == null` 分支直接 `quotaDao.findByScope(scope)`，**不施加可见性子账户过滤**（仅 `subAccountId!=null` 时才 `assertSubAccountVisible`）。实测 V-7：可见集=`[1]` 时 `listQuota(null,"SUB_ACCOUNT")` **返回 2 行、跨子账户泄漏 1 行**。对照 T-105/T-107 读取面收口口径（子查询隔离/分页信封），此处为同族缺口。建议按可见集下推（空集 ⇒ 恒假）。
+
+- **TE-T049-003（中低）· apply_no 取号 `count+1` 并发碰撞无重试** —— 见 §4。**裁定输入**。
+
+### 观察
+
+- **O-1**：`confirmTimeoutResult` 在查询结果仍为 UNKNOWN 时也把 `originalConfirmed='Y'`，随后 `retryDepositWithdraw` 将放行重试；而 FR-FUND-9 验收 1 要求「**确认未到账后方可重试**」（UNKNOWN≠未到账）。产出方测试仅覆盖 FAIL 确认路径。请裁定。
+- **O-2**：0x020B 事件面缺口 + 双到达路径幂等风险（前向，归 T-172 扩载时收口）—— 见 §5。
+- **O-3**：`POST /fund/receipt`（`onFundReceipt`）**无可见性/岗位断言**，任意登录用户可对任意 apply 提交回执触发记账（当前作为内部接缝；随 T-172 事件轨接入应收敛）。
+- **O-4**：`setQuota` 的 `SCOPE_ACCOUNT` 分支**无权限断言**（与 T-112 层③「账户级哨兵」同源）；与既有口径一致，但可归入 T-118 全局对象写面门禁范畴。
+- **O-5**：`approveTransfer` 分两事务（先提交 PENDING_POSTING + 留痕，再 `postTransfer`）；若第二事务抛错，申请停留 PENDING_POSTING 而**无独立 API 触发 `postTransfer`**（`approveTransfer` 因状态非 PENDING_APPROVAL 拒绝）⇒ 单点卡死。建议补「续记账」入口或合并事务。
+- **O-6**：期初余额 `begin_balance` 承载不生成流水（8 类 `ck_fund_flow_type` 无「期初」枚举）——与 T-045 验收 3 张力同源，产出方已披露。
+- **O-7**：树锚哈希多口径不可复现（内容一致）—— 见 §1。
+- **O-8**：`FR-FUND-13` 验收 3「额度变更留痕含前后值」：`setQuota` 以 `updateById` 覆盖同 key 行 + 记 `operatorId/changeReason`，无独立前后值历史；行版本/审计表是否满足留痕口径待定。
+- **O-9**：`exportReconcile` 依赖 `listFlow`，可见性已下推（导出不越权）✔。
+
+---
+
+## 8. 两栏对账（产出方声明 vs 独立实测）
+
+| # | 产出方声明 | 独立实测 | 裁决 |
+|---|---|---|---|
+| 1 | 验收1 台账恒等式/凭证/导出 | V-1/V-2、FundServiceTest 绿；**但导出面缺字段+截断** | **部分成立**（导出面见 TE-T049-001） |
+| 2 | 验收2 异步不阻塞/幂等/FAIL不记账/超时待查/未确认不重试 | V-3a/b/c 全绿；M3/M4 红 | 成立（O-1 补观察） |
+| 3 | 验收3 双人复核 10005 + 留痕 | V-1 绿（10005、self_review_rejected='Y'） | 成立 |
+| 4 | 验收4 划拨 Σ 不变/成对/留痕/回滚/加总失败回滚 | V-2 绿；M5 红 | 成立 |
+| 5 | 验收5 CFG-25 阈值/不阻断/账户上限/对账/隔离 | V-5/V-6 绿；**额度读取面泄漏** | **部分成立**（见 TE-T049-002） |
+| 6 | 路由 FUND 15 对/98→113/可达性三证据 | 声明 12 路径 ↔ 注册 15 对**全等覆盖、无孤儿/无未注册**；assembly 断言 113 实测通过 | 成立 |
+| 7 | 门禁 830/0/0/0 + arch rc0 + 变异 3/3 | **830/0/0/0 + E1–E8 rc0 复现**；变异 **5/5 红**（含 3 复现） | 成立（强于声明） |
+
+### 路由逐字核对（FUND）
+声明 12 路径（ApiRoutes:67–70）↔ 注册 15 (方法,路径) 对（FundRoutes）：ledger[GET,POST]、flow[GET]、deposit[POST]、withdraw[POST]、{id}/review[POST]、transfer[GET,POST]、transfer/{id}/approve[POST]、receipt[POST]、quota[GET,POST]、margin[GET]、reconcile[POST]、export[GET] —— **覆盖 12/12，无剩余未注册，无声明外路径**。可达性由 `RouteReachabilityExhaustive/ProductionParity/ModuleRoutesConsistency`（全绿）承接。
+
+---
+
+## 9. 锚点口径（供引用）
+
+- HEAD=5cee2b2；基线 cd44d73；工作树 java/src == HEAD。
+- FundService.java md5 **1c44d54d3a658b53199e1e7d7afde5f1**/1679。
+- `java/src` 树锚（本席口径）**0babb6577c502a39f583f4af62b3ce1c**/555；生产方 `1f64ebe3…`/555 —— **计数一致、哈希形态异**。
+- 隔离副本：/root/iso-t049-verify（555 文件）；自写用例 T049VerifyTest（10 例全绿）。
+
+
+---
+
+# T-049b delta 复检报告（te-verify-t049b）
+
+- 复核对象：**T-049 退回修复（TE-T049-001/002/003 + O-1）**，提交 **5ba6a58**（前态 5cee2b2 = 首交付）
+- 冻结链：HEAD=5ba6a58；10 文件 +379/−19；FundService.md5 bd55bbe9…/1780；CONTRACTS.md md5 36d1beba…/897；java/src 文件数 555
+- 复核方式：**git archive 隔离副本 /root/iso-t049b**（免 target/.git 污染）＋自写探针 T049bVerifyTest（9 例）＋**4 组变异**＋独立全量门禁；**未改动共享树任何源码**（`git diff HEAD -- java/src` 空）
+- 复核时点：2026-10-05（实时锚点为准）
+
+---
+
+## 0. 结论
+
+**有条件通过 —— 4 项中 3 项完全闭环（TE-T049-001 / TE-T049-002 / O-1），TE-T049-003 语义闭环但残留 §3.5「3 次重试」缺口（新记 TE-T049b-001，中低）。**
+
+- 独立全量门禁 **834/0/0/0**（复现）、arch-check **E1–E8 全 rc0**（复现）、探针 **9/0/0/0**、**4 组变异全红且复位逐字节**。
+- **不建议在 TE-T049b-001 未处置前径转 DONE**；若裁定该缺口延期（立 T-049c 或具名登记），则 4 项可判 DONE。
+
+---
+
+## 1. 锚点复测（独立实测）
+
+| 制品 | 声明 | 独立实测 | 结论 |
+|---|---|---|---|
+| HEAD | 5ba6a58 | 5ba6a58（前态 5cee2b2） | ✔ |
+| 提交规模 | 10 文件 +379/−19 | 10 files, +379/−19 | ✔ |
+| FundService.java | bd55bbe9…/1780 | **bd55bbe917c359e4d8288556d274ac90 / 1780** | ✔ |
+| CONTRACTS.md | 36d1beba…/897 | 36d1beba954db3cf6be05abc372be1f9 / 897 | ✔ |
+| java/src 文件数 | 555 | **555** | ✔ |
+| 树锚直环（本席口径 `find java/src -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum`） | — | 67a92265…/555（**哈希形态随命令变化、计数一致，已知判例，不作漂移论**） | n/a |
+| @Test 计数 | — | `git grep -h @Test 5ba6a58 -- java/src/test \| wc -l` = **834** == surefire 834 | ✔ |
+| 工作树 == HEAD | — | `git diff HEAD -- java/src` **空** | ✔ |
+
+> 说明：FundService.md5 三项一致（副本 orig / 副本 / 共享树均 **bd55bbe917c359e4d8288556d274ac90**）。
+
+---
+
+## 2. 逐项核 diff（5cee2b2→5ba6a58）
+
+### ① TE-T049-001 导出面（FundService.java:1150 / 列 :1157 / 迭代 :1168-1177 / ledgerFor :1217）
+- 列由 7 → **19**：`subAccountId,ledgerDate,voucherNo,flowType,direction,amount,balanceAfter` + `beginBalance,amountIn,amountOut,transferIn,transferOut,pnlCarryover,commission,marginChange,differenceAdjust,occurrenceTotal,endBalance,equation`（8 类发生额齐）。
+- 迭代取尽：`pageNo=1` 起，`size=ALLOWED_SIZES 末位(100)`；终止 `items.size()<size || allFlows.size()>=page.total()`。
+- `ledgerFor` 按 (子账户,记账日) 缓存台账；`equation = beginBalance + occurrenceOf(ledger) == endBalance ? Y : N`。
+- 分页稳定性：`listFlow` 经 `AbstractDmDao` 的 `orderByEnsuringUnique(idColumn())` **自动补主键收官**（:159-163）⇒ 全序，无跨页重复/漏行。
+
+### ② TE-T049-002 额度读取面（FundService.java:966 / findScoped 调用 :984）
+- `subAccountId==null` 且 scope≠ACCOUNT ⇒ `visibleSubAccountIds → SubAccountScope.of("sub_account_id", visible) → FundQuotaDao.findScoped`。
+- 空/ null 可见 ⇒ `Collections.emptyList()` **短路 fail-closed**（连 DAO 都不进）；含哨兵 0 ⇒ `findByScope` 不过滤；**ACCOUNT 恒不过滤**（T-112 层③口径）。
+- DAO 侧 `DmFundQuotaDao.findScoped` 拼 `quota_scope=? AND <scope.sql()>`；空集 `SubAccountScope.sql()="sub_account_id IN (-1)"` **恒假**（双层 fail-closed）。
+- 生产装配 `Bootstrap.java:484` 传 `authService`（含 `visibleSubAccountIds`），**与 T-105/T-107 同源**。
+
+### ③ TE-T049-003 取号（FundService.java:1314/:1332；DAO findMaxApplyNoByPrefix）
+- `nextApplyNo`/`nextTransferApplyNo` 由 `count(前缀)+1` 改 `findMaxApplyNoByPrefix → parseSeq(尾段)+1`（定长零填充 ⇒ 字典序最大=序号最大）；`max==null`/长度不足 ⇒ next=1。
+- Dm 实现：`SELECT apply_no ... WHERE apply_no LIKE ?` 后 **JVM 内取字典序 max**；未用 `SELECT MAX FOR UPDATE`（§3.5 明令禁止）。
+- **缺口**：§3.5 明文「UNIQUE 冲突 + **最多 3 次重试**」，且同族先例 `PlanService` 已接 `BizNoGenerator.retryOnUniqueConflict(RETRY_MAX_ATTEMPTS,…)`（PlanService.java:587/:1439）；**FundService 两取号点均未接**（`grep retryOnUniqueConflict FundService` = 0）。⇒ 见 TE-T049b-001。
+
+### ④ O-1 confirmTimeoutResult（FundService.java:602）
+- `originalConfirmed='Y'` 仅在 `DW_SUCCESS || DW_FAILED` 终态置位；UNKNOWN/PROCESSING 维持 `'N'`。
+- `retryDepositWithdraw` 状态门禁：仅 `FAILED || TIMEOUT_UNKNOWN` 可重试；`TIMEOUT_UNKNOWN` 另需 `originalConfirmed=='Y'`。⇒ UNKNOWN 不放行；SUCCESS 因状态门禁亦不放行。
+
+---
+
+## 3. 独立复现（探针 T049bVerifyTest，9 例，隔离副本；md5 见 §9）
+**Tests run: 9, Failures: 0, Errors: 0** —— 逐例要点：
+
+| 探针 | 断言要点 | 结果 |
+|---|---|---|
+| b-1 exportAcrossThreePages | **250 条源 → 导出 250 行**（跨 3 页）；列=19；begin=1000、amountIn=250、occurrenceTotal=250、end=1250、equation=Y；grandTotal=250 | ✔ |
+| b-2 exportExactlyOnePage | 恰好 100 条 → 100 行、凭证号 distinct=100（首页==total 终止边界） | ✔ |
+| b-3 quotaScoping | 可见[2]→仅 1 行且 sub=2；空可见→SUB 与缺省 scope 皆空；ACCOUNT→1 行不受过滤；哨兵0→2 行 | ✔ |
+| b-3b quotaExplicitSubInvisible | 可见[1] 查询 sub=2 → **10004**（SUB_ACCOUNT_PERMISSION_DENIED） | ✔ |
+| b-4 applyNoMaxPlusOne | 种 00003/00009 → 新单 **00010**（count+1 会得 00003）；TF 0007→0008 | ✔ |
+| b-4b applyNoFirstOfDayAndReset | 仅昨日 09999 → 今日首笔 **00001**（业务日重置） | ✔ |
+| b-5 unknownConfirmSemantics | UNKNOWN 复询仍 'N'、重试 STATE_NOT_ALLOWED；FAIL 复询置 'Y' 且重试成功（retryOfId 关联） | ✔ |
+| b-5b successConfirmNoRetry | SUCCESS 复询置 'Y'，但重试被状态门禁拒（不重复划转） | ✔ |
+| b-6 scopeSqlSemantics | 空集 `sub_account_id IN (-1)` 且 params 空；[1,2] → `IN (?,?)` | ✔ |
+
+---
+
+## 4. 变异复现（隔离副本；每例复位后 md5 == bd55bbe9… 逐字节）
+
+| 编号 | 变异 | 期望 | 实测（探针） |
+|---|---|---|---|
+| M1 | 导出迭代 `if (items.size()<size \|\| collected>=total)` → `if (true)`（只取首页） | 红 | **RED** exportAcrossThreePages:81 expected 250 but **was 100** |
+| M2 | `findScoped(scope, SubAccountScope.of(...))` → `findByScope(scope)`（去 scope 过滤） | 红 | **RED** quotaScoping:115 expected 1 but **was 2**（复现 TE-T049-002 泄漏形态） |
+| M3 | `findMaxApplyNoByPrefix+1` → `count(前缀)+1` | 红 | **RED** applyNoMaxPlusOne:145 expected DW2026100500010 but **was DW2026100500003** |
+| M4 | `if (SUCCESS\|\|FAILED)` → `if (true)`（无条件置 Y） | 红 | **RED** unknownConfirmSemantics:175 expected N but **was Y** |
+
+- 复位：4 例均先 `cp orig` 再改；收尾实测三处 FundService（orig/副本/共享树）md5 **完全一致** = bd55bbe917c359e4d8288556d274ac90，并 `touch`。
+- 结论：四条修复行为**逐条承重**（各自唯一对应探针必红）；等价于产出方「4 新用例先红后绿」的独立证伪。
+
+---
+
+## 5. 独立全量门禁（隔离副本；TMPDIR=/root/tmp-t049b）
+
+- `mvn -B -o clean test` → **Tests run: 834, Failures: 0, Errors: 0, Skipped: 0，BUILD SUCCESS，EXIT=0**。
+- FundServiceTest surefire = **17**（13 旧 + 4 新）；`@Test` 全仓 834 == surefire 834（无注释吞并）。
+- arch-check（validate 阶段）**E1/E2/E3/E4/E5/E6/E7/E8 退出码全 0**。
+
+---
+
+## 6. 缺陷 / 观察
+
+### 新发现
+- **TE-T049b-001（中低）· 取号未接 §3.5「UNIQUE 冲突 + 最多 3 次重试」**
+  `DATA_MODEL.md:4380` 明文「采用 UNIQUE 冲突 + 最多 3 次重试的策略」，同族先例 `PlanService` 已接 `BizNoGenerator.retryOnUniqueConflict`（:587/:1439）。`nextApplyNo`/`nextTransferApplyNo` 改 max+1 后**仍为「读-算-插」无重试**：真并发下两笔同得同号，第二笔被 `uk_dw_apply_no` 抛错 ⇒ 用户可见失败（正是 TE-T049-003「并发碰撞无重试」的另一半）。
+  产出方以 `R-FUND-5`「系统不自动重试」为本项不接重试的理由 —— **本席认为该类比不成立**：`R-FUND-5` 语境是「不自动重发划转（防重复划转）」，而取号冲突重试只重新生成单号、不重发划转，与 §3.5 的编号重试**不同语义**。
+  建议：将 `initiateDepositWithdraw`/`initiateTransfer` 的「取号 + 插入」包进 `BizNoGenerator.retryOnUniqueConflict(RETRY_MAX_ATTEMPTS,…)`（或裁定延期并具名登记）。**不阻断其余三项。**
+
+### 观察（不阻断）
+- **O-b**：导出**期初/发生额小计/期末为「逐台账日」重复落到每条流水行**（同一台账多笔流水共享同组值）。单台账日下验收1「期初+发生额=期末」**可核**；但**跨多日区间无「区间级」期初/期末汇总行**。建议：接受现状（字段已在、等式可核），若需整区间对账另立单补子账户汇总行。
+- **O-c**：`equation` 中 `pnlCarryover/commission/marginChange/differenceAdjust` **当前无写入方**（`appendFlow` 仅支持 DEPOSIT/WITHDRAW/TRANSFER_IN/TRANSFER_OUT），恒 0 ⇒ `equation=Y` 现为**平凡真**。M3 盈亏/手续费/保证金落地后须保持符号一致（`occurrenceOf` 对 marginChange 取减、对 commission 取减），否则 `equation` 会转 N。**前向观察**。
+- **O-d**：`listQuota(…, ACCOUNT)` 对任意调用者（含零可见）均返回账户级额度行，**读面亦不过滤**。经核与 `T-112` 层③「账户级非子账户维度」既定口径**一致**（误加过滤会漏账户级额度）⇒ 非本轮缺陷，但账户级读面可见性口径值得与 `CH-012` 一并留痕。
+
+---
+
+## 7. 裁定输入（回应派单）
+
+1. **导出「台账级字段落流水行」vs「独立小计行」**：建议**接受现状**——19 列使「期初+发生额小计=期末」可在每行逐笔核验且实现最简；重复展示属可读性权衡，不构成验收缺口。若追求归档可读性，可后续增强为「明细行 + 子账户汇总行」双段，但**不应阻塞本项 DONE**。
+2. **账户级额度不过滤（T-112 层③口径）**：**确认一致**（`SCOPE_ACCOUNT → findByScope` 不过滤；哨兵 NULL 非子账户维度）。
+3. **O-1 FAILED 语义**：**自洽**。FAILED=收到终态回执且未到账 ⇒ 正是 FR-FUND-9 验收1「确认未到账后方可重试」；SUCCESS 亦置 'Y' 但因状态门禁不可重试，无重复划转风险，且贴合字段文档「是否已确认原请求真实结果」。
+
+---
+
+## 8. 裁定：四项闭环状态 / T-049 可否 DONE
+
+| 项 | 状态 | 依据 |
+|---|---|---|
+| TE-T049-001 导出面 | **闭环** | 250→250（M1 红）/100 边界/19 列/equation=Y；O-b 为增强项 |
+| TE-T049-002 额度读取面 | **闭环** | 可见集隔离 + 空集恒假 + 哨兵0 + ACCOUNT 不过滤 + 10004；M2 红 |
+| TE-T049-003 取号 | **语义闭环、含残留** | max+1/业务日重置/首笔0001 全绿（M3 红）；但 §3.5 3-重试未接 = **TE-T049b-001** |
+| O-1 终态置位 | **闭环** | UNKNOWN 不置位不放行、FAIL 置位放行、SUCCESS 门禁拒；M4 红 |
+
+**建议**：**T-049 可转 DONE 的条件**＝ TE-T049b-001 得到处置（修 or 具名延期登记）；否则应记 TE-T049-003「部分闭环」。三项（001/002/O-1）已可判闭环。
+
+---
+
+## 9. 锚点（供引用；以实时为准）
+
+- HEAD=5ba6a58（前态 5cee2b2）；工作树 java/src == HEAD；java/src 文件数 555。
+- FundService.java md5 **bd55bbe917c359e4d8288556d274ac90**/1780；CONTRACTS.md md5 **36d1beba954db3cf6be05abc372be1f9**/897；HGC-1.6 未升版。
+- 关键行：exportReconcile :1150（列 :1157/迭代 :1168-1177/ledgerFor :1217）、listQuota :966（findScoped :984）、nextApplyNo :1314、nextTransferApplyNo :1332、confirmTimeoutResult :602。
+- 隔离副本 /root/iso-t049b（555 文件）；探针 `T049bVerifyTest.java`（9 例）；变异脚本 /root/t049b-mut/{m1..m4}.py。
+- 独立门禁日志 /root/t049b-mvn-baseline.log（834/0/0/0、E1–E8 rc0）；探针日志 /root/t049b-probe.log（9/0/0/0）；变异日志 /root/t049b-mut{1..4}.log。
+
+
+---
+
+# T-049c delta 复检报告（te-verify-t049c）
+
+- 复核对象：**T-049d 收尾修复（TE-T049b-001 取号接 retryOnUniqueConflict）**，提交 **22ef3ca**（前态 **5ba6a58** = 富化/取号/scope 修复；再前 **5cee2b2** = 首交付）
+- 冻结链：HEAD=**22ef3ca**；3 文件 +226/−71（numstat：FundService +155/−71、FundFakes +42/−0、FundServiceTest +29/−0）
+- 复核方式：**git archive 隔离副本 /root/iso-t049c**（免 target/.git 污染）＋自写探针 `T049cProbeTest`（7 例）＋**2 组变异**＋独立全量门禁；**未改动共享树任何源码**（复核后 `git diff HEAD -- java/src` 空）
+- 复核时点：2026-10-05（实时锚点为准）
+
+---
+
+## 0. 结论
+
+**通过 —— TE-T049b-001 完全闭环；建议 T-049 转 DONE。**
+
+- retry 恰覆盖**两取号方法（nextApplyNo / nextTransferApplyNo）的全部 3 个插入点**，上限 **3**、**非唯一冲突不吞不重试**、**无夹带**。
+- refactor 与 5ba6a58 **行为等价**：取号语义（当日最大序号+1、业务日重置）逐字节保持（两取号方法体未改），三处事务体仅机械搬入 lambda。
+- 独立门禁：全量 **836/0/0/0**（BUILD SUCCESS）、arch-check **E1–E8 全 rc0**、探针 **7/0/0/0**、**2 组变异全红且复位逐字节**。
+- 两条**非阻断**观察（O-b 陈旧 javadoc / O-c 同类取号点 nextVoucher 未接重试），见 §6。
+
+> ⚠️ 锚点口径：派单称「全量基线 834」——那是 **5ba6a58（前态）**；**22ef3ca 实测 836**（本修复新增 2 用例）。非缺陷，仅锚点说明。
+
+---
+
+## 1. 锚点复测（独立实测）
+
+| 制品 | 派单/声明 | 独立实测 | 结论 |
+|---|---|---|---|
+| HEAD | 22ef3ca | **22ef3caab393cecfa6bdbd18641a3ac4f4c1cd7d** | ✔ |
+| 提交规模 | 3 文件 +226/−71 | 3 files, +226/−71（+155/−71、+42/−0、+29/−0） | ✔ |
+| FundService.java | 2399df34… | **2399df34a7e0ed79b68ce872127d18a8 / 1864 行** | ✔ |
+| FundFakes.java | +42 | **5b0e1d9ef6696904f9b5980ae0c1ea7c / 490 行** | ✔ |
+| FundServiceTest.java | +29 | **27a02f4929dbfa7c682646c2e7c7e823 / 553 行** | ✔ |
+| CONTRACTS.md | （前席 delta 锚 36d1beba…/897） | **36d1beba954db3cf6be05abc372be1f9 / 897**（未漂移） | ✔ |
+| java/src 文件数 | （前席 555） | **555**（未漂移） | ✔ |
+| 树锚（本席口径 `find java/src -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum`） | — | 8f205b4663d1373eff9a803b4150f267 / 555 | n/a |
+| @Test 计数 | — | `git grep -h @Test HEAD -- java/src/test \| wc -l` = **836** == surefire **836** | ✔ |
+| 工作树 == HEAD | — | `git diff HEAD -- java/src` **空**、`git status --porcelain -- java/src` **空** | ✔ |
+
+---
+
+## 2. 逐 hunk 核（git show 22ef3ca）
+
+### ① retry 恰覆盖两取号点（穷举）
+`grep -n nextApplyNo\|nextTransferApplyNo\|retryApplyNo FundService.java`：
+
+| 插入点 | 行 | 取号调用 | 包裹 |
+|---|---|---|---|
+| `initiateDepositWithdraw` | :420 `retryApplyNo(` | :436 `nextApplyNo("DW",…)` | ✔ |
+| `retryDepositWithdraw` | :648 `retryApplyNo(` | :665 `nextApplyNo("DW",…)` | ✔ |
+| `initiateTransfer` | :701 `retryApplyNo(` | :720 `nextTransferApplyNo(…)` | ✔ |
+
+三处均 `candidateNo[0] = applyNo`（:437 / :666 / :721）在 insert 前；`occupied = no -> dwDao/transferDao.findByApplyNo(no) != null`。**无第四处遗漏调用**（FundService 内 `BizNoGenerator.` 仅 :1316 fundVoucher / :1360 transferApply / :1383 retryOnUniqueConflict / :1419 isUniqueViolation）。
+
+### ② 上限 3
+`private static final int RETRY_MAX_ATTEMPTS = 3;`（:177，与 `PlanService` 同口径）→ `BizNoGenerator.retryOnUniqueConflict(RETRY_MAX_ATTEMPTS,…)`（:1383）。`DATA_MODEL.md` §3.5 原文实测：「采用 `UNIQUE` 冲突 + 最多 3 次重试的策略」（:4380 段）。
+
+### ③ 非唯一冲突不吞
+`retryApplyNo`（:1380-1400）catch `IllegalStateException` → `uniqueViolationCause`（:1416，沿因果链取 `SQLState 23xx` 的 `SQLException`，非 23xx/无因/null 状态返回 null）→ null ⇒ 原样 `throw e`；非空但候选单号未被占用 ⇒ `throw new IllegalStateException("唯一约束冲突非申请单号（不重试）…")`；仅编号冲突才 `throw unique` 交重试器。`BizNoGenerator.retryOnUniqueConflict`（:255）仅 catch `SQLException`，非唯一立即抛、不重试。
+
+### ④ 无夹带
+`git show --numstat` 仅 3 文件；`git diff -w 5ba6a58 22ef3ca`：FundService 实质增删 **+90/−6**，内容 = 3 处包裹 + 2 import + 常量 + `retryApplyNo`/`uniqueViolationCause` 两辅助方法，**无业务逻辑改写**。
+
+### ⑤ refactor 行为等价（重点：取号语义）
+- `nextApplyNo` / `nextTransferApplyNo` 方法体 5ba6a58→22ef3ca **逐字节相同**（仅行号位移）。
+- 三处事务体仅「缩进 + 外层包 `retryApplyNo(() -> tx.inTransaction(...))`」；抛出路径、幂等 no-op、出金可用资金校验、划拨可用资金校验**逻辑未动**。
+- ⇒ 「当日最大序号 + 1」「按业务日重置」不变量保持（另经 §3 p7 独立复现）。
+
+---
+
+## 3. 独立复现（探针 T049cProbeTest，7 例，隔离副本）
+
+**Tests run: 7, Failures: 0, Errors: 0**（BUILD SUCCESS）：
+
+| 探针 | 断言要点 | 结果 |
+|---|---|---|
+| p1 单次唯一冲突 | insert 一次撞号 ⇒ 自动重试成功、applyNo=DW<day>00002、insertCalls==2 | ✔ |
+| p2 持续唯一冲突 | 每次 insert 撞 23000 且候选已被占用 ⇒ **恰 3 次**后终态抛「编号生成在 3 次尝试内仍未成功」 | ✔ |
+| p3 非唯一冲突 | 40001 ⇒ 不重试（calls==1）、原异常原样抛出 | ✔ |
+| p4 唯一但非单号 | 23505 且候选未被占用 ⇒ 不重试、抛「非申请单号」 | ✔ |
+| p5 uniqueViolationCause | 深层链 23000/23505 命中；40001、无因、null 状态返回 null | ✔ |
+| p6 retryOnUniqueConflict 语义 | 3 次终态 runs==3；第 2 次成功 runs==2；非唯一 runs==1 即抛 | ✔ |
+| p7 取号语义等价 | 种 00003/00009 ⇒ 新号 00010（count+1 会得 00003）；仅昨日 09999 ⇒ 今日首笔 00001 | ✔ |
+
+探针文件 `/root/t049c-probe.java` md5 **5bfb3c30434a1b54b1c0ee246b7ee289**（与副本内副本一致；仅存在于隔离副本）。
+
+---
+
+## 4. 变异承重（隔离副本；每例复位后 md5 逐字节还原）
+
+| 编号 | 变异 | 期望 | 实测 |
+|---|---|---|---|
+| M1 | `RETRY_MAX_ATTEMPTS = 3` → `= 1` | 红 | **RED**：探针 7→1F1E（p1/p2 红）、FundServiceTest 19→0F2E（两个新用例均 `编号生成在 1 次尝试内仍未成功`） |
+| M2 | `throw unique;` → `throw e;`（不解包 SQLException） | 红（重试全失效） | **RED**：探针 7→1F1E（p2 expected 3 but was 1）、FundServiceTest 19→0F2E（两个新用例红） |
+
+- 复位：两例均先 `cp /root/t049c-mut.orig` 再改；收尾实测 **副本 orig / 隔离副本 / 共享树 三处 FundService md5 全 = 2399df34a7e0ed79b68ce872127d18a8**（逐字节还原）。
+- 结论：RETRY_MAX_ATTEMPTS=3 与「解包 SQLException 交重试器」两处机制**均承重**；随修复新增的 2 用例对二者**必红**。
+
+---
+
+## 5. 独立全量门禁（隔离副本；TMPDIR=/root/tmp-t049c）
+
+- `mvn -B -o clean test` → **Tests run: 836, Failures: 0, Errors: 0, Skipped: 0，BUILD SUCCESS，EXIT=0**。
+- FundServiceTest surefire = **19**（17 旧 + 2 新）；`@Test` 全仓 836 == surefire 836（无注释吞并）。
+- arch-check（validate 阶段）**E1/E2/E3/E4/E5/E6/E7/E8 退出码全 0**（「八个判据脚本全部通过」）。
+
+---
+
+## 6. 缺陷 / 观察
+
+### 无阻断级缺陷。
+
+### 观察（不阻断）
+- **O-b（低）· 取号方法 javadoc 陈旧，与本提交行为自相矛盾**：`FundService.java:1327` 仍写「`R-FUND-5`「系统不自动重试」⇒ 修复落在号生成而非自动重试」，而 `22ef3ca` 恰使三处调用点**自动重试编号冲突**。前席 delta-b（§6 新发现）已裁定该 `R-FUND-5` 类比**不成立**（R-FUND-5 语境=不自动重发划转，与 §3.5 编号重试不同语义）；本提交采纳了该结论却**未同步订正注释**。建议随本轮或后续微修把该句改为与 §3.5 一致（不涉及功能）。
+- **O-c（中低）· 同类取号点未穷举：`nextVoucher`（FV 凭证号）仍无重试**：`FundService.nextVoucher`（:1308，调用点 :1291 `f.voucherNo = …` → `flowDao.insert`）由 `flowDao.findByDate(date)` 取当日 max+1 生成 `FV<yyyyMMdd><seq(5)>`，落 `t_fund_flow`，而该列 **UNIQUE**（`uk_fund_flow_voucher_no`，`DATA_MODEL.md:3971`「凭证编号唯一（FR-FUND-2）」）。前缀按**业务日**（不含子账户）⇒ 同一业务日跨子账户并发两笔流水可撞号，第二笔 `IllegalStateException` 且**无重试**，与 TE-T049b-001 同类。**本次 delta 声明的范围仅为 apply_no 两点**，故 O-c 属**范围外同类残留**（前席两轮均未登记该点）。建议具名登记（或并入 T-049d/T-049 后续）后收口。
+
+### 与派单逐项对账
+1. retry 覆盖两取号点 / 上限 3 / 非唯一不吞 / 无夹带 ⇒ **全部成立**（§2、§4）。
+2. refactor 等价性（取号语义不变量）⇒ **成立**（§2⑤、§3 p7）。
+3. 独立复现单冲突重试成功 + >3 终态 ⇒ **成立**（§3 p1/p2、§4 M1/M2）。
+4. 独立全量 mvn + arch rc0 ⇒ **836/0/0/0、E1-E8 rc0**（§5）。
+5. 前席已闭环的 TE-T049-001/002/O-1 ⇒ **锚点未漂移**（CONTRACTS 36d1beba…/897、java/src 555 文件；本轮 diff 未触及导出/额度/终态置位代码）。
+
+---
+
+## 7. 裁定
+
+| 项 | 状态 | 依据 |
+|---|---|---|
+| **TE-T049b-001**（取号未接 §3.5 重试） | **闭环** | 三点全包裹、上限 3、非唯一不吞；探针 p1-p7 全绿；M1/M2 红 |
+| T-049 其他四项（001/002/003/O-1） | 维持闭环（前席裁定），**本轮复测锚点未漂移** | §1、§2⑤ |
+| **T-049 可否转 DONE** | **建议转 DONE** | 全量 836/0/0/0 + arch rc0 + 探针绿 + 变异承重；O-b/O-c 非阻断（建议 O-c 具名登记） |
+
+---
+
+## 8. 溯源 / 哈希
+
+- 隔离副本：`/root/iso-t049c`（`git archive 22ef3ca` 生成；java/src 555 文件、tools 11 文件）
+- 探针：`/root/t049c-probe.java` = 5bfb3c30434a1b54b1c0ee246b7ee289（242 行）
+- 变异备份：`/root/t049c-mut.orig` = 2399df34a7e0ed79b68ce872127d18a8
+- 日志：`/root/t049c-fulltest.log`（全量）、`/root/t049c-probe.log`（探针）、`/root/t049c-mut1.log`/`t049c-mut2.log`（变异）
+- 提交 diff：`/root/t049c-show.txt` = fb06023366f1c1e033a7d30bb9de4570（385 行）
+- 共享树 java/src：`git diff HEAD` 空、md5 FundService = 2399df34…（还原证）
