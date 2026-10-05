@@ -16108,3 +16108,21 @@ void evalRelatedObject(const RiskSnapshot& s, const OrderRequest& req, RiskResul
 ---
 
 **结论：T-173 通过（0 阻断 / 0 缺陷 / 6 观察）。不转 DONE（待编排者裁定 O-3/D-2 与追认 O-5）。**
+
+---
+
+## T-056 独立复核证据（席 te-verify-t056；2026-10-05 第 187 轮 · 编排者逐字转录）
+
+**结论：有条件通过 / 0 阻断 / 2 低缺陷 / 6 观察 ⇒ 条件闭环后转 DONE。**
+
+**交付链（三态指纹）**：`tm-t056` 初稿 `acf5b272c549aa5eb2d1ef110d280da1`/542 → `tm-t056b` Δ 修订（TC-M2-21/37 守卫标注 + §5.10 现存覆盖补注 + §9 E 行，+3 行）`2f31c17ea8e7c24c2ef4beda0a036875`/545 → `tm-t056c` 微修（TE-T056-001，恰 2 token :231→:230）`a96456d5d762b7e1fcbe2ae2dfd8d25e`/545（现行）。改动前副本 /root/M2.md.pre_t056b（= acf5b272…）。
+
+**验收逐条（复核席实测）**：① 九类覆盖 ✓（TC-M2-01..37 无缺号重号）；② 两档策略 ✓（§3.2 真联档标「🔴 未达（main.cc 骨架）」、明写不得以 in-process 桩冒充跨进程）；③ NFR-PERF-6 ✓（§6 判据锚 = 线路帧，与 ARCH §4.2.6(3) 逐字一致）；④ 唯一预期值 ✓（抽 17+ 全单值；模糊词全仓 grep = 0）。
+
+**自设探针（14 项全过）**：37 编号连续；14 表块列数一致（自写校验脚本）；cpp/src/hgcp/tests = 12 .cc / 12 add_test；0x0308 帧超限路径实测存在（server_loop kFrameTooLarge → MSG_ERROR{0x0308} → close；TC-M2-04 可行）；错误码抽 20 逐一符 ARCH §4.3.2；proto 抽验（MSG_AUTH_FAIL=0x0003 / MSG_RESUME_DATA=0x0009 / EVT_MARKET_QUOTE=0x020C）；CH-007 三层 TC-M2-20/21/22 + 37 分层成立、**预期值未弱化**（层② 仍 =0，守卫语义挂 T-174）；须落库 10 种 = 0x0202..0x020B（符 ARCH §4.2.3）；CONTRACTS §3.2.3 per-batch/500-501/空批 与 TC-M2-17/35/36 逐条吻合；HgcpResumeDataReplayTest 263 行 / 5 @Test / 0a396e0 引入；evalRelatedObject 0x1019（T-173/CH-020）✓；NFR-PERF-6 @ NONFUNCTIONAL:57、TC-PERF-6 @ TEST_PLAN/NONFUNCTIONAL.md:96、PROJECT §10-31/32 @ :634/:635 落点 ✓。
+
+**缺陷与闭环**：**TE-T056-001**（低 · HgcpClient.onFrame 源行号 off-by-one：实 :230，文内 :78/:378 两处写 :231）⇒ `tm-t056c` 微修（2f31c17e… → a96456d5…，恰 2 token），编排者 delta 复检：md5 a96456d5d762b7e1fcbe2ae2dfd8d25e、545 行不变、grep :231=0、:230=2、vs 改前恰 +1 hunk ⇒ **闭环**。**TE-T056-002**（低 · Δ 回执「3 个 hunk」实为 4）⇒ 纯回执措辞计数误差、无制品足迹，记观察结案。
+
+**观察（6，不阻断，随 T-057 执行消化）**：O-1 TC-M2-22 预期含「每种 ≥1 条 + 计数=实际帧数」与 §4 单值口径的措辞张力；O-2 TC-M2-18/32 落点宜用 ctest 名 `hgcp.replay_gate`；O-3 TC-M2-36 已被 emptyLastBatchIsTolerated 覆盖但备注不对称；O-4 §7.3 未登记 NFR-PERF-6 第二适用域 FR-RISK-11；O-5 实现侧注释「EVT_MARKET_QUOTE 可丢不占 SEQ」与 ARCH「所有业务帧同一 SEQ 计数器」措辞张力（设计取 ARCH 口径正确）；O-6 transport_test「742 checks」grep 不可证（源码 HG_CHECK|HG_REQUIRE 计 277），非判据仅记。
+
+**编排者独立核验记录**：设计期发现 A（CH-007 消费侧缺口）亲核代码成立（HgcpClient.java:322-331 无批次标识；onEvent default 分支 advanceWatermark + notifyConsumed）⇒ 立号 T-174（P0）；Δ 回执四要素亲核（hunk 恰 4、预期段逐字节未触）；微修 delta 亲核（上段）；三账联动提交见 BOARD § 第 187 轮。
