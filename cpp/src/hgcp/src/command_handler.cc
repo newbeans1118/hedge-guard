@@ -549,8 +549,9 @@ bool map_update_position_limit(const pbv1::CmdUpdatePositionLimit& in, LoadBatch
   return in.entries_size() > 0;
 }
 
-// CMD_SET_TRADING_SUSPEND → LoadBatch 阈值键（sub=0 全账户键；判定侧消费点
-//   0x1011 归 T-036 引擎接线 —— 本处置=参数面生效承载，诚实披露）。
+// CMD_SET_TRADING_SUSPEND → LoadBatch 阈值键（sub=0 全账户键）。
+//   判定侧消费点 = risk_engine.cc evalTradingSuspend（T-181 已接线：开仓回 0x1011，
+//   平仓放行）；本处置 = 参数面生效承载。
 void map_trading_suspend(const pbv1::CmdSetTradingSuspend& in, LoadBatch* b) {
   b->set_param_version(in.param_version());
   const std::string v = in.suspended() ? "true" : "false";

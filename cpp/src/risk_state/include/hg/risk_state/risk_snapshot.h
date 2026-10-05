@@ -70,6 +70,10 @@ class RiskSnapshot {
   }
   std::unordered_map<std::uint32_t, PermissionEntry>& permissions() { return permissions_; }
   std::unordered_map<std::string, std::string>& thresholds() { return thresholds_; }
+  // 只读遍历（T-181）：判定侧在**写侧 `applySnapshot`** 一次性把「限仓标记」解析为
+  //   POD 标量 + 子账户集合；判定热路径不得遍历，亦不得按动态子账户构造键串
+  //   （构造 `std::string` 键会产生堆分配，违反 §4.4.2）。
+  const std::unordered_map<std::string, std::string>& thresholds() const { return thresholds_; }
   std::unordered_map<std::uint32_t, QuotaEntry>& total_limit_by_product() {
     return total_limit_by_product_;
   }

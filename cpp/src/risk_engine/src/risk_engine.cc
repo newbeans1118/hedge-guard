@@ -8,7 +8,9 @@
 
 #include "hg/risk_engine/risk_engine.h"
 
+#include <cstdlib>
 #include <string>
+#include <unordered_set>
 
 #include "hg/risk_engine/date_util.h"
 #include "hg/risk_engine/fixed_math.h"
@@ -67,6 +69,7 @@ const std::uint32_t kErrNoBasePrice = 0x1015;
 const std::uint32_t kErrSubInstrumentQuota = 0x1017;
 const std::uint32_t kErrPriceWarn = 0x1018;
 const std::uint32_t kErrRelatedObjectSubMismatch = 0x1019;
+const std::uint32_t kErrTradingSuspended = 0x1011;  // T-181：OPEN_ONLY 限仓
 const std::uint32_t kErrInvalidRequest = 0x3003;
 
 // ---- 数值工具 ----
@@ -509,16 +512,66 @@ void evalRelatedObject(const RiskSnapshot& s, const OrderRequest& req, RiskResul
   }
 }
 
+// =============================================================================
+// 0x1011 交易暂停 / OPEN_ONLY 限仓（T-181）
+//   来源：控制指令 CMD_SET_TRADING_SUSPEND（command_handler map_trading_suspend →
+//     阈值键 risk.trading.suspend〔sub=0 全账户〕/ risk.trading.suspend.sub.<id>）。
+//   语义（ARCHITECTURE.md §3.11 :567-568 / §4.3.2 :1378）：
+//     · 全账户或该子账户处于 OPEN_ONLY 限制中 ⇒ 阻断**开仓**，回 0x1011；
+//     · **平仓 / 减仓方向跳过该规则**（R-RISK-5 @ REQUIREMENTS/RISK.md §4）。
+//   顺序：不属 R-RISK-1~8 规范序，列于其后（同 evalRelatedObject 处置）——
+//     仅当其余规则均未拒绝时才成为上报规则；命中项恒入 entries[]（审计可见）。
+// =============================================================================
+void evalTradingSuspend(bool suspended_all,
+                        const std::unordered_set<std::uint32_t>& subs,
+                        const OrderRequest& req, bool is_open, RiskResult& r) {
+  if (!is_open) return;  // 平仓 / 减仓放行（R-RISK-5 只限开仓、不限平仓）
+  const bool suspended = suspended_all || subs.count(req.sub_account_id) != 0;
+  if (!suspended) return;
+  addEntry(r, RuleId::kTradingSuspend, kErrTradingSuspended, LimitLayer::kNone,
+           req.sub_account_id, ValueScale::kCount, 1, ValueScale::kCount,
+           suspended_all ? "trading suspended (account-wide, OPEN_ONLY)"
+                         : "trading suspended for sub-account (OPEN_ONLY)");
+  markReject(r, RuleId::kTradingSuspend, kErrTradingSuspended);
+}
+
 }  // namespace
 
 // =============================================================================
 // RiskEngine
 // =============================================================================
-RiskEngine::RiskEngine(const IClock* clock) : clock_(clock != nullptr ? clock : &default_clock_) {
+RiskEngine::RiskEngine(const IClock* clock)
+    : clock_(clock != nullptr ? clock : &default_clock_), trading_suspended_all_(false) {
   snapshot_.store(nullptr, std::memory_order_release);
 }
 
 RiskEngine::~RiskEngine() {}
+
+// T-181：从快照阈值一次性解析「限仓标记」为 POD（写侧，允许分配）。
+//   键：risk.trading.suspend（全账户）/ risk.trading.suspend.sub.<sub_id>（子账户）。
+//   值布尔语义与 RiskSnapshot::thresholdBool 一致（true/TRUE/1/Y/YES 为真）。
+void RiskEngine::parseSuspendThresholds(const hg::risk_state::RiskSnapshot& s) {
+  trading_suspended_all_ = s.thresholdBool("risk.trading.suspend", false);
+  suspended_sub_accounts_.clear();
+  const char kSubPrefix[] = "risk.trading.suspend.sub.";
+  const std::size_t kSubPrefixLen = sizeof(kSubPrefix) - 1;
+  const std::unordered_map<std::string, std::string>& th = s.thresholds();
+  for (std::unordered_map<std::string, std::string>::const_iterator it = th.begin();
+       it != th.end(); ++it) {
+    const std::string& key = it->first;
+    if (key.size() <= kSubPrefixLen) continue;
+    if (key.compare(0, kSubPrefixLen, kSubPrefix) != 0) continue;
+    const std::string& v = it->second;
+    const bool on =
+        (v == "true" || v == "TRUE" || v == "1" || v == "Y" || v == "YES");
+    if (!on) continue;  // 显式解除（false）⇒ 不记入
+    const char* p = key.c_str() + kSubPrefixLen;
+    char* end = nullptr;
+    const unsigned long id = std::strtoul(p, &end, 10);
+    if (end == p) continue;  // 后缀非数字 ⇒ 非本键
+    suspended_sub_accounts_.insert(static_cast<std::uint32_t>(id));
+  }
+}
 
 void RiskEngine::applySnapshot(const RiskSnapshot& s) {
   // 写侧：一次性解析阈值（允许分配；不在判定路径内）
@@ -528,6 +581,7 @@ void RiskEngine::applySnapshot(const RiskSnapshot& s) {
   thresholds_.scale_ratio_trade = s.thresholdFixed("hedge.scale.ratio_trade", 800000);
   thresholds_.term_max_months = s.thresholdInt("risk.term.max_months", 12);
   thresholds_.term_grace_days = s.thresholdInt("risk.term.grace_days", 30);
+  parseSuspendThresholds(s);  // T-181：写入侧解析「限仓标记」（判定路径零分配）
   snapshot_.store(&s, std::memory_order_release);
 }
 
@@ -541,6 +595,7 @@ void RiskEngine::applySnapshot(const hg::risk_state::RiskState& state) {
   thresholds_.scale_ratio_trade = s.thresholdFixed("hedge.scale.ratio_trade", 800000);
   thresholds_.term_max_months = s.thresholdInt("risk.term.max_months", 12);
   thresholds_.term_grace_days = s.thresholdInt("risk.term.grace_days", 30);
+  parseSuspendThresholds(s);  // T-181：写入侧解析「限仓标记」（判定路径零分配）
   snapshot_.store(&s, std::memory_order_release);
 }
 
@@ -598,6 +653,8 @@ RiskResult RiskEngine::check(const OrderRequest& req) const {
   // 关联对象兼容性（0x1019；T-173）：不属 R-RISK-1~8 规范序，列于其后求值——
   //   仅当其余规则均未拒绝时才成为上报规则；无论顺序，命中项均入 entries[]（审计可见）。
   evalRelatedObject(*s, req, r);
+  // T-181：0x1011 OPEN_ONLY 限仓（不属 R-RISK-1~8 规范序，列于其后）。
+  evalTradingSuspend(trading_suspended_all_, suspended_sub_accounts_, req, is_open, r);
   return r;
 }
 

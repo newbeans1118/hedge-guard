@@ -15,6 +15,10 @@ const char* ruleIdName(RuleId r) {
     case RuleId::kPermission: return "R-RISK-7";
     case RuleId::kPriceDeviation: return "R-RISK-8";
     case RuleId::kRelatedObject: return "R-TRADE-9";
+    // T-181：0x1011 处置原则为 `R-RISK-5 @ REQUIREMENTS/RISK.md §4`（空间甲·只限开仓）。
+    //   ⚠️ 该编号与空间乙（`R-RISK-5` 时点净持仓，`kNetPosition`）**同号异义**——
+    //   `RISK.md` §4 表头明文声明两空间，此处沿用 ARCH:1378 的显式引用，勿混用。
+    case RuleId::kTradingSuspend: return "R-RISK-5";
     case RuleId::kInput: return "R-INPUT";
     case RuleId::kNone: default: return "NONE";
   }
@@ -61,6 +65,7 @@ const char* riskCodeName(std::uint32_t code) {
     case 0x100E: return "RISK_POSITION_CONFLICT";
     case 0x100F: return "RISK_ENTERPRISE_LEADER_FORBIDDEN";
     case 0x1010: return "RISK_PRICE_DEVIATION_BLOCK";
+    case 0x1011: return "RISK_TRADING_SUSPENDED";
     case 0x1015: return "RISK_MARKET_PRICE_NOT_AVAILABLE";
     case 0x1016: return "RISK_MARKET_ORDER_DEVIATION_NA";
     case 0x1017: return "RISK_SUB_INSTRUMENT_QUOTA_INSUFFICIENT";

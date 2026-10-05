@@ -17,6 +17,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <unordered_set>
 
 #include "hg/risk_engine/clock.h"
 #include "hg/risk_engine/order_request.h"
@@ -71,6 +72,16 @@ class RiskEngine {
   std::atomic<const hg::risk_state::RiskSnapshot*> snapshot_;
   hg::risk_state::SnapshotManager::ReadGuard guard_;  // 推荐路径下持有的 RCU 读句柄
   RiskThresholds thresholds_;
+
+  // T-181：交易暂停（OPEN_ONLY 限仓）态。`applySnapshot` 写侧一次性解析为
+  //   `bool` + 子账户集合；`check` 只作 O(1) 查找（零分配、零锁、零 I/O）。
+  //   来源 = 控制指令 `CMD_SET_TRADING_SUSPEND`（`command_handler.cc map_trading_suspend`）
+  //   写入的阈值键 `risk.trading.suspend`（sub=0 全账户）/ `risk.trading.suspend.sub.<id>`。
+  bool trading_suspended_all_;
+  std::unordered_set<std::uint32_t> suspended_sub_accounts_;
+
+  // 写侧解析「限仓标记」阈值（允许分配；不在判定路径内）。
+  void parseSuspendThresholds(const hg::risk_state::RiskSnapshot& s);
 
   RiskEngine(const RiskEngine&) = delete;
   RiskEngine& operator=(const RiskEngine&) = delete;
