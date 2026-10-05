@@ -65,7 +65,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p><b>真实 DAO + 内存假 JDBC 引擎等价执行</b>（本机无 DM8 实例）：装配 {@code Dm*Dao} 与
  * {@code PostRiskReportServiceImpl}，内联 DDL 见 {@link M3RiskReportDdl}（{@code DATA_MODEL.md}
- * §2.8 TBI 严格转录；生产 DDL 归 {@code T-094}）。<b>不使用假 DAO</b>（{@code T-136}/{@code T-058} 判例）。
+ * §2.8 列级转录，裁剪范围见其类注释；生产 DDL 归 {@code T-094}）。<b>不使用假 DAO</b>
+ * （{@code T-136}/{@code T-058} 判例）。
  */
 class PostRiskReportJobTest {
 
@@ -127,8 +128,8 @@ class PostRiskReportJobTest {
     @DisplayName("TC-M3-28/29 事后风控：报表落库 + 与结算勾稽 == 0；六类违规汇总 + 80%/95% 计数正确")
     void generateReport() throws Exception {
         // 当日数据：层①额度 82%（提示）与 96%（警告）
-        M3RiskReportDdl.productQuota(engine, SUB_A, PRODUCT_ID, "100.0000", "82.0000", DAY);
-        M3RiskReportDdl.productQuota(engine, SUB_B, PRODUCT_ID, "100.0000", "96.0000", DAY);
+        M3RiskReportDdl.productQuota(engine, SUB_A, PRODUCT_ID, "100.0000", "82.0000", "0", DAY);
+        M3RiskReportDdl.productQuota(engine, SUB_B, PRODUCT_ID, "100.0000", "96.0000", "0", DAY);
         // 事前拒绝记录（四类：超品种/超规模/超期限/超授权）
         M3RiskReportDdl.preTradeReject(engine, SUB_A, PRODUCT_ID, "REF-1", "R-RISK-1", "0x1001", "1", "0", DAY);
         M3RiskReportDdl.preTradeReject(engine, SUB_A, PRODUCT_ID, "REF-2", "R-RISK-4", "0x1007", "95", "90", DAY);
@@ -221,6 +222,96 @@ class PostRiskReportJobTest {
         assertEquals(1, alarms.size(), "生成失败须告警");
         assertEquals(0, reportDao.count("report_date = ?",
                 Collections.singletonList((Object) DAY.plusDays(30))), "失败不得落库报表");
+    }
+
+    // ------------------------------------------------------------------ T-180 退修回归（TE-T180-001 + A/B/C/O-1/O-2）
+
+    @Test
+    @DisplayName("TE-T180-001 回归：同子账户同天同规则 2 条拒绝 ⇒ 违规行数 == 2；job 重跑 ⇒ 仍 == 2（O-2 幂等，三表不翻番）")
+    void violationCountsPreservedAndIdempotentOnRerun() throws Exception {
+        // 同子账户 + 同交易日 + 同规则 R-RISK-1 两条事前拒绝：自然键相同，仅「发生次数」不同
+        M3RiskReportDdl.preTradeReject(engine, SUB_A, PRODUCT_ID, "REF-A1", "R-RISK-1", "0x1001", "1", "0", DAY);
+        M3RiskReportDdl.preTradeReject(engine, SUB_A, PRODUCT_ID, "REF-A2", "R-RISK-1", "0x1001", "1", "0", DAY);
+        M3RiskReportDdl.productQuota(engine, SUB_A, PRODUCT_ID, "100.0000", "50.0000", "0", DAY);
+        M3RiskReportDdl.settleCycle(engine, 1001L, SUB_A, "ST20260920A", DAY, "10.0000", "1000.0000");
+
+        RiskEvaluation eval = new RiskEvaluation(metrics("10.0000", "0"), Collections.emptyList(),
+                Collections.emptyList(), Collections.emptySet(), 0L);
+        List<String> alarms = new ArrayList<>();
+        PostRiskReportJob job = new PostRiskReportJob(service, () -> eval, (m, c) -> alarms.add(m));
+
+        // 首次：2 条发生 ⇒ 2 行（原实现按自然键去重只落 1 行 ⇒ 本断言必红）
+        PostRiskReportResult first = job.run(DAY, SYS);
+        assertEquals(2, first.violationTotal, "2 条同规则拒绝应派生 2 条违规（FR-RISK-18 验收1「次数」）");
+        assertEquals(2, first.violationByType.get(PostRiskReportService.V_OVER_PRODUCT),
+                "超品种次数 == 2");
+        assertEquals(2, violationDao.findByDate(DAY).size(), "违规事项须真实落 2 行");
+        assertEquals(2, violationDao.countByNaturalKey(SUB_A, DAY, PostRiskReportService.V_OVER_PRODUCT,
+                "R-RISK-1", PostRiskReportService.SRC_PRE_TRADE_REJECT), "落库行数 == 发生次数");
+        assertTrue(alarms.isEmpty(), "成功生成不应告警");
+
+        // 重跑：幂等不翻倍；三表行数不翻番、勾稽差异不变（O-2 机器守卫）
+        PostRiskReportResult second = job.run(DAY, SYS);
+        assertEquals(2, second.violationTotal, "重跑后违规总数仍为 2（幂等不翻倍）");
+        assertEquals(2, violationDao.findByDate(DAY).size(), "重跑后违规行数仍为 2");
+        assertEquals(3, reportDao.count("report_date = ?", Collections.singletonList((Object) DAY)),
+                "三张报表各一行（重跑不新增）");
+        assertEquals(1, limitDao.findByDate(DAY).size(), "限额使用行重跑不翻倍");
+        assertEquals(0, second.reconcileDiff.compareTo(first.reconcileDiff), "重跑勾稽差异不变");
+        assertEquals(0, second.reconcileDiff.compareTo(BigDecimal.ZERO), "本例镜像与结算一致 ⇒ 差异 0");
+    }
+
+    @Test
+    @DisplayName("O-1 回归：占用率分子 = used + frozen（ARCH §3.3 R-RISK-2），frozen>0 计入")
+    void usageRatioIncludesFrozenQuantity() throws Exception {
+        // used 70 + frozen 12 = 82 / 100 ⇒ 82% HINT（若漏 frozen 则 70% ⇒ NORMAL，本用例必红）
+        M3RiskReportDdl.productQuota(engine, SUB_A, PRODUCT_ID, "100.0000", "70.0000", "12.0000", DAY);
+        M3RiskReportDdl.settleCycle(engine, 1001L, SUB_A, "ST20260920A", DAY, "0", "1000.0000");
+
+        service.generate(new com.hedgeguard.service.PostRiskReportRequest(
+                DAY, metrics("0", "0"), Collections.emptyList(), SYS));
+
+        List<LimitUsageStat> usages = limitDao.findByDate(DAY);
+        assertEquals(1, usages.size());
+        LimitUsageStat u = usages.get(0);
+        assertEquals(0, u.usedValue.compareTo(new BigDecimal("82.0000")),
+                "used_value 应含 frozen（70+12）");
+        assertEquals(0, u.usageRatio.compareTo(new BigDecimal("0.820000")),
+                "使用率 = (used+frozen)/quota_limit = 0.82");
+        assertEquals(PostRiskReportService.HINT_HINT, u.hintLevel, "82% 应标 HINT（漏 frozen 会退为 NORMAL）");
+    }
+
+    @Test
+    @DisplayName("B 回归：settle_reconcile_key = trade_date + 结算单号（多单逗号连接，DATA_MODEL §2.8）")
+    void reconcileKeyCarriesSettleNos() throws Exception {
+        M3RiskReportDdl.settleCycle(engine, 1001L, SUB_A, "ST20260920A", DAY, "10.0000", "1000.0000");
+        M3RiskReportDdl.settleCycle(engine, 1002L, SUB_B, "ST20260920B", DAY, "5.0000", "500.0000");
+
+        PostRiskReportResult result = service.generate(new com.hedgeguard.service.PostRiskReportRequest(
+                DAY, metrics("10.0000", "5.0000"), Collections.emptyList(), SYS));
+
+        assertEquals(DAY + "#ST20260920A,ST20260920B", result.settleReconcileKey,
+                "勾稽键应为 交易日 + 结算单号（多单逗号连接，id 升序）");
+        assertEquals(result.settleReconcileKey,
+                reportDao.findByKey(DAY, PostRiskReportService.REPORT_TYPE_RISK_METRIC, null).settleReconcileKey,
+                "落库报表的勾稽键应与结果一致");
+    }
+
+    @Test
+    @DisplayName("A 回归：频繁开平仓派生违规 rule_id = FR-RISK-14（非空间甲 R-RISK-14=阈值集中配置）")
+    void frequentTradeRuleIdIsFrRisk14() throws Exception {
+        M3RiskReportDdl.settleCycle(engine, 1001L, SUB_A, "ST20260920A", DAY, "0", "1000.0000");
+        RiskAlert alert = new RiskAlert(SUB_A, RiskMetricType.ABNORMAL_ORDER, RiskAlertLevel.WARNING,
+                "8", "6", DAY.atStartOfDay().toString(), "日内开平合计 8 超告警线 6");
+
+        service.generate(new com.hedgeguard.service.PostRiskReportRequest(DAY, metrics("0", "0"),
+                Collections.singletonList(alert), SYS));
+
+        List<com.hedgeguard.dao.entity.RiskViolation> violations = violationDao.findByDate(DAY);
+        assertEquals(1, violations.size());
+        assertEquals("FR-RISK-14", violations.get(0).ruleId,
+                "频繁开平仓 rule_id 应为 FR-RISK-14（异常下单监控）；"
+                        + "R-RISK-14 在空间甲＝阈值集中配置，不得误用");
     }
 
     // ------------------------------------------------------------------ 夹具

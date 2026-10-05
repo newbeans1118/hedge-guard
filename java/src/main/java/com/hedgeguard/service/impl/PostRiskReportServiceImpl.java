@@ -69,6 +69,16 @@ public final class PostRiskReportServiceImpl implements PostRiskReportService {
     /** 使用率保留 6 位小数（{@code usage_ratio DECIMAL(9,6)}）。 */
     private static final int RATIO_SCALE = 6;
 
+    /**
+     * 频繁开平仓（{@code FREQUENT_TRADE}）派生违规的规则归属 = {@code FR-RISK-14}（异常下单行为监控）。
+     *
+     * <p><b>为何不写 {@code R-RISK-14}</b>：{@code R-RISK-14} 在<b>空间甲</b>
+     * （{@code REQUIREMENTS/RISK.md} §4）＝「阈值与参数集中配置」，与「异常下单行为监控」语义不符；
+     * <b>空间乙</b>（{@code ARCHITECTURE.md} §3.3）仅 {@code R-RISK-1}~{@code R-RISK-8}（事前 8 判定
+     * 规则），无事中编号 ⇒ 直接引 {@code FR} 编号，避免同号异义误引（见 {@code §3.3} 编号空间声明）。
+     */
+    static final String RULE_ABNORMAL_ORDER = "FR-RISK-14";
+
     private final PostRiskReportDao reportDao;
     private final RiskViolationDao violationDao;
     private final LimitUsageStatDao limitUsageDao;
@@ -124,7 +134,7 @@ public final class PostRiskReportServiceImpl implements PostRiskReportService {
             BigDecimal mirrorFloat = request.metrics == null || request.metrics.aggregate == null
                     ? BigDecimal.ZERO : nz(request.metrics.aggregate.floatPnl);
             BigDecimal reconcileDiff = mirrorFloat.subtract(settleFloat).abs();
-            String reconcileKey = date + "#" + cycles.size();
+            String reconcileKey = date + "#" + settleNos(cycles);
 
             // ② 违规汇总：派生并落库（幂等），再取当日全量（含他源既有行）
             persistDerivedViolations(request);
@@ -170,6 +180,24 @@ public final class PostRiskReportServiceImpl implements PostRiskReportService {
         return findAll(settleCycleDao, "trade_date = ?", Collections.singletonList((Object) date));
     }
 
+    /**
+     * 勾稽键（{@code DATA_MODEL.md} §2.8 TB-RISK-7：{@code trade_date} + 结算单号）。
+     *
+     * <p>按日多张结算单（每子账户一张）时以 {@code ,} 连接各 {@code settle_no}（{@code id} 升序，
+     * 确定性可复现）；{@code settle_cycle_id} 单列只能承载一张 ⇒ 全量单号由本键承载。
+     * 注意 {@code settle_reconcile_key} 列宽 {@code VARCHAR(64)}（单号过多时以列宽为准）。
+     */
+    private static String settleNos(List<SettleCycle> cycles) {
+        StringBuilder sb = new StringBuilder();
+        for (SettleCycle c : cycles) {
+            if (sb.length() > 0) {
+                sb.append(',');
+            }
+            sb.append(nzStr(c.settleNo));
+        }
+        return sb.toString();
+    }
+
     /** 分页读取全部命中行（{@code PageQuery} 单页上限 100）。 */
     private static <T> List<T> findAll(BaseDao<T, ?> dao, String where, List<Object> args) {
         List<T> all = new ArrayList<>();
@@ -189,51 +217,77 @@ public final class PostRiskReportServiceImpl implements PostRiskReportService {
 
     private void persistDerivedViolations(PostRiskReportRequest request) {
         LocalDate date = request.tradeDate;
-        // 事前拒绝记录 → 六类中的四类
+        // 事前拒绝记录 → 六类中的四类。
+        // 幂等 + 次数保真（TE-T180-001；FR-RISK-18 验收 1「出现对应类型与次数」）：
+        // t_risk_violation 无计数列，去重会丢次数；故按自然键（子账户|日期|类型|规则|来源）分组，
+        // 以上次落库行数为下界「补插」至本次发生数 —— 重跑时库存数 == 本次发生数 ⇒ 补插 0（不翻倍）；
+        // 同组 2 条发生 ⇒ 2 行（次数不丢）。发生身份（client_order_ref / event_seq）不落本表列，
+        // 故采用「自然键 + 多重度」承载，未新增列 / 未改 CONTRACTS。
+        Map<String, List<TradePreTradeReject>> rejectGroups = new LinkedHashMap<>();
         for (TradePreTradeReject r : findAll(rejectDao, "trade_date = ?",
                 Collections.singletonList((Object) date))) {
             String type = mapRuleToType(r.ruleId);
             if (type == null || r.subAccountId == null) {
                 continue;
             }
-            if (violationDao.countByNaturalKey(r.subAccountId, date, type, r.ruleId,
-                    SRC_PRE_TRADE_REJECT) > 0) {
-                continue;
-            }
-            RiskViolation v = new RiskViolation();
-            v.subAccountId = r.subAccountId;
-            v.violationDate = date;
-            v.violationType = type;
-            v.severity = defaultSeverity(type);
-            v.ruleId = r.ruleId;
-            v.violationDesc = "事前风控拒绝：rule=" + r.ruleId + " code=" + r.rejectCode
-                    + " current=" + nzStr(r.currentValue) + " threshold=" + nzStr(r.thresholdValue);
-            v.source = SRC_PRE_TRADE_REJECT;
-            v.occurTime = r.rejectTime != null ? r.rejectTime : com.hedgeguard.common.Clocks.now();
-            violationDao.insert(v, request.operatorId);
+            rejectGroups.computeIfAbsent(groupKey(r.subAccountId, type, r.ruleId, SRC_PRE_TRADE_REJECT),
+                    k -> new ArrayList<>()).add(r);
         }
-        // 事中告警（异常下单行为）→ 频繁开平仓
+        for (List<TradePreTradeReject> group : rejectGroups.values()) {
+            TradePreTradeReject first = group.get(0);
+            String type = mapRuleToType(first.ruleId);
+            long existing = violationDao.countByNaturalKey(first.subAccountId, date, type,
+                    first.ruleId, SRC_PRE_TRADE_REJECT);
+            for (int i = (int) Math.min(existing, group.size()); i < group.size(); i++) {
+                TradePreTradeReject r = group.get(i);
+                RiskViolation v = new RiskViolation();
+                v.subAccountId = r.subAccountId;
+                v.violationDate = date;
+                v.violationType = type;
+                v.severity = defaultSeverity(type);
+                v.ruleId = r.ruleId;
+                v.violationDesc = "事前风控拒绝：rule=" + r.ruleId + " code=" + r.rejectCode
+                        + " current=" + nzStr(r.currentValue) + " threshold=" + nzStr(r.thresholdValue);
+                v.source = SRC_PRE_TRADE_REJECT;
+                v.occurTime = r.rejectTime != null ? r.rejectTime : com.hedgeguard.common.Clocks.now();
+                violationDao.insert(v, request.operatorId);
+            }
+        }
+        // 事中告警（异常下单行为）→ 频繁开平仓；同上按自然键补插到本次告警条数。
         if (request.alerts != null) {
+            Map<String, List<RiskAlert>> alertGroups = new LinkedHashMap<>();
             for (RiskAlert a : request.alerts) {
                 if (a.metricType != RiskMetricType.ABNORMAL_ORDER || a.subAccountId <= 0) {
                     continue;
                 }
-                if (violationDao.countByNaturalKey(a.subAccountId, date, V_FREQUENT_TRADE, "R-RISK-14",
-                        SRC_INTRADAY_ALERT) > 0) {
-                    continue;
+                alertGroups.computeIfAbsent(
+                        groupKey(a.subAccountId, V_FREQUENT_TRADE, RULE_ABNORMAL_ORDER, SRC_INTRADAY_ALERT),
+                        k -> new ArrayList<>()).add(a);
+            }
+            for (List<RiskAlert> group : alertGroups.values()) {
+                RiskAlert first = group.get(0);
+                long existing = violationDao.countByNaturalKey(first.subAccountId, date,
+                        V_FREQUENT_TRADE, RULE_ABNORMAL_ORDER, SRC_INTRADAY_ALERT);
+                for (int i = (int) Math.min(existing, group.size()); i < group.size(); i++) {
+                    RiskAlert a = group.get(i);
+                    RiskViolation v = new RiskViolation();
+                    v.subAccountId = a.subAccountId;
+                    v.violationDate = date;
+                    v.violationType = V_FREQUENT_TRADE;
+                    v.severity = severityOfAlert(a.level);
+                    v.ruleId = RULE_ABNORMAL_ORDER;
+                    v.violationDesc = "事中告警-异常下单行为：" + nzStr(a.message);
+                    v.source = SRC_INTRADAY_ALERT;
+                    v.occurTime = com.hedgeguard.common.Clocks.now();
+                    violationDao.insert(v, request.operatorId);
                 }
-                RiskViolation v = new RiskViolation();
-                v.subAccountId = a.subAccountId;
-                v.violationDate = date;
-                v.violationType = V_FREQUENT_TRADE;
-                v.severity = severityOfAlert(a.level);
-                v.ruleId = "R-RISK-14";
-                v.violationDesc = "事中告警-异常下单行为：" + nzStr(a.message);
-                v.source = SRC_INTRADAY_ALERT;
-                v.occurTime = com.hedgeguard.common.Clocks.now();
-                violationDao.insert(v, request.operatorId);
             }
         }
+    }
+
+    /** 自然键分组键（子账户 | 类型 | 规则 | 来源；仅用于本次派生内部分组，非落库列）。 */
+    private static String groupKey(int subAccountId, String type, String ruleId, String source) {
+        return subAccountId + "|" + type + "|" + ruleId + "|" + source;
     }
 
     /**
@@ -316,7 +370,8 @@ public final class PostRiskReportServiceImpl implements PostRiskReportService {
                     if (exists > 0) {
                         continue;
                     }
-                    BigDecimal used = nz(q.usedQty);
+                    // 占用 = 已用 + 已冻结（ARCHITECTURE.md §3.3 R-RISK-2：(used+frozen)/quota_limit）
+                    BigDecimal used = nz(q.usedQty).add(nz(q.frozenQty));
                     BigDecimal ratio = used.divide(q.quotaLimit, RATIO_SCALE, RoundingMode.HALF_UP);
                     LimitUsageStat u = new LimitUsageStat();
                     u.subAccountId = sub.subAccountId;

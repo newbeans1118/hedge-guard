@@ -17,7 +17,13 @@ import java.time.LocalDateTime;
  * {@code t_param_dispatch}；剩余 10 张 RISK 表（含本用例所需的 {@code t_post_risk_report} /
  * {@code t_risk_violation} / {@code t_limit_usage_stat}）由 {@code T-094} 收口。为在
  * {@code docs/**} 写域之外以<b>真实 DAO</b> 驱动集成测试，本类将 {@code DATA_MODEL.md} §2.8
- * TB-RISK-7/8/9 的建表口径<b>严格转录</b>为内联 DDL（仅测试夹具；生产 DDL 归 {@code T-094}）。
+ * TB-RISK-7/8/9 的建表口径按<b>列级</b>转录为内联 DDL（仅测试夹具；生产 DDL 归 {@code T-094}）。
+ *
+ * <p><b>裁剪披露（列级转录，非逐条全等）</b>：{@code t_risk_violation} 的三个<b>可空外键</b>
+ * {@code trade_order_id} / {@code trade_fill_id} / {@code hedge_plan_id} —— <b>列本身</b>已转录，
+ * 但其<b>父表外键约束</b>（{@code → t_trade_order} / {@code → t_trade_fill} / {@code → t_hedge_plan}）
+ * <b>未</b>内联（父表不在本内联集）；该三约束归 {@code T-094} 生产 DDL。除此外，本内联 DDL 与
+ * §2.8 所列列 / 约束逐条一致。
  *
  * <p><b>为何单独成类</b>：E5（{@code dao} 之外不得出现 SQL）对 {@code src/test} 同规则，
  * 故 SQL/DDL 一律落 {@code dao} 命名空间之下。本类不属于产品代码。
@@ -27,7 +33,7 @@ public final class M3RiskReportDdl {
     private M3RiskReportDdl() {
     }
 
-    /** {@code TB-RISK-7/8/9} 的内联 DDL（严格转录 {@code DATA_MODEL.md} §2.8）。 */
+    /** {@code TB-RISK-7/8/9} 的内联 DDL（列级转录 {@code DATA_MODEL.md} §2.8；裁剪范围见类注释）。 */
     public static final String DDL =
             "CREATE TABLE t_post_risk_report ("
             + " id BIGINT IDENTITY(1,1) NOT NULL,"
@@ -122,12 +128,14 @@ public final class M3RiskReportDdl {
 
     /** 品种额度行（层① {@code SUB_PRODUCT}；子账户 × 品种）。 */
     public static void productQuota(InMemoryDmEngine engine, int subAccountId, long productId,
-                                    String quotaLimit, String usedQty, LocalDate effectiveFrom)
+                                    String quotaLimit, String usedQty, String frozenQty,
+                                    LocalDate effectiveFrom)
             throws SQLException {
         exec(engine, "INSERT INTO t_product_quota (sub_account_id, limit_layer, product_id, quota_limit,"
                         + " quota_unit, used_qty, frozen_qty, effective_from, dispatch_status, created_by)"
-                        + " VALUES (?, 'SUB_PRODUCT', ?, ?, 'LOT', ?, 0, ?, 'SUCCESS', 0)",
-                subAccountId, productId, new BigDecimal(quotaLimit), new BigDecimal(usedQty), effectiveFrom);
+                        + " VALUES (?, 'SUB_PRODUCT', ?, ?, 'LOT', ?, ?, ?, 'SUCCESS', 0)",
+                subAccountId, productId, new BigDecimal(quotaLimit), new BigDecimal(usedQty),
+                new BigDecimal(frozenQty), effectiveFrom);
     }
 
     /** 事前拒绝记录行（{@code t_pre_trade_reject}）。 */
