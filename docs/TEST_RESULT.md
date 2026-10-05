@@ -16332,3 +16332,21 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **观察（6，不阻断）**：O-1/O-2 生产未接线（next_reconnect_delay_ms 与 pump 本仓零生产调用；set_reconnect_alarm_sink 无生产调用，对比 SessionReadySink/ResumeGapSink 已在 event_emitter.cc:40-41 接线 ⇒ 生产走 stderr 兜底）——与 T-175/176 同态，承接点=真联编排任务；O-3 server_loop.h:71-75「LOG.WARNING 级」非 ARCH 来源（表述微调归后续微修）；O-4 占位/生产线格式口径区分（P2 已证生产正确）；O-5 C 段未显式断 body[1]（由 err_code+size 可推，非阻断）；O-6 stderr 兜底分支零测试覆盖（复核席 P1 独立证可达且恰一行）。
 
 **编排者亲核记录**：回执四要素（提交面 5 文件（--format= 排除 message 误报）/红线/关键符号 session.cc:62、server_loop.h:77/:119/:171、server_loop.cc:200/树锚 8ed64be9…/139）交付当日亲测与复核席独立实测一致；ARCH:1351 名称勘误当日亲核成立。
+
+---
+
+## T-072 独立复核证据（席 te-verify-t072；2026-10-05 第 195 轮 · 编排者逐字转录）
+
+**结论：有条件通过 / 0 阻断 / 7 缺陷（001 中 + 002-007 低）/ 6 观察 ⇒ 条件经 tm-t072b 两轮退修闭环。**
+
+**冻结与交付链（三态指纹）**：tm-t072 初稿 c0ca51677fcc9dbd7fe9342dbe2642d1/528（36 用例 TC-M3-01..36）→ tm-t072b 第一轮退修 e8a4c55c41e24948ebbb4d14382da220/531（7 缺陷 + 同族 O-3 共 27 处）→ 第二轮补授权收口 1f1c0544a00151eae2110cda03944f76/531（7 处枚举外 R-RISK 裸引，行内替换）。备份 /root/M3.md.orig-1791197076（= c0ca5167 态）。M3.md 随本轮纳入版控。
+
+**三项披露差异独立定性（全部属实）**：① 事后报表层无承载 —— job/ 实测仅 package-info.java；SettleCheckService.contentJson 承载核对任务/电子签署（FR-SETTLE-17，:230/:274/:303/:368），与 FR-RISK-17/18 数据源/勾稽对象不同 ⇒ §6.3 设计态诚实、§2.1 禁冒充正确；② 0x1011 未接线 —— protocol.h:159/ARCH:1378 有定义，risk_engine.cc:50-69 无该码、全仓 risk.trading.suspend 仅 command_handler.cc:553 参数面映射 ⇒ 判定侧无产出，TC-M3-15 预期 RED 为守卫语义未弱化；③ 崩溃恢复主承载 = flow_store（replay.cc）+ R-TRADE-13（TRADE.md:389）/NFR-REL-1（NONFUNCTIONAL.md:69）/FR-TRADE-15（:316）；**T-073 追溯「ARCHITECTURE.md §9」误指针成立**（ARCH §9 = 风险与预案 :2465；崩溃恢复实为 §4.5 :1520 / §6.2 :1669）。
+
+**缺陷七项与退修**：001（中）TC-M3-15 缺 risk.auto_suspend.enabled=true 前置（实测 RiskThresholds.java:52/145 缺省 false、IntradayRiskMonitor.java:227 未启用仅 ALERT_ONLY）⇒ 补前置 + 缺省口径备注、预期不弱化；002（低）CFG-08→CFG-15（ARCH:2821）；003（低）:148 编号 35→36；004（低）TC-M3-32/33/35 落点↔判据错位（flow_store.replay 只产 ReplayVerdict/Report）⇒ 判据改锚 ready()/failed()/frozen_held/decisions + 补 hgcp 单侧线码落点；005（低）TC-M3-27 补 risk.mirror.lag_millis（缺省 30000ms，待权威席登记项）；006（低）R-RISK-n 裸引加空间归属（第一轮 13 处 + 第二轮补授权 7 处 = 零残留）；007（低）「§9 G5」→ ARCH §1.1（:76）；同族 O-3：CFG-01/02→CFG-02b（ARCH:2801）。
+
+**编排者终检**：终态 1f1c0544…/531；diff -u 对原始备份 18 hunk；裸引 0（:12 为完整限定、:96/:129 为 FR-RISK 他义）；抽查 TC-M3-15 前置（:252）/CFG-15（:39）/空间甲 3 处（:90/:340/:346）/空间乙（:28）吻合；§11-F 连带修订（live 状态一致性）追认。
+
+**观察（6，不阻断）**：O-1 TC-M3-14 级别析取宜收紧 WARNING；O-2 TC-M3-29/30 非单一决定性值张力；O-3 已随退修闭环；O-4 0x1011「归 T-036」归因陈旧（T-036 已 DONE 无产出）⇒ T-073 执行前重裁定；O-5 TC-M3-32 前置措辞 SENT/PLACED 语义区分；O-6 §3.1 未列 risk_engine.selector（非缺陷）。
+
+**移交菜单（待用户裁定）**：§11-A 事后报表层实现（FR-RISK-17/18，TC-M3-27/28 落点待建）；§11-B/O-4 0x1011 接线归属。

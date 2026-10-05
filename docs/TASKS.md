@@ -114,7 +114,7 @@
 | T-069 | 实现审计报表与证据链导出 + 审计日志不可篡改 | FR-AUDIT-6~10/12/13, R-AUDIT-4, PROJECT §10-17 | backend-engineer#java2 | P0 | T-062 | 24 人时 | 初版 | TODO |
 | T-070 | 实现风险控制前端页面 | FR-RISK-11~19 | frontend-engineer | P1 | T-064, T-065 | 16 人时 | 初版 | TODO |
 | T-071 | 实现审计前端页面 | FR-AUDIT-1~13 | frontend-engineer | P1 | T-067, T-068, T-069 | 16 人时 | 初版 | TODO |
-| T-072 | 制定 M3 测试策略（6 类风险逐类触发用例） | PROJECT §10-5, NFR-TEST-2 | test-manager | P0 | T-056 | 12 人时 | 初版 | TODO |
+| T-072 | 制定 M3 测试策略（6 类风险逐类触发用例） | PROJECT §10-5, NFR-TEST-2 | test-manager | P0 | T-056 | 12 人时 | 初版 | **DONE（授权 + 独立验证：te-verify-t072 有条件通过 / 0 阻断 / 7 缺陷〔001 中 + 002-007 低〕/ 6 观察〔三项披露差异全部独立证实属实：① 事后报表层无承载（job/ 仅 package-info.java，FR-RISK-17/18 未实现，SettleCheckService 不构成承载）② 0x1011 判定侧无产出（command_handler.cc:553 自注归 T-036，已 DONE 但未产出）③ 崩溃恢复主承载=flow_store/R-TRADE-13/NFR-REL-1（T-073「ARCH §9」误指针证实）+ 探针 24 项全过：错误码 25 项对 ARCH §4.3.2、CFG 键值、flow_store.replay 目标、36 用例无缺重、表列一致〕；条件闭环 = tm-t072b 两轮退修（第一轮 7 缺陷+同族 O-3 共 27 处 → e8a4c55c…/531；第二轮编排者补授权 7 处枚举外 R-RISK 裸引同形收口（4 空间乙 @ARCH §3.3 + 3 空间甲 @REQUIREMENTS/RISK.md §4）→ 终态 1f1c0544…/531，裸引 0、编排者终检 18 hunk/抽查 5 处吻合/§11-F 连带修订追认）；M3.md 随本轮纳入版控；**移交菜单**：§11-A 事后报表实现立号（FR-RISK-17/18）、§11-B/O-4 0x1011 接线归属重裁定（TC-M3-15 守卫 RED 保留）、TC-M3-27/28 同属落点待建；2026-10-05）** |
 | T-073 | 执行 M3 超限阻断与崩溃恢复不超额下单验证 | PROJECT §9 M3 验收, §10-24/25/27, ARCH §9 | test-engineer | P0 | T-041, T-063, T-066 | 24 人时 | 初版 | TODO |
 | T-074 | 执行 M3 追溯与报表导出端到端 | PROJECT §9 M3 验收, §10-16/17 | test-engineer | P0 | T-069, T-071 | 16 人时 | 初版 | TODO |
 | T-075 | 执行 M3 代码与架构合规审查 | NFR-SEC-9, NFR-MAINT-4/6 | code-reviewer | P0 | T-069, T-070, T-071 | 16 人时 | 初版 | TODO |
