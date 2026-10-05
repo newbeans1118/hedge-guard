@@ -22,14 +22,18 @@ public interface RiskViolationDao extends BaseDao<RiskViolation, Long> {
     List<RiskViolation> findByDate(LocalDate violationDate);
 
     /**
-     * 按自然键计数（幂等判据：同子账户 + 同日期 + 同类型 + 同规则 + 同来源只记一条）。
+     * 按自然键计数（同子账户 + 同日期 + 同类型 + 同规则 + 同来源的已落库行数）。
+     *
+     * <p>供 {@code PostRiskReportServiceImpl#persistDerivedViolations} 作去重下界：
+     * 同自然键已存在 {@code n} 行时补插至本次发生数（{@code t_risk_violation} 无计数列，
+     * 以多重度承载次数；重跑时已存在行数 == 本次发生数 ⇒ 补插 0，不翻倍）。
      *
      * @param subAccountId  子账户
      * @param violationDate 发生日期
      * @param violationType 违规类型
      * @param ruleId        规则编号（可空）
      * @param source        来源
-     * @return 命中行数
+     * @return 同自然键的已存在行数（调用方以此为补插下界）
      */
     long countByNaturalKey(int subAccountId, LocalDate violationDate, String violationType,
                            String ruleId, String source);
