@@ -16268,3 +16268,25 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 - 不自评 DONE；缺口 5 项 + 观察 1 项请编排者裁定（是否立号）。
 - 本席实测与工单不符项：**无**（工单预期 TC-M2-21/37 依赖 T-174 已落地 ⇒ 实测绿，与预期一致）。
 
+
+---
+
+## T-175 独立复核证据（席 te-verify-t175；2026-10-05 第 191 轮 · 编排者逐字转录）
+
+**结论：通过 / 0 缺陷 / 7 观察。**
+
+**冻结点与范围**：HEAD 6897585；恰 10 文件 +380/−20 全在 cpp/src/hgcp/**（auth.h/cc、session.h/cc、pb_transport_policy.h/cc、server_loop.h/cc、tests/transport_test.cc、tests/crypto_auth_test.cc）；proto/hgcp.proto md5 a1762e53f51e937f0ec6975d45125c43 未动；java/docs/web 零触及；树锚（cpp/src 口径）3b339d6f69ac4e48e2560fb51cae315c/138 → 90f8bac0db95144fca8201fede84ffa3/138。
+
+**语义对 ARCH（逐字）**：§4.3.2:1345/1347/1348 —— 0x0201 令牌摘要 / 0x0203 版本不符拒连 / 0x0204 同 boot_id+令牌短窗口重复建连拒+告警；实现判定顺序 = 令牌摘要 → 版本 → 重放（坏令牌不污染重放台账）；回码 MSG_AUTH_FAIL(0x0003)+kFlagIsError+body{reason_code} 后 close_conn()，与 §4.2.6:944–949 既有同类一致。
+
+**O-1/O-2 核实**：proto :316 client_boot_id=5、:318 token_version=7 在（无 proto 缺口）；AuthRequest 全仓 0 命中（MsgHello 为实际承载）；auth.cc:106 has_version_ 门属实（未 set_expected_token_version 跳过版本判定，crypto_auth_test g2 守卫向后兼容）；三 setter 生产 0 调用、main.cc 骨架从不实例化 HgcpServerLoop ⇒ 机制就绪、生产装配未接线（与 T-171 同态，登记承接点 = 真联编排任务）。
+
+**门禁独立复跑（隔离副本 /root/t175iso = git archive HEAD）**：configure rc0（stub 轨）+ build rc0 + ctest 44/44 passed（#1 arch_check Passed）；arch-check.sh 直跑 ARCH_RC=0；hgcp.transport_test 3070 checks/0 fail、hgcp.crypto_auth_test 48 checks/0 fail。
+
+**变异独立重做（先证 build rc0 再看 test rc；隔离副本内 sed）**：M1 auth.cc:106 版本翻转 != → == ⇒ transport 16 fail / crypto 10 fail rc1；M2 auth.cc:112 窗口中和 < 0 ⇒ 5 fail / 6 fail rc1；M3 自设 has_version_ → true 强制版本判定 ⇒ 5 fail / 2 fail rc1（证明兼容门承重）；复原 auth.cc md5 9b529213c1ff49cd65a40f93b6f9f4c8 与 HEAD cmp OK、树锚复归、targeted 复绿（3070/0、48/0）；共享树全程只读。
+
+**守卫力**：3 条 E2E 断言四元（type==kMsgAuthFail ∧ reason_code==0x0203/0x0204 ∧ disconnects==1 ∧ sink.last_result），真实回环 + 真实 protobuf 组帧；既有 auth 用例 4 处删除仅为 send_hello→send_hello_full 辅助重构（缺省 boot-t171/version=1 不变），未削断言。
+
+**观察（7，不阻断）**：O-2 生产装配未接线（登记承接点）；O-3 窗口 1000ms 工程取值（ARCH 仅「短窗口」、§11 无 CFG 键，可覆写）；O-4 boot_seen_ 只增不删（加入前提=令牌已过，低风险）；O-5 空 boot_id 跳过重放（真联时定「是否应拒」）；O-6 server_loop.h:19 顶部注释仍写 verify_audited（归 T-176 顺带微修）；O-7 verify_audited 无生产调用点（公共 API+测试仍用，清理须走接口变更流程）。
+
+**编排者亲核记录**：回执四要素（提交面 10 文件/proto 红线/关键符号 auth.h:26-33 与 auth.cc:91/:106/树锚 90f8bac0…/138）交付当日亲测与复核席独立实测一致。
