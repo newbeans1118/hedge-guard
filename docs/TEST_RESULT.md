@@ -16193,11 +16193,11 @@ void evalRelatedObject(const RiskSnapshot& s, const OrderRequest& req, RiskResul
 | 13 | C++ ctest | PASS（实测 3000ms） | `hgcp.timing_test`→`test_heartbeat_detection`（`timeout_ms()==3000` ≤ 5000）；`hgcp.transport_test`→`test_heartbeat_send_and_timeout_death`（0x0301） |
 | 14 | C++ ctest | PASS | `hgcp.transport_test`→`test_duplicate_connection_rejected`（0x0302）；`hgcp.session_test`→`test_single_connection_and_backoff` |
 | 15 | C++ ctest | PASS（退避）+ 部分 | `hgcp.timing_test`→`test_reconnect_backoff_sequence`（500→1000→2000→4000→8000 封顶；≥10 ⇒ severe）；0x0303 帧无产生点（TE-T057-005） |
-| 16 | Java JUnit（新增）+ C++ ctest | PASS | `HgcpResumeConvergenceIdempotencyTest.resumeBatchDeliversAll200EventsInOrderAndDeduplicatesReplay`（200 消费 / 水位 300 / 重放 0 新增）；`hgcp.resume_buffer_test` |
+| 16 | Java JUnit（新增）+ C++ ctest | PASS（打桩档；双侧对拍未执行，真联档未达-前置缺失） | `HgcpResumeConvergenceIdempotencyTest.resumeBatchDeliversAll200EventsInOrderAndDeduplicatesReplay`（200 消费 / 水位 300 / 重放 0 新增）；`hgcp.resume_buffer_test` |
 | 17 | C++ ctest + Java JUnit | PASS | `hgcp.transport_test`→`test_resume_data_body_schema`（501 ⇒ 2 批 500/1、from/to per-batch、is_last false/true）；`HgcpResumeDataReplayTest.crossBatchSequenceIsContiguous` |
 | 18 | C++ ctest | PASS（缓冲级）+ 部分 | `hgcp.resume_buffer_test`→`test_ring_overwrite_and_gap`（kGapTooLarge=0x0306）；`server_loop.cc:265-270` 发 0x0306（代码级）；`hgcp.replay_gate`→0x0401 恢复期 |
-| 19 | Java JUnit（新增）+ C++ ctest | PASS | 新增 `resumeBatch.../thousandEventStreamNoLossNoReorder`（逐帧 SEQ 保序，水位收敛=线路帧锚）；`hgcp.transport_test`→`test_resume_data_body_schema`（frames 逐元素复解） |
-| 20 | C++ ctest + Java JUnit | PASS | `hgcp.transport_test`→`test_resume_data_body_schema` A（5 帧完整回放，SEQ 2..6 连续）+ `send_resume` 收敛（kNothingToReplay）；`HgcpResumeDataReplayTest` |
+| 19 | Java JUnit（新增）+ C++ ctest | PASS（打桩档；双侧对拍未执行，真联档未达-前置缺失） | 新增 `resumeBatch.../thousandEventStreamNoLossNoReorder`（逐帧 SEQ 保序，水位收敛=线路帧锚）；`hgcp.transport_test`→`test_resume_data_body_schema`（frames 逐元素复解） |
+| 20 | C++ ctest + Java JUnit | PASS（打桩档；双侧对拍未执行，真联档未达-前置缺失） | `hgcp.transport_test`→`test_resume_data_body_schema` A（5 帧完整回放，SEQ 2..6 连续）+ `send_resume` 收敛（kNothingToReplay）；`HgcpResumeDataReplayTest` |
 | 21 | Java JUnit | PASS | `HgcpResumeMarketQuoteDropTest.resumeBatchMarketQuoteIsDroppedAndKeyEventsStillConsumed`（行情消费=0，水位止于末关键事件 SEQ） |
 | 22 | Java JUnit | PASS | `HgcpResumeMarketQuoteDropTest.resumeBatchAllTenCriticalEventsSurviveAlongsideQuotes`（0x0202..0x020B 十种全消费；行情 0） |
 | 23 | C++ ctest | PASS（缺口检测）+ 部分 | `hgcp.session_test`→`test_seq_gap_detection`（`seq_gap_pending`）；0x0106 无产生点（TE-T057-002） |
@@ -16216,7 +16216,7 @@ void evalRelatedObject(const RiskSnapshot& s, const OrderRequest& req, RiskResul
 | 36 | Java JUnit | PASS | `HgcpResumeDataReplayTest.emptyLastBatchIsTolerated` |
 | 37 | Java JUnit | PASS | `HgcpResumeMarketQuoteDropTest`（3 用例；`quoteOutsideResumeBatchIsNotDropped` 选择性守卫）；依赖 T-174（commit `27d6c26`） |
 
-**小计**：PASS 31 / PASS（部分+缺口注）4（TC-M2-06/15/18/23/28/32 中的「部分」并入对应行）/ **未达-实现缺口 5**（10/11/24/25/34）。
+**小计**：PASS 26（严格）/ 6（部分）/ 未达 5（合计 37；含部分 32）。
 
 ### 四、任务验收标准对照
 
