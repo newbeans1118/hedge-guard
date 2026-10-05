@@ -1,0 +1,50 @@
+# =============================================================================
+# hg.properties.template —— hg-biz 非敏感配置模板（T-052 / NFR-DEPLOY-4 / ARCHITECTURE.md §11）
+#
+# 用法：复制到部署目录（缺省 ./hg.properties，或用 -Dhg.config=<绝对路径> 指定），按需改值。
+#
+# ★ 敏感字段零落盘（NFR-SEC-1 / 附录 B 红线 8）：
+#   本文件**不得**出现任何口令/令牌/密钥。数据库口令经环境变量 HG_DB_PASSWORD 注入、
+#   HGCP 鉴权令牌经 HG_HGCP_AUTH_TOKEN 注入——两者**只驻内存**，不落盘、不进日志。
+#
+# ★ 装载守卫（Config.rejectSecrets）：属性文件中**键名含 password / token / secret / authcode
+#   的项会被拒绝装载并导致启动失败**。因此诸如 hg.auth.password_min_length /
+#   hg.auth.password_history_size 这类**口令策略项**，只能经 JVM 参数覆盖
+#   （如 -Dhg.auth.password_min_length=12），**不要写进本文件**。
+#
+# ★ 端口分离（ARCHITECTURE.md §11.2）：
+#   CFG-20 hg.tcp.port=27400（C++ HGCP 组件通道，Java 作客户端连接）
+#   CFG-33 hg.web.port=27402（Java 前端 REST + 静态托管）
+#   CFG-32 hg.web.ws.port=27401（Java 前端 WebSocket，须与上面两者分离）
+# =============================================================================
+
+# ---- CFG-33 Java 前端 HTTP（REST + 静态托管）----
+hg.web.bind=127.0.0.1
+hg.web.port=27402
+hg.web.threads=16
+
+# ---- CFG-30 前端静态资源目录（零构建链；ARCHITECTURE.md §7.1.9）----
+hg.web.root=./web
+
+# ---- CFG-32 Java 前端 WebSocket（/ws/quote、/ws/alert；独立端口，仅回环）----
+hg.web.ws.port=27401
+hg.web.ws.heartbeat_ms=30000
+hg.web.ws.max_connections=200
+
+# ---- CFG-20 HGCP 组件通道（本地 TCP 回环；bind 白名单仅 127.0.0.1）----
+hg.tcp.bind=127.0.0.1
+hg.tcp.port=27400
+
+# ---- 会话与鉴权（非敏感部分）----
+hg.auth.session_cookie=HGSESSION
+hg.auth.session_idle_minutes=30
+hg.auth.login_fail_limit=5
+hg.auth.login_lock_minutes=5
+
+# ---- CFG-31 DM8 数据库（部署时填写；口令见文件头说明，绝不写入本文件）----
+#hg.db.url=jdbc:dm://127.0.0.1:5236/HG
+#hg.db.user=HG_APP
+#hg.db.driver=dm.jdbc.driver.DmDriver
+#hg.db.pool.initial_size=2
+#hg.db.pool.max_size=10
+#hg.db.pool.borrow_timeout_ms=3000
