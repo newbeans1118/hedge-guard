@@ -63,6 +63,14 @@ class TransportPolicy {
   // body 不可解析 ⇒ 返回空串（由鉴权判 `kMissingToken` 拒绝，不在此回 `0x0104`）。
   virtual std::string hello_auth_token(
       const std::vector<std::uint8_t>& hello_body) const = 0;
+  // 从入站 `MSG_HELLO` 的 body 中取 `token_version`（§4.2.8.2 `MsgHello.token_version`）——
+  //   供鉴权版本判定（`0x0203`）。body 不可解析 ⇒ 返回 0（调用方按不匹配处理前须先过令牌判定）。
+  virtual std::uint32_t hello_token_version(
+      const std::vector<std::uint8_t>& hello_body) const = 0;
+  // 从入站 `MSG_HELLO` 的 body 中取 `client_boot_id`（§4.2.8.2 `MsgHello.client_boot_id`）——
+  //   供鉴权重放判定（`0x0204`）。body 不可解析 ⇒ 返回空串。
+  virtual std::string hello_client_boot_id(
+      const std::vector<std::uint8_t>& hello_body) const = 0;
   // 鉴权失败（`0x0003`）时的回发 body —— §4.2.8.2 `MsgAuthFail{reason_code, detail}`。
   // `detail` 只承载固定提示文案；**不得**含令牌本体 / 长度 / 片段（NFR-SEC-1 / §4.2.6）。
   virtual std::vector<std::uint8_t> auth_fail_body(std::uint32_t reason_code) const = 0;
@@ -89,6 +97,10 @@ class EmptyTransportPolicy : public TransportPolicy {
       std::uint64_t /*from_seq*/, std::uint64_t /*to_seq*/, bool /*is_last*/,
       const std::vector<std::vector<std::uint8_t> >& /*frames*/) const;
   virtual std::string hello_auth_token(
+      const std::vector<std::uint8_t>& /*hello_body*/) const;
+  virtual std::uint32_t hello_token_version(
+      const std::vector<std::uint8_t>& /*hello_body*/) const;
+  virtual std::string hello_client_boot_id(
       const std::vector<std::uint8_t>& /*hello_body*/) const;
   virtual std::vector<std::uint8_t> auth_fail_body(std::uint32_t /*reason_code*/) const;
   virtual bool resume_req_last_seq(const std::vector<std::uint8_t>& /*body*/,

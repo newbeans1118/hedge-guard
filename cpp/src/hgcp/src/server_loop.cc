@@ -39,7 +39,7 @@ HgcpServerLoop::HgcpServerLoop(const TcpConfig& cfg)
     : cfg_(cfg),
       conn_fd_(-1),
       policy_(&default_policy_),
-      token_verifier_(0),
+      auth_guard_(),
       auth_audit_sink_(0),
       session_ready_sink_(0),
       resume_gap_sink_(0),
@@ -68,7 +68,15 @@ void HgcpServerLoop::set_policy(const TransportPolicy* p) {
 }
 
 void HgcpServerLoop::set_token_verifier(const TokenVerifier* v) {
-  token_verifier_ = v;
+  auth_guard_.set_token_verifier(v);
+}
+
+void HgcpServerLoop::set_expected_token_version(std::uint32_t v) {
+  auth_guard_.set_expected_token_version(v);
+}
+
+void HgcpServerLoop::set_replay_window_ms(std::int64_t ms) {
+  auth_guard_.set_replay_window_ms(ms);
 }
 
 void HgcpServerLoop::set_auth_audit_sink(AuthAuditSink* s) {
@@ -216,18 +224,23 @@ ReplayStatus HgcpServerLoop::send_resume(std::uint64_t last_received_seq) {
 
 void HgcpServerLoop::handle_inbound(const Frame& f, std::int64_t now_ms) {
   // 帧级握手门禁（§4.2.6）：握手前仅接受 MSG_HELLO，否则按 §4.3.2 0x0107 拒并断连。
-  // 令牌校验（T-171 / FR-CONFIG-9 验收 4）：HELLO 到达且已注入 `TokenVerifier` ⇒
-  //   经 `TransportPolicy` 接缝取 `MsgHello.auth_token`（本层不解释字段）→
-  //   `verify_audited`（SHA-256 + 常量时间比较 + 失败留痕，均在该组件内）⇒
+  // 鉴权判定（T-171 / T-175 / FR-CONFIG-9 验收 4）：HELLO 到达且已注入 `TokenVerifier` ⇒
+  //   经 `TransportPolicy` 接缝取 `MsgHello` 的 `auth_token` / `token_version` /
+  //   `client_boot_id`（本层不解释字段）→ `AuthGuard::verify`（令牌 SHA-256 + 常量时间
+  //   比较 + 版本判定 0x0203 + 重放判定 0x0204 + 失败留痕，均在该组件内）⇒
   //   失败回 `MSG_AUTH_FAIL`(0x0003，body 经接缝编码 `MsgAuthFail{reason_code}`，§4.2.8.2)
   //   + **立即关闭连接**（§4.2.6 `:956`）；verifier 为 null ⇒ 维持既有帧级门禁（不因
   //   未配置令牌而拒连，向后兼容）。本层**不**重复留痕、不记录令牌信息（NFR-SEC-1）。
   if (!handshaken_) {
     if (f.header.type == mt(MessageType::kMsgHello)) {
-      if (token_verifier_ != 0) {
+      if (auth_guard_.enabled()) {
+        // T-175：经接缝取令牌 / 版本 / 启动标识（本层不解释字段），交 AuthGuard 综合判定：
+        //   令牌摘要 → token_version（0x0203）→ client_boot_id 重放（0x0204）。
         const std::string token = policy_->hello_auth_token(f.body);
-        const AuthResult ar =
-        token_verifier_->verify_audited(token, auth_audit_sink_, peer_, now_ms);
+        const std::uint32_t token_version = policy_->hello_token_version(f.body);
+        const std::string client_boot_id = policy_->hello_client_boot_id(f.body);
+        const AuthResult ar = auth_guard_.verify(token, token_version, client_boot_id,
+                                                 auth_audit_sink_, peer_, now_ms);
         if (ar != AuthResult::kAccepted) {
           send_frame(mt(MessageType::kMsgAuthFail), fl(kFlagIsError),
           policy_->auth_fail_body(error_code_for(ar)));

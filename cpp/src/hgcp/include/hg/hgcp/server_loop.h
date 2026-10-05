@@ -89,7 +89,13 @@ class HgcpServerLoop {
   // 维持既有帧级握手门禁（向后兼容：无令牌部署形态仍可用）。
   // 生命周期由调用方管理（本类不拥有、不析构）；须先于 start() 注入。
   void set_token_verifier(const TokenVerifier* v);
-  // 审计留痕接收方（§4.2.6 `:947`）。可空；留痕由 `TokenVerifier::verify_audited`
+  // T-175：期望令牌版本（§4.2.6 `:948` 令牌轮换；`HELLO.token_version` 不匹配 ⇒ 0x0203）。
+  // 设置后启用版本判定；未设置 ⇒ 不做版本判定（保持 T-171 行为）。
+  void set_expected_token_version(std::uint32_t v);
+  // T-175：重放判定窗口（§4.3.2 0x0204「短窗口」）。缺省 = `kDefaultAuthReplayWindowMs`。
+  void set_replay_window_ms(std::int64_t ms);
+  std::int64_t replay_window_ms() const { return auth_guard_.replay_window_ms(); }
+  // 审计留痕接收方（§4.2.6 `:947`）。可空；留痕由 `AuthGuard::verify`
   // 完成（成功不落痕），本类**不**重复留痕。
   void set_auth_audit_sink(AuthAuditSink* s);
   // 会话就绪接收方（T-039）：HELLO_ACK 后回调（事件层保留队列补发触发点）。可空 = 不启用。
@@ -139,8 +145,8 @@ class HgcpServerLoop {
   PbTransportPolicy default_policy_;  // 缺省 = protobuf 实现（CH-013 / §4.2.8）
   const TransportPolicy* policy_;
   HgcpSession session_;
-  const TokenVerifier* token_verifier_;  // 可空；null = 不启用令牌校验
-  AuthAuditSink* auth_audit_sink_;       // 可空；经 verify_audited 消费
+  AuthGuard auth_guard_;                 // 令牌摘要 + 版本 + 重放（T-171 / T-175）
+  AuthAuditSink* auth_audit_sink_;       // 可空；经 AuthGuard::verify 消费
   SessionReadySink* session_ready_sink_;  // 可空；T-039 事件层补发触发
   ResumeGapSink* resume_gap_sink_;        // 可空；T-039 全量重建决定点
   std::string peer_;                     // 最近 accept 的对端描述（审计用；无敏感信息）

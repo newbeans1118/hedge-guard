@@ -37,6 +37,24 @@ std::string PbTransportPolicy::hello_auth_token(
   return m.auth_token();
 }
 
+std::uint32_t PbTransportPolicy::hello_token_version(
+    const std::vector<std::uint8_t>& hello_body) const {
+  pbv1::MsgHello m;
+  if (!PbPayloadCodec::decode(hello_body, &m)) {
+    return 0u;  // 不可解析 ⇒ 0（令牌判定先行，此值仅在令牌通过后参与版本比较）
+  }
+  return m.token_version();
+}
+
+std::string PbTransportPolicy::hello_client_boot_id(
+    const std::vector<std::uint8_t>& hello_body) const {
+  pbv1::MsgHello m;
+  if (!PbPayloadCodec::decode(hello_body, &m)) {
+    return std::string();  // 不可解析 ⇒ 空串（跳过重放判定）
+  }
+  return m.client_boot_id();
+}
+
 std::vector<std::uint8_t> PbTransportPolicy::auth_fail_body(
     std::uint32_t reason_code) const {
   // §4.2.8.2 `MsgAuthFail{reason_code(必), detail(可)}`；reason_code = §4.3.2 0x02xx。

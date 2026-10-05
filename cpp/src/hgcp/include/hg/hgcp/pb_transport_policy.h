@@ -44,6 +44,12 @@ class PbTransportPolicy : public TransportPolicy {
   // T-171：入站 `MsgHello.auth_token` 解析（§4.2.8.2）；不可解析 ⇒ 空串。
   virtual std::string hello_auth_token(
       const std::vector<std::uint8_t>& hello_body) const;
+  // T-175：入站 `MsgHello.token_version` 解析（§4.2.8.2）；不可解析 ⇒ 0。
+  virtual std::uint32_t hello_token_version(
+      const std::vector<std::uint8_t>& hello_body) const;
+  // T-175：入站 `MsgHello.client_boot_id` 解析（§4.2.8.2）；不可解析 ⇒ 空串。
+  virtual std::string hello_client_boot_id(
+      const std::vector<std::uint8_t>& hello_body) const;
   // T-171：`MsgAuthFail{reason_code}` 编码（§4.2.8.2）；detail 不承载令牌信息。
   virtual std::vector<std::uint8_t> auth_fail_body(std::uint32_t reason_code) const;
   // T-039：入站 `MsgResumeReq.last_received_seq` 解析（§4.2.8.2）；不可解析 ⇒ false。

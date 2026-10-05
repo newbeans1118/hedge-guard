@@ -10,6 +10,7 @@
 
 namespace {
 
+using hg::hgcp::AuthGuard;
 using hg::hgcp::AuthResult;
 using hg::hgcp::TokenVerifier;
 
@@ -116,6 +117,62 @@ void test_auth_error_codes() {
   HG_CHECK_EQ(hg::hgcp::error_code_for(AuthResult::kAccepted), 0x0000u);
   HG_CHECK_EQ(std::string(hg::hgcp::to_string(AuthResult::kMissingToken)),
               std::string("MISSING_TOKEN"));
+  // T-175：0x0203 / 0x0204 登记（§4.3.2 `:1347`/`:1348`）
+  HG_CHECK_EQ(hg::hgcp::error_code_for(AuthResult::kTokenVersionMismatch), 0x0203u);
+  HG_CHECK_EQ(hg::hgcp::error_code_for(AuthResult::kReplay), 0x0204u);
+  HG_CHECK_EQ(std::string(hg::hgcp::to_string(AuthResult::kTokenVersionMismatch)),
+              std::string("TOKEN_VERSION_MISMATCH"));
+  HG_CHECK_EQ(std::string(hg::hgcp::to_string(AuthResult::kReplay)),
+              std::string("REPLAY"));
+}
+
+// T-175 / TC-M2-10 & TC-M2-11：AuthGuard 版本判定（0x0203）与重放判定（0x0204）。
+void test_auth_guard_version_and_replay() {
+  const std::string token = "guard-token";
+  TokenVerifier v = TokenVerifier::from_token(token);
+  RecordingSink sink;
+  AuthGuard g;
+  g.set_token_verifier(&v);
+  g.set_expected_token_version(3u);
+  g.set_replay_window_ms(1000);
+
+  // 版本不符 ⇒ 0x0203（TC-M2-10）；失败留痕、boot_id 不入台账
+  HG_CHECK(g.verify(token, 2u, "boot-a", &sink, "peer", 1000) ==
+           AuthResult::kTokenVersionMismatch);
+  HG_CHECK_EQ(sink.count, 1);
+  HG_CHECK(sink.last_result == AuthResult::kTokenVersionMismatch);
+
+  // 正常（版本相符 + 新 boot_id）⇒ 通过；成功不留痕
+  HG_CHECK(g.verify(token, 3u, "boot-a", &sink, "peer", 1000) ==
+           AuthResult::kAccepted);
+  HG_CHECK_EQ(sink.count, 1);
+
+  // 同一 boot_id 窗口内重复（1500 - 1000 = 500 < 1000）⇒ 0x0204（TC-M2-11）
+  HG_CHECK(g.verify(token, 3u, "boot-a", &sink, "peer", 1500) ==
+           AuthResult::kReplay);
+  HG_CHECK_EQ(sink.count, 2);
+  HG_CHECK(sink.last_result == AuthResult::kReplay);
+
+  // 超窗口后同一 boot_id（3000 - 1000 = 2000 > 1000）⇒ 通过
+  HG_CHECK(g.verify(token, 3u, "boot-a", &sink, "peer", 3000) ==
+           AuthResult::kAccepted);
+  HG_CHECK_EQ(sink.count, 2);
+
+  // 坏令牌优先于版本判定（不得因版本相符而放行）
+  HG_CHECK(g.verify("bad", 3u, "boot-b", &sink, "peer", 1000) ==
+           AuthResult::kBadToken);
+  HG_CHECK_EQ(sink.count, 3);
+
+  // 未设置期望版本 ⇒ 不做版本判定（向后兼容）
+  AuthGuard g2;
+  g2.set_token_verifier(&v);
+  HG_CHECK(g2.verify(token, 99u, "boot-c", &sink, "peer", 1000) ==
+           AuthResult::kAccepted);
+
+  // verifier 为 null ⇒ 鉴权未启用（直接放行，不落痕）
+  AuthGuard g3;
+  HG_CHECK(g3.verify("", 0u, "", &sink, "peer", 1000) == AuthResult::kAccepted);
+  HG_CHECK_EQ(sink.count, 3);
 }
 
 }  // namespace
@@ -127,5 +184,6 @@ int main() {
   test_token_verifier();
   test_audit_on_failure_only();
   test_auth_error_codes();
+  test_auth_guard_version_and_replay();
   return hg::hgcp::testutil::report("crypto_auth_test");
 }

@@ -220,6 +220,15 @@ class TestPolicy : public TransportPolicy {
       const std::vector<std::uint8_t>& /*hello_body*/) const {
     return std::string();
   }
+  // T-175 入站侧接缝：测试策略不解析（版本返回 0 / 启动标识空串）。
+  virtual std::uint32_t hello_token_version(
+      const std::vector<std::uint8_t>& /*hello_body*/) const {
+    return 0u;
+  }
+  virtual std::string hello_client_boot_id(
+      const std::vector<std::uint8_t>& /*hello_body*/) const {
+    return std::string();
+  }
   virtual std::vector<std::uint8_t> auth_fail_body(std::uint32_t /*reason_code*/) const {
     return std::vector<std::uint8_t>(1, 0x41);  // 'A' 占位标记
   }
@@ -375,16 +384,17 @@ class RecordingAuditSink : public hg::hgcp::AuthAuditSink {
   std::int64_t last_now_ms;
 };
 
-// 辅助：组一帧真实 `MsgHello`（CH-013 / §4.2.8.2）并上线发送。
-bool send_hello(TestClient* cli, const std::string& token) {
+// 辅助：组一帧 `MsgHello`（CH-013 / §4.2.8.2）并上线发送。
+bool send_hello_full(TestClient* cli, const std::string& token,
+                     const std::string& boot_id, std::uint32_t token_version) {
   pbv1::MsgHello h;
   h.set_proto_version(hg::hgcp::kWireVersion);
   h.set_component_id("hg-biz");
   h.set_component_role(pbv1::ROLE_JAVA);
   h.set_auth_token(token);
-  h.set_client_boot_id("boot-t171");
+  h.set_client_boot_id(boot_id);
   h.set_last_received_seq(0u);
-  h.set_token_version(1u);
+  h.set_token_version(token_version);
   std::vector<std::uint8_t> body;
   if (!PbPayloadCodec::encode(h, &body)) {
     return false;
@@ -395,6 +405,11 @@ bool send_hello(TestClient* cli, const std::string& token) {
     return false;
   }
   return cli->send_wire(w);
+}
+
+// 兼容既有用例：缺省 boot_id = "boot-t171"、token_version = 1。
+bool send_hello(TestClient* cli, const std::string& token) {
+  return send_hello_full(cli, token, "boot-t171", 1u);
 }
 
 // 用例 1：错 token ⇒ `MSG_AUTH_FAIL`(0x0003, body=MsgAuthFail{0x0201}) + 断连 + 审计留痕。
@@ -520,6 +535,136 @@ void test_auth_unconfigured_keeps_frame_gate() {
   HG_REQUIRE(cli.recv_frame(1000, &ack));
   HG_CHECK_EQ(ack.header.type, mt(MessageType::kMsgHelloAck));
   cli.close();
+}
+
+// 用例 5（T-175 / TC-M2-10）：token_version 不符 ⇒ `MSG_AUTH_FAIL{0x0203}` + 断连 + 审计。
+void test_auth_token_version_mismatch_rejected() {
+  HgcpServerLoop srv(any_port_cfg());
+  const hg::hgcp::TokenVerifier verifier = hg::hgcp::TokenVerifier::from_token("s3cret-token");
+  RecordingAuditSink sink;
+  srv.set_token_verifier(&verifier);
+  srv.set_expected_token_version(2u);  // 期望版本 2
+  srv.set_auth_audit_sink(&sink);
+  const std::uint16_t port = start_loop(&srv);
+  HG_REQUIRE(port != 0);
+  TestClient cli(connect_client(port));
+  HG_REQUIRE(cli.valid());
+
+  std::vector<Frame> in;
+  HG_REQUIRE_EQ(srv.pump(1000, 0, &in), 0);  // accept
+  HG_REQUIRE(send_hello_full(&cli, "s3cret-token", "boot-v", 1u));  // 版本 1 ≠ 2
+  in.clear();
+  const int d = srv.pump(300, 0, &in);
+  HG_REQUIRE(d == 1 || d == 2);
+  HG_CHECK(!srv.has_connection());
+  HG_CHECK_EQ(srv.disconnects(), 1);
+
+  Frame fail;
+  HG_REQUIRE(cli.recv_frame(1000, &fail));
+  HG_CHECK_EQ(fail.header.type, mt(MessageType::kMsgAuthFail));
+  pbv1::MsgAuthFail af;
+  HG_REQUIRE(PbPayloadCodec::decode(fail.body, &af));
+  HG_CHECK_EQ(af.reason_code(), 0x0203u);  // ERR_AUTH_TOKEN_VERSION
+  HG_CHECK_EQ(sink.calls, 1);
+  HG_CHECK(sink.last_result == hg::hgcp::AuthResult::kTokenVersionMismatch);
+  cli.close();
+}
+
+// 用例 6（T-175 / TC-M2-11）：同一 client_boot_id 在窗口内重复建连 ⇒ 第 2 次 0x0204。
+void test_auth_replay_same_boot_id_rejected() {
+  HgcpServerLoop srv(any_port_cfg());
+  const hg::hgcp::TokenVerifier verifier = hg::hgcp::TokenVerifier::from_token("s3cret-token");
+  RecordingAuditSink sink;
+  srv.set_token_verifier(&verifier);
+  srv.set_expected_token_version(1u);
+  srv.set_replay_window_ms(1000);
+  srv.set_auth_audit_sink(&sink);
+  const std::uint16_t port = start_loop(&srv);
+  HG_REQUIRE(port != 0);
+  // 第 1 次：通过（boot_id 台账登记于 now=1000）
+  {
+    TestClient cli(connect_client(port));
+    HG_REQUIRE(cli.valid());
+    std::vector<Frame> in;
+    HG_REQUIRE_EQ(srv.pump(1000, 1000, &in), 0);  // accept
+    HG_REQUIRE(send_hello_full(&cli, "s3cret-token", "boot-rep", 1u));
+    in.clear();
+    HG_REQUIRE_EQ(srv.pump(300, 1000, &in), 1);
+    HG_CHECK(srv.has_connection());
+    Frame ack;
+    HG_REQUIRE(cli.recv_frame(1000, &ack));
+    HG_CHECK_EQ(ack.header.type, mt(MessageType::kMsgHelloAck));
+    HG_CHECK_EQ(sink.calls, 0);
+    cli.close();
+  }
+  {  // 服务端观测对端关闭（释放单连接守卫）
+    std::vector<Frame> in;
+    srv.pump(300, 1000, &in);
+  }
+  HG_CHECK(!srv.has_connection());
+  // 第 2 次：同一 boot_id、窗口内（1100 - 1000 = 100 < 1000）⇒ 重放
+  {
+    TestClient cli(connect_client(port));
+    HG_REQUIRE(cli.valid());
+    std::vector<Frame> in;
+    HG_REQUIRE_EQ(srv.pump(1000, 1100, &in), 0);  // accept
+    HG_REQUIRE(send_hello_full(&cli, "s3cret-token", "boot-rep", 1u));
+    in.clear();
+    srv.pump(300, 1100, &in);
+    HG_CHECK(!srv.has_connection());
+    Frame fail;
+    HG_REQUIRE(cli.recv_frame(1000, &fail));
+    HG_CHECK_EQ(fail.header.type, mt(MessageType::kMsgAuthFail));
+    pbv1::MsgAuthFail af;
+    HG_REQUIRE(PbPayloadCodec::decode(fail.body, &af));
+    HG_CHECK_EQ(af.reason_code(), 0x0204u);  // ERR_AUTH_REPLAY
+    HG_CHECK_EQ(sink.calls, 1);
+    HG_CHECK(sink.last_result == hg::hgcp::AuthResult::kReplay);
+    cli.close();
+  }
+}
+
+// 用例 7（T-175）：版本相符 + 新 boot_id ⇒ 通过；同一 boot_id 超出窗口后亦通过。
+void test_auth_version_and_boot_normal_accepted() {
+  HgcpServerLoop srv(any_port_cfg());
+  const hg::hgcp::TokenVerifier verifier = hg::hgcp::TokenVerifier::from_token("s3cret-token");
+  RecordingAuditSink sink;
+  srv.set_token_verifier(&verifier);
+  srv.set_expected_token_version(1u);
+  srv.set_replay_window_ms(500);
+  srv.set_auth_audit_sink(&sink);
+  const std::uint16_t port = start_loop(&srv);
+  HG_REQUIRE(port != 0);
+  {
+    TestClient cli(connect_client(port));
+    HG_REQUIRE(cli.valid());
+    std::vector<Frame> in;
+    HG_REQUIRE_EQ(srv.pump(1000, 0, &in), 0);
+    HG_REQUIRE(send_hello_full(&cli, "s3cret-token", "boot-w", 1u));
+    in.clear();
+    HG_REQUIRE_EQ(srv.pump(300, 0, &in), 1);
+    Frame ack;
+    HG_REQUIRE(cli.recv_frame(1000, &ack));
+    HG_CHECK_EQ(ack.header.type, mt(MessageType::kMsgHelloAck));
+    cli.close();
+  }
+  { std::vector<Frame> in; srv.pump(300, 0, &in); }
+  HG_CHECK(!srv.has_connection());
+  {  // 同一 boot_id，但 1000 - 0 = 1000 > 500 ⇒ 已出窗口，通过
+    TestClient cli(connect_client(port));
+    HG_REQUIRE(cli.valid());
+    std::vector<Frame> in;
+    HG_REQUIRE_EQ(srv.pump(1000, 1000, &in), 0);
+    HG_REQUIRE(send_hello_full(&cli, "s3cret-token", "boot-w", 1u));
+    in.clear();
+    HG_REQUIRE_EQ(srv.pump(300, 1000, &in), 1);
+    HG_CHECK(srv.has_connection());
+    Frame ack;
+    HG_REQUIRE(cli.recv_frame(1000, &ack));
+    HG_CHECK_EQ(ack.header.type, mt(MessageType::kMsgHelloAck));
+    HG_CHECK_EQ(sink.calls, 0);  // 全程成功不落痕
+    cli.close();
+  }
 }
 
 // 缺省策略（`PbTransportPolicy`）的出站 body 可被真实 `PbPayloadCodec` 解码
@@ -1009,5 +1154,8 @@ int main() {
   test_auth_missing_token_rejected();
   test_auth_good_token_accepted();
   test_auth_unconfigured_keeps_frame_gate();
+  test_auth_token_version_mismatch_rejected();
+  test_auth_replay_same_boot_id_rejected();
+  test_auth_version_and_boot_normal_accepted();
   return hg::hgcp::testutil::report("transport_test");
 }
