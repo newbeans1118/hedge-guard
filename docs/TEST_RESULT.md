@@ -16511,3 +16511,13 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **T-179 面与 TE-T179-001 闭环**：FK 全图扫描恰 3 文件级环（config↔product、plan↔trade 已后置；fund↔settle 由本单后置消解）；判据负控 rc=1 非空转；判据模型「文件内依赖排序」获独立意见支持（m1_plan 自检字面 + m1_config_auth.sql:396 既有事实双证；严格语句序残留 t_role→t_position_group 为既有、非本单引入）。TE-T179-001（低）：原工具「145 边」=漏 4 条模块内后置 ALTER 边 + 5 条重复边凑数，覆盖探针（m2_fund 模块内 ALTER 父表改跨文件后建 t_annual_scale）仍 PASS ⇒ 假绿风险实证。**be-t179b 微修闭环**：工具 ddb6be3e875eee8dd3cfe4d9166ddc2c（144 条唯一边口径；模块内后置 ALTER 按「本文件建表段完成」时点校验，新增覆盖 m2_trade×2/m2_fund×2）+ README a7710b89dd73e43fbbcf41aaf2213bed（§8.4 过声明订正）；**双负控实跑**：跨文件父表场景修前 PASS（假绿）→ 修后 FAIL rc=1；fk 内联复原 ⇒ create 时点 FAIL rc=1；临时改动逐字节复原（m2_fund.sql 87e760d1…、m2_settle.sql 9cb58667…）。
 
 **编排者亲核记录**：终态指纹（工具/README/三主文件/T178 测试/M2SettleSchemaTest）交付当日亲测与回执一致；判据复跑 PASS（144 unique 口径）当日复现；「红线 grep web/ 命中」系测试包合法路径误报（T-158 镜像判例）。
+
+---
+
+## T-179 TE-T179-001 delta 复检（席 te-verify-t178b；2026-10-05 第 199 轮 · 编排者逐字转录）
+
+**结论：TE-T179-001 修复成立、闭环确认（0 阻断）；新发现 TE-T179-002（低·latent·不阻断）。**
+
+**闭环证据**：① 独立另写解析脚本重算——全库 REFERENCES 150 处 = 144 条唯一有向非自引用边 + 5 处重复（t_position_conflict→t_position_group ×2、t_hedge_ratio_calc→t_custom_hedge_rule ×2、t_fund_flow→t_sub_account ×2、t_transfer_apply→t_sub_account ×3）+ 1 条自引用（t_deposit_withdraw_apply 合理跳过），与工具「144 unique」精确一致；② 原假绿探针（m2_fund 模块内后置 ALTER 父表→t_annual_scale）修后 FAIL rc1；③ 负控2（fk_t_settle_fund_ledger 内联复原）FAIL rc1；④ -v 明细确认 m2_trade/m2_fund 四条模块内后置 ALTER 逐条被检；⑤ README 无 145 残留。去重口径 first-wins 经核不掩盖违例（created 单调 ⇒ 最早检查点即最严点）。
+
+**TE-T179-002（低·latent·新发现）**：时点模型对「既含模块内后置 ALTER、又含跨模块后置 ALTER、且该文件在 PLAN 有独立回补步」的文件偏松（现仅 m1_plan.sql——工具将其全部 ALTER 置回补步，而 README §7.1 步 5 只暂缓跨模块段、其模块内 3 条随步 5 执行）。构造性反例（probe3）：m1_plan 的 fk_ratio_calc_applied_rule 父表改 t_option_strategy（step 6 才建）工具 PASS 而 README 步 5 实执将失败。**现网无实害**（3 条模块内边父表均 m1_plan 自建，两模型同判）。处置：登记观察；复核建议 ①按「父表是否本文件自建」拆分时点或 ②docstring/README 显式声明建模简化——编排者采 ②，随下次工具触改一并落地。
