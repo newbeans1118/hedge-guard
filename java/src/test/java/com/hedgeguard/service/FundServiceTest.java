@@ -422,6 +422,35 @@ class FundServiceTest {
     }
 
     @Test
+    @DisplayName("TE-T049b-001：出入金申请单号唯一冲突 ⇒ 自动重试并重新取号（DATA_MODEL:4380 最多 3 次）")
+    void depositWithdrawApplyNoRetriesOnUniqueConflict() {
+        String day = Clocks.today().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
+        dws.conflictingApplyNo = "DW" + day + "00001"; // 首次取号即与并发事务撞号
+
+        long a = deposit(1, "10", "K1");
+
+        assertNotNull(dws.findById(a), "唯一冲突须自动重试并成功落库，不得抛出");
+        assertEquals("DW" + day + "00002", dws.findById(a).applyNo,
+                "重试须重新取「当日最大序号 + 1」（并发行已可见 ⇒ ...00002）");
+        assertEquals(2, dws.insertCalls, "须发生一次重试（共 2 次 insert）");
+    }
+
+    @Test
+    @DisplayName("TE-T049b-001：划拨单号唯一冲突 ⇒ 自动重试并重新取号（DATA_MODEL:4380 最多 3 次）")
+    void transferApplyNoRetriesOnUniqueConflict() {
+        initLedger(1, "1000");
+        String day = Clocks.today().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
+        transfers.conflictingApplyNo = "TF" + day + "0001"; // 首次取号即与并发事务撞号
+
+        long t = initiateTransfer(1, 2, "100", "调配");
+
+        assertNotNull(transfers.findById(t), "唯一冲突须自动重试并成功落库，不得抛出");
+        assertEquals("TF" + day + "0002", transfers.findById(t).applyNo,
+                "重试须重新取「当日最大序号 + 1」");
+        assertEquals(2, transfers.insertCalls, "须发生一次重试（共 2 次 insert）");
+    }
+
+    @Test
     @DisplayName("O-1：查询仍 UNKNOWN 不置 originalConfirmed（不放行重试）；终态方可重试")
     void unknownConfirmationDoesNotPermitRetry() {
         initLedger(1, "0");

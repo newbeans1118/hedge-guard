@@ -29,6 +29,7 @@ import com.hedgeguard.web.ErrorCode;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
@@ -38,6 +39,8 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.logging.Logger;
 
 /**
@@ -169,6 +172,9 @@ public final class FundService {
     public static final String RECON_OPEN_DIFF = "HAS_OPEN_DIFFERENCE";
 
     private static final BigDecimal ZERO = BigDecimal.ZERO;
+
+    /** 唯一约束冲突重试上限（{@code DATA_MODEL.md} §3.5「最多 3 次」，与 {@code PlanService} 同口径）。 */
+    private static final int RETRY_MAX_ATTEMPTS = 3;
 
     private final TxTemplate tx;
     private final SubAccountVisibility visibility;
@@ -410,35 +416,40 @@ public final class FundService {
         String idem = requireText(req.idempotencyKey, "idempotencyKey（FR-FUND-5 验收3）");
         visibility.assertSubAccountWritable(operatorId, sub);
 
-        return tx.inTransaction(conn -> {
-            DepositWithdrawApply dup = dwDao.findByIdempotencyKey(idem);
-            if (dup != null) {
-                return dup; // 幂等 no-op：同一标识不产生第二笔划转
-            }
-            DepositWithdrawApply a = new DepositWithdrawApply();
-            a.subAccountId = sub;
-            a.direction = direction;
-            a.amount = amount;
-            a.idempotencyKey = idem;
-            a.fundSourceDesc = req.fundSourceDesc;
-            a.purposeDesc = req.purposeDesc;
-            a.applicantId = operatorId;
-            a.status = DW_PENDING_REVIEW;
-            a.originalConfirmed = "N";
-            a.applyNo = nextApplyNo("DW", Clocks.today(), 5, true);
-            if (DIR_OUT.equals(direction)) {
-                FundLedger l = ledgerDao.findBySubAccountAndDate(sub, Clocks.today());
-                BigDecimal avail = l == null ? ZERO : nz(l.availableFund);
-                if (avail.compareTo(amount) < 0) {
-                    throw BizException.of(ErrorCode.PARAM_INVALID,
-                            "出金金额超过来源子账户可用资金（FR-FUND-6 验收2）：可用="
-                                    + avail.toPlainString() + " 申请=" + amount.toPlainString());
-                }
-                a.availableBefore = avail;
-            }
-            dwDao.insert(a, operatorId);
-            return a;
-        });
+        String[] candidateNo = new String[1];
+        return retryApplyNo(
+                () -> tx.inTransaction(conn -> {
+                    DepositWithdrawApply dup = dwDao.findByIdempotencyKey(idem);
+                    if (dup != null) {
+                        return dup; // 幂等 no-op：同一标识不产生第二笔划转
+                    }
+                    DepositWithdrawApply a = new DepositWithdrawApply();
+                    a.subAccountId = sub;
+                    a.direction = direction;
+                    a.amount = amount;
+                    a.idempotencyKey = idem;
+                    a.fundSourceDesc = req.fundSourceDesc;
+                    a.purposeDesc = req.purposeDesc;
+                    a.applicantId = operatorId;
+                    a.status = DW_PENDING_REVIEW;
+                    a.originalConfirmed = "N";
+                    a.applyNo = nextApplyNo("DW", Clocks.today(), 5, true);
+                    candidateNo[0] = a.applyNo;
+                    if (DIR_OUT.equals(direction)) {
+                        FundLedger l = ledgerDao.findBySubAccountAndDate(sub, Clocks.today());
+                        BigDecimal avail = l == null ? ZERO : nz(l.availableFund);
+                        if (avail.compareTo(amount) < 0) {
+                            throw BizException.of(ErrorCode.PARAM_INVALID,
+                                    "出金金额超过来源子账户可用资金（FR-FUND-6 验收2）：可用="
+                                            + avail.toPlainString() + " 申请=" + amount.toPlainString());
+                        }
+                        a.availableBefore = avail;
+                    }
+                    dwDao.insert(a, operatorId);
+                    return a;
+                }),
+                () -> candidateNo[0],
+                no -> dwDao.findByApplyNo(no) != null);
     }
 
     /**
@@ -633,26 +644,31 @@ public final class FundService {
         }
         String idem = requireText(newIdemKey, "newIdempotencyKey");
         visibility.assertSubAccountWritable(operatorId, original.subAccountId);
-        return tx.inTransaction(conn -> {
-            DepositWithdrawApply dup = dwDao.findByIdempotencyKey(idem);
-            if (dup != null) {
-                return dup;
-            }
-            DepositWithdrawApply a = new DepositWithdrawApply();
-            a.subAccountId = original.subAccountId;
-            a.direction = original.direction;
-            a.amount = original.amount;
-            a.idempotencyKey = idem;
-            a.fundSourceDesc = original.fundSourceDesc;
-            a.purposeDesc = original.purposeDesc;
-            a.applicantId = operatorId;
-            a.status = DW_PENDING_REVIEW;
-            a.originalConfirmed = "N";
-            a.retryOfId = originalId;
-            a.applyNo = nextApplyNo("DW", Clocks.today(), 5, true);
-            dwDao.insert(a, operatorId);
-            return a;
-        });
+        String[] candidateNo = new String[1];
+        return retryApplyNo(
+                () -> tx.inTransaction(conn -> {
+                    DepositWithdrawApply dup = dwDao.findByIdempotencyKey(idem);
+                    if (dup != null) {
+                        return dup;
+                    }
+                    DepositWithdrawApply a = new DepositWithdrawApply();
+                    a.subAccountId = original.subAccountId;
+                    a.direction = original.direction;
+                    a.amount = original.amount;
+                    a.idempotencyKey = idem;
+                    a.fundSourceDesc = original.fundSourceDesc;
+                    a.purposeDesc = original.purposeDesc;
+                    a.applicantId = operatorId;
+                    a.status = DW_PENDING_REVIEW;
+                    a.originalConfirmed = "N";
+                    a.retryOfId = originalId;
+                    a.applyNo = nextApplyNo("DW", Clocks.today(), 5, true);
+                    candidateNo[0] = a.applyNo;
+                    dwDao.insert(a, operatorId);
+                    return a;
+                }),
+                () -> candidateNo[0],
+                no -> dwDao.findByApplyNo(no) != null);
     }
 
     // ================================================================ 三、子账户划拨（FR-FUND-10/11/12/16）
@@ -681,28 +697,33 @@ public final class FundService {
         visibility.assertSubAccountWritable(operatorId, from);
         assertNoOpenDifference(from, "划出");
 
-        return tx.inTransaction(conn -> {
-            FundLedger l = ledgerDao.findBySubAccountAndDate(from, Clocks.today());
-            BigDecimal avail = l == null ? ZERO : nz(l.availableFund);
-            if (avail.compareTo(amount) < 0) {
-                throw BizException.of(ErrorCode.PARAM_INVALID,
-                        "划出子账户可用资金不足（FR-FUND-10 验收3）：可用=" + avail.toPlainString()
-                                + " 申请=" + amount.toPlainString());
-            }
-            TransferApply t = new TransferApply();
-            t.subAccountId = from;
-            t.fromSubAccountId = from;
-            t.toSubAccountId = to;
-            t.amount = amount;
-            t.reason = reason;
-            t.expectedEffectiveDate = req.expectedEffectiveDate == null || req.expectedEffectiveDate.isEmpty()
-                    ? null : parseDate(req.expectedEffectiveDate, "expectedEffectiveDate");
-            t.status = TR_PENDING_APPROVAL;
-            t.applicantId = operatorId;
-            t.applyNo = nextTransferApplyNo(Clocks.today());
-            transferDao.insert(t, operatorId);
-            return t;
-        });
+        String[] candidateNo = new String[1];
+        return retryApplyNo(
+                () -> tx.inTransaction(conn -> {
+                    FundLedger l = ledgerDao.findBySubAccountAndDate(from, Clocks.today());
+                    BigDecimal avail = l == null ? ZERO : nz(l.availableFund);
+                    if (avail.compareTo(amount) < 0) {
+                        throw BizException.of(ErrorCode.PARAM_INVALID,
+                                "划出子账户可用资金不足（FR-FUND-10 验收3）：可用=" + avail.toPlainString()
+                                        + " 申请=" + amount.toPlainString());
+                    }
+                    TransferApply t = new TransferApply();
+                    t.subAccountId = from;
+                    t.fromSubAccountId = from;
+                    t.toSubAccountId = to;
+                    t.amount = amount;
+                    t.reason = reason;
+                    t.expectedEffectiveDate = req.expectedEffectiveDate == null || req.expectedEffectiveDate.isEmpty()
+                            ? null : parseDate(req.expectedEffectiveDate, "expectedEffectiveDate");
+                    t.status = TR_PENDING_APPROVAL;
+                    t.applicantId = operatorId;
+                    t.applyNo = nextTransferApplyNo(Clocks.today());
+                    candidateNo[0] = t.applyNo;
+                    transferDao.insert(t, operatorId);
+                    return t;
+                }),
+                () -> candidateNo[0],
+                no -> transferDao.findByApplyNo(no) != null);
     }
 
     /**
@@ -1337,6 +1358,69 @@ public final class FundService {
             next = parseSeq(max.substring(prefix.length())) + 1L;
         }
         return BizNoGenerator.transferApply(date, next);
+    }
+
+    /**
+     * 以「唯一约束冲突 ⇒ 重新取号并重试整笔事务」执行一次编号分配
+     * （{@code DATA_MODEL.md} §3.5：{@code UNIQUE} 冲突 + 最多 3 次重试）。
+     *
+     * <p>{@code tx.inTransaction} 内的 DAO 插入撞唯一约束时，{@code TxTemplate} 会把
+     * {@link SQLException} 包装为 {@link IllegalStateException}；本方法沿因果链解出唯一冲突
+     * （{@code SQLState 23xx}）后交由 {@link BizNoGenerator#retryOnUniqueConflict} 重试整笔事务
+     * （回滚后重新取号，与 {@code PlanService} 同口径）。仅当候选编号确实已被占用
+     * （= 编号冲突）时重试；其他唯一约束冲突原样抛出，不误报为「编号冲突」、
+     * 不做无谓重试。
+     *
+     * @param attempt     单次尝试（内部须把本次候选编号写入 {@code candidateNo}）
+     * @param candidateNo 本次尝试生成的候选编号（跨尝试可读；无编号冲突时可为 {@code null}）
+     * @param occupied    候选编号是否已被占用（{@code true}=编号冲突，可重试；{@code false}=其他唯一冲突）
+     * @param <T>         返回类型
+     * @return 成功尝试的返回值
+     */
+    private <T> T retryApplyNo(Supplier<T> attempt, Supplier<String> candidateNo,
+                               Predicate<String> occupied) {
+        Object[] out = new Object[1];
+        BizNoGenerator.retryOnUniqueConflict(RETRY_MAX_ATTEMPTS, () -> {
+            try {
+                out[0] = attempt.get();
+                return true;
+            } catch (IllegalStateException e) {
+                SQLException unique = uniqueViolationCause(e);
+                if (unique == null) {
+                    throw e;
+                }
+                String no = candidateNo.get();
+                if (no == null || !occupied.test(no)) {
+                    throw new IllegalStateException(
+                            "唯一约束冲突非申请单号（不重试）；复现=核对该事务其余唯一约束", e);
+                }
+                throw unique;
+            }
+        });
+        @SuppressWarnings("unchecked")
+        T result = (T) out[0];
+        return result;
+    }
+
+    /**
+     * 从异常链中解出「唯一约束冲突」的 {@link SQLException}（编号重试判定用）。
+     *
+     * <p>{@code TxTemplate} 会把 DAO 抛出的 {@link SQLException} 包装为 {@link IllegalStateException}
+     * （{@code TxTemplate.java:147} 附近）；本方法沿因果链查找唯一冲突（{@code SQLState 23xx}）的原始
+     * {@link SQLException}，供 {@link BizNoGenerator#retryOnUniqueConflict} 判定并重试；非唯一冲突返回
+     * {@code null}（不误重试）。
+     *
+     * @param error 异常（通常为包装后的 {@link IllegalStateException}）
+     * @return 唯一约束冲突的 SQL 异常；非唯一冲突（或不可判定）返回 {@code null}
+     */
+    static SQLException uniqueViolationCause(Throwable error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SQLException
+                    && BizNoGenerator.isUniqueViolation((SQLException) cause)) {
+                return (SQLException) cause;
+            }
+        }
+        return null;
     }
 
     /** 落一条复核记录。 */

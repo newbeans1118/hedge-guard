@@ -201,6 +201,26 @@ final class FundFakes {
         @Override Integer subOf(DepositWithdrawApply e) { return e.subAccountId; }
         @Override String noOf(DepositWithdrawApply e) { return e.applyNo; }
 
+        /** TE-T049b-001 测试注入：命中该单号的 insert 模拟并发撞号（落一行同号 + 抛唯一冲突），仅触发一次。 */
+        String conflictingApplyNo;
+        /** TE-T049b-001 测试注入：insert 实际调用次数（断言重试发生）。 */
+        int insertCalls;
+
+        @Override public int insert(DepositWithdrawApply e, long operatorId) {
+            insertCalls++;
+            if (e.applyNo != null && e.applyNo.equals(conflictingApplyNo)) {
+                DepositWithdrawApply concurrent = new DepositWithdrawApply();
+                concurrent.subAccountId = e.subAccountId;
+                concurrent.applyNo = e.applyNo;
+                concurrent.status = e.status;
+                super.insert(concurrent, operatorId); // 模拟并发事务已提交同号行（使下次取号 +1）
+                conflictingApplyNo = null;            // 仅冲突一次
+                throw new IllegalStateException("唯一约束冲突（uk_dw_apply_no）",
+                        new java.sql.SQLException("duplicate key", "23000"));
+            }
+            return super.insert(e, operatorId);
+        }
+
         @Override public DepositWithdrawApply findByIdempotencyKey(String idempotencyKey) {
             for (DepositWithdrawApply a : rows) {
                 if (idempotencyKey != null && idempotencyKey.equals(a.idempotencyKey)) {
@@ -248,6 +268,28 @@ final class FundFakes {
         @Override LocalDate dateOf(TransferApply e) { return null; }
         @Override Integer subOf(TransferApply e) { return e.subAccountId; }
         @Override String noOf(TransferApply e) { return e.applyNo; }
+
+        /** TE-T049b-001 测试注入：命中该单号的 insert 模拟并发撞号（落一行同号 + 抛唯一冲突），仅触发一次。 */
+        String conflictingApplyNo;
+        /** TE-T049b-001 测试注入：insert 实际调用次数（断言重试发生）。 */
+        int insertCalls;
+
+        @Override public int insert(TransferApply e, long operatorId) {
+            insertCalls++;
+            if (e.applyNo != null && e.applyNo.equals(conflictingApplyNo)) {
+                TransferApply concurrent = new TransferApply();
+                concurrent.subAccountId = e.subAccountId;
+                concurrent.fromSubAccountId = e.fromSubAccountId;
+                concurrent.toSubAccountId = e.toSubAccountId;
+                concurrent.applyNo = e.applyNo;
+                concurrent.status = e.status;
+                super.insert(concurrent, operatorId); // 模拟并发事务已提交同号行（使下次取号 +1）
+                conflictingApplyNo = null;            // 仅冲突一次
+                throw new IllegalStateException("唯一约束冲突（uk_transfer_apply_no）",
+                        new java.sql.SQLException("duplicate key", "23000"));
+            }
+            return super.insert(e, operatorId);
+        }
 
         @Override public TransferApply findByApplyNo(String applyNo) {
             for (TransferApply t : rows) {
