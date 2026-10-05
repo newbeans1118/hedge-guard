@@ -20,7 +20,7 @@
 | 2 | 双组件启动顺序脚本（hg-trading → hg-biz） | **部分** | 脚本已按 §2.4.1 顺序交付（§4、§9）；**hg-trading 为工程骨架，不监听/不握手/无就绪态** ⇒ 顺序脚本可运行但「C++ 已就绪」无法在骨架期成立，真联编排承接中 |
 | 3 | 健康检查脚本可用；前后端可独立升级 | **达成** | §5 健康检查（本机实测：hg-biz 3/3 PASS）；§6 独立升级（零构建链） |
 | 4 | 敏感字段零落盘在部署文档显式声明 | **达成** | §10（含装载守卫与口令策略项陷阱） |
-| 5 | DM8 实机建表跑通 + 与 DATA_MODEL 逐列一致 | **未达（环境前置缺失）** | 本环境**无 DM8 实例/无 DM 驱动**（§8.1 实测）。已交付可复跑静态核对脚本 + 结果；**不得以 SQLite 冒充 DM8**（CH-016）。另发现一处**建表脚本跨模块循环外键**（§8.4），DM8 单遍执行会阻断 |
+| 5 | DM8 实机建表跑通 + 与 DATA_MODEL 逐列一致 | **未达（环境前置缺失）** | 本环境**无 DM8 实例/无 DM 驱动**（§8.1 实测）。已交付可复跑静态核对脚本 + 结果；**不得以 SQLite 冒充 DM8**（CH-016）。另发现一处**建表脚本跨模块循环外键**（§8.4），**已由 T-179 按两阶段后置消解**（DM8 实机验证仍待环境） |
 | 6 | protobuf 供给策略落地 | **达成** | §2.3（系统包 3.21.12 实测在位 / FetchContent 离线回退） |
 | 7 | CTP SDK 实盘版本复测 | **达成** | §2.4（`run_probe.sh` 复测 PASS=12/FAIL=0，SDK v6.7.13） |
 
@@ -230,7 +230,7 @@ C++ 启动时序（§4.5.3）：
 脚本头部声明的顺序 + **两阶段（后置外键）** 要求如下：
 
 ```text
-阶段 A（基表）：
+阶段 A（基表 + 后置外键回补）：
   1) m1_config_auth.sql   —— 暂缓文件末尾「跨模块外键」段（fk_authorization_product → t_product）
   2) m1_product.sql
   3) 回补 1) 暂缓的跨模块外键段
@@ -238,13 +238,15 @@ C++ 启动时序（§4.5.3）：
   5) m1_plan.sql          —— 暂缓文件末尾 fk_trade_plan_strategy → t_option_strategy 段
   6) m2_trade.sql
   7) 回补 5) 暂缓的跨模块外键段
-  8) m2_settle.sql        —— ⚠️ 见 §8.4：与 FUND 存在循环外键，当前脚本单遍执行会失败
+  8) m2_settle.sql        —— 仅执行**建表段**；暂缓文件末尾 fk_t_settle_fund_ledger → t_fund_ledger 段
   9) m2_fund.sql
- 10) m3_risk.sql
- 11) data-init.sql
+ 10) 回补 8) 暂缓的 fk_t_settle_fund_ledger 段
+ 11) m3_risk.sql
+ 12) data-init.sql
 ```
 
-> `m1_config_auth.sql` / `m1_plan.sql` 的跨模块外键段已由脚本作者显式置于文件末尾并注明「暂缓」；`SETTLE↔FUND` 未做同口径处理（§8.4）。
+> `m1_config_auth.sql` / `m1_plan.sql` / `m2_settle.sql` 的跨模块外键段均已由脚本作者显式置于文件末尾并注明「暂缓」；三处两阶段后置**消解了 CONFIG↔PRODUCT、PLAN↔TRADE、SETTLE↔FUND 三个跨模块环**（§8.4）。
+> 判据（可复跑）：`python3 docs/DEPLOY/tools/fk-order-check.py` —— 按本顺序静态断言各 FK 父表在建表/回补时已存在，退出码 0=PASS。
 
 ---
 
@@ -283,19 +285,27 @@ python3 docs/DEPLOY/tools/reconcile-schema.py --json     # 机读
 3. 记录 DM8 版本（`v$version`）与 DM JDBC 驱动版本/md5，回填 §2.1/§2.2；
 4. 以真实 DAO 跑读写与约束强制（等价于既有 `*Dm8EquivalentIntegrationTest` 的实机版）。
 
-### 8.4 ⚠️ 新发现：建表脚本跨模块循环外键（DM8 单遍执行阻断）
+### 8.4 建表脚本跨模块循环外键（DM8 单遍执行阻断）—— 已修订
 
-静态核对**只比列名，不判外键可满足性**，故不会发现本项；经人工取证如下：
+静态核对**只比列名，不判外键可满足性**，故不会发现本项；T-052 经人工取证发现三处跨模块环，现均按「文件末尾后置 ALTER + 两阶段回补」口径处置：
 
-- `m2_settle.sql`：`t_settle_fund.fund_ledger_id → t_fund_ledger`（`FUND`，**内联** FOREIGN KEY）
-- `m2_fund.sql`：`t_fund_flow.settle_cycle_id → t_settle_cycle`、`t_transfer_apply.agg_check_id → t_aggregation_check`、`t_fund_reconcile.agg_check_id → t_aggregation_check`（`SETTLE`，**均内联**）
-- ⇒ **SETTLE 与 FUND 互为前置**，且**两侧均未**按 `m1_plan.sql` 的「文件末尾后置 ALTER」先例暂缓任一侧 ⇒ 在 DM8 上**无任一单遍执行顺序可成功**。
+- `CONFIG↔PRODUCT`：`m1_config_auth.sql` 已后置 `fk_authorization_product → t_product`（§7.1 步 1 / 回补步 3）
+- `PLAN↔TRADE`：`m1_plan.sql` 已后置 `fk_trade_plan_strategy → t_option_strategy`（步 5 / 回补步 7）
+- `SETTLE↔FUND`：**T-179 已修订**——原 `m2_settle.sql` 的 `t_settle_fund.fund_ledger_id → t_fund_ledger`（`FUND`，**原为内联**）已后置至该文件末尾 ALTER 段；FUND 侧仍保留内联（`t_fund_flow.settle_cycle_id → t_settle_cycle`、`t_transfer_apply.agg_check_id → t_aggregation_check`、`t_fund_reconcile.agg_check_id → t_aggregation_check`，均指向 SETTLE）
+  ⇒ 两阶段执行：`m2_settle.sql` **建表段**先于 `m2_fund.sql`；后置的 `fk_t_settle_fund_ledger` 在 `m2_fund.sql` 之后回补（§7.1 步 8 / 回补步 10）。
 
-**最小修订建议（承接归 schema 责任任务，非本席写域）**：将 `m2_settle.sql` 的 `fk_t_settle_fund_ledger` 改置文件末尾 ALTER 段（与 `m1_plan.sql` 同口径），并**分段执行**——`m2_settle.sql` 的建表段须先于 `m2_fund.sql` 执行，后置的 `fk_t_settle_fund_ledger` 段在 `m2_fund.sql` 之后回补（与 §7.1 的回补步同口径）；
-随后执行顺序为 `… → m2_trade.sql → m2_settle.sql（建表段） → m2_fund.sql → 回补 settle 后置外键 → m3_risk.sql → data-init.sql`。
-本席**未擅自改动 schema**（属既有任务制品），在此登记并上报。
+**修订后执行顺序**：`… → m2_trade.sql → m2_settle.sql（建表段） → m2_fund.sql → 回补 settle 后置外键 → m3_risk.sql → data-init.sql`。
 
-另注：`CONFIG↔PRODUCT`（config 侧已后置）、`PLAN↔TRADE`（plan 侧已后置）两处循环**已有**脚本作者的后置处理，按 §7.1 两阶段可解。
+**判据（可复跑）**：
+
+```bash
+python3 docs/DEPLOY/tools/fk-order-check.py        # 退出码 0=PASS
+python3 docs/DEPLOY/tools/fk-order-check.py -v     # 逐条 FK 边明细
+```
+
+根据 §7.1 顺序静态断言：每条内联 FK 的父表在建表时已存在、每个后置 ALTER 的父表在回补时已存在（同文件内按依赖排序，跨文件按 §7.1 固定顺序）。**本机实测：81 张表、145 条 FK 边、0 违约、`RESULT: PASS`**（无 DM8，纯静态）。DM8 实机执行仍待环境（§8.1）。
+
+另注：本判据为**静态拓扑**证据，**不替代** DM8 实机建表（`CH-016`）。
 
 ---
 
@@ -335,7 +345,7 @@ python3 docs/DEPLOY/tools/reconcile-schema.py --json     # 机读
 | U-1 | DM8 实机建表跑通（验收 5） | **未达-环境前置缺失** | 环境具备后按 §8.3 补；本任务不判 DONE |
 | U-2 | DM JDBC 驱动实测版本（`RSK-03`） | **未达-驱动缺位** | 部署时提供并回填 §2.2 |
 | U-3 | 双组件真联（C++ 就绪态 → Java 连接 → 补数/参数下发） | **未达-骨架未实化** | 真联编排任务（`main.cc` 实化）；本项目多单已登记同一承接点 |
-| U-4 | SETTLE↔FUND 循环外键致 DM8 单遍建表失败（§8.4） | **新发现缺口** | 建议归 schema 责任任务：`m2_settle.sql` 后置 `fk_t_settle_fund_ledger` |
+| U-4 | SETTLE↔FUND 循环外键致 DM8 单遍建表失败（§8.4） | **已修订（T-179：后置 ALTER + 两阶段回补；待独立复核）** | 脚本侧已消解；DM8 实机验证并入 U-1 |
 | U-5 | 前端浏览器真机验证 | 未做 | 属前端任务；本席仅脚本级（curl）验证 |
 
 ---

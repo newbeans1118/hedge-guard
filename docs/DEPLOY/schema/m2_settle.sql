@@ -6,8 +6,10 @@
 --        / §0.5 DM8 建表模板 / §4.3 约束目录 / §4.4.1 差异归属机判来源
 --  目标库：达梦 DM8；执行者：DBA（应用账号仅 SELECT/INSERT/UPDATE，禁 DDL — NFR-SEC-8）
 --
---  执行顺序：本脚本引用 t_sub_account（CONFIG）、t_product（PRODUCT）、t_user（AUTH）、
---    t_hedge_plan（PLAN）、t_fund_ledger（FUND）——故须在上述脚本之后执行。
+--  执行顺序：本脚本**建表段**引用 t_sub_account（CONFIG）、t_product（PRODUCT）、t_user（AUTH）、
+--    t_hedge_plan（PLAN），故须在上述脚本之后执行；t_fund_ledger（FUND）仅由**文件末尾后置
+--    外键段**引用（SETTLE↔FUND 跨模块环：FUND 侧内联指向 SETTLE，须先建 FUND 再回补本段），
+--    故建表段可先于 m2_fund.sql 执行。两阶段执行顺序见 docs/DEPLOY/README.md §7.1 / §8.4。
 --
 --  [未实测声明] 本环境无 DM8 实例，本脚本未在 DM8 实机执行。
 --    替代证据：M2SettleSchemaTest（逐列一致）+ DaoColumnAlignmentTest（DAO 与 DDL 列对齐）
@@ -311,9 +313,7 @@ CREATE TABLE t_settle_fund (
     CONSTRAINT fk_t_settle_fund_sub FOREIGN KEY (sub_account_id)
         REFERENCES t_sub_account (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_t_settle_fund_cycle FOREIGN KEY (settle_cycle_id)
-        REFERENCES t_settle_cycle (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
-    CONSTRAINT fk_t_settle_fund_ledger FOREIGN KEY (fund_ledger_id)
-        REFERENCES t_fund_ledger (id) ON DELETE RESTRICT ON UPDATE RESTRICT
+        REFERENCES t_settle_cycle (id) ON DELETE RESTRICT ON UPDATE RESTRICT
 );
 COMMENT ON TABLE  t_settle_fund                IS '系统内结算资金（按子账户；σ 本表 = CTP 账户资金）';
 COMMENT ON COLUMN t_settle_fund.sub_account_id   IS '子账户（必填，可直接求和）';
@@ -755,6 +755,22 @@ COMMENT ON COLUMN t_stress_test.operator_id      IS '执行人';
 COMMENT ON COLUMN t_stress_test.test_time        IS '执行时间';
 CREATE INDEX idx_stress_test_date_sub ON t_stress_test (test_date, sub_account_id);
 CREATE INDEX idx_stress_test_time ON t_stress_test (test_time);
+
+-- =============================================================================
+--  跨模块外键（依赖其他里程碑脚本）
+--
+--  ⚠️ 执行顺序：以下约束指向 FUND 模块的 t_fund_ledger，**本脚本单独执行时须先建该表**，
+--     否则本段会失败（不影响上面 16 张表的建表结果）。
+--     ① fk_t_settle_fund_ledger → t_fund_ledger(TB-FUND-2)：由 FUND 模块建表脚本创建。
+--     ② 本约束原为表内联，因 SETTLE↔FUND 互为前置（FUND 侧 t_fund_flow.settle_cycle_id /
+--        t_transfer_apply.agg_check_id / t_fund_reconcile.agg_check_id 内联指向 SETTLE）而
+--        后置，与 m1_plan.sql 末尾 fk_trade_plan_strategy 同口径；建表段可先于 m2_fund.sql
+--        执行，本段在 m2_fund.sql 之后回补（T-052 部署清单登记：README §7.1 / §8.4，NFR-DEPLOY-2）。
+--     级联规则一律 RESTRICT（§0.4：禁止级联删除）。
+-- =============================================================================
+ALTER TABLE t_settle_fund ADD CONSTRAINT fk_t_settle_fund_ledger
+    FOREIGN KEY (fund_ledger_id) REFERENCES t_fund_ledger (id)
+    ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- =============================================================================
 --  本脚本自检
