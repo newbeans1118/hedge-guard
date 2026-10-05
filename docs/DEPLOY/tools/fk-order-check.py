@@ -8,10 +8,17 @@ m1_plan.sql self-check "文件内顺序无关，建表按依赖执行"):
     order (a parent defined later in the same file is resolved by reordering);
   * across files the order is FIXED by README sec 7.1, except that deferred
     cross-module FK segments run at their scheduled replay step;
+  * a module-internal deferred ALTER (parent defined later in the SAME file) runs
+    at the end of that file's create section; a cross-module deferred ALTER runs
+    at its scheduled replay step (README sec 7.1).  This file's deferred ALTER
+    segments are executed when its own create phase finishes; only files with a
+    dedicated replay step in PLAN are handled at that step.
   * therefore a violation = an FK whose parent does not exist at the moment the
     child is created (or the deferred ALTER runs) under that order.  A cycle
     spanning files is exactly this: no order can satisfy it, which is why the
     two-phase replay exists.
+  * each directed (child, parent) edge is counted once (unique edges), regardless
+    of how many constraints / columns realise it.
 
 Usage:  python3 fk-order-check.py [schema_dir] [-v]
 Exit 0 = PASS (total order realisable); 1 = FAIL.
@@ -71,6 +78,9 @@ PLAN = [
     ('m2_fund.sql', 'create'),        ('m2_settle.sql', 'alter'),
     ('m3_risk.sql', 'create'),
 ]
+# Files whose deferred ALTER segment has a dedicated replay step in PLAN; every
+# other file runs its deferred ALTERs at the end of its own create section.
+SCHEDULED_ALTER = {f for f, p in PLAN if p == 'alter'}
 
 def in_file_topo(creates):
     """Return tables in dependency order; raise on in-file cycle."""
@@ -90,7 +100,20 @@ def in_file_topo(creates):
         raise RuntimeError('in-file cycle among: %s' % sorted(set(names) - set(order)))
     return order, pmap
 
-created, violations, checked, reordered = set(), [], 0, []
+created, violations, reordered = set(), [], []
+seen_edges = set()
+
+def check(fname, kind, tname, parent, when):
+    key = (tname, parent)
+    if key in seen_edges:            # same directed edge -> count once
+        return
+    seen_edges.add(key)
+    if parent in created:
+        if VERBOSE: print('OK   %-16s %-6s  %-30s -> %s' % (fname, kind, tname, parent))
+    else:
+        violations.append((fname, kind, tname, parent))
+        print('FAIL %-16s %-6s  %-30s -> %s (%s)' % (fname, kind, tname, parent, when))
+
 for fname, phase in PLAN:
     creates, alters = PARSED[fname]
     if phase == 'create':
@@ -102,29 +125,25 @@ for fname, phase in PLAN:
             for p in allparents[tname]:
                 if p == tname:  # self-reference
                     continue
-                checked += 1
-                if p in created:
-                    if VERBOSE: print('OK   %-16s create  %-30s -> %s' % (fname, tname, p))
-                else:
-                    violations.append((fname, 'create', tname, p))
-                    print('FAIL %-16s create  %-30s -> %s (parent absent at create time)' % (fname, tname, p))
+                check(fname, 'create', tname, p, 'parent absent at create time')
             created.add(tname)
+        if fname not in SCHEDULED_ALTER:
+            # module-internal deferred ALTER: runs after this file's tables exist
+            for tname, parents in alters:
+                for p in parents:
+                    check(fname, 'alter', tname, p,
+                          'parent absent at module-internal deferred ALTER time')
     else:
         for tname, parents in alters:
             for p in parents:
-                checked += 1
-                if p in created:
-                    if VERBOSE: print('OK   %-16s alter   %-30s -> %s' % (fname, tname, p))
-                else:
-                    violations.append((fname, 'alter', tname, p))
-                    print('FAIL %-16s alter   %-30s -> %s (parent absent at replay step)' % (fname, tname, p))
+                check(fname, 'alter', tname, p, 'parent absent at replay step')
 
 for fname, orig, new in reordered:
     if VERBOSE:
         print('NOTE %s: %.14s... executed in dependency order (same-file forward ref resolved)' % (fname, ' -> '.join(new)))
 print('schema files            : %d' % len(FILES))
 print('tables created in order : %d' % len(created))
-print('FK edges checked        : %d' % checked)
+print('FK edges checked        : %d unique (incl. module-internal deferred ALTER)' % len(seen_edges))
 if violations:
     print('VIOLATIONS (%d)' % len(violations)); print('RESULT: FAIL'); sys.exit(1)
 print('RESULT: PASS (total order realisable under README sec 7.1)')

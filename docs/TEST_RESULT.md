@@ -16493,3 +16493,21 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **观察**：O-2 交付测试以同值计划/dbOrderId 观察窗绕过缺陷（「部分」诚实）；O-3 §10-36 证据起始于直插批次（加总逻辑充分、摄入腿缺）；O-4 五缺陷无在树回归用例（复核席探针补齐，是否随 T-178 补植由其裁定）；O-5 基线 @Test=875 可复算（派单「62 个测试」口径不可复算，不影响结论）。
 
 **编排者裁定与亲核**：003 服务侧对齐冻结（权威制品优先，免 CH；留痕产品他日确认则 CH）；001b 不自行放行转技术席；红线 grep「web/」命中系测试包合法路径（非禁触 web/**）。
+
+---
+
+## T-178/T-179 独立复核证据（席 te-verify-t178b；2026-10-05 第 198 轮 · 编排者逐字转录）
+
+**结论：有条件通过 / 0 阻断。T-178 条件当场闭环；T-179 条件 TE-T179-001 经 be-t179b 微修闭环（双负控实跑假绿消除）。**
+
+**冻结与范围**：HEAD ef03a7e（98c8d56 → bdc51df → ef03a7e 三提交链）；bdc51df 恰 9 文件 +607/−26 全 java/**；ef03a7e 恰 M2SettleSchemaTest.java +8；98c8d56 恰 3 文件 docs/DEPLOY/**；冻结件 M2EndToEndAcceptanceTest md5 5b632c8c8632336394e1c4bc172efa54 未动；java/src 树锚 7f36d44faf19e002435a60882627b81f/567（变异后逐字节复原）。
+
+**门禁独立复跑**：893/0/0/0（@Test==surefire==893，113 suite）；arch-check 8 判据全 0。
+
+**T-178 五缺陷修复核（对齐冻结口径）**：001a PARSE_PARSED="OK"（m2_settle.sql:46 域）；002 dispatchTypeOf 去前缀（m3_risk.sql:53-55 八值恰覆盖，余 SET_READY_STATE/TRIGGER_REPLAY/RELOAD 为域缺口已并入 001b 技术席包）；003 hedgePlanDao 校验/落库（m2_trade.sql:277 FK 目标；HEDGE_PLAN_ID=302/TRADE_PLAN_ID=303 判别真实生效——变异 003 下前者报「计划不存在」、后者负控 FAILURE）；004 requireParentOrder 归一 DB 主键（fill/orderReport 双点，变异回退 e.orderId ⇒ fk_trade_fill_order/fk_trade_order_report_order 孤儿双红）；005 retryCount=0。**四变异组独立重做全红**，复原 md5 三文件与 HEAD 一致。
+
+**去掩盖回归用例核**：T178ViolationRegressionTest 425 行/8 @Test，18 处 new Dm*Dao、0 Fake、InMemoryDmEngine 逐脚本建表——真·真实栈，非假 DAO（对照 T-136 判例的盲区已消除）。004 兼容分支（findByOrderId 优先、findById 兜底）编排者裁定接受：两路径均归一 DB 主键，存储值无混义。
+
+**T-179 面与 TE-T179-001 闭环**：FK 全图扫描恰 3 文件级环（config↔product、plan↔trade 已后置；fund↔settle 由本单后置消解）；判据负控 rc=1 非空转；判据模型「文件内依赖排序」获独立意见支持（m1_plan 自检字面 + m1_config_auth.sql:396 既有事实双证；严格语句序残留 t_role→t_position_group 为既有、非本单引入）。TE-T179-001（低）：原工具「145 边」=漏 4 条模块内后置 ALTER 边 + 5 条重复边凑数，覆盖探针（m2_fund 模块内 ALTER 父表改跨文件后建 t_annual_scale）仍 PASS ⇒ 假绿风险实证。**be-t179b 微修闭环**：工具 ddb6be3e875eee8dd3cfe4d9166ddc2c（144 条唯一边口径；模块内后置 ALTER 按「本文件建表段完成」时点校验，新增覆盖 m2_trade×2/m2_fund×2）+ README a7710b89dd73e43fbbcf41aaf2213bed（§8.4 过声明订正）；**双负控实跑**：跨文件父表场景修前 PASS（假绿）→ 修后 FAIL rc=1；fk 内联复原 ⇒ create 时点 FAIL rc=1；临时改动逐字节复原（m2_fund.sql 87e760d1…、m2_settle.sql 9cb58667…）。
+
+**编排者亲核记录**：终态指纹（工具/README/三主文件/T178 测试/M2SettleSchemaTest）交付当日亲测与回执一致；判据复跑 PASS（144 unique 口径）当日复现；「红线 grep web/ 命中」系测试包合法路径误报（T-158 镜像判例）。
