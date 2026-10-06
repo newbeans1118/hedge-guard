@@ -187,7 +187,7 @@
 
       <!--
         架构合规聚合门禁（ARCHITECTURE.md §3.13）：`mvn verify` 前置步骤。
-        调用仓库根 tools/arch-check/arch-check.sh（聚合 E1–E6；任一非 0 ⇒ 整体非 0）。
+        调用仓库根 tools/arch-check/arch-check.sh（聚合 E1–E8；任一非 0 ⇒ 整体非 0）。
         说明：
           · 绑定 validate 阶段 ⇒ 先于 compile/test/package/verify，属「verify 前置」；
           · 为不新增 compile/runtime 依赖、不改既有插件，仅引入 exec-maven-plugin

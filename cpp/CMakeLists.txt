@@ -69,7 +69,7 @@ add_subdirectory(src)
 
 # -----------------------------------------------------------------------------
 # 架构合规聚合门禁（ARCHITECTURE.md §3.13）
-#   tools/arch-check/arch-check.sh 聚合 E1–E6 六判据脚本，任一非 0 ⇒ 整体非 0。
+#   tools/arch-check/arch-check.sh 聚合 E1–E8 八判据脚本，任一非 0 ⇒ 整体非 0。
 #   注册为 ctest fixture 的 SETUP：业务测试经 FIXTURES_REQUIRED 依赖它，
 #   即「ctest 前置步骤」；`mvn verify` 侧由 java/pom.xml 的 exec 前置同样调用。
 # -----------------------------------------------------------------------------
