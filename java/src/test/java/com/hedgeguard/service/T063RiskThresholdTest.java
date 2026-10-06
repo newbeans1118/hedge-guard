@@ -278,6 +278,60 @@ class T063RiskThresholdTest {
         assertFalse(thresholdDao.findByKey("risk.term.max_months", "GLOBAL", 0) != null);
     }
 
+    @Test
+    @DisplayName("枚举键（value_type=LIST）：合法值 ON_ORDER 落库 + 下发（放宽，带复核）")
+    void enumThresholdWriteAllowedAndStored() {
+        RiskService.ThresholdView v = riskService.updateThreshold(
+                "risk.position.check_mode", "ON_ORDER", OPERATOR, REVIEWER, "改校验时点");
+        assertEquals("ON_ORDER", v.thresholdValue);
+        assertEquals("LIST", v.valueType, "枚举键写面须落 LIST（TE-T063-002 服务侧映射）");
+        assertEquals("SUCCESS", v.dispatchStatus);
+        assertEquals(1, bridge.dispatchedChanges().size(), "应下发");
+
+        Map<String, Object> row = engine.table("t_risk_threshold").rows.get(0);
+        assertEquals("ON_ORDER", row.get("threshold_value"));
+        assertEquals("LIST", row.get("value_type"), "落库 value_type 须为 LIST（合 CHECK 域）");
+    }
+
+    @Test
+    @DisplayName("枚举键：收紧取值（TERM_ACTION=BLOCK）无复核放行（非 relaxedValues）")
+    void enumThresholdStricterWriteWithoutReviewerAllowed() {
+        RiskService.ThresholdView v = riskService.updateThreshold(
+                "risk.term.action", "BLOCK", OPERATOR, null, "收紧处置");
+        assertEquals("BLOCK", v.thresholdValue);
+        assertEquals("SUCCESS", v.dispatchStatus);
+    }
+
+    @Test
+    @DisplayName("枚举键：非法取值被拒 10001（不落库、不下发）")
+    void enumThresholdInvalidValueRejected() {
+        BizException ex = assertThrows(BizException.class, () ->
+                riskService.updateThreshold("risk.position.check_mode", "NOPE", OPERATOR, REVIEWER, "x"));
+        assertEquals(ErrorCode.PARAM_INVALID, ex.errorCode());
+        assertTrue(bridge.dispatchedChanges().isEmpty());
+        assertNull(thresholdDao.findByKey("risk.position.check_mode", "GLOBAL", 0));
+    }
+
+    @Test
+    @DisplayName("TE-T063-001：min_hold_days 3→2（真放宽，方向 LOWER）无复核 ⇒ 10012")
+    void minHoldDaysLoosenedWithoutReviewerRejected() {
+        BizException ex = assertThrows(BizException.class, () ->
+                riskService.updateThreshold("risk.freq.min_hold_days", "2", OPERATOR, null, "放宽"));
+        assertEquals(ErrorCode.COMPLIANCE_GATE_FAILED, ex.errorCode());
+        assertEquals("R-CONFIG-8", ex.ruleId());
+        assertTrue(bridge.dispatchedChanges().isEmpty());
+        assertNull(thresholdDao.findByKey("risk.freq.min_hold_days", "GLOBAL", 0));
+    }
+
+    @Test
+    @DisplayName("TE-T063-001：min_hold_days 3→4（真收紧，方向 LOWER）无复核放行（不得误拒）")
+    void minHoldDaysTightenedWithoutReviewerAllowed() {
+        RiskService.ThresholdView v = riskService.updateThreshold(
+                "risk.freq.min_hold_days", "4", OPERATOR, null, "收紧");
+        assertEquals("4", v.thresholdValue);
+        assertEquals("SUCCESS", v.dispatchStatus);
+    }
+
     private static RiskService.ThresholdView byKey(List<RiskService.ThresholdView> views, String key) {
         for (RiskService.ThresholdView v : views) {
             if (v.thresholdKey.equals(key)) {
