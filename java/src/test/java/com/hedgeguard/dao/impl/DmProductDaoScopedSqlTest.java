@@ -46,7 +46,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   <li><b>非空 scope</b> ⇒ 两 SQL 均含 {@code sub_account_id IN (?,?)} 且按序绑定子账户 ID；</li>
  *   <li><b>服务层 → 真实 DAO</b>：{@code VarietyService.listProducts} 的过滤确实落到<b>两条</b> SQL；</li>
  *   <li><b>哨兵 0</b>（跨账户只读）⇒ 两 SQL <b>不含</b> {@code sub_account_id} 条件（不加过滤）；</li>
- *   <li>SELECT 排序 {@code ORDER BY created_time DESC}（{@code FR-PRODUCT-5}「默认按创建时间倒序」）。</li>
+ *   <li>SELECT 排序 {@code ORDER BY created_time DESC, id ASC}（{@code FR-PRODUCT-5}「默认按创建时间倒序」
+ *       ＋ {@code T-096} 主键 tie-break 全序；{@code T-125} 起按<b>形状</b>断言，见 {@link #orderByOf(String)}）。</li>
  * </ul>
  */
 class DmProductDaoScopedSqlTest {
@@ -77,8 +78,10 @@ class DmProductDaoScopedSqlTest {
         RecordingJdbc.Rec select = jdbc.records().get(1);
         assertTrue(count.sql.contains("COUNT(*)"), "第一条须为 COUNT：" + count.sql);
         assertTrue(count.args.isEmpty(), "空 scope 无绑定参数：" + count.sql);
-        assertTrue(select.sql.contains("ORDER BY created_time DESC"),
-                "默认排序须为创建时间倒序：" + select.sql);
+        // T-125 形状守卫：原为 contains("ORDER BY created_time DESC")，子串随取值增长静默失去守卫力
+        //（加/改 tie-break 仍绿，见 T-096 复核 O-2）⇒ 改为解析 ORDER BY 子句后按整体形状判等（含 id tie-break）。
+        assertEquals("created_time DESC, id ASC", orderByOf(select.sql),
+                "默认排序须为 {created_time 倒序 + 主键 id 升序} 全序形状：" + select.sql);
         assertTrue(select.sql.contains("LIMIT ? OFFSET ?"), "SELECT 须分页：" + select.sql);
         assertEquals(Arrays.asList((Object) 20, 0), select.args,
                 "SELECT 绑定：LIMIT(20) + OFFSET(0)：" + select.sql);
@@ -146,8 +149,9 @@ class DmProductDaoScopedSqlTest {
         assertTrue(jdbc.records().get(0).args.isEmpty(), "COUNT 无绑定参数");
         assertEquals(Arrays.asList((Object) 20, 0), jdbc.records().get(1).args,
                 "SELECT 绑定：LIMIT + OFFSET");
-        assertTrue(jdbc.records().get(1).sql.contains("ORDER BY created_time DESC"),
-                "跨账户只读仍按创建时间倒序：" + jdbc.records().get(1).sql);
+        // T-125 形状守卫（同第一条的理由）：按 ORDER BY 整体形状判等，非子串包含。
+        assertEquals("created_time DESC, id ASC", orderByOf(jdbc.records().get(1).sql),
+                "跨账户只读仍按 {created_time 倒序 + id 升序} 全序形状：" + jdbc.records().get(1).sql);
     }
 
     // ------------------------------------------------------------ T-106：详情面（findByIdScoped）
@@ -266,6 +270,19 @@ class DmProductDaoScopedSqlTest {
                 "占位符个数须与绑定参数个数一致：" + rec.sql);
         assertEquals(Arrays.asList((Object) 5L, 7), rec.args,
                 "参数 = 主键 + 可见子账户，与占位符一一对应");
+    }
+
+    /**
+     * 从 SQL 中取出 {@code ORDER BY} 子句（到 {@code LIMIT} 前），用于<b>形状级</b>（整体判等，
+     * 非子串包含）排序守卫（{@code T-125}；参照 {@code DmTradePlanStableOrderTest.orderByOf}）。
+     */
+    private static String orderByOf(String sql) {
+        int at = sql.indexOf(" ORDER BY ");
+        int lim = sql.indexOf(" LIMIT", at);
+        if (at < 0 || lim < 0) {
+            throw new IllegalArgumentException("SQL 缺 ORDER BY / LIMIT：" + sql);
+        }
+        return sql.substring(at + " ORDER BY ".length(), lim).trim();
     }
 
     /** 统计 SQL 中 {@code ?} 占位符个数（{@code ??}/{@code ?} 皆为占位符；本 SQL 无字面问号）。 */

@@ -243,16 +243,33 @@ public final class PageQuery {
      * 可保证「任意两条记录排序键不同」（主键唯一）即全序，从而稳定分页。
      *
      * <p><b>不写死列名</b>：唯一列由 DAO 自身给出（{@code AbstractDmDao.idColumn()}），各表各取各的；
-     * 排序键已含该列时<b>不重复追加</b>。
+     * 排序键已含该列时<b>不重复追加</b>（判定<b>大小写不敏感</b>，见 {@link #containsSortField(String)}）。
      *
      * @param uniqueColumn 唯一列（通常为主键列）；{@code null} / 空 ⇒ 等价 {@link #orderBy()}
      * @return 完整排序子句（含必要 tie-break）
      */
     public String orderByEnsuringUnique(String uniqueColumn) {
         String clause = orderBy();
-        if (uniqueColumn == null || uniqueColumn.isEmpty() || sortFields.contains(uniqueColumn)) {
+        if (uniqueColumn == null || uniqueColumn.isEmpty() || containsSortField(uniqueColumn)) {
             return clause;
         }
         return clause + ", " + uniqueColumn + ' ' + ASC;
+    }
+
+    /**
+     * 排序键中是否已含指定列（<b>大小写不敏感</b>）。
+     *
+     * <p><b>为何忽略大小写</b>（{@code T-125}／{@code T-096} 复核观察 {@code O-4}）：SQL 标识符大小写
+     * 不敏感，{@code sort} 允许大小写混写（如 {@code ID}／{@code Id}）；若按大小写敏感判定，非白名单
+     * 路径传入大写 {@code ID} 时会误判「不含」而追加冗余键 {@code ID ASC, id ASC}。故按
+     * {@link String#equalsIgnoreCase} 比较。
+     */
+    private boolean containsSortField(String column) {
+        for (String field : sortFields) {
+            if (field.equalsIgnoreCase(column)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

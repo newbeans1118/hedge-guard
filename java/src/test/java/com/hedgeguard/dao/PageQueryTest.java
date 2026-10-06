@@ -220,6 +220,29 @@ class PageQueryTest {
     }
 
     @Test
+    @DisplayName("T-125：orderByEnsuringUnique 的「已含唯一列」判定大小写不敏感（id/ID/Id 混写均不重复追加）")
+    void orderByEnsuringUniqueCaseInsensitive() {
+        // SQL 标识符大小写不敏感 ⇒ sort 给出 ID/Id 时，唯一列 id 视为「已含」，不得产出冗余键 ID ASC, id ASC。
+        assertEquals("ID DESC", PageQuery.of(null, null, "ID,desc", "ID").orderByEnsuringUnique("id"),
+                "sort=ID 而唯一列 id ⇒ 已含（大小写不敏感），不追加");
+        assertEquals("Id DESC", PageQuery.of(null, null, "Id,desc", "Id").orderByEnsuringUnique("id"),
+                "sort=Id 而唯一列 id ⇒ 已含，不追加");
+        assertEquals("id DESC", PageQuery.of(null, null, "id,desc", "id").orderByEnsuringUnique("id"),
+                "sort=id 而唯一列 id ⇒ 已含，不追加");
+        // 反向：sort 为小写 id，唯一列以大写 ID 传入 ⇒ 同样视为已含。
+        assertEquals("id DESC", PageQuery.of(null, null, "id,desc", "id").orderByEnsuringUnique("ID"),
+                "唯一列以大写 ID 传入 ⇒ 与 sort 中 id 等值（大小写不敏感），不追加");
+        // 多键混写：末键 ID 已含 ⇒ 不追加（形状不变）。
+        assertEquals("created_time DESC, ID ASC",
+                PageQuery.of(null, null, "created_time,desc,ID,asc", "created_time").orderByEnsuringUnique("id"),
+                "多键末键 ID 已含 id ⇒ 不追加");
+        // 反例（不含唯一列）⇒ 仍须追加 id ASC，防止「一律不追加」的过度修复。
+        assertEquals("created_time DESC, id ASC",
+                PageQuery.of(null, null, "created_time,desc", "created_time").orderByEnsuringUnique("id"),
+                "不含 id ⇒ 仍须追加 id ASC");
+    }
+
+    @Test
     @DisplayName("T-096：sortFields() 返回全部排序键（多键逐键校验用）")
     void exposesAllSortFields() {
         assertEquals(java.util.Arrays.asList("exec_deadline", "id"),
