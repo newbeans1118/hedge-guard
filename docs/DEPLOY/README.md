@@ -276,7 +276,7 @@ python3 docs/DEPLOY/tools/reconcile-schema.py --json     # 机读
 - DATA_MODEL.md 表数 = 111；已核对 = 99；**失败 = 0**；结果 = **PASS**
 - 尚未建脚本的 12 张（M3 的 ACCT 等，非失败）：`t_hedge_relation`、`t_effectiveness_assess`、`t_voucher`、`t_dual_pnl_report` …（全表见结果文件）
 - **核对口径**：**列名集合级**（脚本 CREATE TABLE 的列 ↔ 文档 §2.x 字段表列；通用审计字段 `§0.3` 6 列计为允许的额外列）。
-- **更深一层证据（类型/精度/非空/索引/外键级）**：既有 `*SchemaTest`（`ConfigAuthSchemaTest`/`M1ProductSpotPlanSchemaTest`/`M2SettleSchemaTest`/`TradeSchemaTest`/`FundSchemaTest`/`RiskParamDispatchSchemaTest`）。本席复跑：`mvn -B -o -Punit test -Dtest=...` ⇒ **28/28 通过，0 失败**。
+- **更深一层证据（类型/精度/非空/索引/外键级）**：既有 `*SchemaTest`（`ConfigAuthSchemaTest`/`M1ProductSpotPlanSchemaTest`/`M2SettleSchemaTest`/`TradeSchemaTest`/`FundSchemaTest`/`RiskParamDispatchSchemaTest`/`M3RiskSchemaTest`/`M3AuditSchemaTest`）。本席复跑：`mvn -B -o -Punit test -Dtest='*SchemaTest'` ⇒ **37/37 通过，0 失败**。
 - **明确标注**：以上均为**制品内部一致性**，**不替代** DM8 实机建表验证（`CH-016`：不得以 SQLite 冒充 DM8）。
 
 ### 8.3 待补（DM8 环境具备后）
