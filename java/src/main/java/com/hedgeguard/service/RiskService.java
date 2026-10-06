@@ -42,6 +42,21 @@ import java.util.List;
  * <h2>边界（不属本类）</h2>
  * 事中镜像告警（{@code risk_intraday}，{@code T-050}）、事后报表（{@code T-180}）、C++ 引擎 11 规则
  * （{@code T-035} 等）均不在此重复实现；本类只做「配置 → 合规校验 → 下发 → 留痕/回执」。
+ *
+ * <h2>承载边界（诚实披露，{@code T-063}）</h2>
+ * <ol>
+ *   <li><b>无线格式字段的键</b>：{@code CFG-16}（{@code risk.limit.layers}）、{@code CFG-21} 之
+ *       {@code _critical}、{@code CFG-21b} **在 {@code §4.2.8 RiskThresholds} 无字段** ⇒ 可经
+ *       {@code t_risk_threshold} 配置/查看，但 <b>不可经 {@code CMD_UPDATE_RISK_THRESHOLD} 下发</b>
+ *       （schema↔需求缺口，待 {@code CH}；不得自行扩协议）。</li>
+ *   <li><b>Java 事中面不随本表刷新</b>：事中镜像阈值 {@code risk_intraday.RiskThresholds}
+ *       取自<b>运行期 {@code Config}</b>（属性 / 环境变量，装配期一次绑定），非本表；
+ *       {@code FR-RISK-9}/{@code FR-RISK-10}（{@code RISK.md:221}/{@code :236}）与
+ *       {@code FR-CONFIG-5}/{@code R-CONFIG-8}（{@code CONFIG.md:164}/{@code :339}）的明文义务均为
+ *       「<b>下发 C++ 内存</b> + 留痕 + 合规口径」，<b>未</b>要求 DB 阈值变更刷新 Java 事中镜像
+ *       ⇒ 本类<b>不</b>做需求外的同流 {@code t_config_item} 更新（避免双写/需求外传播）；
+ *       若后续要求打通，属跨 {@code T-050}/{@code T-065} 事中面改造，另立任务。</li>
+ * </ol>
  */
 public final class RiskService {
 

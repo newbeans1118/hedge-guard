@@ -60,12 +60,15 @@ import sys
 DEFAULT_CONTRACTS = "java/CONTRACTS.md"
 DEFAULT_PROTO = "proto/hgcp.proto"
 
-# §3.2.1 表内当前冻结的三条指令 ↔ proto message 名。
+# §3.2.1 表内当前冻结的四条指令 ↔ proto message 名。
 # 将来表内新增指令 ⇒ 在此登记扩展；未登记指令名 ⇒ ShapeError（退 2，N5）。
+# 【T-063】新增第 4 条 CMD_UPDATE_RISK_THRESHOLD ↔ RiskThresholds（嵌套复用，G-5）；
+#           payload 键 = 16 个 §4.2.8 字段名（直键，非 entries[n].*）。
 SPECS = {
     "CMD_SET_TRADING_SUSPEND": "CmdSetTradingSuspend",
     "CMD_UPDATE_QUOTA": "QuotaEntry",
     "CMD_UPDATE_PERMISSION": "PermissionEntry",
+    "CMD_UPDATE_RISK_THRESHOLD": "RiskThresholds",
 }
 
 # §3.2.1 明载：通用 param_version 不放 payload（用 ParamChange.paramVersion 承载），
@@ -323,7 +326,8 @@ def main(argv):
     sys.stdout.write("线格式    : %s\n" % proto_path)
     sys.stdout.write("判据      : 双向差集（直键 / entries[n].*）——"
                      "CMD_SET_TRADING_SUSPEND ↔ CmdSetTradingSuspend、"
-                     "CMD_UPDATE_QUOTA ↔ QuotaEntry、CMD_UPDATE_PERMISSION ↔ PermissionEntry\n")
+                     "CMD_UPDATE_QUOTA ↔ QuotaEntry、CMD_UPDATE_PERMISSION ↔ PermissionEntry、"
+                     "CMD_UPDATE_RISK_THRESHOLD ↔ RiskThresholds\n")
     sys.stdout.write("不覆盖    : 取值/必填性语义 / §3.2 旧版表(含已废止 suspend/scope/suspend_id) / "
                      "字段号·类型(E7) / 说明列散文 / 表内新增未登记指令(⇒2)\n")
     sys.stdout.write("-" * 67 + "\n")

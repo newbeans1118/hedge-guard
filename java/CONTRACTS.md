@@ -531,6 +531,7 @@ public interface MajorEventDao extends BaseDao<MajorEvent, Long> {
 | | `entries[n].has_risk_role` | **必填**（禁止类） |
 | | `entries[n].has_settle_role` | **必填**（禁止类） |
 | | **`entries[n].has_trading_post`** | **必填**（**`CH-019` 新增**；**准入类**标记 —— 不命中即拒 `0x100B`，与同族 4 个**禁止类**布尔**方向相反**） |
+| **`CMD_UPDATE_RISK_THRESHOLD`**（`0x0115`） | `scale_ratio_commodity` / `scale_ratio_trade` / `scale_base` / `scale_scope` / `term_max_months` / `term_grace_days` / `term_action` / `price_base` / `price_warn_pct` / `price_block_pct` / `position_check_mode` / `freq_intraday_warn` / `freq_intraday_block` / `freq_7d_rounds_warn` / `freq_min_hold_days` / `margin_ratio_threshold` | 风控阈值**全量快照**（线格式 = `§4.2.8` **嵌套** `RiskThresholds`，`G-5` 复用；与 `CMD_LOAD_RISK_PARAMS.thresholds` 同型）；16 字段**全必填**（缺键即拒，`HGC-1.6`）；`param_version` 不放 payload。⚠️ **`CFG-16`（`risk.limit.layers`）/ `CFG-21` 双键之 `_critical` / `CFG-21b` 无承载字段**——可配置不可经本指令下发（`T-063` 披露，schema↔需求缺口待 CH） |
 | 通用 | `param_version` | **不放 payload** —— 用 `ParamChange.paramVersion` 专用字段承载 |
 
 > ⚠️ **`CMD_UPDATE_PERMISSION` 条目粒度 = `t_authorization` 行级 `(user_id, sub_account_id, product_id)`**，
