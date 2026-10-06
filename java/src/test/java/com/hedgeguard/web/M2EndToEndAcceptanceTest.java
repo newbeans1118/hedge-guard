@@ -471,8 +471,8 @@ class M2EndToEndAcceptanceTest {
 
     private long settleScenario(String ctpEquity) {
         // CTP 日终数据（账户级合并）走种子直插 t_ctp_settle_batch/position/fund。
-        // ⚠️ 未经 FR-SETTLE-1 服务入口 ingestCtpData：该入口当前写 parse_status='PARSED'/'PENDING_DATA'，
-        // 越出冻结域 {OK,PARTIAL,FAILED} ⇒ 在真实/等价 DB 上必违 CHECK（缺陷 TE-T058-001，见证据章）。
+        // ⚠️ 未经 FR-SETTLE-1 服务入口 ingestCtpData：T-058 时点该入口写 parse_status='PARSED'/'PENDING_DATA'，
+        // 越出当时冻结域 {OK,PARTIAL,FAILED} ⇒ 在真实/等价 DB 上必违 CHECK（缺陷 TE-T058-001）；CH-021（2026-10-06 用户批准）扩域后该入口写 'NOT_ARRIVED' 合法。
         try {
             M2E2eSeed.ctpBatch(engine, 900L, BASE_DAY, "CTP-" + BASE_DAY, 1, 1);
             M2E2eSeed.ctpPosition(engine, 900L, BASE_DAY, INSTRUMENT, "LONG", "YESTERDAY", "5");
