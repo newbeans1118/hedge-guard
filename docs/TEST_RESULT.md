@@ -16623,3 +16623,27 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **观察（4，不阻断）**：O-1 M1 红数自述 4 vs 实测 6（镜像计入）——口径未言明范围，非缺陷；O-2 基线首跑 907/1（HgcpClientTimeoutTest.timelyAckWinsAndTimeoutShortCircuits）满负载偶发，单类隔离 3/3 绿 + 二次全量 907 全绿 ⇒ 既有 flaky，T-165 时序域、T-125 未触 bridge；O-3 复核期 HEAD 前移（be-t097 2528545），四文件 ad0f8e8 与 HEAD 逐字节同（md5 四对比 same=true），按冻结纪律披露不停手；O-4 两页并集基数判据未独立触发但探针证独立承重（纵深防御）。
 
 **编排者亲核记录**：ad0f8e8 恰 4 文件、四 md5、既有测试纯新增核、锚点当日亲测与复核席一致。
+
+---
+
+## T-097 独立复核证据（席 te-verify-t097；2026-10-05 第 207 轮 · 编排者逐字转录）
+
+**结论：通过 / 0 缺陷 / 5 观察。**
+
+**冻结与范围**：HEAD 2528545；恰 2 文件 +206/−90（ApiRoutes.java md5 d7bee53f…、ModuleRoutesConsistencyTest.java md5 b9084a5a…）；proto/cpp/web/docs/CONTRACTS/entity 零触及；java/src 树锚 6ae30329…/609；复核期 HEAD 漂移至 8cbcb71（第 206 轮 ledger）——java/src 逐字节同、冻结点对象完好、结论不污染。
+
+**判据等值化核（最重）**：① 生产装配同构重放逐注册器对照 Bootstrap.java——assemble() 10 注册器（AuthRoutes:452/ConfigRoutes:455 三参/ProductRoutes:458/SpotRoutes:459/PlanRoutes:460/RiskRoutes:558〔registerRiskIntradayRoute:511 调用〕/TradeRoutes:470/SettleRoutes:482/SettleCheckRoutes:495/FundRoutes:510）+ ping（Bootstrap:197-198）；ConfigRoutes 2 参重载委托 3 参传 null 路由集合同；无「依赖 service 非空」条件分支 ⇒ 传 null 重放与生产同集合。② 真集合等值：先固化无重复、双向差集 missing/extra 各 assertEquals(emptySet)、二次 assertEquals(declared,runtime)——非单向包含、非计数。③ 判据体零硬编码路由字面量（grep 双模式 0 命中；旧 REGISTERED 27 条/MODULE_PREFIXES 整体删除）。④ 三测试职责互斥无遗漏（等值/两级一致 pairDeclarationsAreConsistent/orphan noOrphanHandlers 逐字保留）。
+
+**五向变异独立重做（隔离副本，tar 复原后树锚复验）**：M1 删 GET /product/quota 注册 ⇒ 红「声明但未注册」；M2 SpotRoutes GET→PUT ⇒ 红「声明但未注册 [GET /api/v1/spot/price]」（**方法级有牙**）；M3 ApiRoutes 删声明对 GET /product/change-log ⇒ 红「已注册但未声明（漂移）」（双向 extra 分支）；M4 声明方法词 POST→GET ⇒ 红；M5(自设) 臆造对 GET /product/__bogus__ ⇒ pairDeclarationsAreConsistent 红 + 等值红（非空转）。
+
+**ApiRoutes 形态核**：BY_MODULE_ROUTES 9 模块 115 对 + PLATFORM 2 = 117；与 Router.routes() 同形（Router.java:118 "METHOD pattern"、register:47 已 uppercase）；抽验 PUT /api/v1/settle/difference、GET /api/v1/risk/mirror-status、POST /api/v1/trade/order{,/confirm,/cancel} 均逐字在。
+
+**§4.1.1 方法列差异（复核席独立重推导，转技术负责人）**：PRODUCT §含 PUT vs 注册 GET,POST（缺）；SPOT/PLAN §含 PUT/DELETE(草稿) vs 注册 GET,POST（缺）；TRADE §GET/POST vs 仅 3 POST（缺 GET；12 路径仅 3 对注册）；SETTLE §GET/POST vs 注册 GET,POST,**PUT**（**多 PUT**——be-t097「SETTLE 缺 PUT /settle/difference」两读澄清：对已注册，§4.1.1 方法列缺 PUT 才是准确表述）；RISK §GET/POST vs 仅 GET（10 路径仅 1 对）；AUDIT/ACCT 未交付；FUND/AUTH/CONFIG 一致。路径级缺口仅 TRADE（9/12）与 RISK（9/10）及 AUDIT/ACCT——属「声明面 vs 已交付面」里程碑落差，非本单缺陷。
+
+**基线陈旧裁定（考古双证）**：立号口径「48 对/37 路径」= D-19 期（2026-09-20，TEST_PLAN/INDEX.md:138、REVIEW.md:215）；现行 117 非放宽——BootstrapAssemblyTest.java:173 自 T-048(67f9349) 起断言生产条数（注记列 85→87→98→113→117 演进、明言「非为过测试而放宽」）+ RouteReachabilityProductionParityTest 生产装配(去 ping)==FullWebAssembly(ROUTE_COUNT=115) 集合级双向差集 ∅。
+
+**门禁独立复跑（隔离 git archive HEAD）**：913/0/0/0（@Test==surefire==913，117 类）；arch E1–E8 rc0；关键既有消费者全绿（AUTHEndpointRegistrationTest 2/BootstrapAssemblyTest 7/SettleRouteDispatchTest 1/RouteReachabilityProductionParityTest 2/MirrorStatusEndpointTest 5/ModuleRoutesConsistencyTest 3）。
+
+**观察（5，不阻断）**：O-1「路径级逐字不变」实为「语义不变」（ACCT 行重排换行/ArrayList 去限定/javadoc 改写；消费者不受影响）——表述订正留痕；O-2 等值判据跑在测试侧重放装配上，生产集合级覆盖由 RouteReachabilityProductionParityTest + BootstrapAssemblyTest:173 承担，链路闭合；注册器重放点增至 3 处（Bootstrap/FullWebAssembly/ModuleRoutesConsistencyTest），新增模块三处强制同步；O-3 assemble() ping 方法词硬编码与 Bootstrap 同形；O-4 RiskRoutes (null,null) 直调/ConfigRoutes 2 参重载/注册序略异——均不影响集合等值；O-5 noOrphanHandlers 逐字保留、pairDeclarationsAreConsistent 经 M5 证非空转。
+
+**编排者亲核记录**：2528545 恰 2 文件、双 md5、对级声明/等值判据/三测试结构、锚 6ae30329…/609 交付当日亲测与复核席一致；「48/37 系 D-19 口径」当日采信前经复核席独立考古双证。
