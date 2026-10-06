@@ -1,11 +1,16 @@
 # 生成命令: python3 docs/DEPLOY/tools/reconcile-schema.py
-# 生成时刻: 2026-10-05T10:31:54Z
+# 生成时刻: 2026-10-06T08:40:50Z
 == 建表脚本 <-> DATA_MODEL.md 静态逐列核对（T-052 验收 5 替代证据）==
-建表脚本表数 = 81；DATA_MODEL.md 表数 = 111；已核对 = 81；失败 = 0
+建表脚本表数 = 99；DATA_MODEL.md 表数 = 111；已核对 = 99；失败 = 0
 DM8 实机建表：未执行（本环境无 DM8 实例；CH-016：不得以 SQLite 冒充 DM8）
+  [OK] t_abnormal_order_stat            (19 列)
   [OK] t_account_subject                (15 列)
   [OK] t_agg_diff_candidate             (13 列)
   [OK] t_aggregation_check              (18 列)
+  [OK] t_annual_scale                   (17 列)
+  [OK] t_audit_log                      (17 列)
+  [OK] t_audit_log_checksum             (13 列)
+  [OK] t_audit_report                   (20 列)
   [OK] t_authorization                  (18 列)
   [OK] t_capital_receipt                (17 列)
   [OK] t_check_signature                (18 列)
@@ -21,6 +26,7 @@ DM8 实机建表：未执行（本环境无 DM8 实例；CH-016：不得以 SQLi
   [OK] t_custom_hedge_rule              (20 列)
   [OK] t_deposit_withdraw_apply         (22 列)
   [OK] t_dict_item                      (13 列)
+  [OK] t_evidence_export                (22 列)
   [OK] t_exposure                       (30 列)
   [OK] t_exposure_detail                (16 列)
   [OK] t_fund_flow                      (22 列)
@@ -34,8 +40,12 @@ DM8 实机建表：未执行（本环境无 DM8 实例；CH-016：不得以 SQLi
   [OK] t_hedge_plan_exposure            (13 列)
   [OK] t_hedge_ratio_calc               (27 列)
   [OK] t_inventory_ledger               (16 列)
+  [OK] t_limit_usage_stat               (16 列)
   [OK] t_login_log                      (14 列)
   [OK] t_login_session                  (17 列)
+  [OK] t_major_event                    (17 列)
+  [OK] t_mirror_watermark               (15 列)
+  [OK] t_operation_log                  (17 列)
   [OK] t_option_strategy                (16 列)
   [OK] t_param_dispatch                 (19 列)
   [OK] t_password_history               (10 列)
@@ -45,6 +55,7 @@ DM8 实机建表：未执行（本环境无 DM8 实例；CH-016：不得以 SQLi
   [OK] t_position                       (19 列)
   [OK] t_position_conflict              (11 列)
   [OK] t_position_group                 (11 列)
+  [OK] t_post_risk_report               (14 列)
   [OK] t_pre_trade_reject               (29 列)
   [OK] t_product                        (15 列)
   [OK] t_product_change_log             (15 列)
@@ -59,6 +70,11 @@ DM8 实机建表：未执行（本环境无 DM8 实例；CH-016：不得以 SQLi
   [OK] t_reconcile_record               (17 列)
   [OK] t_replay_log                     (21 列)
   [OK] t_report_period_config           (13 列)
+  [OK] t_risk_alert                     (18 列)
+  [OK] t_risk_disposal                  (21 列)
+  [OK] t_risk_metric_snapshot           (18 列)
+  [OK] t_risk_threshold                 (19 列)
+  [OK] t_risk_violation                 (18 列)
   [OK] t_role                           (13 列)
   [OK] t_role_permission                (9 列)
   [OK] t_sales_contract                 (22 列)
@@ -83,7 +99,9 @@ DM8 实机建表：未执行（本环境无 DM8 实例；CH-016：不得以 SQLi
   [OK] t_user                           (20 列)
   [OK] t_user_role                      (11 列)
   [OK] t_user_sub_account_perm          (13 列)
+  [OK] t_violation_screen_item          (17 列)
+  [OK] t_violation_screen_run           (16 列)
   [OK] t_wip_record                     (14 列)
--- 已在 DATA_MODEL 但尚未建脚本（后续里程碑，非失败）：30 张
-   t_abnormal_order_stat, t_accounting_period, t_annual_scale, t_audit_log, t_audit_log_checksum, t_audit_report, t_cas24_selfcheck, t_cas24_selfcheck_item, t_dual_pnl_report, t_effectiveness_assess, t_evidence_export, t_hedge_effect, t_hedge_relation, t_limit_usage_stat, t_major_event, t_mirror_watermark, t_operation_log, t_period_close_log, t_post_risk_report, t_rebalance_record, t_risk_alert, t_risk_disposal, t_risk_metric_snapshot, t_risk_threshold, t_risk_violation, t_violation_screen_item, t_violation_screen_run, t_voucher, t_voucher_line, t_voucher_review
+-- 已在 DATA_MODEL 但尚未建脚本（后续里程碑，非失败）：12 张
+   t_accounting_period, t_cas24_selfcheck, t_cas24_selfcheck_item, t_dual_pnl_report, t_effectiveness_assess, t_hedge_effect, t_hedge_relation, t_period_close_log, t_rebalance_record, t_voucher, t_voucher_line, t_voucher_review
 RESULT: PASS

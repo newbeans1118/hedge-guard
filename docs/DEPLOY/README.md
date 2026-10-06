@@ -270,11 +270,11 @@ python3 docs/DEPLOY/tools/reconcile-schema.py            # 退出码 0=PASS
 python3 docs/DEPLOY/tools/reconcile-schema.py --json     # 机读
 ```
 
-**本机结果（2026-10-05，落 `docs/DEPLOY/schema-reconcile-result.txt`）**：
+**本机结果（2026-10-06，落 `docs/DEPLOY/schema-reconcile-result.txt`）**：
 
-- 建表脚本表数 = **81**（CONFIG+AUTH 20 / PRODUCT 8 / SPOT 10 / PLAN 8 / TRADE 9 / FUND 9 / SETTLE 16 / RISK 1=`t_param_dispatch`）
-- DATA_MODEL.md 表数 = 111；已核对 = 81；**失败 = 0**；结果 = **PASS**
-- 尚未建脚本的 30 张（M3 的 RISK/AUDIT/ACCT 等，非失败）：`t_risk_threshold`、`t_annual_scale`、`t_audit_log`、`t_voucher` …（全表见结果文件）
+- 建表脚本表数 = **99**（CONFIG+AUTH 20 / PRODUCT 8 / SPOT 10 / PLAN 8 / TRADE 9 / FUND 9 / SETTLE 16 / RISK 11 / AUDIT 8）
+- DATA_MODEL.md 表数 = 111；已核对 = 99；**失败 = 0**；结果 = **PASS**
+- 尚未建脚本的 12 张（M3 的 ACCT 等，非失败）：`t_hedge_relation`、`t_effectiveness_assess`、`t_voucher`、`t_dual_pnl_report` …（全表见结果文件）
 - **核对口径**：**列名集合级**（脚本 CREATE TABLE 的列 ↔ 文档 §2.x 字段表列；通用审计字段 `§0.3` 6 列计为允许的额外列）。
 - **更深一层证据（类型/精度/非空/索引/外键级）**：既有 `*SchemaTest`（`ConfigAuthSchemaTest`/`M1ProductSpotPlanSchemaTest`/`M2SettleSchemaTest`/`TradeSchemaTest`/`FundSchemaTest`/`RiskParamDispatchSchemaTest`）。本席复跑：`mvn -B -o -Punit test -Dtest=...` ⇒ **28/28 通过，0 失败**。
 - **明确标注**：以上均为**制品内部一致性**，**不替代** DM8 实机建表验证（`CH-016`：不得以 SQLite 冒充 DM8）。
@@ -282,7 +282,7 @@ python3 docs/DEPLOY/tools/reconcile-schema.py --json     # 机读
 ### 8.3 待补（DM8 环境具备后）
 
 1. 在 DM8 实例按 §7.1 顺序执行全部 `schema/*.sql` + `data-init.sql`（含 §8.4 修订后）；
-2. 执行 `reconcile-schema.py` 复核 81/81；
+2. 执行 `reconcile-schema.py` 复核 99/99；
 3. 记录 DM8 版本（`v$version`）与 DM JDBC 驱动版本/md5，回填 §2.1/§2.2；
 4. 以真实 DAO 跑读写与约束强制（等价于既有 `*Dm8EquivalentIntegrationTest` 的实机版）。
 
