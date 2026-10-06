@@ -1,13 +1,17 @@
 package com.hedgeguard.web.handler;
 
+import com.hedgeguard.risk_intraday.RiskRoutes;
 import com.hedgeguard.web.ApiRoutes;
 import com.hedgeguard.web.Router;
 import com.hedgeguard.web.handler.auth.AuthRoutes;
 import com.hedgeguard.web.handler.config.ConfigRoutes;
+import com.hedgeguard.web.handler.fund.FundRoutes;
 import com.hedgeguard.web.handler.plan.PlanRoutes;
 import com.hedgeguard.web.handler.product.ProductRoutes;
+import com.hedgeguard.web.handler.settle.SettleCheckRoutes;
+import com.hedgeguard.web.handler.settle.SettleRoutes;
 import com.hedgeguard.web.handler.spot.SpotRoutes;
-import com.hedgeguard.web.handler.spot.SpotRoutes;
+import com.hedgeguard.web.handler.trade.TradeRoutes;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -17,107 +21,106 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.IOException;
-
 /**
- * {@code #java2} 各模块路由的**契约一致性**校验（REST 面的结构性证据，{@code T-008}~{@code T-016}）。
+ * 各模块路由的**契约一致性**校验（REST 面的结构性证据）。
  *
  * <p>本用例只构建 {@link Router} 并注册（不触发任何业务调用，故服务依赖可传 {@code null}），
- * 固化四条不变量：
+ * 以<b>生产装配同构</b>的方式重放全部已交付模块的注册器，固化两条不变量：
  * <ol>
- *   <li><b>不臆造路径</b>：已注册的每个路径都必须存在于 {@code ApiRoutes} 冻结清单
- *       （路径是冻结项：须先改 {@code ARCHITECTURE §4.1.1} 才能改代码，{@code NFR-MAINT-5}）；</li>
- *   <li><b>无重复注册</b>：同一 {@code (方法, 路径)} 重复注册会在启动期失败（{@code §1.4}）；</li>
- *   <li><b>覆盖下限</b>：本批显式登记的路由（AUTH 2 + CONFIG 4 + PRODUCT 6 + SPOT 10 + PLAN 5）必须真实注册；</li>
- *   <li><b>路径归属</b>：只允许本批五模块（{@code auth}/{@code config}/{@code product}/{@code plan}/{@code spot}）。</li>
+ *   <li><b>(方法,路径) 等值</b>（{@code T-097}）：运行时已注册的 {@code "METHOD /api/v1/..."} 集合
+ *       <b>等于</b> {@link ApiRoutes#allRoutes()} 声明集合——<b>等值</b>（非 {@code ⊆}）：
+ *       <ul>
+ *         <li><b>防退化</b>：声明了却少注册一条即红（保 {@code GAP-1} 的保护，且覆盖<b>方法级</b>
+ *             缺口——如历史 {@code FR-PLAN-4} 的 {@code GET /plan} 缺失）；</li>
+ *         <li><b>防漂移</b>：注册了却未声明（臆造 / 忘同步声明）即红；同步 {@code ApiRoutes}
+ *             即自动跟随（本判据<b>不含</b>任何硬编码路由常量）；</li>
+ *       </ul></li>
+ *   <li><b>无重复注册</b>：同一 {@code (方法, 路径)} 重复注册会在启动期失败（{@code §1.4}）。</li>
  * </ol>
+ *
+ * <p><b>装配范围</b>：与生产装配（{@code Bootstrap#registerBusinessRoutes} + 平台级 {@code ping}）
+ * 同构——{@code AUTH}/{@code CONFIG}/{@code PRODUCT}/{@code SPOT}/{@code PLAN}/{@code RISK}/
+ * {@code TRADE}/{@code SETTLE}（含 {@code SettleCheckRoutes}）/{@code FUND} 九模块注册器 + {@code ping}
+ * 的 {@code GET}/{@code HEAD}。未交付模块（{@code AUDIT}/{@code ACCT}）及未接入路径不在
+ * {@link ApiRoutes#allRoutes()} 内，故亦不参与等值比较（其路径级声明见 {@link ApiRoutes#byModule()}）。
  */
 class ModuleRoutesConsistencyTest {
 
-    /** 本批交付的模块路径前缀（须为 {@code ApiRoutes} 清单的子集）。 */
-    private static final List<String> MODULE_PREFIXES =
-            Arrays.asList("/auth/", "/config/", "/product", "/plan", "/spot");
-
-    /** 覆盖下限：AUTH 2 + CONFIG 4 + PRODUCT 6 + SPOT 10 + PLAN 5（含 {@code FR-PLAN-4} 的 {@code GET /plan}）。 */
-    private static final List<String[]> REGISTERED = List.of(
-            new String[]{"POST", ApiRoutes.full("/auth/login")},
-            new String[]{"POST", ApiRoutes.full("/auth/logout")},
-            new String[]{"GET", ApiRoutes.full("/config/item")},
-            new String[]{"PUT", ApiRoutes.full("/config/item")},
-            new String[]{"GET", ApiRoutes.full("/config/sub-account")},
-            new String[]{"POST", ApiRoutes.full("/config/sub-account")},
-            new String[]{"GET", ApiRoutes.full("/product")},
-            new String[]{"POST", ApiRoutes.full("/product")},
-            new String[]{"GET", ApiRoutes.full("/product/{id}")},
-            new String[]{"POST", ApiRoutes.full("/product/whitelist")},
-            new String[]{"GET", ApiRoutes.full("/product/quota")},
-            new String[]{"POST", ApiRoutes.full("/product/quota")},
-            new String[]{"POST", ApiRoutes.full("/spot/purchase")},
-            new String[]{"POST", ApiRoutes.full("/spot/sales")},
-            new String[]{"POST", ApiRoutes.full("/spot/inventory")},
-            new String[]{"POST", ApiRoutes.full("/spot/wip")},
-            new String[]{"POST", ApiRoutes.full("/spot/price")},
-            new String[]{"GET", ApiRoutes.full("/spot/price")},
-            new String[]{"POST", ApiRoutes.full("/spot/exposure")},
-            new String[]{"GET", ApiRoutes.full("/spot/exposure")},
-            new String[]{"GET", ApiRoutes.full("/spot/exposure/{id}")},
-            new String[]{"POST", ApiRoutes.full("/spot/exposure/recalc")},
-            new String[]{"GET", ApiRoutes.full("/plan")},
-            new String[]{"POST", ApiRoutes.full("/plan")},
-            new String[]{"GET", ApiRoutes.full("/plan/{id}")},
-            new String[]{"POST", ApiRoutes.full("/plan/{id}/doc")},
-            new String[]{"POST", ApiRoutes.full("/plan/{id}/trade-plans")});
-
-    @Test
-    @DisplayName("五模块注册路径全部 ∈ ApiRoutes；无重复注册；覆盖下限（AUTH/CONFIG/PRODUCT/SPOT/PLAN）满足")
-    void registeredPathsAreContractual() {
+    /** 以生产装配同构方式重放全部已交付模块注册器（服务依赖传 {@code null}）。 */
+    private static Router assemble() {
         Router router = new Router();
+        router.register("GET", ApiRoutes.full(ApiRoutes.PING),
+                new com.hedgeguard.web.handler.PingHandler());
+        router.register("HEAD", ApiRoutes.full(ApiRoutes.PING),
+                new com.hedgeguard.web.handler.PingHandler());
         AuthRoutes.register(router, null, null);
         ConfigRoutes.register(router, null);
         ProductRoutes.register(router, null);
         SpotRoutes.register(router, null);
         PlanRoutes.register(router, null);
+        RiskRoutes.register(router, null, null);
+        TradeRoutes.register(router, null);
+        SettleRoutes.register(router, null);
+        SettleCheckRoutes.register(router, null);
+        FundRoutes.register(router, null);
+        return router;
+    }
 
-        List<String> registered = new ArrayList<>(router.routes());
-        List<String> allPaths = ApiRoutes.all();
+    @Test
+    @DisplayName("等值断言：运行时已注册 (方法,路径) 集合 == ApiRoutes 声明集合（含平台级 ping）")
+    void registeredRoutesEqualDeclaration() {
+        List<String> registered = new ArrayList<>(assemble().routes());
 
-        // ① 不臆造路径
-        for (String entry : registered) {
-            String path = pathOf(entry);
-            assertTrue(allPaths.contains(path),
-                    "注册路径不在 ApiRoutes 冻结清单中（不得臆造路径）：" + entry);
-        }
-        // ② 无重复注册
+        // ① 无重复注册（Router 自身在重注册时抛；此处再固化一次）
         assertEquals(registered.size(), new HashSet<>(registered).size(),
                 "存在重复注册：" + registered);
-        // ③ 覆盖下限：本批显式登记的路由必须被真实注册
-        for (String[] route : REGISTERED) {
-            String key = route[0] + " " + route[1];
-            assertTrue(registered.contains(key), "登记的路由未真正注册：" + key + "；实际=" + registered);
+
+        Set<String> runtime = new HashSet<>(registered);
+        Set<String> declared = new HashSet<>(ApiRoutes.allRoutes());
+
+        // ② 双向差集须为空 —— 否则给出可定位的「缺 / 多」清单
+        Set<String> missing = new TreeSet<>(declared);
+        missing.removeAll(runtime);
+        Set<String> extra = new TreeSet<>(runtime);
+        extra.removeAll(declared);
+        assertEquals(Collections.emptySet(), missing,
+                "声明但未注册（退化；含方法级缺口）：" + missing);
+        assertEquals(Collections.emptySet(), extra,
+                "已注册但未声明（漂移 / 臆造路径）：" + extra);
+
+        // ③ 集合等值（在双向差集 ∅ 之上二次固化，语义自明）
+        assertEquals(declared, runtime,
+                "运行时已注册 (方法,路径) 集合必须与 ApiRoutes 声明集合等值");
+    }
+
+    @Test
+    @DisplayName("声明自洽：对级声明的路径 ∈ 路径级声明；对级只声明已交付注册模块")
+    void pairDeclarationsAreConsistent() {
+        for (java.util.Map.Entry<String, List<String>> e : ApiRoutes.byModuleRoutes().entrySet()) {
+            String module = e.getKey();
+            List<String> declaredPaths = ApiRoutes.byModule().get(module);
+            assertTrue(declaredPaths != null && !declaredPaths.isEmpty(),
+                    "对级声明了模块却无路径级声明：" + module);
+            for (String pair : e.getValue()) {
+                int sp = pair.indexOf(' ');
+                assertTrue(sp > 0, "对级声明格式非法（应为 \"METHOD /path\"）：" + pair);
+                String path = pair.substring(sp + 1);
+                assertTrue(declaredPaths.contains(path),
+                        "对级声明的路径不在路径级声明中（臆造）：" + pair
+                                + "；模块 " + module + " 路径级声明=" + declaredPaths);
+            }
         }
-        // ④ 归属：只允许本批五模块
-        for (String entry : registered) {
-            String path = pathOf(entry);
-            boolean mine = MODULE_PREFIXES.stream()
-                    .anyMatch(prefix -> path.startsWith(ApiRoutes.full(prefix)));
-            assertTrue(mine, "路径归属应为本批五模块之一（" + MODULE_PREFIXES + "）：" + entry);
-        }
-        // ⑤ PLAN / SPOT 亦已铺开（REST 面结构证据）
-        assertTrue(registered.stream()
-                        .anyMatch(entry -> pathOf(entry).startsWith(ApiRoutes.full("/plan"))),
-                "PLAN 模块尚未注册任何路由：" + registered);
-        assertTrue(registered.stream()
-                        .anyMatch(entry -> pathOf(entry).startsWith(ApiRoutes.full("/spot/"))),
-                "SPOT 模块尚未注册任何路由：" + registered);
     }
 
     @Test
@@ -153,11 +156,6 @@ class ModuleRoutesConsistencyTest {
         assertTrue(orphans.isEmpty(),
                 "存在**孤儿 handler**（声明了 PATH 但未被任何 *Routes 注册 ⇒ 死代码，且是"
                         + "「重复路由」的陷阱源；§1.4 禁止静默覆盖）：" + orphans);
-    }
-
-    /** 从 {@code "<METHOD> <pattern>"} 取路径部分。 */
-    private static String pathOf(String entry) {
-        return entry.substring(entry.indexOf(' ') + 1);
     }
 
     /** 从测试工作目录向上寻找仓库根（含 {@code docs/DATA_MODEL.md}）。 */
