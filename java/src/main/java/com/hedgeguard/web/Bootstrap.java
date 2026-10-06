@@ -14,6 +14,7 @@ import com.hedgeguard.dao.UserAccountDao;
 import com.hedgeguard.dao.UserRoleDao;
 import com.hedgeguard.dao.impl.DmAccountSubjectDao;
 import com.hedgeguard.dao.impl.DmConfigChangeLogDao;
+import com.hedgeguard.dao.impl.DmRiskThresholdDao;
 import com.hedgeguard.dao.impl.DmConfigItemDao;
 import com.hedgeguard.dao.impl.DmCtpFrontConfigDao;
 import com.hedgeguard.dao.impl.DmCapitalReceiptDao;
@@ -107,6 +108,7 @@ import com.hedgeguard.service.ConfigService;
 import com.hedgeguard.service.FundService;
 import com.hedgeguard.service.ParamDispatchService;
 import com.hedgeguard.service.PlanService;
+import com.hedgeguard.service.RiskService;
 import com.hedgeguard.service.SpotService;
 import com.hedgeguard.service.SettleCheckService;
 import com.hedgeguard.service.SettleService;
@@ -119,6 +121,7 @@ import com.hedgeguard.web.handler.config.ConfigRoutes;
 import com.hedgeguard.web.handler.fund.FundRoutes;
 import com.hedgeguard.web.handler.plan.PlanRoutes;
 import com.hedgeguard.web.handler.product.ProductRoutes;
+import com.hedgeguard.web.handler.risk.RiskRuleRoutes;
 import com.hedgeguard.web.handler.spot.SpotRoutes;
 import com.hedgeguard.web.handler.settle.SettleCheckRoutes;
 import com.hedgeguard.web.handler.settle.SettleRoutes;
@@ -508,6 +511,14 @@ public final class Bootstrap {
                 new DmCapitalReceiptDao(tx), new DmFundReviewRecordDao(tx),
                 new DmFundQuotaDao(tx), new DmFundQuotaAlertDao(tx), new DmFundReconcileDao(tx));
         FundRoutes.register(router, fundService);
+
+        // M3 风控阈值配置与下发闭环（T-063）：t_risk_threshold 配置 + 合规下限 + CMD_UPDATE_RISK_THRESHOLD 下发。
+        // 复用既有 ParamDispatchService 下发通道（T-011）与 t_config_change_log 留痕（双人复核）。
+        RiskService riskService = new RiskService(tx, new DmRiskThresholdDao(tx),
+                paramDispatchService, new DmConfigChangeLogDao(tx));
+        RiskRuleRoutes.register(router, riskService);
+        LOG.info("已装配风控阈值配置面：GET|POST /api/v1/risk/rule；下发服务="
+                + (paramDispatchService == null ? "未装配（写面拒绝）" : "已装配"));
 
         IntradayRiskMonitor monitor = registerRiskIntradayRoute(router, config, bridge,
                 paramDispatchService, authService);

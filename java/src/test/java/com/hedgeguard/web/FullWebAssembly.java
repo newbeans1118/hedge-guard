@@ -6,6 +6,7 @@ import com.hedgeguard.web.handler.fund.FundRoutes;
 import com.hedgeguard.web.handler.plan.PlanRoutes;
 import com.hedgeguard.web.handler.product.ProductRoutes;
 import com.hedgeguard.risk_intraday.RiskRoutes;
+import com.hedgeguard.web.handler.risk.RiskRuleRoutes;
 import com.hedgeguard.web.handler.settle.SettleCheckRoutes;
 import com.hedgeguard.web.handler.settle.SettleRoutes;
 import com.hedgeguard.web.handler.spot.SpotRoutes;
@@ -68,8 +69,12 @@ final class FullWebAssembly {
      * 已声明路径 {@code /settle/monthly-check}、{@code /settle/quarterly-report} 上各注册
      * {@code GET}/{@code POST}（只读查询 + 生成/签署）⇒ {@code 111 → 115}（非为过测试而放宽：
      * 未新增路径，路径逐字取自 {@code ApiRoutes}）。
+     *
+     * <p>【{@code T-063}】风控阈值配置面 {@code GET|POST /api/v1/risk/rule}（{@code ApiRoutes} 已声明、
+     * {@code §4.1.1} 行 639 方法 GET/POST）⇒ {@code 115 → 117}（非为过测试而放宽：路径逐字取自冻结清单，
+     * 本任务只做<b>最小注册</b>）。
      */
-    static final int ROUTE_COUNT = 115;
+    static final int ROUTE_COUNT = 117;
 
     private FullWebAssembly() {
     }
@@ -85,6 +90,9 @@ final class FullWebAssembly {
         // T-050：事中风控 REST 面（GET /api/v1/risk/mirror-status）。服务入参 null：
         // 装配期只调用 router.register(...) 构造 Handler，不驱动任何业务逻辑。
         RiskRoutes.register(router, null, null);
+        // T-063：风控阈值配置面（GET|POST /api/v1/risk/rule）。服务入参 null：
+        // 装配期只调用 router.register(...) 构造 Handler，不驱动任何业务逻辑。
+        RiskRuleRoutes.register(router, null);
         // T-046：TRADE 交易执行主链最小注册面（3 条 POST：order / confirm / cancel）。
         // 服务入参 null：装配期只调用 router.register(...) 构造 Handler，不驱动任何业务逻辑。
         TradeRoutes.register(router, null);

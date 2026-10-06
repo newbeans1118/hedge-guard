@@ -170,8 +170,13 @@ class BootstrapAssemblyTest {
             //   ARCHITECTURE.md §6.14）——SettleCheckRoutes 于既有已声明路径上各注册 GET/POST（4 对），
             //   SETTLE 由 11 增为 15，业务路由 115（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK1/TRADE3/
             //   SETTLE15/FUND15）+ ping 2 = 117。非为过测试而放宽断言。
-            assertEquals(117, assembly.routeCount(),
-                    "业务路由必须全部注册：115（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK1/TRADE3/"
+            // 【T-063 订正（加注）】断言值由 117 订正为 119：订正理由 = 需求面（{@code ApiRoutes} 声明 RISK
+            //   模块 /risk/rule，{@code ARCHITECTURE.md §4.1.1} 行 639 方法 GET/POST；{@code FR-CONFIG-5}
+            //   验收 1「风控阈值集中在一个配置界面可维护」）——RiskRuleRoutes 于既有已声明路径上注册 GET/POST
+            //   （2 对），RISK 由 1 增为 3，业务路由 117（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK3/TRADE3/
+            //   SETTLE15/FUND15）+ ping 2 = 119。非为过测试而放宽断言。
+            assertEquals(119, assembly.routeCount(),
+                    "业务路由必须全部注册：117（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK3/TRADE3/"
                             + "SETTLE15/FUND15）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。

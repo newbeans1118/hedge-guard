@@ -52,6 +52,8 @@ public final class ParamChangeEncoder {
                         .build().toByteArray();
             case CMD_UPDATE_PERMISSION:
                 return encodePermission(change);
+            case CMD_UPDATE_RISK_THRESHOLD:
+                return encodeRiskThreshold(change);
             default:
                 throw new IllegalArgumentException(
                         "本里程碑未实现的参数变更类型（payload 映射未定义）：" + change.type);
@@ -284,6 +286,137 @@ public final class ParamChangeEncoder {
                 "quota_limit", "is_enterprise_leader", "is_management_role",
                 "has_risk_role", "has_settle_role", "has_trading_post");
         return encodePermission(c.paramVersion, inputs);
+    }
+
+    // ==================== CMD_UPDATE_RISK_THRESHOLD（T-063） ====================
+
+    /**
+     * 组装 {@code CMD_UPDATE_RISK_THRESHOLD}（{@code 0x0115}；{@code T-063}）。
+     *
+     * <p>线格式为 {@code §4.2.8} 的**嵌套复用** {@code RiskThresholds}（{@code G-5}：与
+     * {@code CMD_LOAD_RISK_PARAMS.thresholds} 同型）；payload 键名逐字取
+     * {@code ARCHITECTURE.md} §4.2.3 第 17 行的 16 个扁平字段名（{@code §4.2.8} 嵌套消息字段名与之一致）。
+     *
+     * <p><b>16 字段全部必填</b>（{@code §4.2.8} 每列标注「必」）⇒ 缺任一键即抛
+     * {@link IllegalArgumentException}，且未知键同样拒绝（{@code HGC-1.6}：不得静默丢弃）。
+     *
+     * @param c 参数变更
+     * @return protobuf 序列化字节
+     */
+    private static byte[] encodeRiskThreshold(ParamChange c) {
+        Hgcp.RiskThresholds.Builder t = Hgcp.RiskThresholds.newBuilder()
+                .setScaleRatioCommodity(require(c, "scale_ratio_commodity"))
+                .setScaleRatioTrade(require(c, "scale_ratio_trade"))
+                .setScaleBase(mapScaleBase(require(c, "scale_base")))
+                .setScaleScope(mapScaleScopeEnum(require(c, "scale_scope")))
+                .setTermMaxMonths(intOf(require(c, "term_max_months")))
+                .setTermGraceDays(intOf(require(c, "term_grace_days")))
+                .setTermAction(mapTermAction(require(c, "term_action")))
+                .setPriceBase(mapPriceBase(require(c, "price_base")))
+                .setPriceWarnPct(require(c, "price_warn_pct"))
+                .setPriceBlockPct(require(c, "price_block_pct"))
+                .setPositionCheckMode(mapPositionCheckMode(require(c, "position_check_mode")))
+                .setFreqIntradayWarn(intOf(require(c, "freq_intraday_warn")))
+                .setFreqIntradayBlock(intOf(require(c, "freq_intraday_block")))
+                .setFreq7DRoundsWarn(intOf(require(c, "freq_7d_rounds_warn")))
+                .setFreqMinHoldDays(intOf(require(c, "freq_min_hold_days")))
+                .setMarginRatioThreshold(require(c, "margin_ratio_threshold"));
+        rejectUnknown(c, "scale_ratio_commodity", "scale_ratio_trade", "scale_base", "scale_scope",
+                "term_max_months", "term_grace_days", "term_action", "price_base", "price_warn_pct",
+                "price_block_pct", "position_check_mode", "freq_intraday_warn", "freq_intraday_block",
+                "freq_7d_rounds_warn", "freq_min_hold_days", "margin_ratio_threshold");
+        return Hgcp.CmdUpdateRiskThreshold.newBuilder()
+                .setParamVersion(c.paramVersion)
+                .setThresholds(t)
+                .build()
+                .toByteArray();
+    }
+
+    /** {@code scale_base} 字面量 → 枚举（{@code §4.2.8.7} 值域）。 */
+    static Hgcp.ScaleBase mapScaleBase(String s) {
+        switch (String.valueOf(s).trim().toUpperCase(java.util.Locale.ROOT)) {
+            case "EXPOSURE_QTY":
+            case "SCALE_BASE_EXPOSURE_QTY":
+                return Hgcp.ScaleBase.SCALE_BASE_EXPOSURE_QTY;
+            case "REVENUE":
+            case "SCALE_BASE_REVENUE":
+                return Hgcp.ScaleBase.SCALE_BASE_REVENUE;
+            case "PURCHASE_QTY":
+            case "SCALE_BASE_PURCHASE_QTY":
+                return Hgcp.ScaleBase.SCALE_BASE_PURCHASE_QTY;
+            default:
+                throw new IllegalArgumentException("scale_base 取值非法（须 §4.2.8.7 值域）：" + s);
+        }
+    }
+
+    /** {@code scale_scope} 字面量 → 枚举（{@code §4.2.8.7} 值域）。 */
+    static Hgcp.ScaleScope mapScaleScopeEnum(String s) {
+        switch (String.valueOf(s).trim().toUpperCase(java.util.Locale.ROOT)) {
+            case "SUB_ACCOUNT":
+            case "SCALE_SCOPE_SUB_ACCOUNT":
+                return Hgcp.ScaleScope.SCALE_SCOPE_SUB_ACCOUNT;
+            case "TOTAL_ACCOUNT":
+            case "SCALE_SCOPE_TOTAL_ACCOUNT":
+                return Hgcp.ScaleScope.SCALE_SCOPE_TOTAL_ACCOUNT;
+            case "BOTH":
+            case "SCALE_SCOPE_BOTH":
+                return Hgcp.ScaleScope.SCALE_SCOPE_BOTH;
+            default:
+                throw new IllegalArgumentException("scale_scope 取值非法（须 §4.2.8.7 值域）：" + s);
+        }
+    }
+
+    /** {@code term_action} 字面量 → 枚举（{@code §4.2.8.7} 值域）。 */
+    static Hgcp.TermAction mapTermAction(String s) {
+        switch (String.valueOf(s).trim().toUpperCase(java.util.Locale.ROOT)) {
+            case "WARN_THEN_BLOCK":
+            case "TERM_ACTION_WARN_THEN_BLOCK":
+                return Hgcp.TermAction.TERM_ACTION_WARN_THEN_BLOCK;
+            case "BLOCK":
+            case "TERM_ACTION_BLOCK":
+                return Hgcp.TermAction.TERM_ACTION_BLOCK;
+            case "WARN_AND_APPROVE":
+            case "TERM_ACTION_WARN_AND_APPROVE":
+                return Hgcp.TermAction.TERM_ACTION_WARN_AND_APPROVE;
+            default:
+                throw new IllegalArgumentException("term_action 取值非法（须 §4.2.8.7 值域）：" + s);
+        }
+    }
+
+    /** {@code price_base} 字面量 → 枚举（协议仅载 {@code PREV_SETTLEMENT}）。 */
+    static Hgcp.PriceBase mapPriceBase(String s) {
+        String v = String.valueOf(s).trim().toUpperCase(java.util.Locale.ROOT);
+        if ("PREV_SETTLEMENT".equals(v) || "PRICE_BASE_PREV_SETTLEMENT".equals(v)) {
+            return Hgcp.PriceBase.PRICE_BASE_PREV_SETTLEMENT;
+        }
+        throw new IllegalArgumentException("price_base 取值非法（协议仅载 PREV_SETTLEMENT）：" + s);
+    }
+
+    /** {@code position_check_mode} 字面量 → 枚举（{@code §4.2.8.7} 值域）。 */
+    static Hgcp.PositionCheckMode mapPositionCheckMode(String s) {
+        switch (String.valueOf(s).trim().toUpperCase(java.util.Locale.ROOT)) {
+            case "PRE_TRADE_AND_EOD":
+            case "POSITION_CHECK_MODE_PRE_TRADE_AND_EOD":
+                return Hgcp.PositionCheckMode.POSITION_CHECK_MODE_PRE_TRADE_AND_EOD;
+            case "ON_ORDER":
+            case "POSITION_CHECK_MODE_ON_ORDER":
+                return Hgcp.PositionCheckMode.POSITION_CHECK_MODE_ON_ORDER;
+            case "EOD_ONLY":
+            case "POSITION_CHECK_MODE_EOD_ONLY":
+                return Hgcp.PositionCheckMode.POSITION_CHECK_MODE_EOD_ONLY;
+            default:
+                throw new IllegalArgumentException(
+                        "position_check_mode 取值非法（须 §4.2.8.7 值域）：" + s);
+        }
+    }
+
+    /** payload int32 字段解析（非整数即拒绝，不得静默截断）。 */
+    private static int intOf(String s) {
+        try {
+            return Integer.parseInt(String.valueOf(s).trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("payload 整数字段取值非法：" + s);
+        }
     }
 
     /** 条目级必填键（区别于顶层 {@link #require}）。 */

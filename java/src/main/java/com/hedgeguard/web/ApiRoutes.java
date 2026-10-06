@@ -128,7 +128,8 @@ public final class ApiRoutes {
                 "GET /settle/monthly-check", "POST /settle/monthly-check",
                 "GET /settle/quarterly-report", "POST /settle/quarterly-report",
                 "GET /settle/export"));
-        BY_MODULE_ROUTES.put("RISK", Arrays.asList("GET /risk/mirror-status"));
+        BY_MODULE_ROUTES.put("RISK", Arrays.asList(
+                "GET /risk/mirror-status", "GET /risk/rule", "POST /risk/rule"));
         BY_MODULE_ROUTES.put("FUND", Arrays.asList(
                 "GET /fund/ledger", "POST /fund/ledger", "GET /fund/flow", "POST /fund/deposit",
                 "POST /fund/withdraw", "POST /fund/{id}/review", "POST /fund/transfer",
