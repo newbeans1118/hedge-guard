@@ -16605,3 +16605,21 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **观察登记（T170-O1..O6，均不阻断）**：O-1 形态守卫按「段内任意行含 CMD_UPDATE_PERMISSION」判定，parse_contracts_keys 独立要求三 SPEC 在表（缺则 rc2）⇒ 无静默误锚；O-2 proto 缺 message 归 rc1 漂移（响亮失败设计选择）；O-3 十六进制字段号 ShapeError rc2（fail-safe）；O-4 脚本头 N2 措辞略粗（语义同）；O-5 172376e 实为 5 文件（E8 实现与登记提交，工单已明示为自证对象）；O-6 复核席隔离副本清理受沙箱拦截（仓库外，无影响）。
 
 **编排者亲核记录**：c362157/e315aae 注释-only（+3/−3）、E8 脚本 md5 未动、:6/:52/:86/:72/:190 五处当日亲测与复核席一致；「红线 2」系 pattern 误含授权路径（T-158 镜像判例）。
+
+---
+
+## T-125 独立复核证据（席 te-verify-t125；2026-10-05 第 206 轮 · 编排者逐字转录）
+
+**结论：通过 / 0 缺陷 / 4 观察。**
+
+**冻结与范围**：commit ad0f8e8；恰 4 文件（PageQuery.java / PageQueryTest.java / DmProductDaoScopedSqlTest.java / DmProductStableOrderTest.java 新 346 行）；md5 逐一吻合工单；ApiRoutes/ModuleRoutesConsistencyTest 不在本 commit（并行 be-t097 域）；PageQueryTest 纯新增（删除行=0）。
+
+**守卫力核（最重）**：① orderByOf 形状判等 7 例自设探针（独立 javac/java）——旧 contains 在「去 tie-break/多列/尾随垃圾/次序颠倒」四场景假绿（oldContains=T newShapeEquals=F）+ 无 ORDER BY 双 F 对照 ⇒ 新判等严格强于旧 contains，子串陷阱全覆盖；② 假引擎求值器独立复刻——orderBy 单键 created_time DESC：两页 union=15/distinct=10（重复 1..5、漏 11..15），tie-break 后 distinct=15 ⇒ 全序；单键时 assertEquals(15,union) 恰巧仍过，真正咬住的是 distinct-count 断言（纵深防御经探针证实独立承重）。
+
+**变异独立重做（隔离副本）**：M1 AbstractDmDao.findPage:163 去 id tie-break ⇒ 6 红（DmProductDaoScopedSqlTest 2 + DmProductStableOrderTest 2 + **镜像 DmTradePlanStableOrderTest 2**，共用同一装配点）；M2 PageQuery.java:253 回退 equals ⇒ 恰 1 红（orderByEnsuringUniqueCaseInsensitive，exp ID DESC got ID DESC, id ASC），既有 semantics 例仍绿 ⇒ 精确承重；复位 md5 b44d4c7d / 6fedaa87 逐字节复原。
+
+**验收逐条 5/5**：验收 1 二选一两项全做（形状判等 + 稳定排序等价用例）；验收 2 反退化 M1 必红；验收 3 大小写不敏感 M2 必红；验收 4 未放宽 + 加注 + 类 javadoc 同步；验收 5 门禁双态复跑（基线 277ba5e 907 / 本单 912）。默认路径口径核：ProductHandler:96-101 缺省 DEFAULT_SORT="created_time,desc" ⇒ 新用例同名 DEFAULT_SORT 精确复刻默认路径属实。
+
+**观察（4，不阻断）**：O-1 M1 红数自述 4 vs 实测 6（镜像计入）——口径未言明范围，非缺陷；O-2 基线首跑 907/1（HgcpClientTimeoutTest.timelyAckWinsAndTimeoutShortCircuits）满负载偶发，单类隔离 3/3 绿 + 二次全量 907 全绿 ⇒ 既有 flaky，T-165 时序域、T-125 未触 bridge；O-3 复核期 HEAD 前移（be-t097 2528545），四文件 ad0f8e8 与 HEAD 逐字节同（md5 四对比 same=true），按冻结纪律披露不停手；O-4 两页并集基数判据未独立触发但探针证独立承重（纵深防御）。
+
+**编排者亲核记录**：ad0f8e8 恰 4 文件、四 md5、既有测试纯新增核、锚点当日亲测与复核席一致。
