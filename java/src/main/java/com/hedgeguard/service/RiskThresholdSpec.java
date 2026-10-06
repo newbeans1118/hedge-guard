@@ -25,7 +25,7 @@ import java.util.Set;
  * 每项 {@code isRelaxed(candidate)} 判定候选值相对 §9.1 默认值是否**放宽**（更宽松）。
  * 方向**按每键业务语义决定**，不得一刀切：
  * <ul>
- *   <li>{@link Loosen#HIGHER}（值越大越松，14 键）：比例**上限**、期限月数、宽限天数、
+ *   <li>{@link Loosen#HIGHER}（值越大越松，10 键）：比例**上限**、期限月数、宽限天数、
  *       价格偏离**容忍幅度**、频次**触发阈值**（≥ 才告警/限制）、风险度告警线——默认值为「最严」，
  *       上调即少告警 / 允许多做 ⇒ 放宽。</li>
  *   <li>{@link Loosen#LOWER}（值越小越松，1 键）：{@code risk.freq.min_hold_days}
