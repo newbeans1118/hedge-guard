@@ -16724,3 +16724,24 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **观察（5，不阻断）**：O-1 m2_settle.sql:4 同族陈旧 md5（b904152 只修 m3_risk，系编排者收口令漏扫）⇒ **末笔 011a6df 闭环 + 全仓 ef111c2d 残留 NONE**；O-2 如上登记；O-3 文件计数口径（34 次/32 唯一 vs 派单 33）按实测记录；O-4 八 DAO 无 src/main 调用点（DAO 层交付形态相符；跨子账户隔离面归 T-067+）；O-5 「不可改删」章节号 §5.1 非 §5.3（结论正确仅编号偏差）。
 
 **编排者勘误留痕**：派单计数「81→89」实为 91→99（T-094 加 10 表未回写 README）；派单 DATA_MODEL md5 引用陈旧（ef111c2d 为 59ac710 blob、现行 201682e5）。另共享树当场 3 红系 be-t063 在制 /risk/rule 面（非 be-t062 责任；T-063 复核不通过已退修，见后续轮次）。
+---
+
+## T-063 独立复核与退修收口证据（席 te-verify-t063 + te-verify-t063b + be-t063c；2026-10-06 第 217 轮 · 编排者逐字转录）
+
+**结论：te-verify-t063 前审不通过（TE-T063-001/002 双高）⇒ be-t063 退修 9457d3d ⇒ te-verify-t063b delta 复检有条件通过/0 阻断（TE-T063B-001 低）⇒ be-t063c 微收口 884050f 闭环 ⇒ T-063 转 DONE。**
+
+**交付链**：d0a7ee2（主体 11 文件 +1200/−4）→ 8c66acb（收口四项：CONTRACTS §3.2.1 登记 + E8 第 4 条 SPEC + INDEX:138 计数 119/89 + B2 披露，4 文件 +23/−3）→ 9457d3d（退修 2 文件 +158/−54）→ 884050f（javadoc 计数微收口 1 文件 1+/1−）。终态门禁：隔离 938/0/0/0（@Test==surefire==938）+ arch E1–E8 rc0（E8 四条：5/9/7/16 键）。
+
+**TE-T063-001（高·方向反转）与修复**：freq.min_hold_days 原按 higherIsLooser=true，但告警条件=「平均持仓<阈值」（INDEX.md:627/ARCH §11.1 CFG-05b）⇒ 下调=放宽。前审探针：3→2 无复核未抛（静默放宽）、3→4 无复核误抛 10012（收紧误拒）。修复 = Loosen{HIGHER,LOWER,NONE} 枚举逐键建模（禁统一翻转，采复核 O-4 指引），min_hold_days → LOWER；te-verify-t063b 探针复测两向反转成功（3→2 ⇒ 10012、3→4 ⇒ 放行、3→2 带复核 ⇒ 放行）+ 16 键方向表探针反射直读全中（HIGHER 10/LOWER 1/NONE 5，无第二处反转）+ 自设抽探针 price.block_pct 两向。
+
+**TE-T063-002（高·ENUM 越冻结域）与修复**：五枚举键 valueType()=ENUM 超 m3_risk.sql:171 CHECK 域 {DECIMAL,INT,BOOL,LIST} ⇒ 写面 5/16 生产 500。裁定 = 方案①服务侧 ENUM→LIST（免 CH，权威制品优先，比照 T-178/003 判例；禁改 DDL/DATA_MODEL/proto）。修复 = valueType() → LIST + requireValid/isRelaxed 改按 allowedValues 非空判定枚举类 + LIST 分支枚举成员校验。te-verify-t063b 复测：ON_ORDER+复核 ⇒ 落库 LIST+下发 ✓；NOPE ⇒ 10001 不落库 ✓；term.action 双向（BLOCK 收紧放行 / WARN_AND_APPROVE 放宽 10012）✓。
+
+**变异独立重做（te-verify-t063b，精确复现原缺陷）**：α 反转 LOWER→HIGHER ⇒ 新两例红（1 Failure+1 Error：静默放宽+收紧误拒）；β POSITION_CHECK_MODE 回 ENUM ⇒ SQLException 违 CHECK 红。复原 md5 adcdf648…/树锚 00ff5a20… 与 pristine 一致。
+
+**TE-T063B-001（低）与微收口**：RiskThresholdSpec:28 javadoc「HIGHER 14 键」与实测 10 不符 ⇒ be-t063c 884050f 订正 14→10（grep 实测 HIGHER=10/LOWER=1/NONE=5、残留扫描 0、T063 16/16 绿）。
+
+**收口四项（8c66acb，编排者授权跨域）**：① CONTRACTS §3.2.1:534 增 CMD_UPDATE_RISK_THRESHOLD ↔ RiskThresholds 行（16 键逐字、1+/0− append-only、不升版、B3 披露在行）；② E8 SPECS 第 4 条（负控改键名 rc1 复原 rc0）⇒ 新契约面双向机械守卫；③ INDEX.md:138 → 119 对/89 路径（自测探针 missing/extra=∅；117/88 降「T-063 前」历史标注；te-verify-t063 O1 前瞻兑现）；④ B2 必答——**勘误编排者问句前提**：Java 事中 risk_intraday.RiskThresholds 读运行期 Config（属性/环境变量）非 t_config_item/t_risk_threshold；FR 义务对象=C++ 内存（RISK.md:221/236、CONFIG.md:164/339、ARCH §11.1）⇒ FR 缄默 Java 传播，非缺陷；DB 阈值变更不达 Java 事中镜像的局限已 RiskService javadoc 披露，若需打通归 T-065 事中面另立。
+
+**观察登记**：B3/CH-022 候选——CFG-16（risk.limit.layers）/CFG-21 双键之 _critical/CFG-21b 在 §4.2.8 RiskThresholds 无字段 ⇒ 可配置不可经本指令下发（三处披露一致：Spec javadoc/CONTRACTS 行/RiskService javadoc；CFG-21 映射 _warn、C++ 全仓 0 消费该字段 te-verify-t063 实测）；O-1 双源真相供权威席裁定；O-2 「allowedValues 非空 ⇔ 枚举键」不变量无编译期守护（未来新增枚举键漏填会退化数值路径）；O-3 price_base 单合法值 isRelaxed 恒 false（Q-15 冻结口径）；O-4 POST /risk/rule 无角色断言（与既有 CONFIG 写面同形，登记待权限面统扫）。
+
+**编排者亲核记录**：d0a7ee2/8c66acb/9457d3d/884050f 四提交面、红线、:138 现值 119/89、CONTRACTS :534 行、encoder case、md5 五件——交付当日亲测与两级复核席独立实测一致；te-verify-t063b 对我 B2 问句前提的勘误（RiskThresholds 取数源）经其源码引证采信。
