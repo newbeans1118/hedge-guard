@@ -16703,3 +16703,24 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **观察（4，不阻断）**：O1（中·前瞻）T-063 并发增 /risk/rule 后 :138 将再陈旧（工作树实测 119 对/89 路径、RISK=3）⇒ 编排者裁定：be-t063 落地时同步刷新 :138（谁改路由面谁更新计数，已令）；O2 历史标注删去原「独立复算一致」出处短语（数字/日期标签均在）；O3 47/37 系 git 前快照不可 VCS 复现（仅能核数字逐字保留）；O4 INDEX:551 全域命令实测 234 与该行 183 不符（既有述、范围外）。
 
 **编排者终检**：1caa97f 恰 1 文件 +1/−1、:138 现值/历史段/管道数、独立复扫零残留——交付当日亲测与复核席一致。
+---
+
+## T-062 独立复核证据（席 te-verify-t062；2026-10-06 第 216 轮 · 编排者逐字转录）
+
+**结论：通过 / 0 缺陷 / 5 观察 ⇒ T-062 转 DONE（含末笔勘误 011a6df 闭环 O-1）。**
+
+**冻结与漂移**：产出方冻结 7b118ab；复核期 HEAD 前移至 8c66acb（T-063 两笔）——T-062 的 32 个交付文件逐字节未触及，一律 git archive 7b118ab 隔离副本取证。范围：三提交并集 34 文件次/32 唯一（README 三笔各改一次）；proto/cpp/web/TASKS/BOARD/DATA_MODEL 零触及。
+
+**DDL 对 DATA_MODEL §2.9 逐列逐约束（自写比对，0 差异）**：8 表（t_operation_log/t_audit_log/t_audit_log_checksum/t_violation_screen_run/t_violation_screen_item/t_audit_report/t_evidence_export/t_major_event）列名/顺序/类型/非空/默认/具名 CHECK 取值域逐值/uk/idx 含列序/FK 目标全对；CHECK 域逐值核（action_result 三值、action_type 六值、chain_integrity 四值三处同域、severity 与 t_risk_violation 同域 DATA_MODEL:3171、Y/N 与恒真约束）；索引列序逐条（idx_op_log_object 三列序等）；DEFAULT 全对。FK 目标逐条命中 0 漏 0 多。
+
+**DAO 面**：24 文件先例形态；CLOB set/getCharacterStream（§6.1 D7）三处核到；拒 updateById 三表（抛 UnsupportedOperationException 带表名+依据）；「不可改删」分类对 §2.9 TB-AUDIT-1/2 + §5.1:4930 明文核实**正确**（恰三张无漏标多标；余 5 表报表提交/状态流转为业务必需，不自行加强 FR 面已披露）；CONTRACTS §2.2.1 +31/−0、八签名与接口逐字一致、HGC-1.6 未升版。
+
+**DaoColumnAlignmentTest「自发现」主张证实**：274260e 该文件零改动；实现扫描 schema/*.sql（99 表）与 dao/impl/Dm*Dao 按 tableName() 双向比对；变异③（period_key→period_keyX）⇒ 双向报差 ⇒ 8 表确被覆盖。
+
+**门禁独立复跑（隔离 git archive 7b118ab）**：922/0/0/0（@Test==surefire==922，120 类；基线 914+8=922 以「新增恰 8 @Test」佐证）；arch E1–E8 rc0；fk-order-check 9 文件/99 表/170 唯一边 PASS；reconcile 99/PASS/doc_only 12（=111−99 差集一致）；M3AuditSchemaTest 4/4 + RoundTrip 4/4 + M3RiskSchemaTest 5/5 不回归。
+
+**变异独立重做（先 build rc=0，复原逐字节）**：① 删 ck_audit_log_chain_integrity ⇒ namedChecksPresent 红；② DmMajorEventDao 绑定交换 ⇒ RoundTrip 红；③ COLUMNS 改名 ⇒ 双向列漂移红；④（判据强度探针）IN-list 删 'UNKNOWN' ⇒ **仍绿** ⇒ 名称级双向对取值域失明实证（O-2 登记：M3AuditSchemaTest 具名 CHECK 双向系名称级，非取值级守卫——实际 DDL 0 漂移非缺陷）。
+
+**观察（5，不阻断）**：O-1 m2_settle.sql:4 同族陈旧 md5（b904152 只修 m3_risk，系编排者收口令漏扫）⇒ **末笔 011a6df 闭环 + 全仓 ef111c2d 残留 NONE**；O-2 如上登记；O-3 文件计数口径（34 次/32 唯一 vs 派单 33）按实测记录；O-4 八 DAO 无 src/main 调用点（DAO 层交付形态相符；跨子账户隔离面归 T-067+）；O-5 「不可改删」章节号 §5.1 非 §5.3（结论正确仅编号偏差）。
+
+**编排者勘误留痕**：派单计数「81→89」实为 91→99（T-094 加 10 表未回写 README）；派单 DATA_MODEL md5 引用陈旧（ef111c2d 为 59ac710 blob、现行 201682e5）。另共享树当场 3 红系 be-t063 在制 /risk/rule 面（非 be-t062 责任；T-063 复核不通过已退修，见后续轮次）。
