@@ -16647,3 +16647,20 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **观察（5，不阻断）**：O-1「路径级逐字不变」实为「语义不变」（ACCT 行重排换行/ArrayList 去限定/javadoc 改写；消费者不受影响）——表述订正留痕；O-2 等值判据跑在测试侧重放装配上，生产集合级覆盖由 RouteReachabilityProductionParityTest + BootstrapAssemblyTest:173 承担，链路闭合；注册器重放点增至 3 处（Bootstrap/FullWebAssembly/ModuleRoutesConsistencyTest），新增模块三处强制同步；O-3 assemble() ping 方法词硬编码与 Bootstrap 同形；O-4 RiskRoutes (null,null) 直调/ConfigRoutes 2 参重载/注册序略异——均不影响集合等值；O-5 noOrphanHandlers 逐字保留、pairDeclarationsAreConsistent 经 M5 证非空转。
 
 **编排者亲核记录**：2528545 恰 2 文件、双 md5、对级声明/等值判据/三测试结构、锚 6ae30329…/609 交付当日亲测与复核席一致；「48/37 系 D-19 口径」当日采信前经复核席独立考古双证。
+
+---
+
+## T-183 delta 复核与终检（te-verify-t183 缺陷收口 + 编排者终检；2026-10-06 第 211 轮 · 编排者逐字转录）
+
+**结论：te-verify-t183 有条件通过（TE-T183-001 低 + O-1）⇒ be-t183b delta 微修 1efb52a 两缺陷收口 ⇒ 编排者终检通过 ⇒ T-183 转 DONE。CH-021 落地完成；TE-T058-001b/002 冻结域缺口全闭环。**
+
+**交付链**：59ac710（主体 7 文件 +76/−56）→ c65b90d（item3 ParamDispatch entity javadoc 11 值 +1/−1）→ 1efb52a（delta 2 文件 +5/−5 纯注释/文档）。
+
+**TE-T183-001（低）收口**：DATA_MODEL 三处（:2989 字段行/:5053 §7.1 v1.3.6 行/:5116 DC-043 行）新值↔线号并列错配（逐值读得 TRIGGER_REPLAY=0x011A、RELOAD=0x011B）⇒ 1efb52a 改显式「值（线号）」对：SET_READY_STATE（0x0119）/ RELOAD（0x011A）/ TRIGGER_REPLAY（0x011B），对齐 HgcpConstants.java:57-61 与 ARCH:828-830 权威；CHECK 顺序（随 ParamChange 枚举）不动、m3_risk.sql 零触及。编排者终检：三处 grep 配对正确（RELOAD（0x011A）/TRIGGER_REPLAY（0x011B）在位）。
+
+**O-1 收口**：M2EndToEndAcceptanceTest.java:474-475 注释由「入口当前写 PARSED/PENDING_DATA 越冻结域」（CH-021 后假陈述）订正为时点事实+现行态（T-058 时点…CH-021 扩域后写 NOT_ARRIVED 合法）；该文件系 T-058 冻结 e2e、行为面零改动（仅 2 行注释）。**编排者派单漏点勘误**：te-verify-t183 O-2 指正成立——我工单误指 M2E2eSeed:124（实为正确无需改），陈旧注释实在 M2EndToEndAcceptanceTest:474-475。
+
+**编排者终检**：1efb52a 恰 2 文件 +5/−5；三处配对 grep 正确（RELOAD（0x011A）/TRIGGER_REPLAY（0x011B））；注释订正两行在位；md5 201682e5…/839dc8ef… 吻合；arch rc0 + compile 复跑通过（纯注释/文档，门禁 914 态不受影响）。
+
+**CH-021 落地终态**：DATA_MODEL v1.3.6（201682e5…/5261，:2386 四值域/:2989 十一值域/:13 抬头/§7.1/§7.2 DC-042·043/附录 C 区间）；m2_settle.sql 24b5e224…/781（:44 四值 CHECK）；m3_risk.sql 7a476991…/508（:65-68 十一值 CHECK/:76 COMMENT/:4 抬头）；SettleService PARSE_PENDING="NOT_ARRIVED"；三类指令真实 DmParamDispatchDao 回归用例在树。
+
