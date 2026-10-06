@@ -19,7 +19,7 @@ public final class ParamDispatch extends AuditedEntity {
     /** 单调递增的参数版本（{@code R-CONFIG-3} 顺序保证）。<b>分配须服务层串行化</b>（本表无 UNIQUE，见契约 `D-16`）。 */
     public long paramVersion;
 
-    /** 下发类型：{@code LOAD_RISK_PARAMS}/{@code UPDATE_WHITELIST}/{@code UPDATE_QUOTA}/{@code UPDATE_POSITION_LIMIT}/{@code UPDATE_RISK_THRESHOLD}/{@code UPDATE_PERMISSION}/{@code UPDATE_EXPOSURE}/{@code SET_TRADING_SUSPEND}。 */
+    /** 下发类型：{@code LOAD_RISK_PARAMS}/{@code UPDATE_WHITELIST}/{@code UPDATE_QUOTA}/{@code UPDATE_POSITION_LIMIT}/{@code UPDATE_RISK_THRESHOLD}/{@code UPDATE_PERMISSION}/{@code UPDATE_EXPOSURE}/{@code SET_TRADING_SUSPEND}/{@code SET_READY_STATE}/{@code TRIGGER_REPLAY}/{@code RELOAD}（{@code CH-021} 扩域）。 */
     public String dispatchType;
 
     /** 涉及子账户（若为子账户级变更）；可空。 */
