@@ -16585,3 +16585,23 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **观察登记**：O-1 新断言只锚约束名不锚条件体——31 条非哨兵 CHECK 条件改写仍绿（哨兵 2 条有 sentinelChecksThreeWayConsistent 护）；条件级判据如需彻底闭环另行立号（存量面、非本 delta 缺陷）；O-2 NAMED_CHECKS 为 DDL 快照非 DATA_MODEL 派生——复核建议 javadoc 明示「快照式冻结守卫，权威源 = DATA_MODEL §2.8/§4.3」（登记随下次触改）。诚实披露三项（复杂 CHECK 取值域/DM8 未执行/RiskAlert 同名异包）te-verify-t094 逐一证实属实。
 
 **编排者亲核记录**：终态指纹（m3_risk f9e755ed…/507、M3RiskSchemaTest cfdb0e13…、RiskViolationDao 6eaf4ff4…、锚 63402ff0…/585、fk-order-check PASS）交付当日亲测与双复核席独立实测一致；TE-T094-001 三处行号（:424/:433/:443-450）与 CONTRACTS 删除行当日亲核吻合。
+
+---
+
+## T-170/T-123 独立复核证据（席 te-verify-t170；2026-10-05 第 205 轮 · 编排者逐字转录）
+
+**结论：T-170 通过 / 0 缺陷 / 6 观察；T-123 并入 T-170 收口（计数连锁）随之闭环。**
+
+**考古与交付链**：E8 判据脚本（scan_contracts_payload.py 362 行）与聚合接线已于 172376e（2026-10-02，CH-019 复核期）实现——T-170 属「实现已在树、未走交付流程」；本单收口 = be-t170 两笔注释-only（c362157 计数连锁两处 = T-123 并入 + e315aae arch-check.sh:6 同形订正，编排者授权），合计 3 文件 +3/−3、非注释变更行 = 0（python 逐行注释判定自证）。E8 脚本 md5 432fd708… 自 172376e 未动；冻结件 CONTRACTS 78fa3fea…、proto a1762e53… 未动。
+
+**E8 实现正确性（te-verify-t170 362 行全文核）**：定段锚点（^#### 3.2.1 取最后一处 + 段内须现 CMD_UPDATE_PERMISSION 形态守卫）防错段实证——重命名现行标题 rc2、删表行 rc1 漂移非静默；双向差集逻辑正确；SPECS 三映射对 proto 交叉核（CmdSetTradingSuspend 直键/CmdUpdateQuota.entries↔QuotaEntry:455/CmdUpdatePermission.entries↔PermissionEntry:473）；退出码 0/1/2 全谱；基线键数 5/7/9 与工单一致。
+
+**五向变异探针（te-verify-t170 隔离副本，逐次复原）**：α CONTRACTS has_trading_post→hasTradingPost ⇒ rc1「proto 有而 CONTRACTS 无」；β proto 改名 ⇒ rc1 双向 2 条（E7 同红属预期）；γ CONTRACTS 加合法小写新键 ⇒ rc1；δ(自设) 说明列改名 ⇒ rc1；ε(自设) 直键改名 ⇒ rc1 双向。
+
+**计数连锁与 ARCH 一致性**：c362157 两处（cpp/CMakeLists.txt:72、java/pom.xml:190）E1–E6→E1–E8；e315aae arch-check.sh:6 同形订正；:27/:107「E1–E6 均为 *.sh」语境正确残留（述 6 个 shell 脚本）；ARCH 全文「八大/E1–E8」一致性核——§3.0.2:314 题头、:325 判据行、:331 状态块、:333 退出码块、§3.13:578-583、§8.3:2347、§13 v1.5.20:2972 全一致，无 live 残留「六大/七大」（仅 v1.0 历史行 :2992 历史体例）；README E1–E8 同步（:3/:32/:33/:72/:250/:274）。
+
+**链 2/3 如实标注**：链 2（Java 生成码↔proto）无机械门禁（pom 无 protoc 插件），TEST_RESULT.md:12439 手工 protoc --java_out + cmp IDENTICAL 留痕在；链 3 = envelope_test（cpp/src/hgcp/CMakeLists.txt:94）+ risk_engine_permission_test（risk_engine/CMakeLists.txt:45）ctest 级。
+
+**观察登记（T170-O1..O6，均不阻断）**：O-1 形态守卫按「段内任意行含 CMD_UPDATE_PERMISSION」判定，parse_contracts_keys 独立要求三 SPEC 在表（缺则 rc2）⇒ 无静默误锚；O-2 proto 缺 message 归 rc1 漂移（响亮失败设计选择）；O-3 十六进制字段号 ShapeError rc2（fail-safe）；O-4 脚本头 N2 措辞略粗（语义同）；O-5 172376e 实为 5 文件（E8 实现与登记提交，工单已明示为自证对象）；O-6 复核席隔离副本清理受沙箱拦截（仓库外，无影响）。
+
+**编排者亲核记录**：c362157/e315aae 注释-only（+3/−3）、E8 脚本 md5 未动、:6/:52/:86/:72/:190 五处当日亲测与复核席一致；「红线 2」系 pattern 误含授权路径（T-158 镜像判例）。
