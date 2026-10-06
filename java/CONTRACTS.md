@@ -381,6 +381,35 @@ public interface AbnormalOrderStatDao extends BaseDao<AbnormalOrderStat, Long> {
 public interface RiskMetricSnapshotDao extends BaseDao<RiskMetricSnapshot, Long> {
     List<RiskMetricSnapshot> findBySubAccount(int subAccountId);                        // T-094：按子账户查指标序列（时间倒序）
 }
+
+// —— AUDIT 模块 8 表（TB-AUDIT-1~8；T-062 纯增量）——
+// ⚠️ 本组为留痕/审计/报表面，均无子账户 scoped 方法（跨子账户查询隔离面属 T-067+ 查询任务）；
+//    随本单登记以免「DAO 面变更未登记」。t_operation_log / t_audit_log / t_audit_log_checksum 为
+//    「不可改删」表（DATA_MODEL §2.9/§5.3）⇒ 实现覆写 updateById 显式拒绝（CONTRACTS §2.3）。
+public interface OperationLogDao extends BaseDao<OperationLog, Long> {
+    List<OperationLog> findByObject(String objectType, long objectId);                  // T-062：按对象查操作轨迹（idx_op_log_object）
+}
+public interface AuditLogDao extends BaseDao<AuditLog, Long> {
+    AuditLog findBySeqInChain(long seqInChain);                                         // T-062：链内序号唯一定位（uk_audit_log_chain_seq）
+}
+public interface AuditLogChecksumDao extends BaseDao<AuditLogChecksum, Long> {
+    AuditLogChecksum findByBatchNo(long batchNo);                                       // T-062：批次号唯一定位（uk_audit_log_checksum_batch）
+}
+public interface ViolationScreenRunDao extends BaseDao<ViolationScreenRun, Long> {
+    ViolationScreenRun findByScreenNo(String screenNo);                                 // T-062：筛查批次号唯一定位（uk_violation_screen_no）
+}
+public interface ViolationScreenItemDao extends BaseDao<ViolationScreenItem, Long> {
+    List<ViolationScreenItem> findByScreenRunAndType(long screenRunId, String violationType);  // T-062：批次命中明细（idx_screen_item_run_type）
+}
+public interface AuditReportDao extends BaseDao<AuditReport, Long> {
+    AuditReport findByReportNo(String reportNo);                                        // T-062：报表编号唯一定位（uk_audit_report_no）
+}
+public interface EvidenceExportDao extends BaseDao<EvidenceExport, Long> {
+    EvidenceExport findByExportNo(String exportNo);                                     // T-062：导出批次号唯一定位（uk_evidence_export_no）
+}
+public interface MajorEventDao extends BaseDao<MajorEvent, Long> {
+    List<MajorEvent> findByTypeAndStatus(String eventType, String status);              // T-062：按类型+状态筛选（idx_major_event_type_status）
+}
 ```
 
 - **`HedgePlanDao`**：`findPageScoped` / `findByIdScoped`（**`T-100` 交付，纯增量**；实现 `dao/impl/DmHedgePlanDao`，复用 `AbstractDmDao.findPageScoped`）——列表与详情面同接同一过滤；`findByIdScoped` 语义：**不可见 ≡ 不存在**（同一返回，不泄露存在性）。另加 **`findMaxPlanNoByPrefix`（`T-137` 交付，纯增量）**：`DATA_MODEL.md` §3.5「当日最大序号 + 1」取数（`t_hedge_plan` 无业务日列，业务日隐含于 `plan_no` 前缀；通用 WHERE 原子表达不了前缀匹配 ⇒ 专用 SQL `plan_no LIKE ?`，走 `uk_hedge_plan_no` 唯一索引区间）；**不使用 `SELECT MAX(...) FOR UPDATE`**（§3.5 明令禁止）。
@@ -390,6 +419,7 @@ public interface RiskMetricSnapshotDao extends BaseDao<RiskMetricSnapshot, Long>
 - **`FundQuotaDao`**：`findScoped`（**`T-049` 交付，一只纯增量**；实现 `dao/impl/DmFundQuotaDao`）——`t_fund_quota` 有 `sub_account_id` 列 ⇒ scope 谓词**直接落在本表列**（`sub_account_id IN (...)`，同 `HedgePlanDao`/`ExposureDao`）；服务层对 `quota_scope='SUB_ACCOUNT'` 接 `AuthService.visibleSubAccountIds` → `SubAccountScope.of`，**空集恒假**；账户级（哨兵 `NULL`）**不走**此过滤（同 `T-112` 层③口径）。**另加 `DepositWithdrawApplyDao.findMaxApplyNoByPrefix` / `TransferApplyDao.findMaxApplyNoByPrefix`（`T-049` 交付，各一只纯增量）**：`DATA_MODEL.md` §3.5「当日最大序号 + 1」取数（单据表无业务日列、业务日隐含于 `apply_no` 前缀 ⇒ 专用 SQL `apply_no LIKE ?`，走 `uk_dw_apply_no`/`uk_transfer_apply_no` 前缀区间；**不使用 `SELECT MAX(...) FOR UPDATE`**，先例 `T-137`/`T-141`）。
 - **事后风控报表 DAO 组（`T-180` 交付，三接口纯增量）**：`PostRiskReportDao.findByKey` / `RiskViolationDao.findByDate` / `RiskViolationDao.countByNaturalKey` / `LimitUsageStatDao.findByDate`——承载 `FR-RISK-17`/`FR-RISK-18` 的日终报表落库（`t_post_risk_report` / `t_risk_violation` / `t_limit_usage_stat`，`DATA_MODEL.md` §2.8 TB-RISK-7/8/9）；实现 `dao/impl/DmPostRiskReportDao` / `DmRiskViolationDao` / `DmLimitUsageStatDao`。**本组无子账户 scoped 方法**（全账户汇总报表口径；`FR-RISK-19` 查询面的隔离不属本单）。⚠️ 上述三表 DDL 尚由 `T-094` 收口（本单测试以内联转录 `DATA_MODEL.md` §2.8 驱动，不触 `docs/**`）。〔**T-094 已收口**：三表 DDL 已入 `docs/DEPLOY/schema/m3_risk.sql`，列级与内联夹具一致〕
 - **其余 RISK 表 DAO 组（`T-094` 交付，七接口纯增量）**：`RiskThresholdDao.findByKey` / `AnnualScaleDao.findByScopeAndProduct` / `MirrorWatermarkDao.findByComponentAndStream` / `RiskAlertDao.findBySubAccount` / `RiskDisposalDao.findActiveBySubAccount` / `AbnormalOrderStatDao.findByStatDate` / `RiskMetricSnapshotDao.findBySubAccount`——承载风控阈值/规模基数/镜像水位/告警/处置/异常下单/指标快照（`t_risk_threshold` / `t_annual_scale` / `t_mirror_watermark` / `t_risk_alert` / `t_risk_disposal` / `t_abnormal_order_stat` / `t_risk_metric_snapshot`，`DATA_MODEL.md` §2.8 TB-RISK-1/3/4/5/6/10/11）；实现 `dao/impl/DmRiskThresholdDao` / `DmAnnualScaleDao` / `DmMirrorWatermarkDao` / `DmRiskAlertDao` / `DmRiskDisposalDao` / `DmAbnormalOrderStatDao` / `DmRiskMetricSnapshotDao`。**本组无子账户 scoped 方法**（`FR-RISK-19` 查询面的隔离不属本单；`T-112` 层③口径不适用于此）。**未新增路径 / 未改字段 / 未改错误码** ⇒ **未升版**（`HGC-1.6` 不变）。
+- **AUDIT 表 DAO 组（`T-062` 交付，八接口纯增量）**：`OperationLogDao.findByObject` / `AuditLogDao.findBySeqInChain` / `AuditLogChecksumDao.findByBatchNo` / `ViolationScreenRunDao.findByScreenNo` / `ViolationScreenItemDao.findByScreenRunAndType` / `AuditReportDao.findByReportNo` / `EvidenceExportDao.findByExportNo` / `MajorEventDao.findByTypeAndStatus`——承载操作留痕/审计日志/审计日志校验值/违规筛查运行/筛查命中项/审计报表/证据链导出/重大事项（`t_operation_log` / `t_audit_log` / `t_audit_log_checksum` / `t_violation_screen_run` / `t_violation_screen_item` / `t_audit_report` / `t_evidence_export` / `t_major_event`，`DATA_MODEL.md` §2.9 TB-AUDIT-1~8）；实现 `dao/impl/DmOperationLogDao` / `DmAuditLogDao` / `DmAuditLogChecksumDao` / `DmViolationScreenRunDao` / `DmViolationScreenItemDao` / `DmAuditReportDao` / `DmEvidenceExportDao` / `DmMajorEventDao`。**本组无子账户 scoped 方法**（跨子账户查询隔离面属 `T-067`+ 查询任务）。**只增不改**：`t_operation_log` / `t_audit_log` / `t_audit_log_checksum` 按 `CONTRACTS.md` §2.3 覆写 `updateById` 显式抛 `UnsupportedOperationException`（`DATA_MODEL.md` §2.9/§5.3「不可改删」）；其余五表在 §2.9 未标注「不可改删」，按可更新处理。**未新增路径 / 未改字段 / 未改错误码** ⇒ **未升版**（`HGC-1.6` 不变）。
 - 语义（各 scoped 方法一致，冻结；`ProductDao` 的子查询形态为经登记的载体差异）：由服务层构造 `SubAccountScope` 后传入；本层**不解析权限语义**，只把
   `scope.appendTo(...)` 的条件与既有条件合并（`ProductDao` 为包一层白名单子查询）；**空集合 ⇒ 恒假条件**（返回空），**绝不**退化为不过滤；
   **计数口径**（`findPageScoped`）：`total` 为**叠加 scope 与 `extraWhere` 过滤后**的总行数（分页实现独立执行 `COUNT`），**不得**取全表行数。
@@ -867,6 +897,7 @@ instantiated OK        # 同时打印 SLF4J: Defaulting to no-operation (NOP) lo
 | 2026-10-01（`CH-019` 交付 · §3.2.1 落点） | `backend-engineer#java`（实例 `be-ch019j`） | **契约增量登记（`CH-019`，L3 · 用户 2026-10-01 已批准）**：§3.2.1 **补登 `CMD_UPDATE_PERMISSION`（`0x0116`）payload 键** —— 此前该指令在表中**完全缺位**（`grep` 命中 0），本次按 `tl-t167` 裁定 2.2 补登 9 键（`entries[n].` 前缀索引：`operator_id` / `sub_account_id` / `product_ids` / `quota_limit` / `is_enterprise_leader` / `is_management_role` / `has_risk_role` / `has_settle_role` / **`has_trading_post`**）+ 一条**条目粒度注记**（`t_authorization` 行级 `(user_id, sub_account_id, product_id)` **vs** 引擎 `PermissionSnapshot` 单键 `unordered_map<uint32_t, PermissionEntry>`（键 = `operator_id`）⇒ **同一 `operator_id` 跨多子账户必须聚合在同一 entry 内**，否则**静默覆盖**）。**键名一律采用 `§4.2.3` 冻结协议字段名、无二次命名**（表头既有规则）。**冻结面判定（本席实测）**：**未新增冻结对象** —— `CMD_UPDATE_PERMISSION` 及字段 `1`~`8` 早已由 `§4.2.3` 冻结（本次 = 把缺位行补成与协议表一致），`has_trading_post`（字段 9）则**已由 `CH-019`（用户已批准、`proto` 已落提交 `49faab4`）**冻结；**未删改任何既有行**（`git diff --numstat` 删除列 = 0，纯追加）／**未改字段号·类型·必填性·消息集·错误码·路径·端点** ⇒ **未升版**（`HGC-1.6` 不变，同 `T-135`/`T-136`/`T-151` 口径） | **未升版**（`HGC-1.6` 不变） |
 | 2026-10-04（`T-049` 退回修复 · §2.2.1 落点） | `backend-engineer#java`（实例 `be-t049c`） | **兼容性增量登记（`T-049` 退回修复；`TE-T049-001/002/003` + `O-1`）**：§2.2.1 **追加三只纯增量 DAO 方法** —— `FundQuotaDao.findScoped(String, SubAccountScope)`（+ `DmFundQuotaDao` 实现；读取面 `NFR-SEC-7`；载体 = 本表 `sub_account_id` 列，仅 `SUB_ACCOUNT` 范围、账户级哨兵 `NULL` 不走过滤）＋ `DepositWithdrawApplyDao.findMaxApplyNoByPrefix(String)` / `TransferApplyDao.findMaxApplyNoByPrefix(String)`（+ 各自 `Dm…` 实现；`DATA_MODEL.md` §3.5「当日最大序号 + 1」取数；专用 SQL `apply_no LIKE ?`，走 `uk_dw_apply_no`/`uk_transfer_apply_no` 前缀区间；先例 `T-137`/`T-141`）。**取号口径**：`nextApplyNo`/`nextTransferApplyNo` 由「当日计数 + 1」改为「当日最大序号 + 1」（按业务日重置），`UNIQUE` 保留为兜底（`R-FUND-5`「系统不自动重试」⇒ 修复落在号生成而非自动重试）。**未新增路径 / 未改字段·类型·错误码** ⇒ **未升版**（`HGC-1.6` 不变）。⚠️ 测试侧同步（非契约）：`FundFakes` 三假 DAO 补对应方法 + `findPage` 尊重 `limit/offset`（复现「仅取第 1 页 ⇒ 截断」失败模式）。 | **未升版**（`HGC-1.6` 不变） |
 | 2026-10-05（`T-094` 交付） | `backend-engineer#java`（实例 `be-t094`） | **兼容性增量登记（`T-094`；RISK 余 10 表 DDL 与 DAO 收口）**：§2.2.1 **追加七只纯增量 DAO 方法**（`RiskThresholdDao.findByKey` / `AnnualScaleDao.findByScopeAndProduct` / `MirrorWatermarkDao.findByComponentAndStream` / `RiskAlertDao.findBySubAccount` / `RiskDisposalDao.findActiveBySubAccount` / `AbnormalOrderStatDao.findByStatDate` / `RiskMetricSnapshotDao.findBySubAccount`，各 + `dao/impl` 实现）。**本组无子账户 scoped 方法**（`FR-RISK-19` 查询面隔离不属本单）。**未新增路径 / 未改字段类型 / 未改错误码** ⇒ **未升版**（`HGC-1.6` 不变）。⚠️ 同批收口 `t_post_risk_report`/`t_risk_violation`/`t_limit_usage_stat` 三表 DDL 入 `docs/DEPLOY/schema/m3_risk.sql`（T-180 遗留；DDL 非本文件冻结面）。 | **未升版**（`HGC-1.6` 不变） |
+| 2026-10-06（`T-062` 交付） | `backend-engineer#java2`（实例 `be-t062`） | **兼容性增量登记（`T-062`；AUDIT 8 表 DDL 与 DAO 交付）**：§2.2.1 **追加八只纯增量 DAO 方法**（`OperationLogDao.findByObject` / `AuditLogDao.findBySeqInChain` / `AuditLogChecksumDao.findByBatchNo` / `ViolationScreenRunDao.findByScreenNo` / `ViolationScreenItemDao.findByScreenRunAndType` / `AuditReportDao.findByReportNo` / `EvidenceExportDao.findByExportNo` / `MajorEventDao.findByTypeAndStatus`）+ 八只 DAO 接口与实现（`dao/impl/DmOperationLogDao` / `DmAuditLogDao` / `DmAuditLogChecksumDao` / `DmViolationScreenRunDao` / `DmViolationScreenItemDao` / `DmAuditReportDao` / `DmEvidenceExportDao` / `DmMajorEventDao`），承载 `DATA_MODEL.md` §2.9 TB-AUDIT-1~8。**本组无子账户 scoped 方法**（跨子账户查询隔离面属 `T-067`+ 查询任务）。`t_operation_log` / `t_audit_log` / `t_audit_log_checksum` 按 §2.3 覆写 `updateById` 显式拒绝（`DATA_MODEL.md` §2.9/§5.3「不可改删」）。**未新增路径 / 未改字段 / 未改错误码** ⇒ **未升版**（`HGC-1.6` 不变），**无需 `CH`**（同 `T-094`/`T-180` 口径）。 | **未升版**（`HGC-1.6` 不变） |
 
 ---
 

@@ -64,7 +64,8 @@ def parse(text):
     return creates, alters
 
 FILES = ['m1_config_auth.sql', 'm1_product.sql', 'm1_spot.sql', 'm1_plan.sql',
-         'm2_trade.sql', 'm2_settle.sql', 'm2_fund.sql', 'm3_risk.sql']
+         'm2_trade.sql', 'm2_settle.sql', 'm2_fund.sql', 'm3_risk.sql',
+         'm3_audit.sql']
 PARSED = {}
 for f in FILES:
     PARSED[f] = parse(read(f))
@@ -76,7 +77,7 @@ PLAN = [
     ('m1_plan.sql', 'create'),        ('m2_trade.sql', 'create'),
     ('m1_plan.sql', 'alter'),         ('m2_settle.sql', 'create'),
     ('m2_fund.sql', 'create'),        ('m2_settle.sql', 'alter'),
-    ('m3_risk.sql', 'create'),
+    ('m3_risk.sql', 'create'),      ('m3_audit.sql', 'create'),
 ]
 # Files whose deferred ALTER segment has a dedicated replay step in PLAN; every
 # other file runs its deferred ALTERs at the end of its own create section.

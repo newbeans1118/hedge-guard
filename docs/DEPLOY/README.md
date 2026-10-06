@@ -242,7 +242,8 @@ C++ 启动时序（§4.5.3）：
   9) m2_fund.sql
  10) 回补 8) 暂缓的 fk_t_settle_fund_ledger 段
  11) m3_risk.sql
- 12) data-init.sql
+ 12) m3_audit.sql
+ 13) data-init.sql
 ```
 
 > `m1_config_auth.sql` / `m1_plan.sql` / `m2_settle.sql` 的跨模块外键段均已由脚本作者显式置于文件末尾并注明「暂缓」；三处两阶段后置**消解了 CONFIG↔PRODUCT、PLAN↔TRADE、SETTLE↔FUND 三个跨模块环**（§8.4）。
@@ -294,7 +295,7 @@ python3 docs/DEPLOY/tools/reconcile-schema.py --json     # 机读
 - `SETTLE↔FUND`：**T-179 已修订**——原 `m2_settle.sql` 的 `t_settle_fund.fund_ledger_id → t_fund_ledger`（`FUND`，**原为内联**）已后置至该文件末尾 ALTER 段；FUND 侧仍保留内联（`t_fund_flow.settle_cycle_id → t_settle_cycle`、`t_transfer_apply.agg_check_id → t_aggregation_check`、`t_fund_reconcile.agg_check_id → t_aggregation_check`，均指向 SETTLE）
   ⇒ 两阶段执行：`m2_settle.sql` **建表段**先于 `m2_fund.sql`；后置的 `fk_t_settle_fund_ledger` 在 `m2_fund.sql` 之后回补（§7.1 步 8 / 回补步 10）。
 
-**修订后执行顺序**：`… → m2_trade.sql → m2_settle.sql（建表段） → m2_fund.sql → 回补 settle 后置外键 → m3_risk.sql → data-init.sql`。
+**修订后执行顺序**：`… → m2_trade.sql → m2_settle.sql（建表段） → m2_fund.sql → 回补 settle 后置外键 → m3_risk.sql → m3_audit.sql → data-init.sql`。
 
 **判据（可复跑）**：
 
@@ -303,7 +304,7 @@ python3 docs/DEPLOY/tools/fk-order-check.py        # 退出码 0=PASS
 python3 docs/DEPLOY/tools/fk-order-check.py -v     # 逐条 FK 边明细
 ```
 
-根据 §7.1 顺序静态断言：每条内联 FK 的父表在其子表建表时已存在；每个后置 ALTER 的父表须在该 ALTER **实际执行时点**已存在——**跨模块**后置 ALTER 在 §7.1 回补步校验（`m1_config_auth` 步 1/回补步 3、`m1_plan` 步 5/回补步 7、`m2_settle` 步 8/回补步 10），**模块内**后置 ALTER（父表定义于本文件靠后，如 `m2_trade.sql`/`m2_fund.sql` 文件末尾的 ALTER 段）在本文件建表段完成后随即校验；同文件内按依赖排序，跨文件按 §7.1 固定顺序。统计口径为**唯一 FK 边**（去重后的有向「子表→父表」，同一父表被多列引用只计一条）。**本机实测：81 张表、144 条唯一 FK 边（含模块内后置 ALTER）、0 违约、`RESULT: PASS`**（无 DM8，纯静态）。DM8 实机执行仍待环境（§8.1）。
+根据 §7.1 顺序静态断言：每条内联 FK 的父表在其子表建表时已存在；每个后置 ALTER 的父表须在该 ALTER **实际执行时点**已存在——**跨模块**后置 ALTER 在 §7.1 回补步校验（`m1_config_auth` 步 1/回补步 3、`m1_plan` 步 5/回补步 7、`m2_settle` 步 8/回补步 10），**模块内**后置 ALTER（父表定义于本文件靠后，如 `m2_trade.sql`/`m2_fund.sql` 文件末尾的 ALTER 段）在本文件建表段完成后随即校验；同文件内按依赖排序，跨文件按 §7.1 固定顺序。统计口径为**唯一 FK 边**（去重后的有向「子表→父表」，同一父表被多列引用只计一条）。**本机实测：99 张表、170 条唯一 FK 边（含模块内后置 ALTER）、0 违约、`RESULT: PASS`**（无 DM8，纯静态）。DM8 实机执行仍待环境（§8.1）。
 
 另注：本判据为**静态拓扑**证据，**不替代** DM8 实机建表（`CH-016`）。
 
