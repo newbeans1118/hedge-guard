@@ -1,7 +1,7 @@
 -- =============================================================================
 --  HedgeGuard 建表脚本 —— 模块 RISK（TB-RISK-1~11，共 11 张；本文件交付全部 11 张）
 --  制品编号：docs/DEPLOY/schema/m3_risk.sql
---  依据：docs/DATA_MODEL.md v1.3.5（md5 d17bce0c37e513a0a236304b9cb3f25d）§2.8 模块 RISK
+--  依据：docs/DATA_MODEL.md v1.3.6（md5 ef111c2dfa3c6a6ad3d37a50ea4c5b41）§2.8 模块 RISK
 --        §0.2 字段类型 / §0.3 通用审计字段 / §0.4 外键与级联 / §0.5 DM8 建表模板 / §4.3 约束目录
 --        历史依据（保留历史注，只加不改）：本文件首个增量（TB-RISK-2 t_param_dispatch）起草于
 --        DATA_MODEL v1.3.2（md5 99b647ec3e7a29b95ee86b04a58c747c）；余 10 表由 T-094 依现行 v1.3.5 续写。
@@ -64,7 +64,8 @@ CREATE TABLE t_param_dispatch (
     CONSTRAINT pk_t_param_dispatch PRIMARY KEY (id),
     CONSTRAINT ck_param_dispatch_type CHECK (dispatch_type IN (
         'LOAD_RISK_PARAMS','UPDATE_WHITELIST','UPDATE_QUOTA','UPDATE_POSITION_LIMIT',
-        'UPDATE_RISK_THRESHOLD','UPDATE_PERMISSION','UPDATE_EXPOSURE','SET_TRADING_SUSPEND')),
+        'UPDATE_RISK_THRESHOLD','UPDATE_PERMISSION','UPDATE_EXPOSURE','SET_TRADING_SUSPEND',
+        'SET_READY_STATE','TRIGGER_REPLAY','RELOAD')),
     CONSTRAINT ck_param_dispatch_status CHECK (dispatch_status IN ('PENDING','SUCCESS','FAIL','UNCONFIRMED')),
     CONSTRAINT ck_param_dispatch_batch CHECK (
         (batch_index IS NULL AND batch_total IS NULL) OR (batch_index >= 1 AND batch_total >= 1)),
@@ -72,7 +73,7 @@ CREATE TABLE t_param_dispatch (
 );
 COMMENT ON TABLE  t_param_dispatch                 IS '参数下发记录（Java→C++ 控制指令与回执；无回执不得视为已生效，R-CONFIG-3）';
 COMMENT ON COLUMN t_param_dispatch.param_version   IS '单调递增的参数版本（R-CONFIG-3 顺序保证）';
-COMMENT ON COLUMN t_param_dispatch.dispatch_type   IS 'LOAD_RISK_PARAMS/UPDATE_WHITELIST/UPDATE_QUOTA/UPDATE_POSITION_LIMIT/UPDATE_RISK_THRESHOLD/UPDATE_PERMISSION/UPDATE_EXPOSURE/SET_TRADING_SUSPEND';
+COMMENT ON COLUMN t_param_dispatch.dispatch_type   IS 'LOAD_RISK_PARAMS/UPDATE_WHITELIST/UPDATE_QUOTA/UPDATE_POSITION_LIMIT/UPDATE_RISK_THRESHOLD/UPDATE_PERMISSION/UPDATE_EXPOSURE/SET_TRADING_SUSPEND/SET_READY_STATE/TRIGGER_REPLAY/RELOAD';
 COMMENT ON COLUMN t_param_dispatch.sub_account_id  IS '涉及子账户（子账户级变更时非空；账户级为 NULL）';
 COMMENT ON COLUMN t_param_dispatch.batch_index     IS '分批下标（全量预加载分批；未分批为 NULL）';
 COMMENT ON COLUMN t_param_dispatch.batch_total     IS '分批总数（全量预加载分批；未分批为 NULL）';

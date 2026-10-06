@@ -61,7 +61,7 @@ import java.util.logging.Logger;
  * <p><b>三条结构性保证</b>：
  * <ol>
  *   <li><b>CTP 数据为唯一权威基准</b>（{@code R-SETTLE-3}）：{@link #ingestCtpData} 只在数据到达时入库，
- *       数据未到达置 {@code PENDING_DATA} 待重试，<b>绝不</b>用推算数据替代；{@link #runSettlement}
+ *       数据未到达置 {@code NOT_ARRIVED} 待重试，<b>绝不</b>用推算数据替代；{@link #runSettlement}
  *       在 CTP 明细缺失时以 {@code DATA_INSUFFICIENT} 拒绝（不产出结算结果）。</li>
  *   <li><b>子账户独立结算</b>（{@code R-SETTLE-1}/{@code R-SETTLE-9}）：每个子账户各出一份
  *       {@code t_settle_cycle}，持仓/资金/盈亏明细行**逐行携带子账户且可直接求和**，
@@ -150,10 +150,10 @@ public final class SettleService {
     /** 归因来源：无法归属。 */
     public static final String ATTR_UNABLE = "UNABLE_TO_ATTRIBUTE";
 
-    /** CTP 批次解析状态：已解析（完整）。冻结域 {@code {OK, PARTIAL, FAILED}}（{@code m2_settle.sql:42}）。 */
+    /** CTP 批次解析状态：已解析（完整）。冻结域 {@code {OK, PARTIAL, FAILED, NOT_ARRIVED}}（{@code m2_settle.sql:44}；{@code CH-021} 扩域）。 */
     public static final String PARSE_PARSED = "OK";
-    /** CTP 批次解析状态：数据未到达，待重试。 */
-    public static final String PARSE_PENDING = "PENDING_DATA";
+    /** CTP 批次解析状态：数据未到达（未发生解析），置待重试。 */
+    public static final String PARSE_PENDING = "NOT_ARRIVED";
     /** CTP 批次解析状态：解析失败。 */
     public static final String PARSE_FAILED = "FAILED";
 
@@ -260,7 +260,7 @@ public final class SettleService {
      *
      * <p>幂等：以 {@code (trade_date, source_identifier)} 唯一键判定；重复接收同一批次为**幂等 no-op**
      * （返回既有批次，不再插入明细）。数据未到达（持仓/资金/成交三者皆空）⇒ 批次置
-     * {@code PENDING_DATA} + 记录未达原因并累加 {@code retry_count}，<b>不产生</b>任何基于推算的结算结果。
+     * {@code NOT_ARRIVED} + 记录未达原因并累加 {@code retry_count}，<b>不产生</b>任何基于推算的结算结果。
      *
      * @param req        接收请求
      * @param operatorId 操作人
@@ -304,7 +304,7 @@ public final class SettleService {
                     batchDao.updateById(batch, operatorId);
                 }
                 return new CtpIngestResult(batch.id, true, 0, 0, 0,
-                        "数据未到达，已置待重试（PENDING_DATA）");
+                        "数据未到达，已置待重试（NOT_ARRIVED）");
             }
             batch.parseStatus = PARSE_PARSED;
             batch.parseError = null;

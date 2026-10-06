@@ -1,7 +1,7 @@
 -- =============================================================================
 --  HedgeGuard 建表脚本 —— 模块 SETTLE（结算），16 张
 --  制品编号：docs/DEPLOY/schema/m2_settle.sql
---  依据：docs/DATA_MODEL.md v1.3.5（md5 d17bce0c37e513a0a236304b9cb3f25d）
+--  依据：docs/DATA_MODEL.md v1.3.6（md5 ef111c2dfa3c6a6ad3d37a50ea4c5b41）
 --        §2.7 SETTLE（TB-SETTLE-1~16）/ §0.3 通用审计字段 / §0.4 外键与级联
 --        / §0.5 DM8 建表模板 / §4.3 约束目录 / §4.4.1 差异归属机判来源
 --  目标库：达梦 DM8；执行者：DBA（应用账号仅 SELECT/INSERT/UPDATE，禁 DDL — NFR-SEC-8）
@@ -41,7 +41,7 @@ CREATE TABLE t_ctp_settle_batch (
     row_version           INT                       DEFAULT 0        NOT NULL,
     CONSTRAINT pk_t_ctp_settle_batch PRIMARY KEY (id),
     CONSTRAINT uk_ctp_settle_batch_date UNIQUE (trade_date, source_identifier),
-    CONSTRAINT ck_t_ctp_settle_batch_parse_status CHECK (parse_status IN ('OK', 'PARTIAL', 'FAILED')),
+    CONSTRAINT ck_t_ctp_settle_batch_parse_status CHECK (parse_status IN ('OK', 'PARTIAL', 'FAILED', 'NOT_ARRIVED')),
     CONSTRAINT ck_t_ctp_settle_batch_is_confirmed CHECK (is_confirmed IN ('Y', 'N'))
 );
 COMMENT ON TABLE  t_ctp_settle_batch           IS 'CTP 日终结算数据批次（幂等；数据未到达不得用推算替代）';

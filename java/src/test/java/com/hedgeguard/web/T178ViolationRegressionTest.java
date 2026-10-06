@@ -64,8 +64,10 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -84,9 +86,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 本类以<b>判别性用例</b>（交易计划 ID ≠ 套保计划 ID；事件携带 C++ 指令号）驱动真实服务与真实 DDL，
  * 使五处违规在<b>真实约束下</b>可判红/判绿。
  *
- * <p><b>诚实声明</b>：001b（冻结域 {@code {OK,PARTIAL,FAILED}} 无「未到达」承载）<b>不在本单范围</b>
- * （已转技术席，扩域属 L3 须 {@code CH}）⇒ 未到达分支在本类中如实体现在真实 DDL 下受阻，见
- * {@link #notArrivedBranchBlockedByFrozenDomainGap()}。
+ * <p><b>诚实声明</b>：001b（冻结域原 {@code {OK,PARTIAL,FAILED}} 无「未到达」承载）已由 {@code CH-021}
+ * （2026-10-06 用户批准）扩域纳入 {@code NOT_ARRIVED}；本类早先以「受阻」如实记录的用例已反转为
+ * <b>达成守卫</b>，见 {@link #notArrivedBranchLandsNotArrived()}。
  */
 class T178ViolationRegressionTest {
 
@@ -186,7 +188,7 @@ class T178ViolationRegressionTest {
         assertTrue(!res.pendingRetry, "到达分支不应为待重试");
 
         Map<String, Object> batch = engine.table("t_ctp_settle_batch").rows.get(0);
-        // 001a：'PARSED' 越冻结域 {OK,PARTIAL,FAILED}（m2_settle.sql:42）；改回 'PARSED' ⇒ 引擎 CHECK 拒绝 ⇒ 本用例必红
+        // 001a：'PARSED' 越冻结域 {OK,PARTIAL,FAILED,NOT_ARRIVED}（m2_settle.sql:44）；改回 'PARSED' ⇒ 引擎 CHECK 拒绝 ⇒ 本用例必红
         assertEquals("OK", batch.get("parse_status"), "parse_status 须落冻结域（TE-T058-001a）");
         // 005：DDL DEFAULT 0 对显式 NULL 不生效 ⇒ 到达分支须显式置 0（否则 NOT NULL 拒绝）
         assertEquals(0, ((Number) batch.get("retry_count")).intValue(), "到达分支 retry_count 须为 0（TE-T058-005）");
@@ -206,13 +208,14 @@ class T178ViolationRegressionTest {
     }
 
     /**
-     * <b>001b（不在本单范围，已转技术席）</b>：未到达分支写 {@code PENDING_DATA}，而冻结域
-     * {@code {OK,PARTIAL,FAILED}} <b>无「未到达」承载</b>（{@code FR-SETTLE-1} 三态）⇒ 在真实 DDL 下
-     * 被 CHECK 拒绝。本用例<b>如实记录该缺口</b>（判据：一旦 001b 经裁定落地，本用例应改为断言成功）。
+     * <b>001b（{@code CH-021} 已扩域）</b>：未到达分支写 {@code NOT_ARRIVED}，该值已纳入
+     * {@code parse_status} 冻结域（原 {@code {OK,PARTIAL,FAILED}} 无「未到达」承载 ⇒ 被 CHECK 拒）。
+     * 本用例为<b>达成守卫</b>：断言未到达分支<b>成功落库</b>且 {@code parse_status='NOT_ARRIVED'}。
+     * 去掩盖：把服务常量改回 {@code PENDING_DATA}（越域）⇒ 本用例必红。
      */
     @Test
-    @DisplayName("001b（出范围）：未到达分支在冻结域下被拒（无「未到达」承载），如实记录")
-    void notArrivedBranchBlockedByFrozenDomainGap() {
+    @DisplayName("001b（CH-021 达成守卫）：未到达分支成功落 NOT_ARRIVED（真实 DDL 扩域后）")
+    void notArrivedBranchLandsNotArrived() {
         SettleService.CtpDataRequest req = new SettleService.CtpDataRequest();
         req.tradeDate = BASE_DAY.toString();
         req.sourceIdentifier = "CTP-NOT-ARRIVED";
@@ -220,14 +223,15 @@ class T178ViolationRegressionTest {
         req.funds = Collections.emptyList();
         req.trades = Collections.emptyList();
 
-        RuntimeException ex = assertThrows(RuntimeException.class,
-                () -> settleService.ingestCtpData(req, U_TRADER),
-                "001b：PENDING_DATA 越冻结域，真实 DDL 下必被 CHECK 拒绝（扩域/承载须 CH，不在本单）");
-        assertTrue(causeMessagesContain(ex, "ck_t_ctp_settle_batch_parse_status")
-                        || causeMessagesContain(ex, "parse_status"),
-                "应命中冻结域 CHECK（ck_t_ctp_settle_batch_parse_status）：" + causeMessages(ex));
-        // 不产生任何基于推算的结算批次
-        assertEquals(0, engine.table("t_ctp_settle_batch").rows.size(), "被拒批次不得留痕");
+        SettleService.CtpIngestResult res = settleService.ingestCtpData(req, U_TRADER);
+        assertTrue(res.pendingRetry, "未到达分支应为待重试");
+        assertEquals(1, engine.table("t_ctp_settle_batch").rows.size(), "未到达批次须成功留痕");
+        Map<String, Object> batch = engine.table("t_ctp_settle_batch").rows.get(0);
+        assertEquals("NOT_ARRIVED", batch.get("parse_status"),
+                "未到达分支须落 CH-021 扩域值 NOT_ARRIVED（改回 PENDING_DATA ⇒ 越域必被 CHECK 拒）");
+        assertEquals("N", batch.get("is_confirmed"));
+        assertEquals(1, ((Number) batch.get("retry_count")).intValue(),
+                "未到达分支须累加 retry_count（FR-SETTLE-1 验收 2）");
     }
 
     // ============================================================ 002：参数下发留痕
@@ -240,9 +244,32 @@ class T178ViolationRegressionTest {
         paramDispatchService.dispatch(change).join();
 
         Map<String, Object> row = engine.table("t_param_dispatch").rows.get(0);
-        // 002：'CMD_UPDATE_RISK_THRESHOLD' 越冻结域（m3_risk.sql:53-55）⇒ 改回带前缀必被 CHECK 拒绝
+        // 002：'CMD_UPDATE_RISK_THRESHOLD' 越冻结域（m3_risk.sql:65-67）⇒ 改回带前缀必被 CHECK 拒绝
         assertEquals("UPDATE_RISK_THRESHOLD", row.get("dispatch_type"),
                 "dispatch_type 须为冻结域取值（无 CMD_ 前缀）（TE-T058-002）");
+    }
+
+    @Test
+    @DisplayName("002：三类控制指令（SET_READY_STATE/TRIGGER_REPLAY/RELOAD）落冻结域（CH-021 扩域；真实 DmParamDispatchDao+引擎）")
+    void paramDispatchThreeNewTypesWithinFrozenDomain() {
+        List<ParamChange.Type> types = Arrays.asList(
+                ParamChange.Type.CMD_SET_READY_STATE,
+                ParamChange.Type.CMD_TRIGGER_REPLAY,
+                ParamChange.Type.CMD_RELOAD);
+        List<String> expected = Arrays.asList("SET_READY_STATE", "TRIGGER_REPLAY", "RELOAD");
+        for (ParamChange.Type type : types) {
+            paramDispatchService.dispatch(new ParamChange(type, 0L, U_ADMIN)).join();
+        }
+
+        List<Map<String, Object>> rows = engine.table("t_param_dispatch").rows;
+        assertEquals(3, rows.size(), "三类指令应各落一行");
+        Set<String> actual = new LinkedHashSet<>();
+        for (Map<String, Object> r : rows) {
+            actual.add((String) r.get("dispatch_type"));
+        }
+        assertEquals(new LinkedHashSet<>(expected), actual,
+                "三类去 CMD_ 前缀后须落 CH-021 扩域（SET_READY_STATE/TRIGGER_REPLAY/RELOAD）；"
+                        + "改回带 CMD_ 前缀 ⇒ 越域必被 CHECK 拒（本用例必红）");
     }
 
     // ============================================================ 003：交易理由关联计划
@@ -393,23 +420,6 @@ class T178ViolationRegressionTest {
         reason.timeDesc = "CONTRACT_SIGNED";
         req.reason = reason;
         return req;
-    }
-
-    private static boolean causeMessagesContain(Throwable t, String needle) {
-        for (Throwable c = t; c != null; c = c.getCause()) {
-            if (c.getMessage() != null && c.getMessage().contains(needle)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static String causeMessages(Throwable t) {
-        StringBuilder sb = new StringBuilder();
-        for (Throwable c = t; c != null; c = c.getCause()) {
-            sb.append('|').append(c.getClass().getSimpleName()).append(':').append(c.getMessage());
-        }
-        return sb.toString();
     }
 
     private static Path repoRoot() {

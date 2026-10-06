@@ -717,12 +717,12 @@ public final class ParamDispatchServiceImpl implements ParamDispatchService {
 
     /**
      * 参数下发类型的<b>冻结域</b>取值（{@code t_param_dispatch.dispatch_type}；
-     * {@code m3_risk.sql:53-55} / {@code DATA_MODEL.md} TB-RISK-2）。
+     * {@code m3_risk.sql:65-68} / {@code DATA_MODEL.md} TB-RISK-2）。
      *
-     * <p>域内 8 值<b>无</b> {@code CMD_} 前缀，而枚举名为线格式控制指令名（带前缀）；
+     * <p>域内取值<b>无</b> {@code CMD_} 前缀，而枚举名为线格式控制指令名（带前缀）；
      * 故持久化统一去前缀映射（{@code TE-T058-002}：全仓唯一 {@code .name()} 持久化点）。
-     * 说明：{@code CMD_SET_READY_STATE}/{@code CMD_TRIGGER_REPLAY}/{@code CMD_RELOAD}
-     * 三值在冻结域内<b>无</b>对应取值（域缺口，生产未构造，另行登记，不在本单范围）。
+     * {@code CMD_SET_READY_STATE}/{@code CMD_TRIGGER_REPLAY}/{@code CMD_RELOAD} 三值经
+     * {@code CH-021} 已纳入冻结域（去前缀后为 {@code SET_READY_STATE}/{@code TRIGGER_REPLAY}/{@code RELOAD}）。
      */
     private static String dispatchTypeOf(ParamChange.Type type) {
         String name = type.name();

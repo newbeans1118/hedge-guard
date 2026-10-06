@@ -105,7 +105,7 @@ class SettleServiceTest {
         assertEquals(1, r1.fundCount);
         SettleCtpBatch b = batches.rows.get(0);
         assertEquals("Y", b.isConfirmed);
-        assertEquals("OK", b.parseStatus, "冻结域 {OK,PARTIAL,FAILED}（TE-T058-001a）");
+        assertEquals("OK", b.parseStatus, "冻结域 {OK,PARTIAL,FAILED,NOT_ARRIVED}（TE-T058-001a；CH-021 扩域）");
         assertNotNull(b.receivedTime, "接收记录须含接收时间（FR-SETTLE-1 验收4）");
         assertEquals("CTP-20261004", b.sourceIdentifier);
         int posBefore = ctpPositions.rows.size();
@@ -122,7 +122,7 @@ class SettleServiceTest {
         SettleService.CtpIngestResult r = service.ingestCtpData(emptyCtpRequest(), OP);
         assertTrue(r.pendingRetry);
         SettleCtpBatch b = batches.rows.get(0);
-        assertEquals("PENDING_DATA", b.parseStatus);
+        assertEquals("NOT_ARRIVED", b.parseStatus);
         assertEquals("N", b.isConfirmed);
         assertEquals(1, b.retryCount);
         assertTrue(ctpPositions.rows.isEmpty());
