@@ -16684,3 +16684,22 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **观察登记**：O-2 M3.md :96「TC-M3-27/28 的 FR-RISK-17/18 落点」原文既有标号偏差（TC-M3-27 实为镜像滞后 FR-RISK-12）——原文既有、追加注未复述，登记不另立；O-3「待复检」类陈旧与 T-180/T-181 族不同源（T-072 自身闭环触发）——已单列收口；O-5 :508/:509 标点插入无碍。
 
 **编排者终检与勘误留痕**：三笔提交（27af04b/e691b1c/07a9b17）恰 3 文件次提交、全注释/文档；M3.md 终态 md5 309bda4d…/531、18 表 0 mismatch、更新注 14 处；TC-M3-14 残留 4 处经查全合法（:242 用例标题 + :423/:432/:470 区间引用）；te-verify-t184 O-2 对我工单「M2E2eSeed:124」误指的指正成立（实为 M2EndToEndAcceptanceTest:474-475），勘误留痕。
+---
+
+## T-163 独立复核证据（席 te-verify-t163；2026-10-06 第 215 轮 · 编排者逐字转录）
+
+**结论：通过 / 0 缺陷 / 4 观察。**
+
+**冻结与范围**：HEAD 1caa97f；恰 1 文件 +1/−1（docs/TEST_PLAN/INDEX.md，7e7ac6f9…/862 → 4bcae0d0…/862，行数不变）；行多重集 diff 恰 1 替换；工作树并发改动（ApiRoutes/Bootstrap/ParamChangeEncoder/risk handler——T-062/T-063 域）按 git show HEAD 冻结态取证不混入。
+
+**真值双法独立复测（最重，全自测不依赖产出方）**：① 声明侧——独立编译冻结 HEAD 的 ApiRoutes.java（md5 d7bee53f…，与 :138 引用一致）直调 allRoutes()：117 对 / 88 路径 / 业务 115+ping 2，无重复边（distinct==size）；② 运行期——自写 ReplayProbe 生产同构重放（ping GET/HEAD + 9 模块 register(router,null) 读 Router.routes()，同构 ModuleRoutesConsistencyTest.assemble）：117/88 且与 allRoutes() 集合等值（MISSING/EXTRA 双空）；逐模块 AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/TRADE3/SETTLE15/RISK1/FUND15 全中。重复边陷阱核（T-179 TE-T179-001 判例）：list.size==distinct=117，两口径分别独立计数。
+
+**:138 改后核**：纪律句「两口径不可混用」逐字保留（公共前缀 74）；现值 117/88 唯一活口径；历史标注「2026-09-20 时点、T-097 前、仅 5 模块交付」下原拆解数字逐字保留（AUTH2/…/PLAN16=45+ping2=47；PLAN11=8+3），无「历史改现值」违规；表格行管道数不变。
+
+**残留扫（双独立复做）**：路由计数类全域 docs/TEST_PLAN/*.md = 0（:138 外）；INDEX:129「6 条 product 路由」为由来叙述、:139 为政策句，均非现值声明。
+
+**上报项独立核实（编排者裁定另立 T-185）**：FR 逐模块去重实测 = 184（PRODUCT14+SPOT19+PLAN20+TRADE18+SETTLE17+RISK19+AUDIT13+ACCT14+FUND17+AUTH18+CONFIG15）；SPOT=19（SPOT.md:372 FR-SPOT-19，CH-011 2026-09-21 新增）；文档旧口径 183/18 落点 = INDEX 9 行（:30/:269/:551/:552/:557/:558/:620/:652/:725）+ SPOT.md:19。
+
+**观察（4，不阻断）**：O1（中·前瞻）T-063 并发增 /risk/rule 后 :138 将再陈旧（工作树实测 119 对/89 路径、RISK=3）⇒ 编排者裁定：be-t063 落地时同步刷新 :138（谁改路由面谁更新计数，已令）；O2 历史标注删去原「独立复算一致」出处短语（数字/日期标签均在）；O3 47/37 系 git 前快照不可 VCS 复现（仅能核数字逐字保留）；O4 INDEX:551 全域命令实测 234 与该行 183 不符（既有述、范围外）。
+
+**编排者终检**：1caa97f 恰 1 文件 +1/−1、:138 现值/历史段/管道数、独立复扫零残留——交付当日亲测与复核席一致。
