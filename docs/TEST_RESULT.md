@@ -16827,3 +16827,22 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **环境登记**：组合态首跑 WsAcceptanceTest.e2ConcurrentLatencyP95Under200ms 1 次超时假红（P95<200ms 机器负载抖动；单跑 8/8 绿、复跑全量 983 绿）——T-165 时序敏感族，与本单无关（与 te-verify-t125 O-2 同族）。
 
 **编排者亲核记录**：05f3938/6d18abe 两提交面、DDL 判据（:196-197 NOT NULL DEFAULT 0）、javadoc 新口径（:50-56/:238）、CONTRACTS 订正行（:899 带 TE-T065-001 标记）、双 md5——交付当日亲测与复核席独立实测一致。
+---
+
+## T-068 独立复核与退修收口证据（席 te-verify-t068 + te-verify-t068b；2026-10-07 第 223 轮 · 编排者逐字转录）
+
+**结论：te-verify-t068 前审有条件通过（TE-T068-001 中）⇒ be-t068 退修 fa90537 ⇒ te-verify-t068b delta 复检通过/0 缺陷 ⇒ T-068 转 DONE。**
+
+**交付链**：2117846（service+test）→ 436928d（端点层）→ 3241f97（接线）→ 44fdc28（SQL 下推正式化——冻结后工作树漂移经退修令第 2 项正式纳入）→ fa90537（TE-T068-001 修复 2 文件 15+/11− 与 74+/4−）。终态门禁：组合态隔离 **987/0/0/0**（125 类，@Test==surefire==987）+ arch E1–E8 rc0。
+
+**前审核（te-verify-t068，核心全过）**：① Q-13 两维互斥语义与实现（服务 11 + 端点 4 真实栈）；② 数据源变更（t_pre_trade_reject 证据复用 + client_order_ref→t_trade_order）正当性评估；③ 软隔离（哨兵 0/permissionLimited/越权 10004）；④ 接线（AUDIT 8→10 对 + Bootstrap 装配 5 DAO + 三测试同步加注非放宽）；⑤ 门禁 983 复跑 + 计数链终裁（957→968→972→983，be-t065 自报 968 系时点快照假象）；⑥ 变异 M1/M2/M3 复现。范围恰 10 文件全 java/，CONTRACTS 零改动成立。
+
+**TE-T068-001（中）与修复**：isReasonMissing 越冻结扩张（加 reason_text 空判支）——结构化齐备+关联缺失标记的行被误判 REASON_MISSING（前审探针：RELATED=0/REASON=1，破坏验收 3 互斥）。**编排者裁定 = 采 CH-004 结构性表达式对齐（免 CH；te-verify-t068b O-2 注：CH-004 原文亦写「理由为空」，本裁定属解释性对齐，权威席知悉 live 文本未同步）**。修复：isReasonMissing → 单一支 `"Y".equals(reasonMissingFlag)`；夹具 A 订正（原锁定错误口径）；+4 用例（structuredReasonNoFreeTextRelatedMissing / mutualExclusionReasonFlagBeatsRelated / relatedOnlySkipsReasonMissingRows[关闭前审 P3 变异存活] / reasonDateHalfOpenBoundary[前审 O-2 闭合]）。
+
+**te-verify-t068b delta 复检（通过/0 缺陷/4 观察）**：M3 自设还原旧判定 ⇒ 唯一新用例红（前审缺陷形状复现且被守卫）；M1 3 红/M2 1 红复现；既有 13 用例与端点 4/4 无回归；工作树零漂移；勘误自纠成立（t_risk_violation DDL 实存）。
+
+**INDEX:138 刷新（编排者代冻结席执行，T-163 O1 纪律）**：129 对/95 路径 → **131 对/96 路径**（AUDIT 8→10 对：violation-screen GET|POST 于既有声明路径）；生产装配计数由 BootstrapAssemblyTest 断言 131 独立锚定；129/95 降「T-068 端点接线前」历史层，117/88、47/37 深层逐字保留；ApiRoutes md5 引用 ed5b1fb3…（3241f97 态）。
+
+**观察登记（te-verify-t067c/te-verify-t068 合并）**：O-1 violationDesc「内容为空」措辞陈旧（显示串不影响判定）；O-3 头 javadoc「§2.9 筛查侧生成」引注实际在 §2.6（预存）；ARCH:2630 未实现且与 CH-004 冲突——转权威席二选一；live 需求文本（FR-AUDIT-4:145/R-AUDIT-7:299/TRADE.md:239/DATA_MODEL:2171/CH-004）仍含「理由为空」措辞未随裁定同步——权威席知悉，是否订正归需求面。
+
+**编排者亲核记录**：2117846/436928d/3241f97/44fdc28/fa90537 五提交面、红线、isReasonMissing 修后单一判定（:552）、4 新用例（:224/:239/:251/:261）、:138 术式刷新（头段+新层+「前一口径」→「更早」标签）、双 md5——交付当日亲测与两级复核席独立实测一致。
