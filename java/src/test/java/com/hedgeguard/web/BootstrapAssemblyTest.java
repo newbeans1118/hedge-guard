@@ -185,9 +185,14 @@ class BootstrapAssemblyTest {
             //   {@code ARCHITECTURE.md §4.1.1} 行 639）——RiskAlertRoutes 于既有已声明路径上注册 GET
             //   与 POST（2 对），RISK 由 3 增为 5，业务路由 127（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/
             //   RISK5/TRADE3/SETTLE15/FUND15/AUDIT8）+ ping 2 = 129。非为过测试而放宽断言。
-            assertEquals(129, assembly.routeCount(),
-                    "业务路由必须全部注册：127（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK5/TRADE3/"
-                            + "SETTLE15/FUND15/AUDIT8）+ ping 2");
+            // 【T-068 订正（加注）】断言值由 129 订正为 131：订正理由 = 需求面（{@code ApiRoutes} 声明 AUDIT
+            //   模块 /audit/violation-screen，{@code FR-AUDIT-4}、{@code ARCHITECTURE.md §6.11}）——
+            //   ViolationScreenRoutes 于该既有已声明路径上注册 GET 与 POST（2 对），AUDIT 由 8 增为 10，
+            //   业务路由 129（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK5/TRADE3/SETTLE15/FUND15/AUDIT10
+            //   ）+ ping 2 = 131。非为过测试而放宽断言。
+            assertEquals(131, assembly.routeCount(),
+                    "业务路由必须全部注册：129（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK5/TRADE3/"
+                            + "SETTLE15/FUND15/AUDIT10）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。
             // （不真发 HTTP：经 RequestDispatcher 进程内分发；handler 因无真实库而 4xx/5xx 皆可，

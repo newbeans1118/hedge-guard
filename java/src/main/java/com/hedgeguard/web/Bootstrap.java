@@ -96,6 +96,8 @@ import com.hedgeguard.dao.impl.DmUnauthorizedAttemptDao;
 import com.hedgeguard.dao.impl.DmUserAccountDao;
 import com.hedgeguard.dao.impl.DmUserRoleDao;
 import com.hedgeguard.dao.impl.DmUserSubAccountPermDao;
+import com.hedgeguard.dao.impl.DmViolationScreenItemDao;
+import com.hedgeguard.dao.impl.DmViolationScreenRunDao;
 import com.hedgeguard.dao.impl.DmWipRecordDao;
 import com.hedgeguard.dao.pool.DataSourcePool;
 import com.hedgeguard.dao.pool.JdbcConnectionFactory;
@@ -123,10 +125,12 @@ import com.hedgeguard.service.SettleCheckService;
 import com.hedgeguard.service.SettleService;
 import com.hedgeguard.service.TradeService;
 import com.hedgeguard.service.VarietyService;
+import com.hedgeguard.service.ViolationScreenService;
 import com.hedgeguard.service.impl.ParamDispatchServiceImpl;
 import com.hedgeguard.service.impl.RiskIntradayPersistenceSink;
 import com.hedgeguard.web.handler.PingHandler;
 import com.hedgeguard.web.handler.audit.AuditTraceRoutes;
+import com.hedgeguard.web.handler.audit.ViolationScreenRoutes;
 import com.hedgeguard.web.handler.auth.AuthRoutes;
 import com.hedgeguard.web.handler.config.ConfigRoutes;
 import com.hedgeguard.web.handler.fund.FundRoutes;
@@ -586,6 +590,15 @@ public final class Bootstrap {
         AuditTraceRoutes.register(router, auditService);
         LOG.info("已装配审计追溯面：GET|POST /api/v1/audit/trace/{forward,backward,integrity} 与 "
                 + "/api/v1/audit/operation-log；会计凭证接缝=未装配（ACCT T-076~T-080 TODO）");
+
+        // T-068 违规事项筛查（FR-AUDIT-4/Q-13）：规则四维复用 RISK 规则编号（事前拒绝记录
+        // t_pre_trade_reject）、频繁开平仓复用 Q-5 阈值；理由/关联两维由 t_trade_reason 并列派生。
+        // 落 t_violation_screen_run/item（T-062）。可见范围经 authService（软隔离，R-AUDIT-9）。
+        ViolationScreenService violationScreenService = new ViolationScreenService(
+                new DmTradePreTradeRejectDao(tx), new DmTradeOrderDao(tx), new DmTradeReasonDao(tx),
+                new DmViolationScreenRunDao(tx), new DmViolationScreenItemDao(tx), authService, tx);
+        ViolationScreenRoutes.register(router, violationScreenService);
+        LOG.info("已装配违规事项筛查面：GET|POST /api/v1/audit/violation-screen");
         return authService;
     }
 

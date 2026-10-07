@@ -4,6 +4,7 @@ import com.hedgeguard.risk_intraday.RiskRoutes;
 import com.hedgeguard.web.ApiRoutes;
 import com.hedgeguard.web.Router;
 import com.hedgeguard.web.handler.audit.AuditTraceRoutes;
+import com.hedgeguard.web.handler.audit.ViolationScreenRoutes;
 import com.hedgeguard.web.handler.auth.AuthRoutes;
 import com.hedgeguard.web.handler.config.ConfigRoutes;
 import com.hedgeguard.web.handler.fund.FundRoutes;
@@ -83,6 +84,8 @@ class ModuleRoutesConsistencyTest {
         FundRoutes.register(router, null);
         // T-067：审计追溯与留痕面（GET|POST /api/v1/audit/trace/* 与 /audit/operation-log）与生产装配同构重放。
         AuditTraceRoutes.register(router, null);
+        // T-068：违规事项筛查面（GET|POST /api/v1/audit/violation-screen）与生产装配同构重放。
+        ViolationScreenRoutes.register(router, null);
         return router;
     }
 

@@ -1,6 +1,7 @@
 package com.hedgeguard.web;
 
 import com.hedgeguard.web.handler.audit.AuditTraceRoutes;
+import com.hedgeguard.web.handler.audit.ViolationScreenRoutes;
 import com.hedgeguard.web.handler.auth.AuthRoutes;
 import com.hedgeguard.web.handler.config.ConfigRoutes;
 import com.hedgeguard.web.handler.fund.FundRoutes;
@@ -80,7 +81,7 @@ final class FullWebAssembly {
      * 各注册 {@code GET}/{@code POST}（{@code 4 × 2 = 8} 对）⇒ {@code 117 → 125}（非为过测试而放宽：
      * 未新增路径，路径逐字取自 {@code ApiRoutes} 的 {@code AUDIT} 清单，本任务只做<b>最小注册</b>）。
      */
-    static final int ROUTE_COUNT = 127;
+    static final int ROUTE_COUNT = 129;
 
     private FullWebAssembly() {
     }
@@ -116,6 +117,9 @@ final class FullWebAssembly {
         // 与 operation-log 各 GET/POST）。服务入参 null：装配期只调用 router.register(...) 构造 Handler，
         // 不驱动任何业务逻辑。
         AuditTraceRoutes.register(router, null);
+        // T-068：违规事项筛查面（2 个 (方法,路径) 对：GET|POST /audit/violation-screen）。
+        // 服务入参 null：装配期只调用 router.register(...)。
+        ViolationScreenRoutes.register(router, null);
         // T-065：风控告警查询与处置面（2 个 (方法,路径) 对：GET /risk/alert、
         // POST /risk/alert/{id}/dispose）。服务入参 null：装配期只调用 router.register(...)。
         RiskAlertRoutes.register(router, null);

@@ -136,7 +136,9 @@ public final class ApiRoutes {
                 "GET /audit/trace/forward", "POST /audit/trace/forward",
                 "GET /audit/trace/backward", "POST /audit/trace/backward",
                 "GET /audit/trace/integrity", "POST /audit/trace/integrity",
-                "GET /audit/operation-log", "POST /audit/operation-log"));
+                "GET /audit/operation-log", "POST /audit/operation-log",
+                // T-068：违规事项筛查（FR-AUDIT-4/Q-13），路径逐字取自本类 AUDIT 路径级声明
+                "GET /audit/violation-screen", "POST /audit/violation-screen"));
         BY_MODULE_ROUTES.put("FUND", Arrays.asList(
                 "GET /fund/ledger", "POST /fund/ledger", "GET /fund/flow", "POST /fund/deposit",
                 "POST /fund/withdraw", "POST /fund/{id}/review", "POST /fund/transfer",
