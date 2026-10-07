@@ -314,6 +314,39 @@ class PostRiskReportJobTest {
                         + "R-RISK-14 在空间甲＝阈值集中配置，不得误用");
     }
 
+    // ------------------------------------------------------------------ T-064 风险指标统计指标面
+
+    @Test
+    @DisplayName("T-064 验收3：风险指标统计 content 覆盖⑥-b 全部监控指标（资金可用量 + 异常下单行为）")
+    void riskMetricReportCoversAllMonitoredMetrics() throws Exception {
+        M3RiskReportDdl.settleCycle(engine, 1001L, SUB_A, "ST20260920A", DAY, "0", "1000.0000");
+
+        SubAccountRiskMetrics a = new SubAccountRiskMetrics(SUB_A);
+        a.balance = new BigDecimal("1000.0000");
+        a.available = new BigDecimal("400.0000");
+        a.marginOccupied = new BigDecimal("600.0000");
+        a.abnormalIntradayCount = 7;
+        a.abnormalRollingRounds = 5;
+        a.averageHoldingDays = new BigDecimal("2.5");
+        SubAccountRiskMetrics agg = new SubAccountRiskMetrics(0);
+        agg.available = new BigDecimal("400.0000");
+        agg.abnormalIntradayCount = 7;
+        agg.abnormalRollingRounds = 5;
+        MirrorMetrics metrics = new MirrorMetrics(ReplayProgress.State.READY, 1L, 1L, null, -1L, false,
+                Collections.singletonList(a), agg);
+
+        service.generate(new com.hedgeguard.service.PostRiskReportRequest(
+                DAY, metrics, Collections.emptyList(), SYS));
+
+        String json = reportDao.findByKey(DAY, PostRiskReportService.REPORT_TYPE_RISK_METRIC, null).contentJson;
+        // ⑥-b 监控指标：资金可用量（流动性风险）+ 异常下单行为（操作风险）不得在报表中丢失
+        assertTrue(json.contains("\"balance\":\"1000.0000\""), "风险指标统计须含资金余额（⑥-b）");
+        assertTrue(json.contains("\"available\":\"400.0000\""), "风险指标统计须含资金可用量（⑥-b ⑤，流动性风险）");
+        assertTrue(json.contains("\"abnormalIntradayCount\":7"), "风险指标统计须含日内开平合计（⑥-b ⑥，操作风险）");
+        assertTrue(json.contains("\"abnormalRollingRounds\":5"), "风险指标统计须含 7 日滚动回合（⑥-b ⑥）");
+        assertTrue(json.contains("\"averageHoldingDays\":\"2.5\""), "风险指标统计须含平均持仓（⑥-b ⑥）");
+    }
+
     // ------------------------------------------------------------------ 夹具
 
     private static MirrorMetrics metrics(String floatA, String floatB) {

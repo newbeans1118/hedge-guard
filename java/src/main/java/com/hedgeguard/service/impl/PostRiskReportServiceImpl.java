@@ -46,7 +46,9 @@ import java.util.Map;
  * {@code risk_intraday}，本层于交易日结束后按当日全量数据生成并落库。
  *
  * <ul>
- *   <li><b>风险指标统计</b>：取 {@code risk_intraday} 的日终镜像指标（{@code R-RISK-10} 只读面）；</li>
+ *   <li><b>风险指标统计</b>：取 {@code risk_intraday} 的日终镜像指标（{@code R-RISK-10} 只读面），
+ *       含 {@code §4.1 ⑥-b} 全部监控指标（实时持仓 / 浮动盈亏 / 保证金占用率 / 风险度 / 资金可用量 /
+ *       异常下单行为），即覆盖市场 / 操作 / 流动性风险维度（{@code T-064} 验收 3）；</li>
  *   <li><b>违规事项汇总</b>：当日事前拒绝记录（{@code t_pre_trade_reject}）+ 事中告警
  *       （{@code RiskAlert}）派生，并入他源（{@code POST_AUDIT_SCREEN}/{@code MANUAL}）既有行后按
  *       类型与严重级别汇总（{@code FR-RISK-18} 验收 1）；</li>
@@ -444,6 +446,13 @@ public final class PostRiskReportServiceImpl implements PostRiskReportService {
         row.put("marginOccupied", str(m.marginOccupied));
         row.put("riskRatio", str(m.riskRatio));
         row.put("marginUsageRate", str(m.marginUsageRate));
+        // 补齐 §4.1 ⑥-b / ARCHITECTURE §6.8 的其余监控指标（镜像已算，报表不得丢弃）：
+        // 资金余额 / 资金可用量（流动性风险）、异常下单行为（操作风险，Q-5 已确认阈值）。
+        row.put("balance", str(m.balance));
+        row.put("available", str(m.available));
+        row.put("abnormalIntradayCount", m.abnormalIntradayCount);
+        row.put("abnormalRollingRounds", m.abnormalRollingRounds);
+        row.put("averageHoldingDays", str(m.averageHoldingDays));
         return row;
     }
 
