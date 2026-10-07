@@ -243,8 +243,7 @@ public final class ViolationScreenService {
     /**
      * 查询筛查命中项（FR-AUDIT-4 输出；支持按时间 / 子账户 / 规则（违规类型）/ 批次筛选）。
      *
-     * <p>时间范围按命中项的 {@code occur_time} 过滤；因内存假引擎不支持范围谓词，
-     * 日期过滤在本方法内完成（先取范围内全部行再内存分页），见类注释与工单披露。
+     * <p>时间范围按命中项的 {@code occur_time} 半开区间 {@code [from 00:00, to+1 00:00)} 下推 SQL。
      *
      * @param q          筛选条件
      * @param page       分页/排序
@@ -275,24 +274,19 @@ public final class ViolationScreenService {
                 args.add(q.subAccountId);
             }
         }
+        if (q != null && q.dateFrom != null) {
+            append(where, "occur_time >= ?");
+            args.add(q.dateFrom.atStartOfDay());
+        }
+        if (q != null && q.dateTo != null) {
+            append(where, "occur_time < ?");
+            args.add(q.dateTo.plusDays(1).atStartOfDay());
+        }
         if (scope.scope != null) {
             append(where, scope.scope.sql());
             args.addAll(scope.scope.params());
         }
-        List<ViolationScreenItem> all = findAll(itemDao,
-                where.length() == 0 ? null : where.toString(), args);
-        List<ViolationScreenItem> filtered = new ArrayList<>();
-        for (ViolationScreenItem it : all) {
-            if (q == null || (q.dateFrom == null && q.dateTo == null)
-                    || inRange(it.occurTime, q.dateFrom, q.dateTo)) {
-                filtered.add(it);
-            }
-        }
-        int size = page.size();
-        int from = Math.min(page.offset(), filtered.size());
-        int to = Math.min(from + size, filtered.size());
-        return new PageResult<>(new ArrayList<>(filtered.subList(from, to)), filtered.size(),
-                page.page(), size);
+        return itemDao.findPage(page, where.length() == 0 ? null : where.toString(), args);
     }
 
     /**
@@ -324,10 +318,10 @@ public final class ViolationScreenService {
         List<TradeOrder> orders = null;
         List<TradeReason> reasons = null;
         if (needReason) {
-            reasons = fetchReasons(scope);
+            reasons = fetchReasons(scope, from, to);
         }
         if (needFreq || needReason) {
-            orders = fetchOrders(scope);
+            orders = fetchOrders(scope, from, to);
         }
         if (needFreq) {
             collectFrequentTradeHits(items, dims, orders, from, to);
@@ -347,7 +341,9 @@ public final class ViolationScreenService {
             where.append(i == 0 ? "?" : ",?");
             args.add(OVER_RULE_IDS.get(i));
         }
-        where.append(')');
+        where.append(") AND trade_date >= ? AND trade_date <= ?");
+        args.add(from);
+        args.add(to);
         if (scope.scope != null) {
             where.append(" AND ").append(scope.scope.sql());
             args.addAll(scope.scope.params());
@@ -497,16 +493,29 @@ public final class ViolationScreenService {
 
     // ------------------------------------------------------------ 取数与工具
 
-    private List<TradeReason> fetchReasons(Scope scope) {
-        return findAll(tradeReasonDao, null, scopeArgs(scope));
+    private List<TradeReason> fetchReasons(Scope scope, LocalDate from, LocalDate to) {
+        return findAll(tradeReasonDao, timeWhere("fill_time", scope), timeArgs("fill_time", scope, from, to));
     }
 
-    private List<TradeOrder> fetchOrders(Scope scope) {
-        return findAll(tradeOrderDao, null, scopeArgs(scope));
+    private List<TradeOrder> fetchOrders(Scope scope, LocalDate from, LocalDate to) {
+        return findAll(tradeOrderDao, timeWhere("submit_time", scope),
+                timeArgs("submit_time", scope, from, to));
     }
 
-    private static List<Object> scopeArgs(Scope scope) {
-        return scope.scope == null ? new ArrayList<>() : new ArrayList<>(scope.scope.params());
+    /** 时间半开区间 {@code [from 00:00, to+1 00:00)} + 子账户范围的 WHERE 片段。 */
+    private static String timeWhere(String column, Scope scope) {
+        String w = column + " >= ? AND " + column + " < ?";
+        return scope.scope == null ? w : w + " AND " + scope.scope.sql();
+    }
+
+    private static List<Object> timeArgs(String column, Scope scope, LocalDate from, LocalDate to) {
+        List<Object> args = new ArrayList<>();
+        args.add(from.atStartOfDay());
+        args.add(to.plusDays(1).atStartOfDay());
+        if (scope.scope != null) {
+            args.addAll(scope.scope.params());
+        }
+        return args;
     }
 
     private TradeOrder resolveOrder(String clientOrderRef, Map<String, TradeOrder> cache) {
@@ -623,10 +632,6 @@ public final class ViolationScreenService {
             return false;
         }
         return to == null || !d.isAfter(to);
-    }
-
-    private static boolean inRange(LocalDateTime t, LocalDate from, LocalDate to) {
-        return t != null && inRange(t.toLocalDate(), from, to);
     }
 
     private static boolean containsAny(List<String> dims, List<String> candidates) {
