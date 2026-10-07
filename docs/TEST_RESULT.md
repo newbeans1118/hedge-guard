@@ -16785,3 +16785,22 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **观察（3，不阻断）**：O-1 自述「available 退化 NORMAL 负控面」在新用例中不成立——判别力由值唯一（400.0000≠默认 0）+ 变异 M1 承重（措辞勘误）；O-2 自述「既有 16 用例」实为 7 @Test（本单 +1=8）口径勘误；O-3 Gson 省略 null map 值 ⇒ riskRatio/marginUsageRate/averageHoldingDays 为 null 时键缺失（与「不伪造 0」口径一致，报表消费方注意）。
 
 **编排者亲核记录**：02cb0d1/9a3df11 两提交面、生产代码 md5 未变、5 新字段行、:356/:358 逐键断言、双 md5——交付当日亲测与复核席独立实测一致；be-t064 冻结点确认消息与核验一致。
+---
+
+## T-067 独立复核与退修收口证据（席 te-verify-t067 + te-verify-t067c；2026-10-07 第 221 轮 · 编排者逐字转录）
+
+**结论：te-verify-t067 前审有条件通过（TE-T067-001 latent）⇒ be-t067b 退修 6ced926 ⇒ te-verify-t067c delta 复检通过/0 缺陷 ⇒ T-067 转 DONE。**
+
+**交付链**：47d16df（主体 29 文件 +2172/−7）→ 1cd7ea3（INDEX:138 计数刷新 1 文件）→ 6ced926（退修 2 文件 11+/1− 与 58+）。终态门禁：隔离 957/0/0/0（@Test==surefire==957）+ arch E1–E8 rc0；路由面 119→**127 对/93 路径**（业务 125 + ping 2）。
+
+**前审核（te-verify-t067，核心语义全过）**：① 六段链段序 EXPOSURE→HEDGE_PLAN→APPROVAL→TRADE→SETTLE→VOUCHER 与连接键逐段核（敞口→计划经 t_hedge_plan_exposure；指令→委托/成交以 o.id 关联——TE-T058-004 口径修正**正确**，m2_trade.sql:153/:205 FK 实证）；② 四态判定 finish():642 hasBreak>hasUnknown>hasInFlight>COMPLETE——有断点绝不完整、数据缺失 UNKNOWN 均成立；③ 断点三要素齐；④ CFG-17c 两档时窗（applyInFlight:573-587 与原文一致）；⑤ FR-AUDIT-11 筛选维度齐（空集恒假 fail-closed）；⑥ 子账户可见性四入口均过 SubAccountVisibility（越权起点 permissionLimited+break 不泄露内容，与 T-112/T-115 读面口径一致）；⑦ 路由 8 对逐对真实 handler（GET query 分派/POST body 反序列化真实解析并校验必填）；计数 125/127 由 BootstrapAssemblyTest 生产装配独立确立、同步为加注非放宽；⑧ 门禁 956 复跑 + 变异 3/3 全杀（5/1/1 red，复原逐字节）。
+
+**TE-T067-001（latent·低）与退修**：traceBackward :232 if(exposureId!=null) 无 else——凭证/交易起点解析不出来源敞口时静默 ⇒ 空 breakList ⇒ COMPLETE（前审探针：VoucherRef 双 null ⇒ COMPLETE/nodes=1/breaks=0；违反 R-AUDIT-1/R-AUDIT-2/FR-AUDIT-2 验收 1；当前 VoucherLookup=null 不可触发、T-079 接线即暴露）。**be-t067b 修复**：:234-243 新 else-if 断点分支（segment 取起点段、objectType/objectId=起点对象、分段原因文案）+ 四态裁定（解析失败=BREAK 对齐「无绑定计划⇒BREAK」体例；UNKNOWN 保留数据源未交付）+ javadoc :60-63 限定 + 盲区用例 backwardFromVoucherWithoutSourceExposure（orphanVoucherStub 双 null 凭证 91001）。
+
+**te-verify-t067c delta 复检（通过/0 缺陷/3 观察）**：P1 双 null 凭证反向——修复前 COMPLETE/nodes=1/breaks=0 → 修复后 HAS_BREAK/nodes=1/breaks=1，断点四要素全对；P3 凭证有 hedgePlanId 但绑定缺失 ⇒ HAS_BREAK；P2 接缝 null ⇒ 仍 UNKNOWN（语义未稀释）；P4 正常交易反向无 BREAK；P5 不存在交易 ⇒ HAS_BREAK。变异独立重做：删新分支 ⇒ 14 run/1 Failure 唯一红（backwardFromVoucherWithoutSourceExposure:197），其余 13 绿证承重唯一；复原 md5 逐字节。门禁 957 隔离复跑 + E8 四条不回归 + M2EndToEndAcceptanceTest 10/10。
+
+**观察登记（不阻断）**：O-1 tradePlanDao/tradeReasonDao 注入未用（登记）；O-2 数据缺失→UNKNOWN 防御性分支现 DDL 下不可达（submit_time/trade_date NOT NULL）；O-3 FR-AUDIT-1/2「标识可多条」未承载（入参单 id，多起点需多次调用——归后续需求面）；O-4 无绑定计划断点 objectId=null 与他段不一致；O-5 forward/integrity POST body 分支未测；O-6 117/88 历史段标签词「前一口径」→「更早」（数值拆解保留）；O-7 **反向凭证起点可见性接缝契约歧义**（P6：越权凭证纳入 nodes 且 permissionLimited=false——VoucherLookup 实现契约须含可见性责任，随 T-079 接线一并裁定）；SEG_TRADE 断点文案现 DDL 下不可达（防御性）；InMemoryDmEngine NULL 字面量陷阱（INSERT 的 NULL 按字符串 NULL 求值 ⇒ 可空列须 ? 绑真实 null）登记并入既有引擎坑记忆。
+
+**D1 依赖缺口（正式登记）**：凭证段 VoucherLookup 接缝 + M1 判 UNKNOWN + 断点诚实标记；t_voucher 建表/entity/DAO 归 T-076/T-079（ACCT/M4），落地接线即闭合。披露三处落痕（AuditService javadoc/CONTRACTS 变更记录/Bootstrap 注释）。
+
+**编排者亲核记录**：47d16df/1cd7ea3/6ced926 三提交面、红线、:138 现值（127/93 + 四层历史段 + 权威 md5 705b7166 引用）、CONTRACTS 2+/0−、AUDIT 8 对（:134-137）、双 md5——交付当日亲测与两级复核席独立实测一致。
