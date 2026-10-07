@@ -634,6 +634,16 @@ class PlanCompliancePrecheckTest {
             rows.add(entity);
             return 1;
         }
+        @Override
+        public List<HedgePlanExposure> findByExposure(long exposureId) {
+            List<HedgePlanExposure> out = new ArrayList<>();
+            for (HedgePlanExposure row : rows) {
+                if (row.exposureId != null && row.exposureId == exposureId) {
+                    out.add(row);
+                }
+            }
+            return out;
+        }
     }
 
     private static final class FakeHedgeDocDao extends UnsupportedBaseDao<HedgeDoc, Long>
@@ -681,6 +691,10 @@ class PlanCompliancePrecheckTest {
             hit.sort((a, b) -> Integer.compare(b.nodeSeq == null ? 0 : b.nodeSeq,
                     a.nodeSeq == null ? 0 : a.nodeSeq));
             return new PageResult<>(hit, hit.size(), query.page(), query.size());
+        }
+        @Override
+        public java.util.List<PlanApproval> findByPlan(long hedgePlanId) {
+            return new java.util.ArrayList<>();
         }
     }
 

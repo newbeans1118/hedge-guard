@@ -107,4 +107,11 @@ public final class DmPlanApprovalDao extends AbstractDmDao<PlanApproval, Long> i
         throw new UnsupportedOperationException(
                 "t_plan_approval 只增不改（DATA_MODEL.md §0.3），不允许更新；复现=改为新增一行留痕记录");
     }
+
+    @Override
+    public java.util.List<PlanApproval> findByPlan(long hedgePlanId) {
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE hedge_plan_id = ? ORDER BY node_seq ASC, id ASC";
+        return queryList(sql, java.util.Arrays.asList(hedgePlanId), this::mapRow);
+    }
 }

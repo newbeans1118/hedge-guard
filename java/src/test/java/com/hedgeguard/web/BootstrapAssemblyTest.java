@@ -175,9 +175,14 @@ class BootstrapAssemblyTest {
             //   验收 1「风控阈值集中在一个配置界面可维护」）——RiskRuleRoutes 于既有已声明路径上注册 GET/POST
             //   （2 对），RISK 由 1 增为 3，业务路由 117（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK3/TRADE3/
             //   SETTLE15/FUND15）+ ping 2 = 119。非为过测试而放宽断言。
-            assertEquals(119, assembly.routeCount(),
-                    "业务路由必须全部注册：117（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK3/TRADE3/"
-                            + "SETTLE15/FUND15）+ ping 2");
+            // 【T-067 订正（加注）】断言值由 119 订正为 127：订正理由 = 需求面（{@code ApiRoutes} 声明 AUDIT
+            //   模块 /audit/trace/{forward,backward,integrity}、/audit/operation-log，{@code FR-AUDIT-1/2/3/11}、
+            //   {@code ARCHITECTURE.md §6.11}）——AuditTraceRoutes 于既有已声明路径上各注册 GET/POST（8 对），
+            //   AUDIT 由 0 增为 8，业务路由 125（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK3/TRADE3/
+            //   SETTLE15/FUND15/AUDIT8）+ ping 2 = 127。非为过测试而放宽断言。
+            assertEquals(127, assembly.routeCount(),
+                    "业务路由必须全部注册：125（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK3/TRADE3/"
+                            + "SETTLE15/FUND15/AUDIT8）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。
             // （不真发 HTTP：经 RequestDispatcher 进程内分发；handler 因无真实库而 4xx/5xx 皆可，

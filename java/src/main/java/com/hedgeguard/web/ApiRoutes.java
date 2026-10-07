@@ -130,6 +130,11 @@ public final class ApiRoutes {
                 "GET /settle/export"));
         BY_MODULE_ROUTES.put("RISK", Arrays.asList(
                 "GET /risk/mirror-status", "GET /risk/rule", "POST /risk/rule"));
+        BY_MODULE_ROUTES.put("AUDIT", Arrays.asList(
+                "GET /audit/trace/forward", "POST /audit/trace/forward",
+                "GET /audit/trace/backward", "POST /audit/trace/backward",
+                "GET /audit/trace/integrity", "POST /audit/trace/integrity",
+                "GET /audit/operation-log", "POST /audit/operation-log"));
         BY_MODULE_ROUTES.put("FUND", Arrays.asList(
                 "GET /fund/ledger", "POST /fund/ledger", "GET /fund/flow", "POST /fund/deposit",
                 "POST /fund/withdraw", "POST /fund/{id}/review", "POST /fund/transfer",
@@ -180,8 +185,9 @@ public final class ApiRoutes {
      * 模块 → 已交付的 {@code "METHOD /module-relative-path"} 冻结对（只读）。
      *
      * <p>仅含<b>当前已注册</b>的模块（{@code AUTH}/{@code CONFIG}/{@code PRODUCT}/{@code SPOT}/
-     * {@code PLAN}/{@code TRADE}/{@code SETTLE}/{@code RISK}/{@code FUND}）；后续里程碑模块
-     * （{@code AUDIT}/{@code ACCT}）及未接入路径仅在 {@link #byModule()} 的路径级声明中列出。
+     * {@code PLAN}/{@code TRADE}/{@code SETTLE}/{@code RISK}/{@code FUND}，以及 {@code T-067} 接入的
+     * {@code AUDIT} 追溯与留痕路径）；后续里程碑模块（{@code ACCT}）及 {@code AUDIT} 未接入路径
+     * 仅在 {@link #byModule()} 的路径级声明中列出。
      *
      * @return 模块 → {@code "METHOD /module-relative-path"} 清单
      */

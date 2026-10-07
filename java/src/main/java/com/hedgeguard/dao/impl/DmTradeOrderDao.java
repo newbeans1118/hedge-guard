@@ -157,4 +157,11 @@ public final class DmTradeOrderDao extends AbstractDmDao<TradeOrder, Long> imple
                 + " WHERE sub_account_id = ? AND status = ? ORDER BY submit_time ASC, id ASC";
         return queryList(sql, Arrays.asList(subAccountId, status), this::mapRow);
     }
+
+    @Override
+    public List<TradeOrder> findByHedgePlan(long hedgePlanId) {
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE hedge_plan_id = ? ORDER BY id ASC";
+        return queryList(sql, Arrays.asList(hedgePlanId), this::mapRow);
+    }
 }

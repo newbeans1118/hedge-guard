@@ -160,6 +160,17 @@ final class SettleFakes {
         @Override LocalDate dateOf(SettleCycle e) { return e.tradeDate; }
         @Override Integer subOf(SettleCycle e) { return e.subAccountId; }
         @Override String aggOf(SettleCycle e) { return e.isAggregate; }
+        @Override
+        public List<SettleCycle> findBySubAccountAndDate(int subAccountId, LocalDate tradeDate) {
+            List<SettleCycle> out = new ArrayList<>();
+            for (SettleCycle c : rows) {
+                if (c.subAccountId != null && c.subAccountId == subAccountId
+                        && tradeDate.equals(c.tradeDate)) {
+                    out.add(c);
+                }
+            }
+            return out;
+        }
     }
 
     static final class Positions extends Base<SettlePosition> implements SettlePositionDao {

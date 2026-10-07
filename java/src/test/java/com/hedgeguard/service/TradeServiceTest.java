@@ -1124,6 +1124,16 @@ class TradeServiceTest {
         public List<TradeOrder> findBySubAccountAndStatus(int s, String st) {
             throw FakeDao.unsupported("findBySubAccountAndStatus");
         }
+        @Override
+        public List<TradeOrder> findByHedgePlan(long hedgePlanId) {
+            List<TradeOrder> out = new ArrayList<>();
+            for (TradeOrder o : rows) {
+                if (o.hedgePlanId != null && o.hedgePlanId == hedgePlanId) {
+                    out.add(o);
+                }
+            }
+            return out;
+        }
     }
 
     private static final class FakeTradeReasonDao extends AuditDao<TradeReason, Long>

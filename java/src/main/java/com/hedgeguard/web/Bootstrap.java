@@ -38,6 +38,7 @@ import com.hedgeguard.dao.impl.DmHedgeRatioCalcDao;
 import com.hedgeguard.dao.impl.DmInventoryLedgerDao;
 import com.hedgeguard.dao.impl.DmLoginLogDao;
 import com.hedgeguard.dao.impl.DmLoginSessionDao;
+import com.hedgeguard.dao.impl.DmOperationLogDao;
 import com.hedgeguard.dao.impl.DmParamDispatchDao;
 import com.hedgeguard.dao.impl.DmPasswordHistoryDao;
 import com.hedgeguard.dao.impl.DmPermissionChangeLogDao;
@@ -103,6 +104,7 @@ import com.hedgeguard.risk_intraday.NoopRiskMetricSink;
 import com.hedgeguard.risk_intraday.RiskRoutes;
 import com.hedgeguard.risk_intraday.RiskThresholds;
 import com.hedgeguard.risk_intraday.TradingSuspender;
+import com.hedgeguard.service.AuditService;
 import com.hedgeguard.service.AuthService;
 import com.hedgeguard.service.ConfigService;
 import com.hedgeguard.service.FundService;
@@ -116,6 +118,7 @@ import com.hedgeguard.service.TradeService;
 import com.hedgeguard.service.VarietyService;
 import com.hedgeguard.service.impl.ParamDispatchServiceImpl;
 import com.hedgeguard.web.handler.PingHandler;
+import com.hedgeguard.web.handler.audit.AuditTraceRoutes;
 import com.hedgeguard.web.handler.auth.AuthRoutes;
 import com.hedgeguard.web.handler.config.ConfigRoutes;
 import com.hedgeguard.web.handler.fund.FundRoutes;
@@ -534,6 +537,35 @@ public final class Bootstrap {
             LOG.info("已接线 HGCP 事件消费（T-172）：EVT_TRADE_FILL→recordTrade + 每事件→evaluate()"
                     + " + 六事件富化落库（Q-5 品种级解析=提交上下文真值）");
         }
+
+        // T-067 审计全链路追溯与操作留痕（AUDIT 模块首批接入）：正向/反向/完整性 + 在途时窗。
+        // 会计凭证 t_voucher 属 ACCT（T-076~T-080，TODO）⇒ VoucherLookup 接缝暂不装配（null），
+        // 该段判 UNKNOWN（诚实披露，R-AUDIT-2「数据缺失不得误标完整」）；T-079 落地后装入实现即闭合。
+        // 在途时窗上限 audit.chain.inflight_max_cycles（CFG-17c，1–3，缺省 1）**惰性**读取：
+        // 装配期不触库（生产装配在假驱动下亦须可完成），调用时经 ConfigService 读取并夹取。
+        AuditService auditService = new AuditService(exposureDao, hedgePlanExposureDao,
+                new DmHedgePlanDao(tx), new DmPlanApprovalDao(tx), new DmTradePlanDao(tx),
+                new DmTradeOrderDao(tx), new DmTradeOrderReportDao(tx), new DmTradeFillDao(tx),
+                new DmTradeReasonDao(tx), new DmSettleCycleDao(tx), new DmOperationLogDao(tx),
+                authService, null,
+                () -> {
+                    com.hedgeguard.dao.entity.ConfigItem ci =
+                            configService.getConfig("audit.chain.inflight_max_cycles");
+                    if (ci == null || ci.configValue == null) {
+                        return 1;
+                    }
+                    try {
+                        return Integer.parseInt(ci.configValue.trim());
+                    } catch (NumberFormatException e) {
+                        LOG.warning("audit.chain.inflight_max_cycles 取值非法，回退缺省 1："
+                                + ci.configValue);
+                        return 1;
+                    }
+                },
+                AuditService.endOfTradeDay());
+        AuditTraceRoutes.register(router, auditService);
+        LOG.info("已装配审计追溯面：GET|POST /api/v1/audit/trace/{forward,backward,integrity} 与 "
+                + "/api/v1/audit/operation-log；会计凭证接缝=未装配（ACCT T-076~T-080 TODO）");
         return authService;
     }
 

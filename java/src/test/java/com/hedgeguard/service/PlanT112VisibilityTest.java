@@ -432,6 +432,16 @@ class PlanT112VisibilityTest {
         public List<HedgePlanExposure> findByPlan(long hedgePlanId) {
             return new ArrayList<>();
         }
+        @Override
+        public List<HedgePlanExposure> findByExposure(long exposureId) {
+            List<HedgePlanExposure> out = new ArrayList<>();
+            for (HedgePlanExposure row : rows) {
+                if (row.exposureId != null && row.exposureId == exposureId) {
+                    out.add(row);
+                }
+            }
+            return out;
+        }
     }
 
     private static final class FakeRatioCalcDao extends UnsupportedBaseDao<HedgeRatioCalc, Long>

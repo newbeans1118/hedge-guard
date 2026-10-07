@@ -413,6 +413,10 @@ class PlanWritePathPermissionTest {
         public long count(String where, List<Object> whereArgs) {
             return rows.size();
         }
+        @Override
+        public java.util.List<PlanApproval> findByPlan(long hedgePlanId) {
+            return new java.util.ArrayList<>();
+        }
     }
 
     private static final class FakePlanStateLogDao extends UnsupportedBaseDao<PlanStateLog, Long>

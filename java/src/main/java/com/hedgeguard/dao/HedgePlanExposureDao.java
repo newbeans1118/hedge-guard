@@ -18,4 +18,16 @@ public interface HedgePlanExposureDao extends BaseDao<HedgePlanExposure, Long> {
      * @return 列表（{@code status} 升序、{@code id} 升序）
      */
     List<HedgePlanExposure> findByPlan(long hedgePlanId);
+
+    /**
+     * 按敞口取绑定行（{@code FR-AUDIT-1} 正向追溯「敞口 → 套保计划」段反查）。
+     *
+     * <p>本方法为跨账户只读路径（{@code T-067}；子账户可见性由调用方 {@code AuditService}
+     * 统一经 {@code AuthService.visibleSubAccountIds} 校验，DAO 不再叠加 scope，
+     * 与 {@link TradePlanDao#findByHedgePlan(long)} 同姿态）。
+     *
+     * @param exposureId 实货敞口
+     * @return 绑定行列表（{@code status} 升序、{@code id} 升序）；无则空列表
+     */
+    List<HedgePlanExposure> findByExposure(long exposureId);
 }

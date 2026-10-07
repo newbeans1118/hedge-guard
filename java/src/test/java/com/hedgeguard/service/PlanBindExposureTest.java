@@ -464,6 +464,16 @@ class PlanBindExposureTest {
             }
             return out;
         }
+        @Override
+        public List<HedgePlanExposure> findByExposure(long exposureId) {
+            List<HedgePlanExposure> out = new ArrayList<>();
+            for (HedgePlanExposure row : rows) {
+                if (row.exposureId != null && row.exposureId == exposureId) {
+                    out.add(row);
+                }
+            }
+            return out;
+        }
     }
 
     private static final class FakeExposureDao extends UnsupportedBaseDao<Exposure, Long>

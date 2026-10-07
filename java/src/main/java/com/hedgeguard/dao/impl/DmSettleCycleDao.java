@@ -108,4 +108,11 @@ public final class DmSettleCycleDao extends AbstractDmDao<SettleCycle, Long> imp
     protected void applyGeneratedId(SettleCycle entity, long generated) {
         entity.id = generated;
     }
+
+    @Override
+    public java.util.List<SettleCycle> findBySubAccountAndDate(int subAccountId, java.time.LocalDate tradeDate) {
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE sub_account_id = ? AND trade_date = ? ORDER BY id ASC";
+        return queryList(sql, java.util.Arrays.asList(subAccountId, tradeDate), this::mapRow);
+    }
 }

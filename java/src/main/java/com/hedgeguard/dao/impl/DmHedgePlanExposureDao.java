@@ -95,4 +95,11 @@ public final class DmHedgePlanExposureDao extends AbstractDmDao<HedgePlanExposur
                 + " WHERE hedge_plan_id = ? ORDER BY status ASC, id ASC";
         return queryList(sql, java.util.Arrays.asList(hedgePlanId), this::mapRow);
     }
+
+    @Override
+    public List<HedgePlanExposure> findByExposure(long exposureId) {
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE exposure_id = ? ORDER BY status ASC, id ASC";
+        return queryList(sql, java.util.Arrays.asList(exposureId), this::mapRow);
+    }
 }

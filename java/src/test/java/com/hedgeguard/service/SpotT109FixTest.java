@@ -786,6 +786,16 @@ class SpotT109FixTest {
         public List<HedgePlanExposure> findByPlan(long hedgePlanId) {
             throw com.hedgeguard.testsupport.FakeDao.unsupported("findByPlan");
         }
+        @Override
+        public List<HedgePlanExposure> findByExposure(long exposureId) {
+            List<HedgePlanExposure> out = new ArrayList<>();
+            for (HedgePlanExposure row : rows) {
+                if (row.exposureId != null && row.exposureId == exposureId) {
+                    out.add(row);
+                }
+            }
+            return out;
+        }
     }
 
     private static final class FakeSpotChangeLogDao

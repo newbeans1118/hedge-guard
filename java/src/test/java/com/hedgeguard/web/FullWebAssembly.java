@@ -1,5 +1,6 @@
 package com.hedgeguard.web;
 
+import com.hedgeguard.web.handler.audit.AuditTraceRoutes;
 import com.hedgeguard.web.handler.auth.AuthRoutes;
 import com.hedgeguard.web.handler.config.ConfigRoutes;
 import com.hedgeguard.web.handler.fund.FundRoutes;
@@ -73,8 +74,12 @@ final class FullWebAssembly {
      * <p>【{@code T-063}】风控阈值配置面 {@code GET|POST /api/v1/risk/rule}（{@code ApiRoutes} 已声明、
      * {@code §4.1.1} 行 639 方法 GET/POST）⇒ {@code 115 → 117}（非为过测试而放宽：路径逐字取自冻结清单，
      * 本任务只做<b>最小注册</b>）。
+     *
+     * <p>【{@code T-067}】审计全链路追溯与操作留痕面 —— 正向/反向/完整性/操作留痕 4 条已声明路径
+     * 各注册 {@code GET}/{@code POST}（{@code 4 × 2 = 8} 对）⇒ {@code 117 → 125}（非为过测试而放宽：
+     * 未新增路径，路径逐字取自 {@code ApiRoutes} 的 {@code AUDIT} 清单，本任务只做<b>最小注册</b>）。
      */
-    static final int ROUTE_COUNT = 117;
+    static final int ROUTE_COUNT = 125;
 
     private FullWebAssembly() {
     }
@@ -106,6 +111,10 @@ final class FullWebAssembly {
         // T-049：FUND 资金管理最小注册面（15 个 (方法,路径) 对）。服务入参 null：装配期只调用
         // router.register(...) 构造 Handler，不驱动任何业务逻辑。
         FundRoutes.register(router, null);
+        // T-067：AUDIT 审计追溯与留痕面（8 个 (方法,路径) 对：trace/{forward,backward,integrity}
+        // 与 operation-log 各 GET/POST）。服务入参 null：装配期只调用 router.register(...) 构造 Handler，
+        // 不驱动任何业务逻辑。
+        AuditTraceRoutes.register(router, null);
         return router;
     }
 }

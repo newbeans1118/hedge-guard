@@ -757,6 +757,16 @@ class PlanServiceTest {
             }
             return out;
         }
+        @Override
+        public List<HedgePlanExposure> findByExposure(long exposureId) {
+            List<HedgePlanExposure> out = new ArrayList<>();
+            for (HedgePlanExposure row : rows) {
+                if (row.exposureId != null && row.exposureId == exposureId) {
+                    out.add(row);
+                }
+            }
+            return out;
+        }
     }
 
     /** 内存假比率留痕 DAO。 */
@@ -856,6 +866,10 @@ class PlanServiceTest {
         @Override
         public long count(String where, List<Object> whereArgs) {
             return rows.size();
+        }
+        @Override
+        public java.util.List<PlanApproval> findByPlan(long hedgePlanId) {
+            return new java.util.ArrayList<>();
         }
     }
 
