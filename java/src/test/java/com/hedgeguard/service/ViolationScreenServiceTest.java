@@ -187,9 +187,9 @@ class ViolationScreenServiceTest {
     void reasonMissingAndRelatedMissingIndependent() {
         TradeOrder oA = order("HP-RA", "OPEN", TS);
         TradeOrder oB = order("HP-RB", "OPEN", TS);
-        // A：理由内容为空 → REASON_MISSING（关联对象齐备）
-        reason(oA.id, null, PLAN, EXP, "N", "N");
-        // B：理由已填（文本非空）但关联对象未提供 → RELATED_MISSING
+        // A：reason_missing_flag='Y' → REASON_MISSING（CH-004 结构性表达式；reason_text 非空不改变判定）
+        reason(oA.id, "补充说明非空", PLAN, EXP, "N", "Y");
+        // B：理由已填（未标 reason_missing_flag='Y'）但关联对象未提供 → RELATED_MISSING
         reason(oB.id, "对冲建仓", null, null, "Y", "N");
 
         ViolationScreenResult r = screen(
@@ -217,6 +217,71 @@ class ViolationScreenServiceTest {
         assertEquals("REASON_MISSING", r.items.get(0).violationType);
         assertEquals(o.id, r.items.get(0).objectId);
         assertNull(r.items.get(0).tradeReasonId, "无理由记录时理由外键为空");
+    }
+
+    @Test
+    @DisplayName("Q-13/TE-T068-001：结构化理由齐备但无自由文本 + 关联缺失 → RELATED_MISSING（非 REASON）")
+    void structuredReasonNoFreeTextRelatedMissing() {
+        TradeOrder o = order("HP-PRB", "OPEN", TS);
+        // reason_text=null 仅表示无补充说明（DATA_MODEL §2.6），理由记录存在且未标缺失 ⇒ 「理由已填」
+        reason(o.id, null, null, null, "Y", "N");
+        ViolationScreenResult r = screen(
+                dims("REASON_MISSING", "RELATED_MISSING"), DAY, DAY, null);
+        assertEquals(0, byType(r, "REASON_MISSING").size(),
+                "无自由文本不等于理由缺失（CH-004）");
+        assertEquals(1, byType(r, "RELATED_MISSING").size(),
+                "理由已填但关联缺失应命中 RELATED_MISSING");
+        assertEquals(o.id, byType(r, "RELATED_MISSING").get(0).objectId);
+    }
+
+    @Test
+    @DisplayName("Q-13：reason_missing_flag='Y' 与 related_object_missing_flag='Y' 并存 → 仅 REASON（互斥守卫）")
+    void mutualExclusionReasonFlagBeatsRelated() {
+        TradeOrder o = order("HP-MX", "OPEN", TS);
+        reason(o.id, "理由", null, null, "Y", "Y");
+        ViolationScreenResult r = screen(
+                dims("REASON_MISSING", "RELATED_MISSING"), DAY, DAY, null);
+        assertEquals(1, byType(r, "REASON_MISSING").size(), "标缺失 ⇒ 判 REASON_MISSING");
+        assertEquals(0, byType(r, "RELATED_MISSING").size(),
+                "reason_missing_flag='Y' 者不得再计 RELATED_MISSING（互斥守卫）");
+    }
+
+    @Test
+    @DisplayName("Q-13：仅启用 RELATED 维时，reason_missing_flag='Y' 的行仍不得计入 RELATED（互斥守卫专属）")
+    void relatedOnlySkipsReasonMissingRows() {
+        TradeOrder o = order("HP-MX2", "OPEN", TS);
+        reason(o.id, "理由", null, null, "Y", "Y");
+        ViolationScreenResult r = screen(dims("RELATED_MISSING"), DAY, DAY, null);
+        assertEquals(0, byType(r, "RELATED_MISSING").size(),
+                "标 reason_missing_flag='Y' ⇒ 属理由缺失，即使只启 RELATED 也必须排除（互斥守卫）");
+    }
+
+    @Test
+    @DisplayName("日期边界：理由按 [from, to+1) 半开过滤（from 当日 00:00 与 to 当日 23:59:59 计入，to+1 00:00 不计入）")
+    void reasonDateHalfOpenBoundary() {
+        // 区间前一日 → 排除
+        TradeOrder before = order("HP-D0", "OPEN", DAY.minusDays(1).atTime(12, 0));
+        reason(before.id, "r0", null, null, "Y", "N", DAY.minusDays(1).atTime(12, 0));
+        // from 边界 00:00 → 含
+        TradeOrder atFrom = order("HP-D1", "OPEN", DAY.atStartOfDay());
+        reason(atFrom.id, "r1", null, null, "Y", "N", DAY.atStartOfDay());
+        // to 边界 23:59:59 → 含
+        TradeOrder atTo = order("HP-D2", "OPEN", DAY.atTime(23, 59, 59));
+        reason(atTo.id, "r2", null, null, "Y", "N", DAY.atTime(23, 59, 59));
+        // to+1 00:00 → 排除（半开）
+        TradeOrder after = order("HP-D3", "OPEN", DAY2.atStartOfDay());
+        reason(after.id, "r3", null, null, "Y", "N", DAY2.atStartOfDay());
+
+        ViolationScreenResult r = screen(dims("RELATED_MISSING"), DAY, DAY, null);
+        List<Long> ids = new ArrayList<>();
+        for (ViolationScreenItem it : byType(r, "RELATED_MISSING")) {
+            ids.add(it.objectId);
+        }
+        assertEquals(2, ids.size(), "仅 from 与 to 两端（含）命中：" + ids);
+        assertTrue(ids.contains(atFrom.id), "from 边界应含：" + ids);
+        assertTrue(ids.contains(atTo.id), "to 边界应含：" + ids);
+        assertFalse(ids.contains(before.id), "区间前应排除：" + ids);
+        assertFalse(ids.contains(after.id), "to+1 半开边界应排除：" + ids);
     }
 
     @Test
@@ -367,6 +432,11 @@ class ViolationScreenServiceTest {
 
     private void reason(long orderId, String text, Long planId, Long exposureId, String relatedFlag,
                         String missingFlag) {
+        reason(orderId, text, planId, exposureId, relatedFlag, missingFlag, TS);
+    }
+
+    private void reason(long orderId, String text, Long planId, Long exposureId, String relatedFlag,
+                        String missingFlag, LocalDateTime fillTime) {
         TradeReason r = new TradeReason();
         r.subAccountId = SUB;
         r.tradeOrderId = orderId;
@@ -378,7 +448,7 @@ class ViolationScreenServiceTest {
         r.forcedByFreqAlert = "N";
         r.relatedObjectMissingFlag = relatedFlag;
         r.operatorId = OPERATOR;
-        r.fillTime = TS;
+        r.fillTime = fillTime;
         r.isModified = "N";
         r.reasonMissingFlag = missingFlag;
         assertEquals(1, reasonDao.insert(r, OPERATOR));

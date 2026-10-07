@@ -54,14 +54,15 @@ import java.util.Set;
  *       （{@code Q-13}/{@code CH-004}），由 {@code t_trade_reason} 派生
  *       （{@code DATA_MODEL.md} §2.9：采用「筛查侧生成」）：
  *       <ul>
- *         <li>{@code REASON_MISSING} = 无 {@code t_trade_reason} 记录，或记录存在但
- *             {@code reason_missing_flag='Y'} / 理由内容为空；</li>
- *         <li>{@code RELATED_MISSING} = <b>理由已填（内容非空）</b>但
- *             {@code related_object_missing_flag='Y'}（两关联列未提供，由
+ *         <li>{@code REASON_MISSING} = <b>无 {@code t_trade_reason} 记录</b>，或记录存在但
+ *             {@code reason_missing_flag='Y'}（{@code CH-004} 结构性表达式）；</li>
+ *         <li>{@code RELATED_MISSING} = <b>理由记录存在且未标 {@code reason_missing_flag='Y'}（即「理由已填」）</b>
+ *             但 {@code related_object_missing_flag='Y'}（两关联列未提供，由
  *             {@code ck_trade_reason_related_or_missing} 结构强制）。</li>
- *         <li>二者<b>互斥</b>：理由内容为空者判 {@code REASON_MISSING}、不计 {@code RELATED_MISSING}；
- *             {@code related_object_missing_flag='Y'} 但内容非空者判 {@code RELATED_MISSING}、
- *             不计 {@code REASON_MISSING}。</li>
+ *         <li>二者<b>互斥</b>：{@code reason_missing_flag='Y'} 者判 {@code REASON_MISSING}、
+ *             不计 {@code RELATED_MISSING}；{@code related_object_missing_flag='Y'} 且未标
+ *             {@code reason_missing_flag='Y'} 者判 {@code RELATED_MISSING}、不计 {@code REASON_MISSING}。</li>
+ *         <li>{@code reason_text} 为可选补充说明，其空/非空<b>不</b>参与判定（{@code DATA_MODEL.md} §2.6）。</li>
  *       </ul></li>
  * </ul>
  *
@@ -541,11 +542,14 @@ public final class ViolationScreenService {
         return r == null ? null : r.id;
     }
 
+    /**
+     * 是否理由缺失（{@code CH-004} 结构性表达式：<b>无理由记录 或 {@code reason_missing_flag='Y'}</b>）。
+     *
+     * <p>{@code reason_text} 为 {@code DATA_MODEL.md} §2.6 的<b>可选补充说明</b>，其空/非空
+     * <b>不</b>改变判定——「无理由记录」一支由 {@link #collectReasonHits} 的指令缺理由行扫描承接。
+     */
     private static boolean isReasonMissing(TradeReason r) {
-        if ("Y".equals(r.reasonMissingFlag)) {
-            return true;
-        }
-        return r.reasonText == null || r.reasonText.trim().isEmpty();
+        return "Y".equals(r.reasonMissingFlag);
     }
 
     private static String missingDescriptor(TradeReason r) {
