@@ -16804,3 +16804,26 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **D1 依赖缺口（正式登记）**：凭证段 VoucherLookup 接缝 + M1 判 UNKNOWN + 断点诚实标记；t_voucher 建表/entity/DAO 归 T-076/T-079（ACCT/M4），落地接线即闭合。披露三处落痕（AuditService javadoc/CONTRACTS 变更记录/Bootstrap 注释）。
 
 **编排者亲核记录**：47d16df/1cd7ea3/6ced926 三提交面、红线、:138 现值（127/93 + 四层历史段 + 权威 md5 705b7166 引用）、CONTRACTS 2+/0−、AUDIT 8 对（:134-137）、双 md5——交付当日亲测与两级复核席独立实测一致。
+---
+
+## T-065 独立复核与退修收口证据（席 te-verify-t065；2026-10-07 第 222 轮 · 编排者逐字转录）
+
+**结论：有条件通过 / 0 阻断 / 2 缺陷（TE-T065-001 低-中 + 计数归属勘误）/ 7 观察 ⇒ C 条件经 6d18abe 订正案闭环，T-065 转 DONE。**
+
+**交付链**：05f3938（主体 21 文件 +1915/−23）→ 6d18abe（退修订正案 2 文件 +14/−6：Sink 13+/5−、CONTRACTS 1+/1− 就地订正）。终态门禁：组合态隔离 983/0/0/0（125 类）+ arch E1–E8 rc0。
+
+**组合态门禁计数精确澄清（编排者点名项，双席交叉裁定）**：be-t065 自报 968 系**基线归属错**——其隔离基线取在 be-t068 提交前（22dbd0e=957 +11=968），未含 be-t068 的 15 用例。逐提交实测（git grep @Test）：22dbd0e=957 → 2117846=968（ViolationScreenServiceTest +11）→ 436928d=972（ViolationScreenHandlerTest +4）→ 05f3938=**983**（T-065 +11）。te-verify-t068 在 3241f97 独立复测 983 一致。代码无问题，数字归属已正。
+
+**四项核心核（前审全过）**：① sink——RiskIntradayPersistenceSink 经 AsyncRiskMetricSink 装配为下游；publish 仅入队（有界队列满丢最旧并计数），DB 写由守护线程执行 ⇒ 事件消费线程零 DB（R-RISK-10）；幂等 upsert（水位按 component_id+stream_type、异常统计按五元组自然键、告警按 R-RISK-11 只增不改——非 upsert 正确）；字段映射对 t_risk_alert 12 业务列逐一吻合。② 处置闭环——四动作分支齐、动作白名单；0x0118 经 ParamDispatchServiceImpl 零旁路（新增代码零 HgcpClient 引用，内部类 ParamDispatchSuspendControl 包装）；单测证 SUSPEND_OPEN 未生效 ⇒ 10014 + disposed 保持 N；RELEASE 未生效记 UNCONFIRMED；t_risk_disposal 留痕字段逐列吻合（scan_scope 恒 OPEN_ONLY）。③ FR-RISK-19——筛选维度超集；默认 alert_time,desc + orderByEnsuringUnique(id) 兜底全序（25 行同值跨页两页并集=全集测试）；可见性三态（哨兵 0/null 不过滤、非空无哨兵 findPageScoped 空集 IN(-1) 恒假、审计岗哨兵放行）；回填处置动作/人/时间、未处置显式 disposed=N。④ AbnormalOrderTracker.snapshot——per（子账户|品种）双窗口（1440/10080 合 CFG-05）；分钟级持仓/回合由 FIFO 开平配对样本；既有 max 口径未改。
+
+**TE-T065-001（低-中）与订正案闭环**：水位写入 last_produced_seq=consumed_seq/lag=0，与三处「只落 last_consumed_seq、不伪造 produced/lag」披露冲突（DDL 注释 lag=produced−consumed ⇒ 外部读者误判无滞后）。**be-t065 判据先行**：m3_risk.sql:196-197 两列均 NOT NULL DEFAULT 0 ⇒「不写保持 null」不可行 ⇒ 采订正案：类 javadoc 新增「诚实披露（数据源缺口与占位口径）」节（:50-56：不可留空 ⇒ 暂以 produced=consumed、lag=0 占位，含义=无观测到的序号滞后 ≠ 确认无滞后，真实 produced 待 T-040/T-175 心跳接线）+ upsertWatermark javadoc/写入点行内注释同步 + CONTRACTS 变更行就地订正（带 TE-T065-001 标记，append-only 精神：仅该条口径改写）。05f3938 提交信息「不伪造滞后」与实现不符——提交信息不可改，以 6d18abe 正文 + 本回执留痕更正。
+
+**变异独立重做（te-verify-t065，/t065m 先证 comp_errors=0）**：M1 查询丢 scope ⇒ querySubAccountIsolation:258 红；M2 去 MARGIN_USAGE_RATE→MARGIN_RATIO 映射 ⇒ sinkPersistsAlertsMetricsWatermark:158 CHECK 违反红；M3 去下发未生效守卫 ⇒ disposeSuspendFailsNotEffective:324 未抛红。复原 diff -rq 全 src 与 archive 逐字节一致。
+
+**对账/诚实性**：范围恰 21 文件；T-063/T-180/T-067 冻结面 0 触及；IntradayRiskMonitor 仅 +3 行（滞后告警显式 alertType=MIRROR_LAG）；五笔披露实测——①WsServer 未装配 ✓ ②「只落 consumed」✗（TE-T065-001）③suspend_id ✓ ④order_ids ✓ ⑤孤儿路径计数 5→实测 6（净 4，limit-open/force-close-hint 由 dispose 端点动作承载）。CONTRACTS +4/−0 append-only 未升版；INDEX:138 双口径独立复算 129/95（RISK 3→5）一致。
+
+**观察登记（7）**：O-1 处置 FAIL 断言系 stub 路径——生产 ParamDispatch:375/436 未生效即抛 10014 ⇒ FAIL 分支生产不可达，PENDING 可巡检（非阻断，留痕）；O-2 DispatchOutcome.sent javadoc vs Bootstrap:847 恒置 true（AckResult 无 sent 字段可判）——语义不可实现、当前无消费者（latent），归 ParamDispatch/Bootstrap 既有面随权限面统扫；O-3 任务表 FR-RISK-11~16/19 映射偏宽（FR-RISK-11 由 TradeService:839+ViolationScreen/PostRiskReport 读面承载）——编排者订正；O-4 commit message 树锚 2025b8b3… 不可复现（工作树态非提交快照；标准口径 52c851f4…/659）；O-5 queryAlerts 逐行 N+1 查 disposal（登记量级评估归后续）；O-6 覆盖缺口三处（ALERT_ONLY 正向/水位幂等直测/release UNCONFIRMED 分支）；O-7 sink 将 metric_name 亦设派生值 MARGIN_RATIO（原指标身份 MARGIN_USAGE_RATE 未落库；DATA_MODEL 仅注指标名，非硬缺陷）。
+
+**环境登记**：组合态首跑 WsAcceptanceTest.e2ConcurrentLatencyP95Under200ms 1 次超时假红（P95<200ms 机器负载抖动；单跑 8/8 绿、复跑全量 983 绿）——T-165 时序敏感族，与本单无关（与 te-verify-t125 O-2 同族）。
+
+**编排者亲核记录**：05f3938/6d18abe 两提交面、DDL 判据（:196-197 NOT NULL DEFAULT 0）、javadoc 新口径（:50-56/:238）、CONTRACTS 订正行（:899 带 TE-T065-001 标记）、双 md5——交付当日亲测与复核席独立实测一致。
