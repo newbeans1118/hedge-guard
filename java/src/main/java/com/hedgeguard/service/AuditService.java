@@ -59,7 +59,9 @@ import java.util.function.Function;
  *
  * <p><b>诚实披露（末端段数据源缺口）</b>：会计凭证 t_voucher 属 ACCT 模块（T-076~T-080，均 TODO），
  * 当前 Java 侧无 entity/DAO 且无建表脚本 ⇒ 本服务以 {@link VoucherLookup} 接缝承接（M1 未装配时该段判 UNKNOWN，
- * <b>不得</b>误标完整）。T-079 落地后经 Bootstrap 装入实现即可闭合，无需改本类遍历逻辑。
+ * <b>不得</b>误标完整）。T-079 落地后经 Bootstrap 装入实现即可闭合，无需改本类遍历逻辑；
+ * <b>但该接缝实现须能由凭证解析出来源敞口</b>（凭证自带 exposureId，或经 hedgePlanId 反查计划-敞口绑定），
+ * 否则反向追溯在起点段记断点（判 HAS_BREAK），<b>不得</b>静默判完整（TE-T067-001）。
  */
 public final class AuditService {
 
@@ -231,6 +233,14 @@ public final class AuditService {
         }
         if (exposureId != null) {
             walkFromExposure(exposureId, c);
+        } else if (startNode != null) {
+            // 起点对象已解析，但无法回溯到来源敞口（凭证/交易未关联敞口，且其套保计划亦无敞口绑定）
+            // ⇒ 必须记断点；否则 finish 得到空 breakList 会误判 COMPLETE（TE-T067-001）。
+            // 违反 R-AUDIT-1 六段齐备红线 / R-AUDIT-2 缺失不得输出完整 / FR-AUDIT-2 验收 1。
+            c.addBreak(startNode.segment, startNode.objectType, startNode.objectId,
+                    SEG_VOUCHER.equals(startNode.segment)
+                            ? "凭证段无法解析来源敞口（凭证 exposureId/hedgePlanId 及其计划-敞口绑定均缺）"
+                            : "交易段无法解析来源敞口（交易 exposureId/hedgePlanId 及其计划-敞口绑定均缺）");
         }
         finish(r, c, toSegment, true);
         // 起点节点若未被正向遍历纳入（如凭证仅按编号可查），补于链首；否则不重复。

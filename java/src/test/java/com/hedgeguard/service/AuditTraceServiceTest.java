@@ -186,6 +186,26 @@ class AuditTraceServiceTest {
         assertTrue(r.nodes.stream().anyMatch(n -> AuditService.SEG_HEDGE_PLAN.equals(n.segment)));
     }
 
+    @Test
+    @DisplayName("反向追溯：凭证无来源敞口（exposureId/hedgePlanId 双 null）=> 不得静默 COMPLETE，须记断点")
+    void backwardFromVoucherWithoutSourceExposure() throws Exception {
+        // TE-T067-001：凭证存在但其 exposureId/hedgePlanId 均缺，无法回溯来源敞口。
+        AuditService service = service(SUB, orphanVoucherStub());
+
+        AuditService.TraceResult r = service.traceBackward("VOUCHER", "V-ORPHAN", null, OPERATOR);
+
+        assertFalse(AuditService.COMPLETE.equals(r.chainIntegrity),
+                "凭证无法回溯来源敞口时不得判 COMPLETE");
+        assertEquals(AuditService.HAS_BREAK, r.chainIntegrity, "应判 HAS_BREAK");
+        assertFalse(r.breakList.isEmpty(), "break_list 应含断点");
+        AuditService.BreakItem b = r.breakList.get(0);
+        assertEquals(AuditService.SEG_VOUCHER, b.position, "断点应位于凭证段");
+        assertNotNull(b.reason, "断点须含原因");
+        assertFalse(b.reason.trim().isEmpty(), "断点原因不得为空");
+        assertEquals("t_voucher", b.objectType, "断点对象类型应为凭证表");
+        assertEquals(String.valueOf(91001L), b.objectId, "断点对象标识应为凭证 id");
+    }
+
     // ------------------------------------------------------------ 完整性 / 断点
 
     @Test
@@ -386,6 +406,44 @@ class AuditTraceServiceTest {
             @Override
             public AuditService.VoucherRef findByVoucher(String voucherIdOrNo) {
                 return ("V-1".equals(voucherIdOrNo) || "90001".equals(voucherIdOrNo)) ? ref() : null;
+            }
+        };
+    }
+
+    /** 会计凭证桩：存在但 exposureId/hedgePlanId 均缺（无法回溯来源敞口，TE-T067-001）。 */
+    private AuditService.VoucherLookup orphanVoucherStub() {
+        return new AuditService.VoucherLookup() {
+            private AuditService.VoucherRef ref() {
+                AuditService.VoucherRef v = new AuditService.VoucherRef();
+                v.id = 91001L;
+                v.voucherNo = "V-ORPHAN";
+                v.voucherType = "CLOSE_PNL";
+                v.subAccountId = SUB;
+                v.hedgePlanId = null;
+                v.exposureId = null;
+                v.settleCycleId = null;
+                v.status = "POSTED";
+                return v;
+            }
+
+            @Override
+            public List<AuditService.VoucherRef> findByExposure(long exposureId) {
+                return new ArrayList<>();
+            }
+
+            @Override
+            public List<AuditService.VoucherRef> findByHedgePlan(long hedgePlanId) {
+                return new ArrayList<>();
+            }
+
+            @Override
+            public List<AuditService.VoucherRef> findBySettleCycle(long settleCycleId) {
+                return new ArrayList<>();
+            }
+
+            @Override
+            public AuditService.VoucherRef findByVoucher(String voucherIdOrNo) {
+                return "V-ORPHAN".equals(voucherIdOrNo) ? ref() : null;
             }
         };
     }
