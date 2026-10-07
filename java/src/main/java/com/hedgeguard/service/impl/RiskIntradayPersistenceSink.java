@@ -47,12 +47,14 @@ import java.util.logging.Logger;
  *       按自然键 {@code (stat_date,sub,product,window)} 幂等 upsert）。</li>
  * </ul>
  *
- * <h2>诚实披露（数据源缺口，不伪造）</h2>
+ * <h2>诚实披露（数据源缺口与占位口径）</h2>
  * <ol>
  *   <li>{@code t_mirror_watermark.last_produced_seq} 的源（组件心跳载荷）在树中不存在
- *       （{@code TradingBridge} 签名冻结、{@code MirrorSnapshot} 无 produced seq）⇒ 本类只落
- *       {@code last_consumed_seq} 与时间型 {@code lag_alarm}，<b>不伪造</b> produced/lag（seq 型滞后量
- *       待 {@code T-040}/{@code T-175} 心跳接线）。</li>
+ *       （{@code TradingBridge} 签名冻结、{@code MirrorSnapshot} 无 produced seq）。该列与 {@code lag}
+ *       在 DDL 中<b>均 NOT NULL</b>（{@code DATA_MODEL.md} TB-RISK-3；实体字段为原始 {@code long}），
+ *       <b>不可留空</b> ⇒ 本类<b>暂以 {@code last_produced_seq = last_consumed_seq} 占位、{@code lag} 恒 {@code 0}</b>，
+ *       其含义为「<b>无观测到的序号滞后</b>」，<b>不</b>等于「确认无滞后」；真实 produced 序号待
+ *       {@code T-040}/{@code T-175} 心跳接线后刷新（届时 {@code lag} 方为可判量）。</li>
  *   <li>{@code t_abnormal_order_stat.order_ids}（含交易理由供自证）无来源 —— {@code TradeActivity}
  *       不含指令号/理由字段 ⇒ 置 {@code null}（{@code T-172} 富化残留）。</li>
  * </ol>
@@ -230,7 +232,12 @@ public final class RiskIntradayPersistenceSink implements RiskMetricSink {
         return row;
     }
 
-    /** 镜像水位 upsert（{@code produced_seq} 无源 ⇒ 与 consumed 同值并披露，不伪造滞后）。 */
+    /**
+     * 镜像水位 upsert。
+     *
+     * <p>{@code produced_seq} / {@code lag} 为 <b>NOT NULL</b> 列且 produced 无源 ⇒ 暂占位
+     * {@code produced = consumed}、{@code lag = 0}（含义 = 无观测滞后，非确认无滞后；详见类注释披露）。
+     */
     private void upsertWatermark(MirrorMetrics metrics, LocalDateTime now) {
         MirrorWatermark row = watermarkDao.findByComponentAndStream(componentId, STREAM_EVENT);
         boolean isNew = row == null;
@@ -240,6 +247,7 @@ public final class RiskIntradayPersistenceSink implements RiskMetricSink {
             row.streamType = STREAM_EVENT;
         }
         row.lastConsumedSeq = metrics.watermarkEventSeq;
+        // produced/lag 为 NOT NULL 且无源 ⇒ 占位（produced=consumed、lag=0）；不代表确认无滞后
         row.lastProducedSeq = metrics.watermarkEventSeq;
         row.lag = 0L;
         row.lagThreshold = lagThresholdMillis;
