@@ -15,6 +15,15 @@ public final class RiskAlert {
     /** 指标类型。 */
     public RiskMetricType metricType;
 
+    /**
+     * 落库告警类型（{@code t_risk_alert.alert_type}；{@code T-065} 追加）。
+     *
+     * <p>{@code null} 时由落库侧按 {@link #metricType} 派生（{@code MARGIN_USAGE_RATE → MARGIN_RATIO}）；
+     * 镜像滞后类指标（源无独立 {@link RiskMetricType}）显式置 {@code MIRROR_LAG}
+     * —— 与 {@code DATA_MODEL.md} 的 {@code alert_type} 取值域对齐，不静默错标。
+     */
+    public String alertType;
+
     /** 告警级别。 */
     public RiskAlertLevel level;
 

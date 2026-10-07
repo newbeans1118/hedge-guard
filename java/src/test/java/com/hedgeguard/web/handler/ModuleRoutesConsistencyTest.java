@@ -9,6 +9,7 @@ import com.hedgeguard.web.handler.config.ConfigRoutes;
 import com.hedgeguard.web.handler.fund.FundRoutes;
 import com.hedgeguard.web.handler.plan.PlanRoutes;
 import com.hedgeguard.web.handler.product.ProductRoutes;
+import com.hedgeguard.web.handler.risk.RiskAlertRoutes;
 import com.hedgeguard.web.handler.risk.RiskRuleRoutes;
 import com.hedgeguard.web.handler.settle.SettleCheckRoutes;
 import com.hedgeguard.web.handler.settle.SettleRoutes;
@@ -74,6 +75,8 @@ class ModuleRoutesConsistencyTest {
         RiskRoutes.register(router, null, null);
         // T-063：风控阈值配置面（GET|POST /api/v1/risk/rule）与生产装配同构重放。
         RiskRuleRoutes.register(router, null);
+        // T-065：风控告警查询与处置面（GET /risk/alert、POST /risk/alert/{id}/dispose）
+        RiskAlertRoutes.register(router, null);
         TradeRoutes.register(router, null);
         SettleRoutes.register(router, null);
         SettleCheckRoutes.register(router, null);

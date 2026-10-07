@@ -18,4 +18,19 @@ public interface RiskAlertDao extends BaseDao<RiskAlert, Long> {
      * @return 列表
      */
     List<RiskAlert> findBySubAccount(int subAccountId);
+
+    /**
+     * 按子账户可见范围分页查询（{@code FR-RISK-19} 查询面隔离，{@code NFR-SEC-7}/{@code §8.2}）。
+     *
+     * <p>纯增量（{@code T-065}）；scope 谓词落在本表 {@code sub_account_id} 列。计数口径与
+     * {@link BaseDao#findPage} 一致（叠加 scope 与 {@code extraWhere} 后统计）。
+     *
+     * @param query     分页/排序
+     * @param scope     子账户过滤（空集 ⇒ 恒假，{@code AbstractDmDao.findPageScoped} 保证）
+     * @param extraWhere 附加条件（可空）
+     * @param extraArgs 附加条件参数
+     * @return 分页结果
+     */
+    PageResult<RiskAlert> findPageScoped(PageQuery query, SubAccountScope scope,
+                                         String extraWhere, List<Object> extraArgs);
 }

@@ -129,7 +129,9 @@ public final class ApiRoutes {
                 "GET /settle/quarterly-report", "POST /settle/quarterly-report",
                 "GET /settle/export"));
         BY_MODULE_ROUTES.put("RISK", Arrays.asList(
-                "GET /risk/mirror-status", "GET /risk/rule", "POST /risk/rule"));
+                "GET /risk/mirror-status", "GET /risk/rule", "POST /risk/rule",
+                // T-065：告警查询与处置（FR-RISK-19 / FR-RISK-15/16），路径逐字取自本类 RISK 路径级声明
+                "GET /risk/alert", "POST /risk/alert/{id}/dispose"));
         BY_MODULE_ROUTES.put("AUDIT", Arrays.asList(
                 "GET /audit/trace/forward", "POST /audit/trace/forward",
                 "GET /audit/trace/backward", "POST /audit/trace/backward",

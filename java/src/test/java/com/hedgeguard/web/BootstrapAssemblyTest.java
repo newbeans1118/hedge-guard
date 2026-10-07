@@ -180,8 +180,13 @@ class BootstrapAssemblyTest {
             //   {@code ARCHITECTURE.md §6.11}）——AuditTraceRoutes 于既有已声明路径上各注册 GET/POST（8 对），
             //   AUDIT 由 0 增为 8，业务路由 125（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK3/TRADE3/
             //   SETTLE15/FUND15/AUDIT8）+ ping 2 = 127。非为过测试而放宽断言。
-            assertEquals(127, assembly.routeCount(),
-                    "业务路由必须全部注册：125（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK3/TRADE3/"
+            // 【T-065 订正（加注）】断言值由 127 订正为 129：订正理由 = 需求面（{@code ApiRoutes} 声明 RISK
+            //   模块 /risk/alert、/risk/alert/{id}/dispose，{@code FR-RISK-19}/{@code FR-RISK-15/16}、
+            //   {@code ARCHITECTURE.md §4.1.1} 行 639）——RiskAlertRoutes 于既有已声明路径上注册 GET
+            //   与 POST（2 对），RISK 由 3 增为 5，业务路由 127（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/
+            //   RISK5/TRADE3/SETTLE15/FUND15/AUDIT8）+ ping 2 = 129。非为过测试而放宽断言。
+            assertEquals(129, assembly.routeCount(),
+                    "业务路由必须全部注册：127（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK5/TRADE3/"
                             + "SETTLE15/FUND15/AUDIT8）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。

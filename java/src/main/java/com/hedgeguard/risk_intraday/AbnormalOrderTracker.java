@@ -12,8 +12,10 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 异常下单行为（开平仓频次 / 最短持仓周期）内存跟踪器（{@code FR-RISK-14}）。
@@ -78,9 +80,10 @@ public final class AbnormalOrderTracker {
                 Deque<java.time.LocalDateTime> q = opens.get(key);
                 if (q != null && !q.isEmpty()) {
                     java.time.LocalDateTime openAt = q.pollFirst();
-                    long days = Duration.between(openAt, activity.occurredAt).toDays();
+                    Duration held = Duration.between(openAt, activity.occurredAt);
                     holdings.computeIfAbsent(key, k -> new ArrayList<>())
-                            .add(new HoldingSample(activity.occurredAt, BigDecimal.valueOf(days)));
+                            .add(new HoldingSample(activity.occurredAt,
+                                    BigDecimal.valueOf(held.toDays()), held.toMinutes()));
                 }
             }
             prune();
@@ -172,6 +175,97 @@ public final class AbnormalOrderTracker {
         }
     }
 
+    /**
+     * 产出「子账户 × 品种 × 时间窗」异常下单统计快照（{@code FR-RISK-14}；落库口径）。
+     *
+     * <p>对每个已跟踪的（子账户 | 品种）组合产出<b>两行</b>：日内窗（{@code intradayWindowMinutes}，
+     * {@code CFG-05} 默认 1440）与滚动窗（{@code rollingWindowMinutes}，7 日默认 10080）
+     * —— 对应 {@code DATA_MODEL.md} TB-RISK-6 的 {@code window_minutes} 维度。
+     * {@code isAbnormal}/{@code actionTaken} 按 {@code RiskThresholds} 与该窗口径判定。
+     *
+     * <p><b>纯内存只读</b>：不查库、不改状态（{@code R-RISK-10}），供落库侧异步取用。
+     * {@code orderIds} 无来源（{@link TradeActivity} 不含指令号/理由）⇒ 由落库侧置空并披露。
+     *
+     * @param thresholds           阈值（{@code null} 取缺省）
+     * @param intradayWindowMinutes 日内窗（分钟）
+     * @param rollingWindowMinutes  滚动窗（分钟）
+     * @return 统计快照（每个组合两行；无任何活动时为空）
+     */
+    public List<ProductAbnormalStat> snapshot(RiskThresholds thresholds,
+                                              int intradayWindowMinutes,
+                                              int rollingWindowMinutes) {
+        RiskThresholds t = thresholds == null ? RiskThresholds.defaults() : thresholds;
+        java.time.LocalDateTime now = java.time.LocalDateTime.now(clock);
+        List<ProductAbnormalStat> out = new ArrayList<>();
+        synchronized (lock) {
+            Set<String> keys = new LinkedHashSet<>();
+            for (TradeActivity e : events) {
+                keys.add(key(e.subAccountId, e.productId));
+            }
+            for (String k : keys) {
+                int sep = k.indexOf('|');
+                int sub = Integer.parseInt(k.substring(0, sep));
+                long product = Long.parseLong(k.substring(sep + 1));
+                out.add(build(t, sub, product, intradayWindowMinutes, now, true));
+                out.add(build(t, sub, product, rollingWindowMinutes, now, false));
+            }
+        }
+        return out;
+    }
+
+    private ProductAbnormalStat build(RiskThresholds t, int sub, long product, int windowMinutes,
+                                      java.time.LocalDateTime now, boolean intraday) {
+        java.time.LocalDateTime floor = now.minusMinutes(windowMinutes);
+        int openClose = 0;
+        java.time.LocalDateTime last = null;
+        for (TradeActivity e : events) {
+            if (e.subAccountId == sub && e.productId == product && !e.occurredAt.isBefore(floor)) {
+                openClose++;
+                if (last == null || e.occurredAt.isAfter(last)) {
+                    last = e.occurredAt;
+                }
+            }
+        }
+        int rounds = 0;
+        long minMin = Long.MAX_VALUE;
+        long sumMin = 0;
+        BigDecimal sumDays = BigDecimal.ZERO;
+        List<HoldingSample> list = holdings.get(key(sub, product));
+        if (list != null) {
+            for (HoldingSample s : list) {
+                if (!s.closedAt.isBefore(floor)) {
+                    rounds++;
+                    minMin = Math.min(minMin, s.minutes);
+                    sumMin += s.minutes;
+                    sumDays = sumDays.add(s.days);
+                }
+            }
+        }
+        ProductAbnormalStat st = new ProductAbnormalStat();
+        st.subAccountId = sub;
+        st.productId = product;
+        st.windowMinutes = windowMinutes;
+        st.openCloseCount = openClose;
+        st.roundTripCount = rounds;
+        st.minHoldMinutes = rounds == 0 ? null : (int) minMin;
+        st.avgHoldMinutes = rounds == 0 ? null
+                : BigDecimal.valueOf(sumMin).divide(BigDecimal.valueOf(rounds), 4, RoundingMode.HALF_UP);
+        st.lastOrderTime = last;
+        if (intraday) {
+            st.abnormal = openClose >= t.intradayAlertCount;
+            st.actionTaken = openClose >= t.intradaySuspendCount
+                    ? "ALERT_AND_SUSPEND_OPEN" : "ALERT_ONLY";
+        } else {
+            BigDecimal avgDays = rounds == 0 ? null
+                    : sumDays.divide(BigDecimal.valueOf(rounds), 4, RoundingMode.HALF_UP);
+            boolean byHold = avgDays != null && avgDays.compareTo(t.minHoldingDays) < 0
+                    && rounds >= t.rollingAlertRounds;
+            st.abnormal = rounds >= t.rollingAlertRounds || byHold;
+            st.actionTaken = "ALERT_ONLY";
+        }
+        return st;
+    }
+
     /** 裁剪超出滚动窗口的事件与回合样本，防止内存无界增长。 */
     private void prune() {
         java.time.LocalDateTime floor = java.time.LocalDateTime.now(clock).minusDays(ROLLING_DAYS);
@@ -189,10 +283,12 @@ public final class AbnormalOrderTracker {
     private static final class HoldingSample {
         private final java.time.LocalDateTime closedAt;
         private final BigDecimal days;
+        private final long minutes;
 
-        HoldingSample(java.time.LocalDateTime closedAt, BigDecimal days) {
+        HoldingSample(java.time.LocalDateTime closedAt, BigDecimal days, long minutes) {
             this.closedAt = closedAt;
             this.days = days;
+            this.minutes = minutes;
         }
     }
 

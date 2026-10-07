@@ -7,6 +7,7 @@ import com.hedgeguard.web.handler.fund.FundRoutes;
 import com.hedgeguard.web.handler.plan.PlanRoutes;
 import com.hedgeguard.web.handler.product.ProductRoutes;
 import com.hedgeguard.risk_intraday.RiskRoutes;
+import com.hedgeguard.web.handler.risk.RiskAlertRoutes;
 import com.hedgeguard.web.handler.risk.RiskRuleRoutes;
 import com.hedgeguard.web.handler.settle.SettleCheckRoutes;
 import com.hedgeguard.web.handler.settle.SettleRoutes;
@@ -79,7 +80,7 @@ final class FullWebAssembly {
      * 各注册 {@code GET}/{@code POST}（{@code 4 × 2 = 8} 对）⇒ {@code 117 → 125}（非为过测试而放宽：
      * 未新增路径，路径逐字取自 {@code ApiRoutes} 的 {@code AUDIT} 清单，本任务只做<b>最小注册</b>）。
      */
-    static final int ROUTE_COUNT = 125;
+    static final int ROUTE_COUNT = 127;
 
     private FullWebAssembly() {
     }
@@ -115,6 +116,9 @@ final class FullWebAssembly {
         // 与 operation-log 各 GET/POST）。服务入参 null：装配期只调用 router.register(...) 构造 Handler，
         // 不驱动任何业务逻辑。
         AuditTraceRoutes.register(router, null);
+        // T-065：风控告警查询与处置面（2 个 (方法,路径) 对：GET /risk/alert、
+        // POST /risk/alert/{id}/dispose）。服务入参 null：装配期只调用 router.register(...)。
+        RiskAlertRoutes.register(router, null);
         return router;
     }
 }

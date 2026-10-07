@@ -145,10 +145,13 @@ public final class IntradayRiskMonitor {
             evaluateOne(m, true, snap, nowIso, alerts, hints, toSuspend);
         }
         if (metrics.lagging) {
-            alerts.add(new RiskAlert(0, RiskMetricType.POSITION, RiskAlertLevel.WARNING,
+            RiskAlert lagAlert = new RiskAlert(0, RiskMetricType.POSITION, RiskAlertLevel.WARNING,
                     String.valueOf(metrics.lagMillis), String.valueOf(thresholds.mirrorLagMillis),
                     nowIso, "镜像状态明显滞后：滞后 " + metrics.lagMillis + "ms 超阈值 "
-                    + thresholds.mirrorLagMillis + "ms（FR-RISK-12 验收 3）"));
+                    + thresholds.mirrorLagMillis + "ms（FR-RISK-12 验收 3）");
+            // 落库类型显式标注为 MIRROR_LAG（源指标类型无独立枚举，避免落库错标为 POSITION）
+            lagAlert.alertType = "MIRROR_LAG";
+            alerts.add(lagAlert);
         }
 
         if (applyDisposal) {

@@ -742,18 +742,22 @@ public final class InMemoryDmEngine implements ConnectionFactory {
         for (String atomRaw : atoms) {
             String atom = stripOuterParens(collapse(atomRaw));
             Matcher in = Pattern.compile("(?is)^(\\w+)\\s+IN\\s*\\((.*)\\)$").matcher(atom);
-            Matcher eq = Pattern.compile("(?is)^(\\w+)\\s*=\\s*\\?$").matcher(atom);
+            // 等值 / 比较符（'>=' '>' '<=' '<' '=' '<>' '!='）；T-065 增补 > 与 >=（since 补拉等区间谓词）
+            Matcher cmp = Pattern.compile("(?is)^(\\w+)\\s*(>=|<=|<>|!=|>|<|=)\\s*\\?$").matcher(atom);
             Matcher isNull = Pattern.compile("(?is)^(\\w+)\\s+IS\\s+NULL$").matcher(atom);
             Matcher like = Pattern.compile("(?is)^(\\w+)\\s+LIKE\\s+\\?$").matcher(atom);
-            if (eq.matches()) {
-                String col = eq.group(1);
+            if (cmp.matches()) {
+                String col = cmp.group(1);
+                String op = cmp.group(2);
                 Object value = args.get(argIndex[0]++);
-                predicates.add(row -> sameValue(row.get(col), value));
+                predicates.add(row -> compareOp(row.get(col), value, op));
             } else if (in.matches()) {
                 String col = in.group(1);
                 List<Object> values = new ArrayList<>();
-                for (String ignored : in.group(2).split(",")) {
-                    values.add(args.get(argIndex[0]++));
+                for (String token : in.group(2).split(",")) {
+                    String tokenText = token.trim();
+                    // 占位符用实参；字面量（如恒假条件 IN (-1)）直接求值
+                    values.add("?".equals(tokenText) ? args.get(argIndex[0]++) : sqlLiteral(tokenText));
                 }
                 predicates.add(row -> values.stream().anyMatch(v -> sameValue(row.get(col), v)));
             } else if (isNull.matches()) {
@@ -776,6 +780,46 @@ public final class InMemoryDmEngine implements ConnectionFactory {
             }
             return true;
         };
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static boolean compareOp(Object a, Object b, String op) {
+        if (a == null || b == null) {
+            return false;
+        }
+        int cmp;
+        if (a instanceof Number && b instanceof Number) {
+            cmp = new java.math.BigDecimal(a.toString()).compareTo(new java.math.BigDecimal(b.toString()));
+        } else if (a instanceof Comparable && a.getClass().equals(b.getClass())) {
+            cmp = ((Comparable) a).compareTo(b);
+        } else {
+            cmp = String.valueOf(a).compareTo(String.valueOf(b));
+        }
+        switch (op) {
+            case ">": return cmp > 0;
+            case ">=": return cmp >= 0;
+            case "<": return cmp < 0;
+            case "<=": return cmp <= 0;
+            case "=": return cmp == 0;
+            case "<>":
+            case "!=": return cmp != 0;
+            default: throw new UnsupportedOperationException("未知比较符：" + op);
+        }
+    }
+
+    /** 解析 IN(...) 中的字面量（整数 / 单引号字符串）。 */
+    private static Object sqlLiteral(String token) {
+        String t = token.trim();
+        if (t.length() >= 2 && t.startsWith("'") && t.endsWith("'")) {
+            return t.substring(1, t.length() - 1);
+        }
+        if (t.matches("-?\\d+")) {
+            return Long.valueOf(t);
+        }
+        if (t.matches("-?\\d+\\.\\d+")) {
+            return new java.math.BigDecimal(t);
+        }
+        return t;
     }
 
     private static void applyOrderBy(List<Map<String, Object>> rows, String orderBy) {

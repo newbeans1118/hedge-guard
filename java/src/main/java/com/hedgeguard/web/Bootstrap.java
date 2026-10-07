@@ -14,6 +14,11 @@ import com.hedgeguard.dao.UserAccountDao;
 import com.hedgeguard.dao.UserRoleDao;
 import com.hedgeguard.dao.impl.DmAccountSubjectDao;
 import com.hedgeguard.dao.impl.DmConfigChangeLogDao;
+import com.hedgeguard.dao.impl.DmAbnormalOrderStatDao;
+import com.hedgeguard.dao.impl.DmMirrorWatermarkDao;
+import com.hedgeguard.dao.impl.DmRiskAlertDao;
+import com.hedgeguard.dao.impl.DmRiskDisposalDao;
+import com.hedgeguard.dao.impl.DmRiskMetricSnapshotDao;
 import com.hedgeguard.dao.impl.DmRiskThresholdDao;
 import com.hedgeguard.dao.impl.DmConfigItemDao;
 import com.hedgeguard.dao.impl.DmCtpFrontConfigDao;
@@ -97,12 +102,13 @@ import com.hedgeguard.dao.pool.JdbcConnectionFactory;
 import com.hedgeguard.dao.pool.PoolConfig;
 import com.hedgeguard.dao.tx.TxTemplate;
 import com.hedgeguard.risk_intraday.AbnormalOrderTracker;
+import com.hedgeguard.risk_intraday.AsyncRiskMetricSink;
 import com.hedgeguard.risk_intraday.IntradayEventFeed;
 import com.hedgeguard.risk_intraday.IntradayRiskMonitor;
 import com.hedgeguard.risk_intraday.MirrorStatusHandler;
-import com.hedgeguard.risk_intraday.NoopRiskMetricSink;
 import com.hedgeguard.risk_intraday.RiskRoutes;
 import com.hedgeguard.risk_intraday.RiskThresholds;
+import com.hedgeguard.risk_intraday.TradingSuspendControl;
 import com.hedgeguard.risk_intraday.TradingSuspender;
 import com.hedgeguard.service.AuditService;
 import com.hedgeguard.service.AuthService;
@@ -110,6 +116,7 @@ import com.hedgeguard.service.ConfigService;
 import com.hedgeguard.service.FundService;
 import com.hedgeguard.service.ParamDispatchService;
 import com.hedgeguard.service.PlanService;
+import com.hedgeguard.service.RiskAlertService;
 import com.hedgeguard.service.RiskService;
 import com.hedgeguard.service.SpotService;
 import com.hedgeguard.service.SettleCheckService;
@@ -117,6 +124,7 @@ import com.hedgeguard.service.SettleService;
 import com.hedgeguard.service.TradeService;
 import com.hedgeguard.service.VarietyService;
 import com.hedgeguard.service.impl.ParamDispatchServiceImpl;
+import com.hedgeguard.service.impl.RiskIntradayPersistenceSink;
 import com.hedgeguard.web.handler.PingHandler;
 import com.hedgeguard.web.handler.audit.AuditTraceRoutes;
 import com.hedgeguard.web.handler.auth.AuthRoutes;
@@ -124,6 +132,7 @@ import com.hedgeguard.web.handler.config.ConfigRoutes;
 import com.hedgeguard.web.handler.fund.FundRoutes;
 import com.hedgeguard.web.handler.plan.PlanRoutes;
 import com.hedgeguard.web.handler.product.ProductRoutes;
+import com.hedgeguard.web.handler.risk.RiskAlertRoutes;
 import com.hedgeguard.web.handler.risk.RiskRuleRoutes;
 import com.hedgeguard.web.handler.spot.SpotRoutes;
 import com.hedgeguard.web.handler.settle.SettleCheckRoutes;
@@ -524,7 +533,18 @@ public final class Bootstrap {
                 + (paramDispatchService == null ? "未装配（写面拒绝）" : "已装配"));
 
         IntradayRiskMonitor monitor = registerRiskIntradayRoute(router, config, bridge,
-                paramDispatchService, authService);
+                paramDispatchService, authService, tx);
+        // M3 风控告警查询与处置面（T-065）：GET /risk/alert（FR-RISK-19）+ POST /risk/alert/{id}/dispose
+        // （FR-RISK-15/16）。处置的「限制/解除新开仓」经既有 ParamDispatchServiceImpl 下发
+        // CMD_SET_TRADING_SUSPEND(0x0118)（scan_scope=OPEN_ONLY，R-RISK-5）；桥不可用时端口为 null（拒绝下发）。
+        TradingSuspendControl suspendControl = paramDispatchService instanceof ParamDispatchServiceImpl
+                ? new ParamDispatchSuspendControl((ParamDispatchServiceImpl) paramDispatchService)
+                : null;
+        RiskAlertService riskAlertService = new RiskAlertService(tx,
+                new DmRiskAlertDao(tx), new DmRiskDisposalDao(tx), authService, suspendControl);
+        RiskAlertRoutes.register(router, riskAlertService);
+        LOG.info("已装配风控告警查询与处置面：GET /api/v1/risk/alert、POST /api/v1/risk/alert/{id}/dispose；"
+                + "限制/解除下发=" + (suspendControl == null ? "未装配（桥不可用）" : "已装配（0x0118 OPEN_ONLY）"));
         // T-172 事件面接线：生产装配（bridge = HgcpClient）时注册事件消费监听接缝 ——
         // EVT_TRADE_FILL → recordTrade（异常下单行为）+ 每事件 → evaluate()（评估泵，验收 2）。
         // 非 HgcpClient（测试桩）或缺省不装配时跳过；仅推进会水位的接线前行为不变（nullable seam）。
@@ -590,18 +610,31 @@ public final class Bootstrap {
     private static IntradayRiskMonitor registerRiskIntradayRoute(Router router, Config config,
                                                   TradingBridge bridge,
                                                   ParamDispatchService paramDispatchService,
-                                                  AuthService authService) {
+                                                  AuthService authService, TxTemplate tx) {
         TradingSuspender suspender = paramDispatchService instanceof ParamDispatchServiceImpl
                 ? (subAccountId, reason, operatorId) ->
                         ((ParamDispatchServiceImpl) paramDispatchService)
                                 .suspendOpenOnly(subAccountId, reason, operatorId)
                 : null;
-        IntradayRiskMonitor monitor = new IntradayRiskMonitor(bridge, RiskThresholds.from(config),
-                new AbnormalOrderTracker(), new NoopRiskMetricSink(), suspender, SYSTEM_OPERATOR_ID);
+        RiskThresholds thresholds = RiskThresholds.from(config);
+        AbnormalOrderTracker tracker = new AbnormalOrderTracker();
+        // T-065：真实落库 sink（t_risk_alert / t_risk_metric_snapshot / t_mirror_watermark /
+        // t_abnormal_order_stat），经 AsyncRiskMetricSink 异步下游落库 —— 事件消费线程零 DB（R-RISK-10）。
+        // 实时推送端口 notifier = null：WsServer 生产装配属 T-040（BLOCKED），接入后即通（补拉侧 REST 本单已实现）。
+        RiskIntradayPersistenceSink persistence = new RiskIntradayPersistenceSink(tx,
+                new DmRiskAlertDao(tx), new DmRiskMetricSnapshotDao(tx), new DmMirrorWatermarkDao(tx),
+                new DmAbnormalOrderStatDao(tx), null,
+                () -> tracker.snapshot(thresholds, RiskIntradayPersistenceSink.INTRADAY_WINDOW_MINUTES,
+                        RiskIntradayPersistenceSink.ROLLING_WINDOW_MINUTES),
+                RiskIntradayPersistenceSink.DEFAULT_COMPONENT_ID, SYSTEM_OPERATOR_ID,
+                thresholds.mirrorLagMillis);
+        IntradayRiskMonitor monitor = new IntradayRiskMonitor(bridge, thresholds, tracker,
+                new AsyncRiskMetricSink(persistence), suspender, SYSTEM_OPERATOR_ID);
         RiskRoutes.register(router, monitor, authService);
         LOG.info("已装配事中风控模块（risk_intraday）：GET " + MirrorStatusHandler.PATH
-                + "；自动限制开仓=" + RiskThresholds.from(config).autoSuspendEnabled
-                + "；限制端口=" + (suspender == null ? "未装配（仅告警）" : "已装配（OPEN_ONLY）"));
+                + "；自动限制开仓=" + thresholds.autoSuspendEnabled
+                + "；限制端口=" + (suspender == null ? "未装配（仅告警）" : "已装配（OPEN_ONLY）")
+                + "；落库 sink=已装配（异步下游）；实时推送端口=未装配（T-040 承接）");
         return monitor;
     }
 
@@ -782,6 +815,37 @@ public final class Bootstrap {
         /** 是否已装配数据库层。 */
         boolean databaseAssembled() {
             return pool != null;
+        }
+    }
+
+    /**
+     * {@code T-065} 处置下发适配：把既有 {@code ParamDispatchServiceImpl} 的
+     * 挂起 / 解冻能力适配为 {@link TradingSuspendControl}，使 {@code service} 不直接依赖其实现类。
+     */
+    static final class ParamDispatchSuspendControl implements TradingSuspendControl {
+
+        private final ParamDispatchServiceImpl delegate;
+
+        ParamDispatchSuspendControl(ParamDispatchServiceImpl delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public DispatchOutcome suspendOpen(int subAccountId, String reason, long operatorId) {
+            return toOutcome(delegate.suspendOpenOnly(subAccountId, reason, operatorId));
+        }
+
+        @Override
+        public DispatchOutcome releaseOpen(int subAccountId, String reason, long operatorId) {
+            return toOutcome(delegate.releaseOpenOnly(subAccountId, reason, operatorId));
+        }
+
+        private static DispatchOutcome toOutcome(com.hedgeguard.bridge.AckResult ack) {
+            if (ack == null) {
+                return new DispatchOutcome(false, false, null, "FAIL", "空回执");
+            }
+            return new DispatchOutcome(true, ack.acknowledged, ack.paramVersion,
+                    ack.acknowledged ? "SUCCESS" : "FAIL", ack.message);
         }
     }
 
