@@ -317,21 +317,23 @@ class PostRiskReportJobTest {
     // ------------------------------------------------------------------ T-064 风险指标统计指标面
 
     @Test
-    @DisplayName("T-064 验收3：风险指标统计 content 覆盖⑥-b 全部监控指标（资金可用量 + 异常下单行为）")
+    @DisplayName("T-064 验收3：风险指标统计 content 全量指标断言（透传 ⑥-b 全部监控指标）")
     void riskMetricReportCoversAllMonitoredMetrics() throws Exception {
         M3RiskReportDdl.settleCycle(engine, 1001L, SUB_A, "ST20260920A", DAY, "0", "1000.0000");
 
         SubAccountRiskMetrics a = new SubAccountRiskMetrics(SUB_A);
+        a.positionQty = new BigDecimal("12");
+        a.floatPnl = new BigDecimal("34.5000");
+        a.marginOccupied = new BigDecimal("600.0000");
+        a.riskRatio = new BigDecimal("0.612500");
+        a.marginUsageRate = new BigDecimal("0.625000");
         a.balance = new BigDecimal("1000.0000");
         a.available = new BigDecimal("400.0000");
-        a.marginOccupied = new BigDecimal("600.0000");
         a.abnormalIntradayCount = 7;
         a.abnormalRollingRounds = 5;
         a.averageHoldingDays = new BigDecimal("2.5");
         SubAccountRiskMetrics agg = new SubAccountRiskMetrics(0);
         agg.available = new BigDecimal("400.0000");
-        agg.abnormalIntradayCount = 7;
-        agg.abnormalRollingRounds = 5;
         MirrorMetrics metrics = new MirrorMetrics(ReplayProgress.State.READY, 1L, 1L, null, -1L, false,
                 Collections.singletonList(a), agg);
 
@@ -339,12 +341,23 @@ class PostRiskReportJobTest {
                 DAY, metrics, Collections.emptyList(), SYS));
 
         String json = reportDao.findByKey(DAY, PostRiskReportService.REPORT_TYPE_RISK_METRIC, null).contentJson;
-        // ⑥-b 监控指标：资金可用量（流动性风险）+ 异常下单行为（操作风险）不得在报表中丢失
-        assertTrue(json.contains("\"balance\":\"1000.0000\""), "风险指标统计须含资金余额（⑥-b）");
-        assertTrue(json.contains("\"available\":\"400.0000\""), "风险指标统计须含资金可用量（⑥-b ⑤，流动性风险）");
-        assertTrue(json.contains("\"abnormalIntradayCount\":7"), "风险指标统计须含日内开平合计（⑥-b ⑥，操作风险）");
-        assertTrue(json.contains("\"abnormalRollingRounds\":5"), "风险指标统计须含 7 日滚动回合（⑥-b ⑥）");
-        assertTrue(json.contains("\"averageHoldingDays\":\"2.5\""), "风险指标统计须含平均持仓（⑥-b ⑥）");
+        com.google.gson.JsonObject sub = com.google.gson.JsonParser.parseString(json).getAsJsonObject()
+                .getAsJsonArray("subAccounts").get(0).getAsJsonObject();
+
+        // 唯一预期值：风险指标统计须透传 ⑥-b 全部监控指标（ARCH §6.8 / PROJECT §4.1 ⑥-b）
+        // 市场风险维度
+        assertEquals("12", sub.get("positionQty").getAsString(), "实时持仓");
+        assertEquals("34.5000", sub.get("floatPnl").getAsString(), "浮动盈亏");
+        assertEquals("600.0000", sub.get("marginOccupied").getAsString(), "保证金占用");
+        assertEquals("0.612500", sub.get("riskRatio").getAsString(), "风险度");
+        assertEquals("0.625000", sub.get("marginUsageRate").getAsString(), "保证金占用率");
+        // 流动性风险维度
+        assertEquals("1000.0000", sub.get("balance").getAsString(), "资金余额");
+        assertEquals("400.0000", sub.get("available").getAsString(), "资金可用量（⑥-b ⑤）");
+        // 操作风险维度（Q-5 已确认阈值）
+        assertEquals(7, sub.get("abnormalIntradayCount").getAsInt(), "日内开平合计（⑥-b ⑥）");
+        assertEquals(5, sub.get("abnormalRollingRounds").getAsInt(), "7 日滚动回合（⑥-b ⑥）");
+        assertEquals("2.5", sub.get("averageHoldingDays").getAsString(), "平均持仓（⑥-b ⑥）");
     }
 
     // ------------------------------------------------------------------ 夹具
