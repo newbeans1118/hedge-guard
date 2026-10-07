@@ -16745,3 +16745,22 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 **观察登记**：B3/CH-022 候选——CFG-16（risk.limit.layers）/CFG-21 双键之 _critical/CFG-21b 在 §4.2.8 RiskThresholds 无字段 ⇒ 可配置不可经本指令下发（三处披露一致：Spec javadoc/CONTRACTS 行/RiskService javadoc；CFG-21 映射 _warn、C++ 全仓 0 消费该字段 te-verify-t063 实测）；O-1 双源真相供权威席裁定；O-2 「allowedValues 非空 ⇔ 枚举键」不变量无编译期守护（未来新增枚举键漏填会退化数值路径）；O-3 price_base 单合法值 isRelaxed 恒 false（Q-15 冻结口径）；O-4 POST /risk/rule 无角色断言（与既有 CONFIG 写面同形，登记待权限面统扫）。
 
 **编排者亲核记录**：d0a7ee2/8c66acb/9457d3d/884050f 四提交面、红线、:138 现值 119/89、CONTRACTS :534 行、encoder case、md5 五件——交付当日亲测与两级复核席独立实测一致；te-verify-t063b 对我 B2 问句前提的勘误（RiskThresholds 取数源）经其源码引证采信。
+---
+
+## T-185 独立复核证据（席 te-verify-t185；2026-10-07 第 219 轮 · 编排者逐字转录）
+
+**结论：通过 / 0 阻断缺陷 / 3 观察。**
+
+**冻结与范围**：HEAD 2ae18bc；恰 2 文件（INDEX.md 19+/18−、SPOT.md 29+/1−，合 48/19）；INDEX 71c84e95…/863、SPOT.md 0ebead3c…/693；SPOT.md 仅 :19 一行改数、其余三处纯新增；既有用例正文/断言零改动。
+
+**FR 真值独立实测（不采信自述）**：REQUIREMENTS 逐模块去重求和 = 14+19+20+18+17+19+13+14+17+18+15 = **184**，SPOT=**19**；FR-SPOT-19 实存 @ SPOT.md:372；§6.1.A–K 逐子节行数实测合计 184 一致。
+
+**11 落点逐处核（全对）**：INDEX :30/:63/:75/:86/:90/:97/:269/:291(新)/:552/:553/:558/:559/:616/:621/:651/:653/:703/:726(历史注)/:757 + SPOT.md:19；M/N 表算术自核（19/24=1.263→1.26，改前 23/18=1.278→1.28；同表他行算法一致）；合计复算 312 ✓、M1 104 ✓。
+
+**TC-SPOT-24 质量核（与实现逐项对拍）**：表头与 SpotService.exportSpotPricesCsv 拼接逐字相同；升序 = PageQuery 缺省 price_date ASC；全量不截断 = collectAll size=100 ∈ ALLOWED_SIZES；无匹配仅表头 = handler 恒先加表头；10001 = PARAM_INVALID 转换失败即抛；from>to 无校验不报错；JUnit 落点真实（T109EndpointRegistrationTest :103/:125 均含 GET /spot/price/export）；SpotServiceTest 确无导出用例 ⇒ 备注「CSV 契约首个 TC 级落点」诚实。与既有 TC 形态一致。
+
+**残留扫独立复做**：183 仅 :726 历史行（加注保留）；311 = 0；SPOT-18 现值类变体 = 0（AUTH/TRADE 的 18 系各自模块数）；历史行纪律 ✓（注文 CH-011 2026-09-21/现行 184 准确）；表格体检（:291 5 pipes/SPOT:55 7/:691 4/TC 两表 4）无跨列无悬空。
+
+**观察（3，不阻断）**：O-1 SPOT.md §4 覆盖表 FR-SPOT-14 计 7 vs §2 实测 6 条映射——父提交已为 7，**存量非本单引入**，建议微修批订正；O-2 TC-SPOT-24 覆盖验收 1-5/7 未含验收 6（CSV 转义：逗号/引号/换行加引号）——追溯层 FR 已覆盖，深度可后补；O-3 :726 加注日期 2026-10-06 与提交时刻 2026-10-07 跨日（著文时点 vs 提交时点），登记。
+
+**编排者亲核记录**：2ae18bc 恰 2 文件、双 md5、:97 行（19|24|1.26）、FR-SPOT-19 锚四处、残留扫——交付当日亲测与复核席独立实测一致；产出方自发现第 11 落点（:97）系超出工单清单的正当穷举，追认。
