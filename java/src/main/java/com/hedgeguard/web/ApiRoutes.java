@@ -131,7 +131,9 @@ public final class ApiRoutes {
         BY_MODULE_ROUTES.put("RISK", Arrays.asList(
                 "GET /risk/mirror-status", "GET /risk/rule", "POST /risk/rule",
                 // T-065：告警查询与处置（FR-RISK-19 / FR-RISK-15/16），路径逐字取自本类 RISK 路径级声明
-                "GET /risk/alert", "POST /risk/alert/{id}/dispose"));
+                "GET /risk/alert", "POST /risk/alert/{id}/dispose",
+                // T-066：红线复算与限额使用统计（FR-RISK-4/5/6 + FR-RISK-18），路径逐字取自本类 RISK 路径级声明
+                "GET /risk/limit-usage", "POST /risk/limit-usage"));
         BY_MODULE_ROUTES.put("AUDIT", Arrays.asList(
                 "GET /audit/trace/forward", "POST /audit/trace/forward",
                 "GET /audit/trace/backward", "POST /audit/trace/backward",

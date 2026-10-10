@@ -1,6 +1,9 @@
 package com.hedgeguard.dao.impl;
 
 import com.hedgeguard.dao.LimitUsageStatDao;
+import com.hedgeguard.dao.PageQuery;
+import com.hedgeguard.dao.PageResult;
+import com.hedgeguard.dao.SubAccountScope;
 import com.hedgeguard.dao.entity.LimitUsageStat;
 import com.hedgeguard.dao.tx.TxTemplate;
 
@@ -100,5 +103,12 @@ public final class DmLimitUsageStatDao extends AbstractDmDao<LimitUsageStat, Lon
         String sql = "SELECT " + selectList() + " FROM " + tableName()
                 + " WHERE stat_date = ? ORDER BY id ASC";
         return queryList(sql, Collections.singletonList((Object) statDate), this::mapRow);
+    }
+
+    @Override
+    public PageResult<LimitUsageStat> findPageScoped(PageQuery query, SubAccountScope scope,
+                                                     String extraWhere, List<Object> extraArgs) {
+        // scope 谓词落在本表 sub_account_id 列（复用基类统一注入，空集恒假）
+        return super.findPageScoped(query, scope, extraWhere, extraArgs);
     }
 }

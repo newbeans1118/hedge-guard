@@ -20,6 +20,8 @@ import com.hedgeguard.dao.impl.DmRiskAlertDao;
 import com.hedgeguard.dao.impl.DmRiskDisposalDao;
 import com.hedgeguard.dao.impl.DmRiskMetricSnapshotDao;
 import com.hedgeguard.dao.impl.DmRiskThresholdDao;
+import com.hedgeguard.dao.impl.DmLimitUsageStatDao;
+import com.hedgeguard.dao.impl.DmAnnualScaleDao;
 import com.hedgeguard.dao.impl.DmConfigItemDao;
 import com.hedgeguard.dao.impl.DmCtpFrontConfigDao;
 import com.hedgeguard.dao.impl.DmCapitalReceiptDao;
@@ -118,7 +120,9 @@ import com.hedgeguard.service.ConfigService;
 import com.hedgeguard.service.FundService;
 import com.hedgeguard.service.ParamDispatchService;
 import com.hedgeguard.service.PlanService;
+import com.hedgeguard.service.LimitUsageThresholds;
 import com.hedgeguard.service.RiskAlertService;
+import com.hedgeguard.service.RiskRecomputeService;
 import com.hedgeguard.service.RiskService;
 import com.hedgeguard.service.SpotService;
 import com.hedgeguard.service.SettleCheckService;
@@ -128,6 +132,7 @@ import com.hedgeguard.service.VarietyService;
 import com.hedgeguard.service.ViolationScreenService;
 import com.hedgeguard.service.impl.ParamDispatchServiceImpl;
 import com.hedgeguard.service.impl.RiskIntradayPersistenceSink;
+import com.hedgeguard.service.impl.RiskRecomputeServiceImpl;
 import com.hedgeguard.web.handler.PingHandler;
 import com.hedgeguard.web.handler.audit.AuditTraceRoutes;
 import com.hedgeguard.web.handler.audit.ViolationScreenRoutes;
@@ -137,6 +142,7 @@ import com.hedgeguard.web.handler.fund.FundRoutes;
 import com.hedgeguard.web.handler.plan.PlanRoutes;
 import com.hedgeguard.web.handler.product.ProductRoutes;
 import com.hedgeguard.web.handler.risk.RiskAlertRoutes;
+import com.hedgeguard.web.handler.risk.RiskLimitUsageRoutes;
 import com.hedgeguard.web.handler.risk.RiskRuleRoutes;
 import com.hedgeguard.web.handler.spot.SpotRoutes;
 import com.hedgeguard.web.handler.settle.SettleCheckRoutes;
@@ -535,6 +541,18 @@ public final class Bootstrap {
         RiskRuleRoutes.register(router, riskService);
         LOG.info("已装配风控阈值配置面：GET|POST /api/v1/risk/rule；下发服务="
                 + (paramDispatchService == null ? "未装配（写面拒绝）" : "已装配"));
+
+        // M3 红线复算与限额使用统计（T-066）：Java 侧对 C++ 事前判定（R-RISK-4/5/6）的镜像复算 +
+        // 统计落 t_limit_usage_stat（SCALE_REDLINE / POSITION_LIMIT）。判定权威仍在 C++（本服务不参与下单前阻断）。
+        RiskRecomputeService riskRecomputeService = new RiskRecomputeServiceImpl(tx,
+                new DmAnnualScaleDao(tx), exposureDao, new DmTradePositionDao(tx),
+                productContractDao, new DmProductUnitDao(tx), new DmHedgePlanDao(tx),
+                new DmPurchaseContractDao(tx), new DmSalesContractDao(tx),
+                new DmLimitUsageStatDao(tx), new DmRiskThresholdDao(tx), authService,
+                LimitUsageThresholds.from(config));
+        RiskLimitUsageRoutes.register(router, riskRecomputeService);
+        LOG.info("已装配红线复算与限额使用统计面：GET|POST /api/v1/risk/limit-usage；"
+                + "复算口径=C++ risk_engine（R-RISK-4/5/6）；期限统计无承载表（经返回项展示）");
 
         IntradayRiskMonitor monitor = registerRiskIntradayRoute(router, config, bridge,
                 paramDispatchService, authService, tx);

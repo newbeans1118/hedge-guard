@@ -11,6 +11,7 @@ import com.hedgeguard.web.handler.fund.FundRoutes;
 import com.hedgeguard.web.handler.plan.PlanRoutes;
 import com.hedgeguard.web.handler.product.ProductRoutes;
 import com.hedgeguard.web.handler.risk.RiskAlertRoutes;
+import com.hedgeguard.web.handler.risk.RiskLimitUsageRoutes;
 import com.hedgeguard.web.handler.risk.RiskRuleRoutes;
 import com.hedgeguard.web.handler.settle.SettleCheckRoutes;
 import com.hedgeguard.web.handler.settle.SettleRoutes;
@@ -78,6 +79,8 @@ class ModuleRoutesConsistencyTest {
         RiskRuleRoutes.register(router, null);
         // T-065：风控告警查询与处置面（GET /risk/alert、POST /risk/alert/{id}/dispose）
         RiskAlertRoutes.register(router, null);
+        // T-066：红线复算与限额使用统计面（GET|POST /risk/limit-usage）
+        RiskLimitUsageRoutes.register(router, null);
         TradeRoutes.register(router, null);
         SettleRoutes.register(router, null);
         SettleCheckRoutes.register(router, null);

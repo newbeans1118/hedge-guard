@@ -9,6 +9,7 @@ import com.hedgeguard.web.handler.plan.PlanRoutes;
 import com.hedgeguard.web.handler.product.ProductRoutes;
 import com.hedgeguard.risk_intraday.RiskRoutes;
 import com.hedgeguard.web.handler.risk.RiskAlertRoutes;
+import com.hedgeguard.web.handler.risk.RiskLimitUsageRoutes;
 import com.hedgeguard.web.handler.risk.RiskRuleRoutes;
 import com.hedgeguard.web.handler.settle.SettleCheckRoutes;
 import com.hedgeguard.web.handler.settle.SettleRoutes;
@@ -80,8 +81,12 @@ final class FullWebAssembly {
      * <p>【{@code T-067}】审计全链路追溯与操作留痕面 —— 正向/反向/完整性/操作留痕 4 条已声明路径
      * 各注册 {@code GET}/{@code POST}（{@code 4 × 2 = 8} 对）⇒ {@code 117 → 125}（非为过测试而放宽：
      * 未新增路径，路径逐字取自 {@code ApiRoutes} 的 {@code AUDIT} 清单，本任务只做<b>最小注册</b>）。
+     *
+     * <p>【{@code T-066}】红线复算与限额使用统计面 —— 已声明路径 {@code /risk/limit-usage} 注册
+     * {@code GET}/{@code POST}（2 对）⇒ {@code 129 → 131}（非为过测试而放宽：路径逐字取自
+     * {@code ApiRoutes} 的 {@code RISK} 清单，本任务只做<b>最小注册</b>）。
      */
-    static final int ROUTE_COUNT = 129;
+    static final int ROUTE_COUNT = 131;
 
     private FullWebAssembly() {
     }
@@ -123,6 +128,9 @@ final class FullWebAssembly {
         // T-065：风控告警查询与处置面（2 个 (方法,路径) 对：GET /risk/alert、
         // POST /risk/alert/{id}/dispose）。服务入参 null：装配期只调用 router.register(...)。
         RiskAlertRoutes.register(router, null);
+        // T-066：红线复算与限额使用统计面（2 个 (方法,路径) 对：GET|POST /risk/limit-usage）。
+        // 服务入参 null：装配期只调用 router.register(...)。
+        RiskLimitUsageRoutes.register(router, null);
         return router;
     }
 }
