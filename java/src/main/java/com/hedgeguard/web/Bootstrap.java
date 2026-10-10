@@ -113,6 +113,7 @@ import com.hedgeguard.dao.pool.PoolConfig;
 import com.hedgeguard.dao.tx.TxTemplate;
 import com.hedgeguard.risk_intraday.AbnormalOrderTracker;
 import com.hedgeguard.risk_intraday.AsyncRiskMetricSink;
+import com.hedgeguard.risk_intraday.CompositeRiskMetricSink;
 import com.hedgeguard.risk_intraday.IntradayEventFeed;
 import com.hedgeguard.risk_intraday.IntradayRiskMonitor;
 import com.hedgeguard.risk_intraday.MirrorStatusHandler;
@@ -128,6 +129,7 @@ import com.hedgeguard.service.CheckTaskQueryService;
 import com.hedgeguard.service.ConfigService;
 import com.hedgeguard.service.EvidenceExportService;
 import com.hedgeguard.service.FundService;
+import com.hedgeguard.service.MajorEventLossThresholdTrigger;
 import com.hedgeguard.service.ParamDispatchService;
 import com.hedgeguard.service.PlanService;
 import com.hedgeguard.service.LimitUsageThresholds;
@@ -507,6 +509,18 @@ public final class Bootstrap {
                 new DmTradeCommandFlowDao(tx));
         TradeRoutes.register(router, tradeService);
 
+        // T-188 重大事项亏损阈值自动触发器（CFG-26 = audit.major_event.loss_threshold，惰性读取）：
+        // 轨 1（EOD 已实现/记账级）挂结算链（下方 SettleService），轨 2（盘中镜像/提醒级）
+        // 经 CompositeRiskMetricSink 挂事中风控异步下游（R-RISK-10：事件消费线程零 SQL）。
+        MajorEventLossThresholdTrigger lossTrigger = new MajorEventLossThresholdTrigger(
+                new DmMajorEventDao(tx), new DmSettlePnlDao(tx),
+                () -> {
+                    com.hedgeguard.dao.entity.ConfigItem ci =
+                            configService.getConfig(MajorEventLossThresholdTrigger.CONFIG_KEY);
+                    return ci == null ? null : ci.configValue;
+                },
+                SYSTEM_OPERATOR_ID);
+
         // M2 结算服务（T-047）：CTP 日终入库 → 子账户拆分/独立结算 → 三类核对 → 加总对账 → 关账门禁。
         // 系统内按子账户数据以「服务方法 + 入参接缝」承接（生产事件接线归 T-172）。
         SettleService settleService = new SettleService(tx, authService,
@@ -517,6 +531,7 @@ public final class Bootstrap {
                 new DmSettleReconcileRecordDao(tx), new DmSettleReconcileDifferenceDao(tx),
                 new DmSettleAggregationCheckDao(tx), new DmSettleAggDiffCandidateDao(tx),
                 new DmSettleReportDao(tx), new DmSettleStressTestDao(tx));
+        settleService.setLossThresholdTrigger(lossTrigger);
         SettleRoutes.register(router, settleService);
 
         // M2 核对任务与电子签署（T-048）：核对任务 + 三级签署 + 不可代签（DC-022）+ 逾期巡检 +
@@ -568,7 +583,7 @@ public final class Bootstrap {
                 + "复算口径=C++ risk_engine（R-RISK-4/5/6）；期限统计无承载表（经返回项展示）");
 
         IntradayRiskMonitor monitor = registerRiskIntradayRoute(router, config, bridge,
-                paramDispatchService, authService, tx);
+                paramDispatchService, authService, tx, lossTrigger);
         // M3 风控告警查询与处置面（T-065）：GET /risk/alert（FR-RISK-19）+ POST /risk/alert/{id}/dispose
         // （FR-RISK-15/16）。处置的「限制/解除新开仓」经既有 ParamDispatchServiceImpl 下发
         // CMD_SET_TRADING_SUSPEND(0x0118)（scan_scope=OPEN_ONLY，R-RISK-5）；桥不可用时端口为 null（拒绝下发）。
@@ -680,7 +695,8 @@ public final class Bootstrap {
     private static IntradayRiskMonitor registerRiskIntradayRoute(Router router, Config config,
                                                   TradingBridge bridge,
                                                   ParamDispatchService paramDispatchService,
-                                                  AuthService authService, TxTemplate tx) {
+                                                  AuthService authService, TxTemplate tx,
+                                                  MajorEventLossThresholdTrigger lossTrigger) {
         TradingSuspender suspender = paramDispatchService instanceof ParamDispatchServiceImpl
                 ? (subAccountId, reason, operatorId) ->
                         ((ParamDispatchServiceImpl) paramDispatchService)
@@ -690,6 +706,7 @@ public final class Bootstrap {
         AbnormalOrderTracker tracker = new AbnormalOrderTracker();
         // T-065：真实落库 sink（t_risk_alert / t_risk_metric_snapshot / t_mirror_watermark /
         // t_abnormal_order_stat），经 AsyncRiskMetricSink 异步下游落库 —— 事件消费线程零 DB（R-RISK-10）。
+        // T-188：组合 sink 再并联重大事项亏损阈值触发器（盘中镜像轨，提醒级；单下游失败隔离）。
         // 实时推送端口 notifier = null：WsServer 生产装配属 T-040（BLOCKED），接入后即通（补拉侧 REST 本单已实现）。
         RiskIntradayPersistenceSink persistence = new RiskIntradayPersistenceSink(tx,
                 new DmRiskAlertDao(tx), new DmRiskMetricSnapshotDao(tx), new DmMirrorWatermarkDao(tx),
@@ -699,7 +716,8 @@ public final class Bootstrap {
                 RiskIntradayPersistenceSink.DEFAULT_COMPONENT_ID, SYSTEM_OPERATOR_ID,
                 thresholds.mirrorLagMillis);
         IntradayRiskMonitor monitor = new IntradayRiskMonitor(bridge, thresholds, tracker,
-                new AsyncRiskMetricSink(persistence), suspender, SYSTEM_OPERATOR_ID);
+                new AsyncRiskMetricSink(new CompositeRiskMetricSink(persistence, lossTrigger)),
+                suspender, SYSTEM_OPERATOR_ID);
         RiskRoutes.register(router, monitor, authService);
         LOG.info("已装配事中风控模块（risk_intraday）：GET " + MirrorStatusHandler.PATH
                 + "；自动限制开仓=" + thresholds.autoSuspendEnabled

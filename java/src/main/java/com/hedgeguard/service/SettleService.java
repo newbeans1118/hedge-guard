@@ -206,6 +206,12 @@ public final class SettleService {
     private final SettleStressTestDao stressTestDao;
 
     /**
+     * 重大事项亏损阈值触发器（{@code T-188}；{@code CFG-26}）；可空接缝（生产由
+     * {@code Bootstrap} 装配）——{@code null} = 不启用自动触发，结算行为不变。
+     */
+    private volatile MajorEventLossThresholdTrigger lossThresholdTrigger;
+
+    /**
      * 构造。
      *
      * @param tx                 事务模板
@@ -435,7 +441,28 @@ public final class SettleService {
             reconcileInternal(cycle, ctpPositions, ctpFunds, ctpTrades,
                     input.trades == null ? Collections.emptyList() : input.trades, operatorId);
         }
+
+        // T-188 轨 1（EOD 已实现，记账级）：结算落库事务提交后，按 t_settle_pnl 子账户当日求和
+        // 判 CFG-26 亏损阈值，越限落 t_major_event（LOSS_THRESHOLD/TRIGGERED）。旁路能力：
+        // 任何失败只记日志、不阻断结算主流程（幂等键按自然日，同日重跑结算天然重试）。
+        if (lossThresholdTrigger != null) {
+            try {
+                lossThresholdTrigger.evaluateSettled(date);
+            } catch (RuntimeException e) {
+                LOG.severe("重大事项亏损阈值触发（EOD 轨）失败，不阻断结算主流程（T-188）：tradeDate="
+                        + date + "；原因=" + e.getClass().getSimpleName() + "：" + e.getMessage());
+            }
+        }
         return cycles;
+    }
+
+    /**
+     * 装配重大事项亏损阈值触发器（{@code T-188}；可空接缝，生产由 {@code Bootstrap} 装配）。
+     *
+     * @param trigger 触发器；{@code null} = 不启用自动触发
+     */
+    public void setLossThresholdTrigger(MajorEventLossThresholdTrigger trigger) {
+        this.lossThresholdTrigger = trigger;
     }
 
     private SettleCycle upsertCycle(LocalDate date, int subId, long operatorId) {

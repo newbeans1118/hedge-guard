@@ -91,4 +91,11 @@ public final class DmSettlePnlDao extends AbstractDmDao<SettlePnl, Long> impleme
     protected void applyGeneratedId(SettlePnl entity, long generated) {
         entity.id = generated;
     }
+
+    @Override
+    public java.util.List<SettlePnl> findByTradeDate(LocalDate tradeDate) {
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE trade_date = ? ORDER BY id ASC";
+        return queryList(sql, java.util.Collections.singletonList(tradeDate), this::mapRow);
+    }
 }

@@ -192,6 +192,16 @@ final class SettleFakes {
         @Override long idOf(SettlePnl e) { return e.id; }
         @Override LocalDate dateOf(SettlePnl e) { return e.tradeDate; }
         @Override Integer subOf(SettlePnl e) { return e.subAccountId; }
+        @Override
+        public List<SettlePnl> findByTradeDate(LocalDate tradeDate) {
+            List<SettlePnl> out = new ArrayList<>();
+            for (SettlePnl p : rows) {
+                if (tradeDate.equals(p.tradeDate)) {
+                    out.add(p);
+                }
+            }
+            return out;
+        }
     }
 
     static final class CtpBatches extends Base<SettleCtpBatch> implements SettleCtpBatchDao {

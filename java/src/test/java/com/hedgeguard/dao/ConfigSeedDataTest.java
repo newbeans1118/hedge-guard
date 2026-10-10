@@ -208,6 +208,21 @@ class ConfigSeedDataTest {
     }
 
     @Test
+    @DisplayName("CFG-26 点名：audit.major_event.loss_threshold 播种在案（默认 100000 / INT / 下限 1；T-188 读取源）")
+    void majorEventLossThresholdSeeded() {
+        String b = block(section4, "t_config_item");
+        String[][] rows = sourceRows(b);
+        String[] row = findRow("'audit.major_event.loss_threshold'", rows);
+        // 下标：0=k 1=cat 2=val 3=vt 4=scope 5=lo 6=hi 7=ps 8=dsp 9=rev 10=qno（+11=dscr）
+        assertEquals("100000", unquote(stripAlias(row[2])),
+                "CFG-26 默认值应为 100000（T-188 缺键回退同值）");
+        assertEquals("INT", unquote(stripAlias(row[3])), "CFG-26 取值类型应为 INT");
+        assertEquals("1", unquote(stripAlias(row[5])), "CFG-26 下限应为 1（取值须 >0）");
+        assertEquals("LOCAL_ADMIN", unquote(stripAlias(row[7])), "CFG-26 persist_scope 应为 LOCAL_ADMIN");
+        assertEquals("N", unquote(stripAlias(row[8])), "CFG-26 dispatch_to_ctp 应为 N（Java 侧消费）");
+    }
+
+    @Test
     @DisplayName("报告周期：六类型齐全、is_mandatory 全 Y 且 is_enabled 全 Y（R-CONFIG-7）")
     void reportPeriodsCompleteAndMandatory() {
         String b = block(section4, "t_report_period_config");

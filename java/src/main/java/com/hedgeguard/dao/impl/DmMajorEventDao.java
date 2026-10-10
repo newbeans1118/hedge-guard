@@ -102,4 +102,11 @@ public final class DmMajorEventDao extends AbstractDmDao<MajorEvent, Long> imple
                 + " ORDER BY triggered_time ASC, id ASC";
         return queryList(sql, Arrays.<Object>asList(eventType, status), this::mapRow);
     }
+
+    @Override
+    public MajorEvent findByEventNo(String eventNo) {
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE event_no = ?";
+        return queryOne(sql, java.util.Collections.singletonList(eventNo), this::mapRow);
+    }
 }

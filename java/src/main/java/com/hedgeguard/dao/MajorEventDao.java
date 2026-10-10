@@ -17,4 +17,12 @@ public interface MajorEventDao extends BaseDao<MajorEvent, Long> {
      * @return 行
      */
     List<MajorEvent> findByTypeAndStatus(String eventType, String status);
+
+    /**
+     * 按事项编号取行（{@code uk_major_event_no}；如自动触发器幂等「先查后插」前置换取）。
+     *
+     * @param eventNo 事项编号
+     * @return 行；不存在返回 {@code null}
+     */
+    MajorEvent findByEventNo(String eventNo);
 }
