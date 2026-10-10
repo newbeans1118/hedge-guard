@@ -16,7 +16,6 @@ import com.hedgeguard.dao.testsupport.M2E2eSeed;
 import com.hedgeguard.dao.testsupport.T066RiskRecomputeSeed;
 import com.hedgeguard.service.impl.RiskRecomputeServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -136,27 +135,20 @@ class T186RiskParityGoldenTest {
         List<String[]> rows = golden("cpp/src/risk_engine/tests/golden/parity_netpos_golden.tsv");
         assertTrue(rows.size() >= 5, "净持仓向量须 ≥5 组，实测 " + rows.size());
         for (String[] f : rows) {
-            // ⚠️ N4（净空头越卖向敞口）不在本用例：t_position.direction 的 DDL 域为
-            //   LONG/SHORT（m2_trade.sql:320 ck_position_direction），该域下 Java 复算
-            //   （Impl 以 DIRECTION_SELL="SELL" 比对方向取负号）结构性无法表达负净持仓，
-            //   而线上 0x0205 事件词汇为 BUY/SELL——系既有栈间词汇分歧（非本单引入），
-            //   已报权威席裁定（T-186 报告披露）；N4 见下方挂起用例。
-            if ("N4".equals(f[0])) {
-                continue;
-            }
+            // 列：id direction preLong preShort inc buyExposure sellExposure verdict code threshold
+            // T-187 方案 A（用户 2026-10-10 裁定）解除原 N4 挂起：摄取侧 BUY/SELL→LONG/SHORT
+            // 映射 + 复算侧按 SHORT 取负后，DDL 域下负净持仓可表达，14 组向量含 N4 全部对拍。
             assertNetPositionVector(f);
         }
     }
 
     /**
-     * {@code N4}（净空头越卖向敞口 ⇒ REJECT 0x1009）：C++ 侧已绿（见 golden 与
-     * {@code risk_engine_parity_golden_test}）；Java 侧因上述<b>既有栈间方向词汇分歧</b>
-     * （DDL 域 LONG/SHORT vs 事件链词汇 BUY/SELL vs Impl 以 "SELL" 取负）无法在不违反
-     * DDL 的前提下表达负净持仓，挂起待权威席裁定后解除。
+     * {@code N4}（净空头越卖向敞口 ⇒ REJECT 0x1009）独立用例：C++ 侧已绿（见 golden 与
+     * {@code risk_engine_parity_golden_test}）；Java 侧依赖 T-187 方案 A 的两处修复
+     * （{@code TradeService.mapPositionDirection} 摄取映射 + {@code RiskRecomputeServiceImpl}
+     * 按 SHORT 取负），负净持仓以 SHORT 行表达后与 C++ 同谓词对拍。
      */
     @Test
-    @Disabled("N4 依赖方向词汇裁定（t_position.direction：DDL LONG/SHORT vs 事件链 BUY/SELL）；"
-            + "裁定期挂起，见 T-186 报告披露")
     void parityNetPositionShortSideRejected() throws Exception {
         for (String[] f : golden("cpp/src/risk_engine/tests/golden/parity_netpos_golden.tsv")) {
             if ("N4".equals(f[0])) {
@@ -180,12 +172,15 @@ class T186RiskParityGoldenTest {
         //   C++ 投影：BUY ⇒ net_pre + inc；SELL ⇒ -(net_pre) + inc，即事后 net = net_pre - inc
         BigDecimal net = qty(f[2]).subtract(qty(f[3]));
         net = "SELL".equals(f[1]) ? net.subtract(qty(f[4])) : net.add(qty(f[4]));
-        // 播种词汇取 DDL 域 LONG/SHORT（ck_position_direction 取值域）；正净持仓播 LONG。
-        //   Impl :250 仅对 "SELL" 取负 ⇒ LONG/SHORT 一律按正向累加——正是 N4 挂起项所披露的
-        //   「DDL 域下负净持仓无法被 Impl 表达」分歧；正净持仓向量判定不受影响（C++ 同正向）。
+        // 播种词汇取 DDL 域 LONG/SHORT（ck_position_direction 取值域）：正净持仓播 LONG、
+        // 负净持仓播 SHORT（绝对值）。Impl 按 SHORT 取负（T-187 方案 A）⇒ 负净持仓可表达，
+        // 与 C++ 投影同一谓词对拍（N4 依赖本语义，原挂起已由 T-187 解除）。
         if (net.signum() > 0) {
             T066RiskRecomputeSeed.position(engine, nextId++, SUB, "CU2606", PRODUCT,
                     "LONG", dec(net));
+        } else if (net.signum() < 0) {
+            T066RiskRecomputeSeed.position(engine, nextId++, SUB, "CU2606", PRODUCT,
+                    "SHORT", dec(net.negate()));
         }
         if (Long.parseLong(f[5]) >= 0) {
             T066RiskRecomputeSeed.exposure(engine, nextId++, SUB, PRODUCT, "BUY", dec(f[5]),

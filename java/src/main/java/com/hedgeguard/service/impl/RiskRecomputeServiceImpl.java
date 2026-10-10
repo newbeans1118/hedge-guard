@@ -252,7 +252,11 @@ public final class RiskRecomputeServiceImpl implements RiskRecomputeService {
                 continue;
             }
             BigDecimal qty = nz(p.positionQty);
-            BigDecimal signed = DIRECTION_SELL.equalsIgnoreCase(p.direction) ? qty.negate() : qty;
+            // T-187 方案 A：t_position.direction 为 DDL 冻结域 LONG/SHORT（ck_position_direction），
+            // SHORT（空头）取负号参与净持仓合成；线上 BUY/SELL 词汇已在摄取侧
+            // （TradeService.mapPositionDirection）映射为 LONG/SHORT 后落库。
+            BigDecimal signed = "SHORT".equalsIgnoreCase(p.direction)
+                    ? qty.negate() : qty;
             BigDecimal real = signed.multiply(pc.contractMultiplier).multiply(cf)
                     .setScale(QTY_SCALE, RoundingMode.HALF_UP);
             netSigned = netSigned.add(real);

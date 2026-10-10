@@ -96,6 +96,12 @@ public final class TradeService {
     /** 买卖方向取值域（{@code ck_trade_order_direction}）。 */
     public static final Set<String> DIRECTIONS = unmodifiable("BUY", "SELL");
 
+    /** 持仓方向落库域·多头（{@code ck_position_direction}：LONG/SHORT；T-187 方案 A）。 */
+    public static final String POSITION_DIRECTION_LONG = "LONG";
+
+    /** 持仓方向落库域·空头（{@code ck_position_direction}：LONG/SHORT；T-187 方案 A）。 */
+    public static final String POSITION_DIRECTION_SHORT = "SHORT";
+
     /** 开平标志取值域（{@code ck_trade_order_offset}）。 */
     public static final Set<String> OFFSET_FLAGS = unmodifiable("OPEN", "CLOSE", "CLOSE_TODAY");
 
@@ -759,12 +765,17 @@ public final class TradeService {
         if (e == null) {
             throw invalid("持仓变化事件为空");
         }
+        // T-187 方案 A（用户 2026-10-10 裁定）：线上 0x0205 词汇（DIRECTION_ 前缀剥离后为
+        // BUY/SELL）≠ t_position.direction 落库域（ck_position_direction：LONG/SHORT）。
+        // 在摄取侧映射 BUY→LONG / SELL→SHORT；非法值显式报错不静默（静默透传必违反 CHECK
+        // 或以 BUY/SELL 污染 LONG/SHORT 域，使复算侧取负判据失配）。
+        final String persistedDirection = mapPositionDirection(e.direction);
         // 持仓线格式无 order_id / client_order_ref，product_id 亦未回显；
         // 经提交时登记的 instrument_id → product_id 索引回填（硬边界②：仍无源则 skip+LOG）。
         Long productId = productIdForInstrument(e.instrumentId);
         if (skipIfUnsourced("EVT_POSITION_CHANGE", e.instrumentId, null,
                 "subAccountId", e.subAccountId, "instrumentId", e.instrumentId,
-                "productId", productId, "direction", e.direction,
+                "productId", productId, "direction", persistedDirection,
                 "positionType", e.positionType, "eventSeq", e.eventSeq)) {
             return;
         }
@@ -772,13 +783,13 @@ public final class TradeService {
         final LocalDateTime asOfTime = e.asOfTime == null ? Clocks.now() : e.asOfTime;
         tx.inTransaction(connection -> {
             TradePosition p = tradePositionDao.findByKey(e.subAccountId, e.instrumentId,
-                    e.direction, e.positionType);
+                    persistedDirection, e.positionType);
             if (p == null) {
                 p = new TradePosition();
                 p.subAccountId = e.subAccountId;
                 p.instrumentId = e.instrumentId;
                 p.productId = fProductId;
-                p.direction = e.direction;
+                p.direction = persistedDirection;
                 p.positionType = e.positionType;
                 p.positionQty = nz(e.positionQty);
                 p.availableQty = nz(e.availableQty);
@@ -801,6 +812,34 @@ public final class TradeService {
             }
             return null;
         });
+    }
+
+    /**
+     * 持仓方向词汇映射：线上 0x0205（{@code EVT_POSITION_CHANGE}）词汇 BUY/SELL
+     * （{@code DIRECTION_} 前缀已在桥接层剥离）→ {@code t_position.direction} 落库域
+     * LONG/SHORT（{@code ck_position_direction}，冻结 DDL，TB-TRADE-5）。
+     *
+     * <p>T-187 方案 A（用户 2026-10-10 裁定）：DDL 冻结域不动、线上词汇不改，摄取侧映射。
+     * {@code null} 原样返回（交由 {@code skipIfUnsourced} 走既有缺源跳过路径，不改变
+     * 「线格式缺源 ⇒ skip+LOG」既有语义）；非空且非 BUY/SELL ⇒ 显式 {@code BizException}
+     * 拒收，禁止静默透传。
+     *
+     * @param wireDirection 线上方向字面量（BUY/SELL）
+     * @return 落库方向字面量（LONG/SHORT）；入参为 {@code null} 时返回 {@code null}
+     */
+    static String mapPositionDirection(String wireDirection) {
+        if (wireDirection == null) {
+            return null;
+        }
+        switch (wireDirection.trim().toUpperCase(java.util.Locale.ROOT)) {
+            case "BUY":
+                return POSITION_DIRECTION_LONG;
+            case "SELL":
+                return POSITION_DIRECTION_SHORT;
+            default:
+                throw invalid("持仓方向非法：direction=" + wireDirection
+                        + "（线上词汇应为 BUY/SELL，落库域为 LONG/SHORT；已拒收，不静默透传）");
+        }
     }
 
     /**
