@@ -1,0 +1,30 @@
+# =============================================================================
+# T-186（TE-T066-001 修复）：期限红线（R-RISK-6）跨栈对拍 golden 向量
+# 驱动两侧：
+#   C++ ：risk_engine_parity_golden_test（evalTerm @ cpp/src/risk_engine/src/risk_engine.cc）
+#   Java：T186RiskParityGoldenTest（RiskRecomputeServiceImpl.recomputeTerm）
+# 对拍口径：allowed = min(open + max_months, contract_expiry + grace_days)（取较早者）；
+#   term_end > allowed 且未批准展期 ⇒ REJECT 0x100A；否则 remaining <= grace ⇒ WARN；
+#   否则 PASS。阈值列：REJECT = allowed（yyyymmdd）；WARN = grace_days（天）。
+# 列：id  today  open_date  term_end  contract_expiry  ext_approved  verdict  code  threshold
+#   · 日期均为 yyyymmdd 整数（DATA_MODEL DATE 列整数表示）；contract_expiry = -1 无合同；
+#     ext_approved ∈ 0/1。
+# ── 刻意差异披露（T-186 量化：判定谓词一致，数据来源不同——工程口径披露）──
+#   ⑤ 展期审批来源：C++ 用指令字段 req.term_extension_approved（事前判定输入）；
+#     Java 从计划表推导：extend_basis 非空 且 status ∈ {APPROVED, FROZEN}。
+#     两路输入在本文件向量中保持一致语义（⑤/⑥ 为「同一事实的不同承载」而非判定分歧）。
+#   ⑥ 合同到期日来源：C++ 用 req.hedge_contract_expiry（随指令下发）；
+#     Java 查实货合同表（BUY_HEDGE ⇒ 销售合同 / SELL_HEDGE ⇒ 采购合同）取 ACTIVE 最早到期日。
+#   ⑦ WARN 判定：两侧均为 remaining <= grace（<= 同形）；C++ kWarn / Java WARN。
+#   另：判定拒绝后 WARN 不再评估的先后序两侧一致（REJECT 优先）。
+# ── 向量清单（边界标注）──
+#   T1 期限止超「建仓日+12 月」且未批准 ⇒ REJECT 0x100A，阈值 = 20270101（基础分支）
+#   T2 合同到期+30 天为较早者 ⇒ allowed 取合同侧（边界「取较早者」Q-4）
+#   T3 剩余 17 天 <= 宽限 30 天 ⇒ WARN（边界「剩余<=宽限」；17=20261215→20270101）
+#   T4 期限止恰等 allowed（20270101 == 20270101，严格 > 不成立）⇒ PASS（边界「恰等不越」）
+#   T5 同 T1 但展期已批准 ⇒ PASS（展期不阻断，FR-RISK-6 验收 3）
+T1	20260201	20260101	20270601	-1	0	REJECT	0x100A	20270101
+T2	20260201	20260101	20261215	20261101	0	REJECT	0x100A	20261201
+T3	20261215	20260101	20260601	-1	0	WARN	-	30
+T4	20260101	20260101	20270101	-1	0	PASS	-	-
+T5	20260201	20260101	20270601	-1	1	PASS	-	-

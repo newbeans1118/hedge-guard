@@ -48,7 +48,10 @@ set(RISK_ENGINE_UNIT_TESTS
   risk_engine_purity_test
   risk_engine_close_exemption_test
   risk_engine_related_object_test
-  risk_engine_trading_suspend_test)
+  risk_engine_trading_suspend_test
+  # T-186（TE-T066-001）：Java 复算 ↔ C++ 事前判定跨栈对拍（共享 golden 向量，
+  #   tests/golden/*.tsv 同时驱动本侧与 java 侧 T186RiskParityGoldenTest）
+  risk_engine_parity_golden_test)
 
 foreach(_t ${RISK_ENGINE_UNIT_TESTS})
   add_executable(risk_engine_${_t} "tests/${_t}.cc")
@@ -63,6 +66,13 @@ foreach(_t ${RISK_ENGINE_UNIT_TESTS})
     FIXTURES_REQUIRED hg_arch_check
     TIMEOUT 120)
 endforeach()
+
+# T-186：golden 向量文件路径在 configure 期注入（绝对路径；ctest 工作目录为构建目录，
+#   测试按该宏直读源树 golden 文件——单一事实源，两侧共享同一文件）。
+target_compile_definitions(risk_engine_risk_engine_parity_golden_test PRIVATE
+  HG_GOLDEN_SCALE="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/parity_scale_golden.tsv"
+  HG_GOLDEN_NETPOS="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/parity_netpos_golden.tsv"
+  HG_GOLDEN_TERM="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/parity_term_golden.tsv")
 
 # -----------------------------------------------------------------------------
 # 基准：`bench_risk_check`（§8.1.2「事前风控基准测试 … ≥ 10 万次调用统计 P99/P99.9」）

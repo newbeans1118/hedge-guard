@@ -1,0 +1,31 @@
+# =============================================================================
+# T-186（TE-T066-001 修复）：时点净持仓（R-RISK-5）跨栈对拍 golden 向量
+# 驱动两侧：
+#   C++ ：risk_engine_parity_golden_test（evalNetPosition @ cpp/src/risk_engine/src/risk_engine.cc）
+#   Java：T186RiskParityGoldenTest（RiskRecomputeServiceImpl.recomputeNetPosition）
+# 对拍口径：C++ 侧 = 事前判定：projected = dir==BUY ? (net_pre + inc) : (-net_pre + inc)，
+#   严格 > 敞口才阻断。Java 侧 = 复算镜面：播种事后持仓 net_after =
+#   dir==BUY ? (net_pre + inc) : (net_pre - inc)（LONG 为正），buyProj = net_after > 买敞口、
+#   sellProj = -net_after > 卖敞口（严格 >）。两式为同一谓词。
+# 单位：数量列 = Fixed（1e4）；合约乘数 = 换算系数 = 1（两侧同设）；-1 = 敞口行缺失。
+# 列：id  direction  pre_long  pre_short  inc  buy_exposure  sell_exposure  verdict  code  threshold
+# ── 刻意差异披露（T-186 量化）──
+#   ② 换算关系缺失：C++ 对 var/inst 缺失或 cm/cf <= 0 一律 continue（规则整体跳过 = 放行）；
+#     Java 对「品种无生效换算关系（t_product_unit）」判 UNKNOWN（拒绝按 1:1 静默降级，
+#     R-PRODUCT-6）。差异仅在「无换算数据」边界；正常数据下一致（本文件全部向量 cf=cm=1）。
+#     Java UNKNOWN 语义由 T066RiskRecomputeTest.netPositionConversionMissingUnjudged 锚定。
+#   ③ 无敞口行：C++ ex == nullptr ⇒ 跳过不阻断；Java 双向均无敞口 ⇒ breach 恒假 ⇒ PASS。
+#     两侧判定结果一致（PASS），Java 在 detail 中显式标注「无敞口行 ⇒ C++ 语义跳过」——非差异。
+#   ④ 减仓豁免：两侧同构——C++ 投影式天然把减仓方向投影为负值；Java 用 sellProj = -net 表达。
+#     本文件 N3 向量锚定该豁免（R-RISK-5）。
+# ── 向量清单（边界标注）──
+#   N1 投影恰等敞口（500000 == 500000，严格 > 不成立 ⇒ PASS；边界「恰等不越限」）
+#   N2 投影越买向敞口 ⇒ REJECT 0x1009，阈值 = 买敞口
+#   N3 减仓方向：净多 5.0 卖出 1.0 ⇒ 卖向投影 -4.0 < 卖敞口 2.0 ⇒ PASS（R-RISK-5 豁免）
+#   N4 净空持仓越卖向敞口（400000 > 350000）⇒ REJECT，阈值 = 卖敞口（卖向分支）
+#   N5 双向敞口并存：买向越限、卖向远未越 ⇒ REJECT 取买向阈值（分支选择）
+N1	BUY	0	0	500000	500000	-1	PASS	-	-
+N2	BUY	0	0	600000	500000	-1	REJECT	0x1009	500000
+N3	SELL	500000	0	100000	-1	200000	PASS	-	-
+N4	SELL	0	300000	100000	-1	350000	REJECT	0x1009	350000
+N5	BUY	0	0	200000	100000	10000000	REJECT	0x1009	100000

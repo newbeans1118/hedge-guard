@@ -1,0 +1,33 @@
+# =============================================================================
+# T-186（TE-T066-001 修复）：规模红线（R-RISK-4）跨栈对拍 golden 向量
+# 驱动两侧：
+#   C++ ：risk_engine_parity_golden_test（evalScale @ cpp/src/risk_engine/src/risk_engine.cc）
+#   Java：T186RiskParityGoldenTest（RiskRecomputeServiceImpl.recomputeScale @ java/.../service/impl）
+# 对拍口径：同一状态向量分别驱动两侧判定，verdict + 理由码 + 阈值逐字段一致。
+#   C++ 侧 = 事前判定：projected = accumulated_pre + inc，ratioReaches(projected, expected, eff)。
+#   Java 侧 = 复算镜面：播种事后状态 accumulated = accumulated_pre + inc，
+#             reaches: accumulated >= expected × eff。两式为同一谓词（精确交叉相乘，无舍入）。
+# 单位（定点，与 C++ kQtyScale/kRatioScale 一致）：
+#   数量列 = Fixed（1e4）；阈值列 = 比例 Fixed（1e6，900000 = 0.90）。
+#   合约乘数与换算系数两侧均取 1（1 手 = 1.0 实物量），故手数 inc 直接等于实物量 Fixed。
+# 列：id  category  sub_expected  sub_accum_pre  total_expected  total_accum_pre  inc  verdict  code  threshold
+#   · category：COMMODITY（90%）/ TRADE（80%）；-1 = 行缺失（该口径不参与）
+#   · verdict ∈ REJECT/PASS；code：C++ 组件错误码 = Java 业务码（0x1007/0x1008）；- = 不适用
+#   · threshold：REJECT 时两侧阈值（比例 Fixed）；PASS 时 C++ 无 entries 项 ⇒ 不比对（-）
+# ── 刻意差异披露（RiskRecomputeServiceImpl javadoc 自陈项，T-186 量化）──
+#   ① 基数行/分母缺失：C++ evalScale 对 e == nullptr 一律 continue（该口径跳过、双缺则放行）；
+#     Java 对「双缺行」或「expected <= 0」判 UNKNOWN（不静默按 0 放行）。
+#     ⇒ 差异仅在「无数据」边界；正常数据（本文件全部向量）下两判定一致。
+#     变异守卫：Java 侧 UNKNOWN 语义由 T066RiskRecomputeTest.scaleDenominatorMissingUnjudged 锚定，
+#     C++ 侧跳过语义由本规则既有单测锚定；两侧均不改（C++ 语义冻结）。
+# ── 向量清单（边界标注）──
+#   S1 商品类恰触 90%（900000/1000000 = 0.90，>= ⇒ REJECT；边界「恰 90」）
+#   S2 贸易类恰触 80%（0.80，>= ⇒ REJECT 0x1008；边界「恰 80」+ 分类取比例不混用）
+#   S3 双算分歧取严：子账户 85% 不越、全账户恰 90% 越 ⇒ REJECT（边界「双算分歧 + 恰等」）
+#   S4 商品类 81% 未越 ⇒ PASS
+#   S5 双算取严反方向：子账户恰 90% 越、全账户 11% 不越 ⇒ REJECT（子账户分支）
+S1	COMMODITY	1000000	890000	-1	-1	10000	REJECT	0x1007	900000
+S2	TRADE	1000000	790000	-1	-1	10000	REJECT	0x1008	800000
+S3	COMMODITY	1000000	840000	1000000	890000	10000	REJECT	0x1007	900000
+S4	COMMODITY	1000000	800000	-1	-1	10000	PASS	-	-
+S5	COMMODITY	1000000	890000	1000000	100000	10000	REJECT	0x1007	900000

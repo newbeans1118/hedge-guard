@@ -58,10 +58,15 @@ import java.util.Map;
  * <p><b>统计落库</b>：{@code t_limit_usage_stat} 的 {@code SCALE_REDLINE}（含全账户哨兵 0 行）与
  * {@code POSITION_LIMIT} 行；幂等（同 {@code stat_date}+子账户+品种+类型 已存在则跳过）。
  *
- * <p><b>诚实披露（与 C++ 的刻意差异）</b>：C++ {@code evalScale} 对**基数条目缺失** {@code continue}
- * （不阻断）；本实现对**分母缺失**（行缺失或 {@code expected_spot_business_qty <= 0}）判
- * {@code UNKNOWN}（**不静默兜底**，{@code DATA_MODEL.md} §2.8 {@code TB-RISK-11} 备注）。
- * 该差异仅在「无数据」边界发生，正常数据下两判定一致（{@code T-066} 验收 4 抽比对）。
+ * <p><b>诚实披露（与 C++ 的刻意差异，T-186 跨栈对拍量化）</b>：对拍 golden 向量与两侧断言见
+ * {@code cpp/src/risk_engine/tests/golden/*.tsv}（单一事实源）。差异逐条：
+ * ① C++ {@code evalScale} 对**基数条目缺失** {@code continue}（不阻断）；本实现对**分母缺失**
+ * （行缺失或 {@code expected_spot_business_qty <= 0}）判 {@code UNKNOWN}（**不静默兜底**，
+ * {@code DATA_MODEL.md} §2.8 {@code TB-RISK-11} 备注）。② C++ 对换算/合约乘数缺失一律跳过规则；
+ * 本判 {@code UNKNOWN}（R-PRODUCT-6 不按 1:1 降级）。③ 展期审批与合同到期日**来源**不同
+ * （C++ 取指令字段；本实现由计划表/合同表推导），判定谓词一致。上述差异均仅在
+ * 「无数据 / 输入承载不同」边界发生，正常数据下判定一致（{@code T-186} 15 组向量对拍，
+ * Java 侧 {@code T186RiskParityGoldenTest}）。
  */
 public final class RiskRecomputeServiceImpl implements RiskRecomputeService {
 
