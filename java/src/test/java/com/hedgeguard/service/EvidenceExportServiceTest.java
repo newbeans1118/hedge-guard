@@ -198,6 +198,79 @@ class EvidenceExportServiceTest {
         assertTrue(exportDao.count(null, new ArrayList<>()) == 0, "中断的导出不得落导出记录");
     }
 
+    // ------------------------------------------------------------ 导出记录列表可见性（O-1 修复）
+
+    @Test
+    @DisplayName("O-1 ①：无权限者（可见集 null/空）查列表 ⇒ 恒假空集，不自行放行（fail-closed）")
+    void listWithoutVisibilityYieldsEmpty() throws Exception {
+        seedExport("EV-0001", "[" + SUB + "]", 200L);
+        seedExport("EV-0002", "ALL_VISIBLE", 300L);
+        SubAccountVisibility noAccess = uid -> new ArrayList<>();
+        EvidenceExportService service = service(noAccess);
+
+        // 可见集为空集合 ⇒ 空集
+        PageResult<EvidenceExport> page = service.queryExports(pageQuery(), OPERATOR, null);
+        assertEquals(0, page.total(), "空可见集 ⇒ 空集");
+        assertTrue(page.items().isEmpty(), "空可见集 ⇒ 无行");
+        // 可见集不可判定（null）⇒ 同样空集
+        SubAccountVisibility nullAuth = uid -> null;
+        EvidenceExportService nullService = service(nullAuth);
+        PageResult<EvidenceExport> page2 = nullService.queryExports(pageQuery(), OPERATOR, null);
+        assertEquals(0, page2.total(), "可见集 null ⇒ 空集（不自行放行）");
+    }
+
+    @Test
+    @DisplayName("O-1 ②：全权限者（哨兵 0）查列表 ⇒ 全量可见；带子账户筛选走调用方传入值")
+    void listWithCrossVisibilitySeesAll() throws Exception {
+        seedExport("EV-0011", "[" + SUB + "]", 200L);
+        seedExport("EV-0012", "[12]", 300L);
+        seedExport("EV-0013", "ALL_VISIBLE", 300L);
+        EvidenceExportService service = service(crossReadonly());
+
+        PageResult<EvidenceExport> page = service.queryExports(pageQuery(), OPERATOR, null);
+        assertEquals(3, page.total(), "全权限 ⇒ 全量可见");
+        // 带筛选：声明包含该子账户的批次保留（含 ALL_VISIBLE 的批次不因范围声明收窄，全权限者本就全见）
+        PageResult<EvidenceExport> filtered =
+                service.queryExports(pageQuery(), OPERATOR, SUB);
+        assertEquals(2, filtered.total(), "全权限筛选 ⇒ 声明包含 11 的批次 + ALL_VISIBLE 批次");
+    }
+
+    @Test
+    @DisplayName("O-1 ③：非全权限者——越权 subAccountId 筛选 ⇒ 空集；声明含越权子账户的批次整批不可见；仅本人 ALL_VISIBLE 可见")
+    void listScopedVisibilityEnforcesBoundary() throws Exception {
+        long own = 500L;
+        seedExport("EV-0021", "[" + SUB + "]", 200L);          // 声明 ⊆ 可见集 ⇒ 可见
+        seedExport("EV-0022", "[12]", 200L);                    // 声明含越权子账户 ⇒ 整批不可见
+        seedExport("EV-0023", "[" + SUB + ",12]", 200L);        // 部分越权 ⇒ 整批不可见
+        seedExport("EV-0024", "ALL_VISIBLE", own);              // 本人 ALL_VISIBLE ⇒ 可见
+        seedExport("EV-0025", "ALL_VISIBLE", 300L);             // 他人 ALL_VISIBLE ⇒ 不可见
+        SubAccountVisibility scoped = uid -> new ArrayList<>(Collections.singletonList(SUB));
+        EvidenceExportService service = service(scoped);
+
+        // 不带筛选：仅「声明 ⊆ 可见集」的批次 + 本人 ALL_VISIBLE 批次
+        PageResult<EvidenceExport> page = service.queryExports(pageQuery(), own, null);
+        assertEquals(2, page.total(), "仅可见 EV-0021 与本人 EV-0024");
+        for (EvidenceExport ex : page.items()) {
+            assertTrue(ex.exportNo.equals("EV-0021") || ex.exportNo.equals("EV-0024"),
+                    "越权批次不得出现在结果中：" + ex.exportNo);
+        }
+
+        // 越权筛选：请求不可见子账户 99 ⇒ 空集（不放行、不报错）
+        PageResult<EvidenceExport> overflow =
+                service.queryExports(pageQuery(), own, 99);
+        assertEquals(0, overflow.total(), "越权 subAccountId 筛选 ⇒ 空集");
+        assertTrue(overflow.items().isEmpty(), "越权 subAccountId 筛选 ⇒ 无行");
+
+        // 合法筛选：请求可见子账户 11 ⇒ 声明包含 11 且整批可见的批次（EV-0021）
+        // + 本人 ALL_VISIBLE 批次（本人可见范围覆盖 11 ⇒ EV-0024 亦命中）
+        PageResult<EvidenceExport> legit = service.queryExports(pageQuery(), own, SUB);
+        assertEquals(2, legit.total(), "合法筛选 ⇒ EV-0021 与本人 ALL_VISIBLE 批次 EV-0024");
+        for (EvidenceExport ex : legit.items()) {
+            assertTrue(ex.exportNo.equals("EV-0021") || ex.exportNo.equals("EV-0024"),
+                    "合法筛选结果须为 EV-0021/EV-0024：" + ex.exportNo);
+        }
+    }
+
     // ------------------------------------------------------------ 夹具
 
     private EvidenceExportService service(AuditLogDao dao) {
@@ -306,6 +379,37 @@ class EvidenceExportServiceTest {
 
     private static SubAccountVisibility crossReadonly() {
         return uid -> Collections.singletonList(SubAccountScope.ALL_ACCOUNT_SENTINEL);
+    }
+
+    /** 直接落一条导出记录（绕过导出流程，专供列表可见性用例控制声明范围与导出人）。 */
+    private void seedExport(String exportNo, String scope, long exportedBy) {
+        EvidenceExport ex = new EvidenceExport();
+        ex.exportNo = exportNo;
+        ex.startPointType = "EXPOSURE";
+        ex.startPointIds = String.valueOf(EXP);
+        ex.subAccountScope = scope;
+        ex.includeSourceDetail = "N";
+        ex.chainIntegrity = AuditService.COMPLETE;
+        ex.dualPnlIncluded = "Y";
+        ex.reasonIncluded = "Y";
+        ex.fileId = "FILE-" + exportNo;
+        ex.exportedBy = exportedBy;
+        ex.exportedTime = TS;
+        int rows = tx.inTransaction(connection -> exportDao.insert(ex, exportedBy));
+        assertEquals(1, rows, "导出记录须落库：" + exportNo);
+    }
+
+    /** 列表查询分页参数（与生产 handler 同缺省：exported_time desc）。 */
+    private static PageQuery pageQuery() {
+        return PageQuery.of("1", "20", null, "exported_time", "desc");
+    }
+
+    /** 以指定可见性取数构造被测服务（审计日志服务同源真实 DAO）。 */
+    private EvidenceExportService service(SubAccountVisibility auth) {
+        AuditLogService logService = new AuditLogService(new DmAuditLogDao(tx), checksumDao,
+                auth, AuditLogService.TamperAlarm.NOOP, tx);
+        return new EvidenceExportService(auditService(), logService, exportDao, reasonDao,
+                dualPnlStub(), auth, tx);
     }
 
     /** 故障注入桩：仅 {@code EXPORT} 动作写入失败（其余返回成功、不持久化），用于验证导出中断。 */

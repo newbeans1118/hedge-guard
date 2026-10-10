@@ -113,4 +113,12 @@ public final class DmEvidenceExportDao extends AbstractDmDao<EvidenceExport, Lon
                 + " WHERE export_no = ? ORDER BY id ASC";
         return queryOne(sql, Arrays.<Object>asList(exportNo), this::mapRow);
     }
+
+    @Override
+    public java.util.List<EvidenceExport> findAll() {
+        // 全序：exported_time DESC（默认展示序）+ 主键升序收官（T-096 口径，同 findPage 兜底）
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " ORDER BY exported_time DESC, id ASC";
+        return queryList(sql, java.util.Collections.emptyList(), this::mapRow);
+    }
 }

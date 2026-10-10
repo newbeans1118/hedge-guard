@@ -80,9 +80,13 @@ public final class EvidenceExportHandler implements RouteHandler {
             }
             return HttpResult.json(200, ApiResponse.ok(view(ex), ctx.traceId()));
         }
+        // 子账户可见性隔离（O-1 修复）：查询人 + 可选 subAccountId 筛选一并交服务端 fail-closed 判定
+        // （R-AUDIT-9 软隔离 / NFR-SEC-7；null/空可见集 ⇒ 空集，越权筛选 ⇒ 空集）。
+        Integer subAccountIdFilter = intOrNull(ctx.queryParam("subAccountId"));
         PageQuery query = PageQuery.of(text(ctx.queryParam("page")), text(ctx.queryParam("size")),
                 text(ctx.queryParam("sort")), "exported_time", "desc");
-        PageResult<EvidenceExport> page = service.queryExports(query);
+        PageResult<EvidenceExport> page =
+                service.queryExports(query, ctx.currentUserId(), subAccountIdFilter);
         List<Map<String, Object>> items = new ArrayList<>();
         for (EvidenceExport ex : page.items()) {
             items.add(view(ex));
@@ -130,6 +134,19 @@ public final class EvidenceExportHandler implements RouteHandler {
         }
         String t = s.trim();
         return t.isEmpty() ? null : t;
+    }
+
+    /** 解析整数查询参数（空/缺省返回 {@code null}；非整数明确报参数错误，不静默忽略）。 */
+    private static Integer intOrNull(String raw) {
+        String t = text(raw);
+        if (t == null) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(t);
+        } catch (NumberFormatException e) {
+            throw BizException.of(ErrorCode.PARAM_INVALID, "subAccountId 须为整数：" + raw);
+        }
     }
 
     private static <T> T body(RequestContext ctx, Class<T> type) {

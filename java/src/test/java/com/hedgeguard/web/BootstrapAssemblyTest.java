@@ -116,7 +116,7 @@ class BootstrapAssemblyTest {
     // ------------------------------------------------------------------ 2b. 正分支：直接断言业务路由注册
 
     @Test
-    @DisplayName("🔴 正分支直接断言：配了 hg.db.url（假驱动）时业务注册器真的被调用、117 条路由真的注册")
+    @DisplayName("🔴 正分支直接断言：配了 hg.db.url（假驱动）时业务注册器真的被调用、145 条路由真的注册")
     void configuredDatabaseRegistersAllBusinessRoutes() {
         System.setProperty(Config.KEY_DB_URL, "jdbc:dm://127.0.0.1:5236/HG");
         System.setProperty(Config.KEY_DB_DRIVER, FakeJdbcDriver.class.getName());
@@ -195,9 +195,16 @@ class BootstrapAssemblyTest {
             //   {@code ARCHITECTURE.md §4.1.1}）——RiskLimitUsageRoutes 于该既有已声明路径上注册 GET 与 POST
             //   （2 对），RISK 由 5 增为 7，业务路由 131（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/
             //   TRADE3/SETTLE15/FUND15/AUDIT10）+ ping 2 = 133。非为过测试而放宽断言。
-            assertEquals(133, assembly.routeCount(),
-                    "业务路由必须全部注册：131（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/"
-                            + "SETTLE15/FUND15/AUDIT10）+ ping 2");
+            // 【T-069 订正（加注）】断言值由 133 订正为 145：订正理由 = 需求面（{@code ApiRoutes} 路径级
+            //   声明 AUDIT 模块 /audit/report/{quarterly,annual,major-event}、/audit/evidence/export、
+            //   /audit/log、/audit/log/verify，{@code FR-AUDIT-5/6/7/12}、{@code FR-AUDIT-8}、
+            //   {@code FR-AUDIT-9/10}；独立复核 TE-T069-001「三组 Routes 零调用」缺口）——
+            //   AuditReportRoutes（6 对）/ EvidenceExportRoutes（2 对）/ AuditLogRoutes（4 对）注册进
+            //   生产装配，AUDIT 由 10 增为 22（+12 对、+6 路径），业务路由 143（AUTH17/CONFIG18/PRODUCT13/
+            //   SPOT15/PLAN18/RISK7/TRADE3/SETTLE15/FUND15/AUDIT22）+ ping 2 = 145。非为过测试而放宽断言。
+            assertEquals(145, assembly.routeCount(),
+                    "业务路由必须全部注册：143（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/"
+                            + "SETTLE15/FUND15/AUDIT22）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。
             // （不真发 HTTP：经 RequestDispatcher 进程内分发；handler 因无真实库而 4xx/5xx 皆可，
@@ -232,6 +239,24 @@ class BootstrapAssemblyTest {
                     "GET /api/v1/risk/mirror-status 应已注册（非 404），实际=" + mirror.status);
             assertNotEquals(405, mirror.status,
                     "GET /api/v1/risk/mirror-status 不应 405（路径在而方法未注册），实际=" + mirror.status);
+
+            // T-069（TE-T069-001 修复）回归：审计三组面必须已注册且可达（非 404/405）。
+            // 经完整生产装配的 RequestDispatcher 进程内分发（真实装配链，非自建 Router）。
+            for (String[] auditRoute : new String[][]{
+                    {"GET", "/api/v1/audit/log"},
+                    {"GET", "/api/v1/audit/log/verify"},
+                    {"GET", "/api/v1/audit/report/quarterly"},
+                    {"GET", "/api/v1/audit/report/annual"},
+                    {"GET", "/api/v1/audit/report/major-event"},
+                    {"GET", "/api/v1/audit/evidence/export"}}) {
+                HttpResult audit = dispatch(assembly, auditRoute[0], auditRoute[1],
+                        Collections.singletonMap("X-HG-Session", "S-1"));
+                assertNotEquals(404, audit.status,
+                        auditRoute[0] + " " + auditRoute[1] + " 应已注册（非 404），实际=" + audit.status);
+                assertNotEquals(405, audit.status,
+                        auditRoute[0] + " " + auditRoute[1] + " 不应 405（路径在而方法未注册），实际="
+                                + audit.status);
+            }
         } finally {
             Bootstrap.close(assembly);
         }

@@ -13,6 +13,9 @@ import com.hedgeguard.dao.RoleDao;
 import com.hedgeguard.dao.UserAccountDao;
 import com.hedgeguard.dao.UserRoleDao;
 import com.hedgeguard.dao.impl.DmAccountSubjectDao;
+import com.hedgeguard.dao.impl.DmAuditLogChecksumDao;
+import com.hedgeguard.dao.impl.DmAuditLogDao;
+import com.hedgeguard.dao.impl.DmAuditReportDao;
 import com.hedgeguard.dao.impl.DmConfigChangeLogDao;
 import com.hedgeguard.dao.impl.DmAbnormalOrderStatDao;
 import com.hedgeguard.dao.impl.DmMirrorWatermarkDao;
@@ -28,12 +31,15 @@ import com.hedgeguard.dao.impl.DmCapitalReceiptDao;
 import com.hedgeguard.dao.impl.DmCustomHedgeRuleDao;
 import com.hedgeguard.dao.impl.DmDepositWithdrawApplyDao;
 import com.hedgeguard.dao.impl.DmDictItemDao;
+import com.hedgeguard.dao.impl.DmEvidenceExportDao;
 import com.hedgeguard.dao.impl.DmFundFlowDao;
 import com.hedgeguard.dao.impl.DmFundLedgerDao;
 import com.hedgeguard.dao.impl.DmFundQuotaAlertDao;
 import com.hedgeguard.dao.impl.DmFundQuotaDao;
 import com.hedgeguard.dao.impl.DmFundReconcileDao;
 import com.hedgeguard.dao.impl.DmFundReviewRecordDao;
+import com.hedgeguard.dao.impl.DmMajorEventDao;
+import com.hedgeguard.dao.impl.DmPostRiskReportDao;
 import com.hedgeguard.dao.impl.DmTransferApplyDao;
 import com.hedgeguard.dao.impl.DmExposureDao;
 import com.hedgeguard.dao.impl.DmAuthorizationDao;
@@ -114,9 +120,13 @@ import com.hedgeguard.risk_intraday.RiskRoutes;
 import com.hedgeguard.risk_intraday.RiskThresholds;
 import com.hedgeguard.risk_intraday.TradingSuspendControl;
 import com.hedgeguard.risk_intraday.TradingSuspender;
+import com.hedgeguard.service.AuditLogService;
+import com.hedgeguard.service.AuditReportService;
 import com.hedgeguard.service.AuditService;
 import com.hedgeguard.service.AuthService;
+import com.hedgeguard.service.CheckTaskQueryService;
 import com.hedgeguard.service.ConfigService;
+import com.hedgeguard.service.EvidenceExportService;
 import com.hedgeguard.service.FundService;
 import com.hedgeguard.service.ParamDispatchService;
 import com.hedgeguard.service.PlanService;
@@ -134,7 +144,10 @@ import com.hedgeguard.service.impl.ParamDispatchServiceImpl;
 import com.hedgeguard.service.impl.RiskIntradayPersistenceSink;
 import com.hedgeguard.service.impl.RiskRecomputeServiceImpl;
 import com.hedgeguard.web.handler.PingHandler;
+import com.hedgeguard.web.handler.audit.AuditLogRoutes;
+import com.hedgeguard.web.handler.audit.AuditReportRoutes;
 import com.hedgeguard.web.handler.audit.AuditTraceRoutes;
+import com.hedgeguard.web.handler.audit.EvidenceExportRoutes;
 import com.hedgeguard.web.handler.audit.ViolationScreenRoutes;
 import com.hedgeguard.web.handler.auth.AuthRoutes;
 import com.hedgeguard.web.handler.config.ConfigRoutes;
@@ -263,7 +276,7 @@ public final class Bootstrap {
             authFilter = new SessionAuthFilter(sessionStore, config.sessionCookieName(),
                     authService::touchSession);
             LOG.info("已装配数据库层：url=" + factory.url() + "（口令不落盘、不入日志）；"
-                    + "业务服务 6 个已接线（含参数下发），路由总数=" + router.routes().size());
+                    + "业务服务 18 个已接线（含参数下发与 T-069 审计四服务），路由总数=" + router.routes().size());
         } else {
             // 未配库：无服务可续期，认证过滤器回退为「只查不续期」（进程保持可用，不因缺配置而启动失败）
             authFilter = new SessionAuthFilter(sessionStore, config.sessionCookieName());
@@ -617,6 +630,32 @@ public final class Bootstrap {
                 new DmViolationScreenRunDao(tx), new DmViolationScreenItemDao(tx), authService, tx);
         ViolationScreenRoutes.register(router, violationScreenService);
         LOG.info("已装配违规事项筛查面：GET|POST /api/v1/audit/violation-screen");
+
+        // T-069 审计日志/报表/证据链导出接线（TE-T069-001 修复）：三组 Routes 注册进生产装配，
+        // 五个 service（含 DmAuditReportDataProvider）在此构造并注入（此前的「已声明未注册」缺口就此闭合）。
+        // 防篡改告警端口 TamperAlarm 暂接 NOOP：运维告警 sink 未交付（与 T-065/T-177 告警 sink 同姿态），
+        // 校验结论本身仍落库并可查（FR-AUDIT-10 验收 3），sink 交付后替换即通——据实披露。
+        AuditLogService auditLogService = new AuditLogService(new DmAuditLogDao(tx),
+                new DmAuditLogChecksumDao(tx), authService, null, tx);
+        AuditLogRoutes.register(router, auditLogService);
+        CheckTaskQueryService checkTaskQueryService = new CheckTaskQueryService(
+                new DmSettleCheckTaskDao(tx), new DmSettleCheckSignatureDao(tx), authService);
+        AuditReportService auditReportService = new AuditReportService(new DmAuditReportDao(tx),
+                new DmMajorEventDao(tx), new DmOperationLogDao(tx), auditLogService,
+                checkTaskQueryService, new DmPostRiskReportDao(tx),
+                new com.hedgeguard.service.impl.DmAuditReportDataProvider(
+                        new DmHedgePlanDao(tx), new DmSettlePositionDao(tx),
+                        new DmSettlePnlDao(tx), productDao),
+                authService, tx);
+        AuditReportRoutes.register(router, auditReportService);
+        EvidenceExportService evidenceExportService = new EvidenceExportService(auditService,
+                auditLogService, new DmEvidenceExportDao(tx), new DmTradeReasonDao(tx),
+                null, authService, tx);
+        EvidenceExportRoutes.register(router, evidenceExportService);
+        LOG.info("已装配审计日志/报表/证据链导出面：GET|POST /api/v1/audit/log、/api/v1/audit/log/verify、"
+                + "/api/v1/audit/report/{quarterly,annual,major-event}、/api/v1/audit/evidence/export；"
+                + "防篡改告警端口=NOOP（运维告警 sink 未交付，据实披露）；"
+                + "导出列表子账户隔离=fail-closed（R-AUDIT-9/NFR-SEC-7）");
         return authService;
     }
 

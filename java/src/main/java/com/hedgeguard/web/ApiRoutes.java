@@ -140,7 +140,15 @@ public final class ApiRoutes {
                 "GET /audit/trace/integrity", "POST /audit/trace/integrity",
                 "GET /audit/operation-log", "POST /audit/operation-log",
                 // T-068：违规事项筛查（FR-AUDIT-4/Q-13），路径逐字取自本类 AUDIT 路径级声明
-                "GET /audit/violation-screen", "POST /audit/violation-screen"));
+                "GET /audit/violation-screen", "POST /audit/violation-screen",
+                // T-069（TE-T069-001 修复）：审计报表/证据链导出/审计日志三组路由接线生产装配，
+                // 路径逐字取自本类 AUDIT 路径级声明（未新增路径）
+                "GET /audit/report/quarterly", "POST /audit/report/quarterly",
+                "GET /audit/report/annual", "POST /audit/report/annual",
+                "GET /audit/report/major-event", "POST /audit/report/major-event",
+                "GET /audit/evidence/export", "POST /audit/evidence/export",
+                "GET /audit/log", "POST /audit/log",
+                "GET /audit/log/verify", "POST /audit/log/verify"));
         BY_MODULE_ROUTES.put("FUND", Arrays.asList(
                 "GET /fund/ledger", "POST /fund/ledger", "GET /fund/flow", "POST /fund/deposit",
                 "POST /fund/withdraw", "POST /fund/{id}/review", "POST /fund/transfer",
@@ -191,8 +199,8 @@ public final class ApiRoutes {
      * 模块 → 已交付的 {@code "METHOD /module-relative-path"} 冻结对（只读）。
      *
      * <p>仅含<b>当前已注册</b>的模块（{@code AUTH}/{@code CONFIG}/{@code PRODUCT}/{@code SPOT}/
-     * {@code PLAN}/{@code TRADE}/{@code SETTLE}/{@code RISK}/{@code FUND}，以及 {@code T-067} 接入的
-     * {@code AUDIT} 追溯与留痕路径）；后续里程碑模块（{@code ACCT}）及 {@code AUDIT} 未接入路径
+     * {@code PLAN}/{@code TRADE}/{@code SETTLE}/{@code RISK}/{@code FUND}，以及 {@code T-067} 接入、
+     * {@code T-069} 补齐的 {@code AUDIT} 全部 11 条已声明路径）；后续里程碑模块（{@code ACCT}）
      * 仅在 {@link #byModule()} 的路径级声明中列出。
      *
      * @return 模块 → {@code "METHOD /module-relative-path"} 清单

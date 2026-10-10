@@ -1,6 +1,9 @@
 package com.hedgeguard.web;
 
+import com.hedgeguard.web.handler.audit.AuditLogRoutes;
+import com.hedgeguard.web.handler.audit.AuditReportRoutes;
 import com.hedgeguard.web.handler.audit.AuditTraceRoutes;
+import com.hedgeguard.web.handler.audit.EvidenceExportRoutes;
 import com.hedgeguard.web.handler.audit.ViolationScreenRoutes;
 import com.hedgeguard.web.handler.auth.AuthRoutes;
 import com.hedgeguard.web.handler.config.ConfigRoutes;
@@ -85,8 +88,14 @@ final class FullWebAssembly {
      * <p>【{@code T-066}】红线复算与限额使用统计面 —— 已声明路径 {@code /risk/limit-usage} 注册
      * {@code GET}/{@code POST}（2 对）⇒ {@code 129 → 131}（非为过测试而放宽：路径逐字取自
      * {@code ApiRoutes} 的 {@code RISK} 清单，本任务只做<b>最小注册</b>）。
+     *
+     * <p>【{@code T-069}】审计报表/证据链导出/审计日志三组面（{@code TE-T069-001} 修复后已注册生产装配）
+     * —— {@code /audit/report/{quarterly,annual,major-event}} 各 {@code GET}/{@code POST}（6 对）、
+     * {@code /audit/evidence/export}（2 对）、{@code /audit/log(/verify)}（4 对）⇒ {@code 131 → 143}
+     * （非为过测试而放宽：未新增路径，路径逐字取自 {@code ApiRoutes} 的 {@code AUDIT} 清单；
+     * 生产装配含平台级 {@code ping} 2 条后为 {@code 145}，与 {@code BootstrapAssemblyTest} 断言同锚）。
      */
-    static final int ROUTE_COUNT = 131;
+    static final int ROUTE_COUNT = 143;
 
     private FullWebAssembly() {
     }
@@ -125,6 +134,13 @@ final class FullWebAssembly {
         // T-068：违规事项筛查面（2 个 (方法,路径) 对：GET|POST /audit/violation-screen）。
         // 服务入参 null：装配期只调用 router.register(...)。
         ViolationScreenRoutes.register(router, null);
+        // T-069（TE-T069-001 修复）：审计日志面（4 对：/audit/log、/audit/log/verify 各 GET|POST）。
+        // 服务入参 null：装配期只调用 router.register(...)。注册序与生产装配（Bootstrap）一致。
+        AuditLogRoutes.register(router, null);
+        // T-069：审计报表面（6 对：/audit/report/{quarterly,annual,major-event} 各 GET|POST）。
+        AuditReportRoutes.register(router, null);
+        // T-069：证据链导出面（2 对：GET|POST /audit/evidence/export）。
+        EvidenceExportRoutes.register(router, null);
         // T-065：风控告警查询与处置面（2 个 (方法,路径) 对：GET /risk/alert、
         // POST /risk/alert/{id}/dispose）。服务入参 null：装配期只调用 router.register(...)。
         RiskAlertRoutes.register(router, null);

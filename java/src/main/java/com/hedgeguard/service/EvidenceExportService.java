@@ -420,12 +420,169 @@ public final class EvidenceExportService {
     /**
      * 查证据链导出记录（{@code FR-AUDIT-8} 验收 3：按时间查导出历史）。
      *
-     * @param query 分页/排序
-     * @return 分页结果
+     * <p><b>子账户可见性（fail-closed，{@code O-1} 修复；{@code R-AUDIT-9} 软隔离 + {@code NFR-SEC-7}）</b>：
+     * 经 {@link SubAccountVisibility#visibleSubAccountIds} 解析调用人可见集——
+     * <b>null / 空 ⇒ 恒假空集</b>（不自行放行）；含哨兵 {@code 0}（账户级全权限）⇒ 全量可见、
+     * {@code subAccountIdFilter} 走调用方传入值；否则按「批次声明范围」行级过滤：
+     * <ul>
+     *   <li>声明为具体子账户集合（{@code [5, 7]} 形态）：<b>任一声明子账户越出可见集 ⇒ 整批不可见</b>
+     *       （批次内容含越权子账户数据，不得部分展示）；传 {@code subAccountIdFilter} 时还须声明包含它；</li>
+     *   <li>声明为 {@code ALL_VISIBLE}：声明范围 = 导出时<b>导出人自身</b>的可见集，仅导出人本人或
+     *       全权限者可复认，他人不可见；带 {@code subAccountIdFilter} 时，本人批次按「筛选值 ∈ 本人
+     *       可见集」判定（其声明范围即本人可见集）、全权限批次不因范围声明收窄；</li>
+     *   <li>声明不可解析 ⇒ 视为不可判定，<b>fail-closed 排除</b>（不误标可见）。</li>
+     * </ul>
+     *
+     * <p><b>承载形态据实披露</b>：{@code t_evidence_export} 为批次级表（{@code TB-AUDIT-7}），
+     * <b>无 {@code sub_account_id} 列</b>（{@code sub_account_scope} 是范围声明字符串）——行级过滤
+     * 无法经 {@code SubAccountScope} 的 {@code IN} 谓词在 SQL 承载 ⇒ 在 Java 侧按上述包含关系判定后
+     * 内存分页（表容量上限 2 万行，{@code DATA_MODEL.md} §2.9；排序/全序与 {@code findPage} 同构：
+     * 请求键 + 主键升序收官）。
+     *
+     * @param query             分页/排序
+     * @param operatorId        查询人（可见性主体）
+     * @param subAccountIdFilter 可选子账户筛选（{@code null} = 不筛选；非全权限者传入不可见子账户
+     *                          ⇒ 空集，越权筛选不放行）
+     * @return 分页结果（已按可见性过滤）
      */
     public com.hedgeguard.dao.PageResult<EvidenceExport> queryExports(
-            com.hedgeguard.dao.PageQuery query) {
-        return exportDao.findPage(query, null, new ArrayList<>());
+            com.hedgeguard.dao.PageQuery query, long operatorId, Integer subAccountIdFilter) {
+        List<Integer> visible = authService == null ? null : authService.visibleSubAccountIds(operatorId);
+        // fail-closed：可见性不可判定（null/空）⇒ 恒假空集（NFR-SEC-7 安全默认，不自行放行）
+        if (visible == null || visible.isEmpty()) {
+            return new com.hedgeguard.dao.PageResult<>(new ArrayList<>(), 0,
+                    query.page(), query.size());
+        }
+        boolean cross = visible.contains(SubAccountScope.ALL_ACCOUNT_SENTINEL);
+        if (!cross && subAccountIdFilter != null && !visible.contains(subAccountIdFilter)) {
+            // 越权筛选：请求范围越出可见集 ⇒ 空集（不报错亦不放行）
+            return new com.hedgeguard.dao.PageResult<>(new ArrayList<>(), 0,
+                    query.page(), query.size());
+        }
+        if (cross && subAccountIdFilter == null) {
+            // 全权限且未筛选：全量可见，走 SQL 分页（与既有路径同构）
+            return exportDao.findPage(query, null, new ArrayList<>());
+        }
+        // 其余（非全权限；或全权限但带子账户筛选）⇒ 行级判定在 Java 侧（表无 sub_account_id 列，见方法注）
+        List<EvidenceExport> matched = new ArrayList<>();
+        for (EvidenceExport ex : exportDao.findAll()) {
+            if (inScope(ex, visible, cross, subAccountIdFilter, operatorId)) {
+                matched.add(ex);
+            }
+        }
+        sortForPage(matched, query);
+        int from = Math.min(matched.size(), query.offset());
+        int to = Math.min(matched.size(), query.offset() + query.size());
+        return new com.hedgeguard.dao.PageResult<>(
+                new ArrayList<>(matched.subList(from, to)), matched.size(),
+                query.page(), query.size());
+    }
+
+    /** 单行可见性判定（见 {@link #queryExports} 的规则；只在此处集中，避免漏判）。 */
+    private static boolean inScope(EvidenceExport ex, List<Integer> visible, boolean cross,
+                                   Integer subAccountIdFilter, long operatorId) {
+        List<Integer> declared = parseScope(ex.subAccountScope);
+        if (declared == null) {
+            // ALL_VISIBLE：声明范围 = 导出人自身可见集 ⇒ 仅本人或全权限者可复认
+            return cross || ex.exportedBy == operatorId;
+        }
+        if (declared.isEmpty()) {
+            // 不可解析/空声明 ⇒ 不可判定，fail-closed 排除
+            return false;
+        }
+        if (cross) {
+            return subAccountIdFilter == null || declared.contains(subAccountIdFilter);
+        }
+        if (subAccountIdFilter != null && !declared.contains(subAccountIdFilter)) {
+            return false;
+        }
+        for (Integer sub : declared) {
+            if (!visible.contains(sub)) {
+                return false; // 批次声明含越权子账户 ⇒ 整批不可见
+            }
+        }
+        return true;
+    }
+
+    /**
+     * 解析 {@code sub_account_scope}（本服务写入形态：{@code "ALL_VISIBLE"} 或 {@code List.toString()}
+     * 的 {@code [5, 7]}）。
+     *
+     * @return {@code null} = {@code ALL_VISIBLE}；空表 = 不可解析（fail-closed）；否则为声明子账户集合
+     */
+    private static List<Integer> parseScope(String scope) {
+        if (scope == null) {
+            return new ArrayList<>();
+        }
+        String s = scope.trim();
+        if (s.isEmpty()) {
+            return new ArrayList<>();
+        }
+        if ("ALL_VISIBLE".equals(s)) {
+            return null;
+        }
+        String body = s.startsWith("[") && s.endsWith("]") ? s.substring(1, s.length() - 1) : s;
+        List<Integer> out = new ArrayList<>();
+        for (String part : body.split(",")) {
+            String t = part.trim();
+            if (t.isEmpty()) {
+                continue;
+            }
+            try {
+                out.add(Integer.valueOf(t));
+            } catch (NumberFormatException e) {
+                return new ArrayList<>(); // 不可解析 ⇒ fail-closed
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 内存分页排序：与 {@code findPage} 的 {@code ORDER BY} 同构——按请求排序键 + 主键升序收官
+     * （全序，避免同排序值跨页重复/漏行，{@code T-096} 口径）。列到取值器的映射仅覆盖本表业务列；
+     * 未知列显式报参数错误（不静默忽略）。<b>披露</b>：{@code PageQuery} 仅暴露首键方向
+     * （{@code ascending()}），内存路径将首键方向应用于全部排序键（本端点缺省单键，多键为边缘形态）。
+     */
+    private static void sortForPage(List<EvidenceExport> rows,
+                                    com.hedgeguard.dao.PageQuery query) {
+        boolean asc = query.ascending();
+        java.util.Comparator<EvidenceExport> cmp = null;
+        for (String field : query.sortFields()) {
+            java.util.Comparator<EvidenceExport> key = comparatorOf(field, asc);
+            cmp = cmp == null ? key : cmp.thenComparing(key);
+        }
+        // 主键升序收官（全序兜底，与 AbstractDmDao#findPage 的 orderByEnsuringUnique 同构）
+        java.util.Comparator<EvidenceExport> idKey =
+                java.util.Comparator.comparingLong(ex -> ex.id);
+        cmp = cmp == null ? idKey : cmp.thenComparing(idKey);
+        rows.sort(cmp);
+    }
+
+    /** 列名 → 比较器（含方向）；未知列显式报错。 */
+    private static java.util.Comparator<EvidenceExport> comparatorOf(String field, boolean asc) {
+        java.util.Comparator<EvidenceExport> c;
+        switch (field) {
+            case "exported_time":
+                c = java.util.Comparator.comparing(
+                        ex -> ex.exportedTime == null ? java.time.LocalDateTime.MIN : ex.exportedTime);
+                break;
+            case "export_no":
+                c = java.util.Comparator.comparing(ex -> ex.exportNo == null ? "" : ex.exportNo);
+                break;
+            case "id":
+                c = java.util.Comparator.comparingLong(ex -> ex.id);
+                break;
+            case "chain_integrity":
+                c = java.util.Comparator.comparing(ex -> ex.chainIntegrity == null ? "" : ex.chainIntegrity);
+                break;
+            case "start_point_type":
+                c = java.util.Comparator.comparing(ex -> ex.startPointType == null ? "" : ex.startPointType);
+                break;
+            default:
+                throw com.hedgeguard.web.BizException.of(com.hedgeguard.web.ErrorCode.PARAM_INVALID,
+                        "导出记录排序字段非法（须为本表业务列）：" + field);
+        }
+        return asc ? c : c.reversed();
     }
 
     /**
