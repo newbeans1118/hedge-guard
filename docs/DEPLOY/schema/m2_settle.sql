@@ -1,7 +1,7 @@
 -- =============================================================================
 --  HedgeGuard 建表脚本 —— 模块 SETTLE（结算），16 张
 --  制品编号：docs/DEPLOY/schema/m2_settle.sql
---  依据：docs/DATA_MODEL.md v1.3.6（md5 201682e5aff5ee9f01fec9dd1728a4c5）
+--  依据：docs/DATA_MODEL.md v1.3.7（md5 5c468b3701426b4baf230f3889f27ab8）
 --        §2.7 SETTLE（TB-SETTLE-1~16）/ §0.3 通用审计字段 / §0.4 外键与级联
 --        / §0.5 DM8 建表模板 / §4.3 约束目录 / §4.4.1 差异归属机判来源
 --  目标库：达梦 DM8；执行者：DBA（应用账号仅 SELECT/INSERT/UPDATE，禁 DDL — NFR-SEC-8）
@@ -70,6 +70,8 @@ CREATE TABLE t_ctp_settle_position (
     avg_price             DECIMAL(20,6)                              NULL,
     settlement_price      DECIMAL(20,6)                              NULL,
     margin                DECIMAL(20,4)                              NULL,
+    close_pnl             DECIMAL(20,4)                              NULL,
+    position_pnl          DECIMAL(20,4)                              NULL,
     created_by            BIGINT                                     NOT NULL,
     -- DM-SPECIFIC: CURRENT_TIMESTAMP 默认值；DM 特有写法
     created_time          TIMESTAMP                 DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -93,6 +95,8 @@ COMMENT ON COLUMN t_ctp_settle_position.position_qty IS '持仓量（合并，�
 COMMENT ON COLUMN t_ctp_settle_position.avg_price IS '持仓均价';
 COMMENT ON COLUMN t_ctp_settle_position.settlement_price IS '结算价';
 COMMENT ON COLUMN t_ctp_settle_position.margin   IS '占用保证金';
+COMMENT ON COLUMN t_ctp_settle_position.close_pnl IS '平仓盈亏（转录自 CTP 持仓日终 closeProfit；上游未供即空，该行不参与结算盈亏转录，CH-023）';
+COMMENT ON COLUMN t_ctp_settle_position.position_pnl IS '持仓盈亏/浮动（转录自 CTP 持仓日终 positionProfit；上游未供即空，该行不参与结算盈亏转录，CH-023）';
 CREATE INDEX idx_ctp_settle_pos_date ON t_ctp_settle_position (trade_date);
 
 -- ===== TB-SETTLE-3 t_ctp_settle_fund CTP 资金明细（账户级合并资金，外部核对基准，只读） =====

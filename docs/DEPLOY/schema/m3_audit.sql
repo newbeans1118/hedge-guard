@@ -1,7 +1,7 @@
 -- =============================================================================
 --  HedgeGuard 建表脚本 —— 模块 AUDIT（TB-AUDIT-1~8，共 8 张）
 --  制品编号：docs/DEPLOY/schema/m3_audit.sql
---  依据：docs/DATA_MODEL.md v1.3.6（md5 201682e5aff5ee9f01fec9dd1728a4c5）§2.9 模块 AUDIT
+--  依据：docs/DATA_MODEL.md v1.3.7（md5 5c468b3701426b4baf230f3889f27ab8）§2.9 模块 AUDIT
 --        §0.2 字段类型 / §0.3 通用审计字段 / §0.4 外键与级联 / §0.5 DM8 建表模板 / §4.3 约束目录
 --  目标库：达梦 DM8；执行者：DBA（应用账号仅 SELECT/INSERT/UPDATE，NFR-SEC-8）
 --

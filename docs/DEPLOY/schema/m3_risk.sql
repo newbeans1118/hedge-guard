@@ -1,7 +1,7 @@
 -- =============================================================================
 --  HedgeGuard 建表脚本 —— 模块 RISK（TB-RISK-1~11，共 11 张；本文件交付全部 11 张）
 --  制品编号：docs/DEPLOY/schema/m3_risk.sql
---  依据：docs/DATA_MODEL.md v1.3.6（md5 201682e5aff5ee9f01fec9dd1728a4c5）§2.8 模块 RISK
+--  依据：docs/DATA_MODEL.md v1.3.7（md5 5c468b3701426b4baf230f3889f27ab8）§2.8 模块 RISK
 --        §0.2 字段类型 / §0.3 通用审计字段 / §0.4 外键与级联 / §0.5 DM8 建表模板 / §4.3 约束目录
 --        历史依据（保留历史注，只加不改）：本文件首个增量（TB-RISK-2 t_param_dispatch）起草于
 --        DATA_MODEL v1.3.2（md5 99b647ec3e7a29b95ee86b04a58c747c）；余 10 表由 T-094 依现行 v1.3.5 续写。
