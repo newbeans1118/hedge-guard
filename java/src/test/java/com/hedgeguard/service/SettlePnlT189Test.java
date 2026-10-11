@@ -223,9 +223,11 @@ class SettlePnlT189Test {
     }
 
     private List<SettlePnl> commissionRows() {
+        // 断言侧锚定冻结字面量（ck_t_settle_pnl_pnl_type CHECK 域），不引生产常量：
+        // 防止「常量翻转双侧同变」的自我同源变异存活（T-189 变异 M2 教训）
         List<SettlePnl> out = new ArrayList<>();
         for (SettlePnl p : pnlRows()) {
-            if (SettleService.PNL_TYPE_COMMISSION.equals(p.pnlType)) {
+            if ("COMMISSION".equals(p.pnlType)) {
                 out.add(p);
             }
         }
@@ -308,7 +310,7 @@ class SettlePnlT189Test {
         SettlePnl row = rows.get(0);
         assertEquals(SUB_A, row.subAccountId);
         assertEquals("cu2612", row.instrumentId);
-        assertEquals(SettleService.PNL_TYPE_COMMISSION, row.pnlType);
+        assertEquals("COMMISSION", row.pnlType, "pnl_type 须为冻结域字面量");
         assertEquals(0, row.amount.compareTo(new BigDecimal("20.00")), "手续费应为两笔加总（Σ 非推算）");
         assertEquals(PRODUCT, row.productId, "品种取系统内持仓行的品种归属");
         assertEquals(cycles.get(0).id, row.settleCycleId, "结算单外键应指向本次结算单");
@@ -342,7 +344,7 @@ class SettlePnlT189Test {
         pre.tradeDate = DAY;
         pre.instrumentId = "cu2612";
         pre.productId = PRODUCT;
-        pre.pnlType = SettleService.PNL_TYPE_COMMISSION;
+        pre.pnlType = "COMMISSION";
         pre.amount = new BigDecimal("1.23");
         settlePnlDao.insert(pre, SYSTEM_OP);
 
