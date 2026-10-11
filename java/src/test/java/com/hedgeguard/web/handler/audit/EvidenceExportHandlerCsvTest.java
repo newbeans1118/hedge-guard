@@ -88,6 +88,8 @@ class EvidenceExportHandlerCsvTest {
     private static final long ORDER = 4001L;
     private static final long TRADE_PLAN2 = 3002L;
     private static final long ORDER2 = 4002L;
+    /** 第三指令（TE-T193B-001 换行专项载体）：复用 TRADE_PLAN/EXP（t_trade_order 无 trade_plan_id 唯一约束）。 */
+    private static final long ORDER3 = 4003L;
     private static final long SETTLE = 5001L;
     private static final long OPERATOR = 100L;
     private static final LocalDate DAY = LocalDate.of(2026, 10, 6);
@@ -142,6 +144,14 @@ class EvidenceExportHandlerCsvTest {
         // time_desc 取值域受 ck_trade_reason_time_desc 约束（CHECK 枚举）⇒ 引号专项载体改放 related_type：
         // related_type 同受 CHECK（8 枚举），故引号专项载体落 reason_text（reasonText2 = 仅引号无逗号）。
         TradeReasonSeed.seed(tx, ORDER2, "CONTRACT_SIGNED", "仅\"引号\"无逗号");
+        // 路径 3（TE-T193B-001 换行专项）：仅 \r\n 换行、无逗号无引号 ⇒ csvEscape 换行分支
+        //（contains("\n")/contains("\r")）是唯一触发包裹的条件——变异（换行条件摘除）下该字段
+        // 裸奔、字段内 \r\n 终止 CSV 记录，本类换行专项用例必红。time_desc 取值域受
+        // ck_trade_reason_time_desc 约束 ⇒ 沿用枚举值 PRICE_TRIGGERED；uk_trade_reason_order
+        // 一单一理由 ⇒ 换行专项载体须独立订单（ORDER3，复用 TRADE_PLAN/EXP，无唯一约束冲突）。
+        M3AuditTraceSeed.tradeOrder(engine, ORDER3, SUB, "HP202610060001-C3", 9003L, TRADE_PLAN,
+                PLAN, EXP, PRODUCT, "cu2612", "ALL_FILLED", TS);
+        TradeReasonSeed.seed(tx, ORDER3, "PRICE_TRIGGERED", "跨行\r\n说明文本");
 
         EvidenceExportService service = new EvidenceExportService(
                 new AuditService(new DmExposureDao(tx), new DmHedgePlanExposureDao(tx),
@@ -295,6 +305,46 @@ class EvidenceExportHandlerCsvTest {
         //    reason_text 含逗号 ⇒ 包裹；内部引号加倍 ⇒ 原文形态 "...""引号""..."。
         assertTrue(body.contains(",\"套保执行,含逗号与\"\"引号\"\"\r\n第二行换行文本\","),
                 "含逗号+引号+换行字段须输出包裹+加倍原文形态");
+    }
+
+    /**
+     * <b>TE-T193B-001 用例③（换行分支独立锁定）</b>：构造<b>仅含 {@code \r\n}、无逗号无引号</b>
+     * 的 {@code reason_text}（order3 载体）——此时 csvEscape 的换行分支
+     * {@code contains("\n")/contains("\r")} 是包裹的<b>唯一</b>触发条件。
+     *
+     * <p><b>TE-T193B-001 缺口回填</b>：既有三类载体（start_id 逗号拼接 / node.detail 逗号 /
+     * reason_text 逗号+引号+换行）均同时含逗号或引号 ⇒ 复核变异「换行条件摘除」无法被任何
+     * 现有用例击杀（换行独立触发分支零用例锁定）。本用例以干净载体补齐：
+     * <ul>
+     *   <li>解析层：order3 的 reason_text 原样还原（含 {@code \r\n}）——引号感知拆行/拆列下
+     *       换行须被包裹承载、不得终止 CSV 记录；</li>
+     *   <li>原文形态层：包裹引号恰出现在 order3 reason 行的 reason_text 字段两端
+     *       （无逗号/引号 ⇒ 无加倍引号，包裹只能由换行触发——变异必红）。</li>
+     * </ul>
+     */
+    @Test
+    @DisplayName("TE-T193B-001：仅换行字段由 csvEscape 换行分支独立触发包裹（干净载体）")
+    void csvEscapeWrapsNewlineOnlyField() {
+        HttpResult r = call("POST", PATH, "{\"startPointType\":\"EXPOSURE\","
+                + "\"startPointIds\":[\"" + EXP + "\"]}");
+        assertEquals(200, r.status);
+        String body = new String(r.body, StandardCharsets.UTF_8);
+
+        // 解析层：order3 的 reason 行存在且 reason_text 原样还原（\r\n 在引号包裹内被承载）。
+        List<String> reasonRow3 = splitCsvRecords(body).stream()
+                .map(EvidenceExportHandlerCsvTest::parseCsvRecord)
+                .filter(x -> "reason".equals(x.get(0)) && "4003".equals(x.get(19)))
+                .findFirst().orElse(null);
+        assertNotNull(reasonRow3, "须含 order3 的 reason 行（换行专项载体）");
+        assertEquals(27, reasonRow3.size(), "换行专项行亦须与表头 27 列等数（\r\n 不终止记录）");
+        assertEquals("跨行\r\n说明文本", reasonRow3.get(24),
+                "仅换行 reason_text 须原样还原（换行由包裹承载、不终止记录）");
+
+        // 原文形态层：字段输出形态恰为 ,"跨行\r\n说明文本",——两端包裹引号且无加倍引号。
+        // 该字段无逗号/引号 ⇒ 若换行条件摘除（变异），字段裸奔、内部 \r\n 终止 CSV 记录，
+        // 此处 contains 必不命中 ⇒ 本用例必红。
+        assertTrue(body.contains(",\"跨行\r\n说明文本\","),
+                "仅换行字段须输出「包裹、无加倍引号」原文形态（TE-T193B-001 换行分支靶点）：" + body);
     }
 
     // ------------------------------------------------------------ 夹具
