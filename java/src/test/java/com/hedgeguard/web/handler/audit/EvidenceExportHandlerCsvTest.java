@@ -48,7 +48,9 @@ import java.nio.file.Paths;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -62,19 +64,30 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <ol>
  *   <li>{@code Content-Type} = {@code text/csv; charset=UTF-8}（先例同值）；</li>
  *   <li>{@code Content-Disposition} = {@code attachment; filename="evidence-<exportNo>.csv"}；</li>
- *   <li>首行为 CSV 表头、数据行与表头逐列等数；</li>
+ *   <li>首行为 CSV 表头、数据行与表头逐列等数（引号感知解析，见 {@link #csvRowsAreAlignedWithHeader}）；</li>
+ *   <li>csvEscape 行为锁定：含逗号/引号/换行字段按 CSV 规则包裹、引号加倍（见
+ *       {@link #csvEscapeQuotesFieldsWithCommaQuoteNewline}）；</li>
  *   <li>exportNo 仍落库（GET 记录面可见）；</li>
  *   <li>GET 面不受影响（仍 JSON）。</li>
  * </ol>
+ *
+ * <p><b>TE-T193-001 修复</b>：上述第 3、4 项断言为本轮补齐——复核变异 M2（引号条件摘除）/
+ * M2b（列渲染少一列）曾双双存活，证明「逐列等数」「转义体例」两声称无用例锁定。解析用
+ * <b>引号感知</b>拆列（RFC 4180 子集：字段内 {@code ,} {@code "} {@code \r\n} 均包裹处理），
+ * 不得用朴素逗号计数（会被引号内逗号欺骗）。
  */
 class EvidenceExportHandlerCsvTest {
 
     private static final int SUB = 11;
     private static final long PRODUCT = 7001L;
     private static final long EXP = 2001L;
+    /** 第二敞口（无链路绑定 ⇒ 断点行），多起点请求的逗号拼接载体（TE-T193-001）。 */
+    private static final long EXP2 = 2002L;
     private static final long PLAN = 1001L;
     private static final long TRADE_PLAN = 3001L;
     private static final long ORDER = 4001L;
+    private static final long TRADE_PLAN2 = 3002L;
+    private static final long ORDER2 = 4002L;
     private static final long SETTLE = 5001L;
     private static final long OPERATOR = 100L;
     private static final LocalDate DAY = LocalDate.of(2026, 10, 6);
@@ -101,13 +114,21 @@ class EvidenceExportHandlerCsvTest {
         M2E2eSeed.subAccount(engine, SUB, "SA-A", "商品子账户A");
         M2E2eSeed.product(engine, PRODUCT, "CU", "铜");
         M2E2eSeed.exposure(engine, EXP, SUB, PRODUCT, "100", DAY);
+        // 第二敞口：不绑链路 ⇒ walkFromExposure 记断点行（breaks 载体）；多起点 ⇒ meta.start_id 逗号拼接。
+        // as_of_date 错开一日：uk_exposure_key(sub,product,category,direction,calc_mode,as_of_date) 防撞键；
+        // 追溯链不按日期过滤（dateFrom/dateTo 仅入审计日志 queryCondition）⇒ 不影响断点产出。
+        M2E2eSeed.exposure(engine, EXP2, SUB, PRODUCT, "50", DAY.minusDays(1));
         M2E2eSeed.hedgePlan(engine, PLAN, SUB, PRODUCT, "HP202610060001", "100", DAY, DAY.plusMonths(3));
         M2E2eSeed.tradePlan(engine, TRADE_PLAN, SUB, PLAN, EXP, PRODUCT, "TP-1", "cu2612", "10",
+                DAY.plusDays(30));
+        M2E2eSeed.tradePlan(engine, TRADE_PLAN2, SUB, PLAN, EXP, PRODUCT, "TP-2", "cu2612", "10",
                 DAY.plusDays(30));
         M3AuditTraceSeed.hedgePlanExposure(engine, 6001L, SUB, PLAN, EXP, "100", TS);
         M3AuditTraceSeed.planApproval(engine, 6101L, SUB, PLAN, 1, TS);
         M3AuditTraceSeed.tradeOrder(engine, ORDER, SUB, "HP202610060001-C1", 9001L, TRADE_PLAN, PLAN,
                 EXP, PRODUCT, "cu2612", "ALL_FILLED", TS);
+        M3AuditTraceSeed.tradeOrder(engine, ORDER2, SUB, "HP202610060001-C2", 9002L, TRADE_PLAN2,
+                PLAN, EXP, PRODUCT, "cu2612", "ALL_FILLED", TS);
         M3AuditTraceSeed.tradeOrderReport(engine, 6201L, SUB, "SYS-1", ORDER, "cu2612",
                 "ALL_TRADED", 10, 10, TS);
         M3AuditTraceSeed.tradeFill(engine, 6301L, SUB, "TF-1", ORDER, TRADE_PLAN, PLAN, EXP,
@@ -116,7 +137,11 @@ class EvidenceExportHandlerCsvTest {
 
         tx = new TxTemplate(new DataSourcePool(engine, new PoolConfig(0, 4, 500, 2)));
         exportDao = new DmEvidenceExportDao(tx);
-        TradeReasonSeed.seed(tx);
+        TradeReasonSeed.seed(tx, ORDER, "PRICE_TRIGGERED", "套保执行,含逗号与\"引号\"\r\n第二行换行文本");
+        // 路径 2（M2 击杀专用）：仅引号、无逗号/换行 ⇒ 变异 M2（引号条件摘除）后该行引号裸奔、断言必红。
+        // time_desc 取值域受 ck_trade_reason_time_desc 约束（CHECK 枚举）⇒ 引号专项载体改放 related_type：
+        // related_type 同受 CHECK（8 枚举），故引号专项载体落 reason_text（reasonText2 = 仅引号无逗号）。
+        TradeReasonSeed.seed(tx, ORDER2, "CONTRACT_SIGNED", "仅\"引号\"无逗号");
 
         EvidenceExportService service = new EvidenceExportService(
                 new AuditService(new DmExposureDao(tx), new DmHedgePlanExposureDao(tx),
@@ -179,6 +204,97 @@ class EvidenceExportHandlerCsvTest {
         assertEquals("application/json; charset=UTF-8", r.contentType, "GET 面 JSON 形态不变");
         String body = new String(r.body, StandardCharsets.UTF_8);
         assertTrue(body.contains("\"exportNo\":\"EV20261006120000000\""), "记录须可查：" + body);
+    }
+
+    /**
+     * <b>TE-T193-001 用例①（列数等数）</b>：每条数据行与表头逐列等数——<b>引号感知</b>拆列后断言，
+     * 锁定 {@code CsvRow.render()} 按 {@code CSV_COLUMNS} 逐列渲染的行为（复核变异 M2b：
+     * 列渲染少一列 ⇒ 本用例必红）。
+     *
+     * <p>数据形态覆盖三类真实风险面（拒绝朴素逗号计数的动因）：
+     * <ol>
+     *   <li>多起点 {@code start_id} 逗号拼接串（meta 行，{@code "2001,2002"}）；</li>
+     *   <li>{@code reason_text} 自由文本含逗号 + 引号 + {@code \r\n} 换行（reason 行）；</li>
+     *   <li>{@code node.detail} map 字面量自带逗号（node 行）。</li>
+     * </ol>
+     * 注意 {@code body.split("\r\n")} 本身即引号感知之外的合法拆行前提：单字段内换行被
+     * {@code csvEscape} 包裹在引号内、且被加倍引号包裹的 {@code \r\n} 不会终止 CSV 记录——
+     * 因此先按 RFC 4180 语义逐字符扫描拆行，再逐字段拆列。
+     */
+    @Test
+    @DisplayName("TE-T193-001：数据行与表头逐列等数（引号感知解析；M2b 击杀）")
+    void csvRowsAreAlignedWithHeader() {
+        HttpResult r = call("POST", PATH, "{\"startPointType\":\"EXPOSURE\","
+                + "\"startPointIds\":[\"" + EXP + "\",\"" + EXP2 + "\"]}");
+        assertEquals(200, r.status);
+        String body = new String(r.body, StandardCharsets.UTF_8);
+
+        List<String> records = splitCsvRecords(body);
+        assertTrue(records.size() > 1, "CSV 须含表头 + 数据行");
+        int headerCols = parseCsvRecord(records.get(0)).size();
+        assertEquals(27, headerCols, "表头列数须为 CSV_COLUMNS 全量 27 列");
+        assertEquals("section,start_type,start_id", records.get(0).substring(0,
+                        "section,start_type,start_id".length()),
+                "表头前三列须为 section/start_type/start_id");
+
+        // 逐记录断言列数等数（含 meta 逗号拼接行 / node detail 逗号行 / reason 三重特殊字符行）。
+        for (int i = 1; i < records.size(); i++) {
+            List<String> cols = parseCsvRecord(records.get(i));
+            assertEquals(headerCols, cols.size(),
+                    "第 " + i + " 数据行列数须与表头等数（引号感知拆列）：" + records.get(i));
+        }
+
+        // 语义抽查：meta 行 start_id 列必须是完整拼接串「2001,2002」而非被引号内逗号切断。
+        List<String> meta = parseCsvRecord(records.get(1));
+        assertEquals("meta", meta.get(0), "首数据行 section=meta");
+        assertEquals("2001,2002", meta.get(2), "start_id 须为多起点拼接串（引号包裹不切断）");
+
+        // reason 行三重特殊字符完整透传（未因逗号/引号/换行丢列或丢字符）。
+        String reasonRow = records.stream()
+                .filter(x -> x.startsWith("reason,") || x.startsWith("reason,\""))
+                .findFirst().orElse(null);
+        assertNotNull(reasonRow, "须含 reason 行");
+        List<String> reasonCols = parseCsvRecord(reasonRow);
+        assertEquals("reason", reasonCols.get(0));
+        assertEquals("套保执行,含逗号与\"引号\"\r\n第二行换行文本", reasonCols.get(24),
+                "reason_text 列（第 25 列）须原样透传逗号/引号/换行");
+
+        // 断点行（EXP2 无绑定链路 ⇒ break 显式落行，R-AUDIT-2）。
+        assertTrue(records.stream().anyMatch(x -> x.startsWith("break,")), "EXP2 无链路 ⇒ 须含 break 行");
+    }
+
+    /**
+     * <b>TE-T193-001 用例②（csvEscape 行为锁定）</b>：构造含逗号 / 引号 / {@code \r\n} 的数据行，
+     * 按实现实际行为断言输出原文形态（行为本身不改）——引号包裹、引号加倍、换行原样保留。
+     * 变异 M2（csvEscape 引号条件摘除）⇒ 本用例必红；M1（表头摘除）由既有
+     * {@code postReturnsCsvDirectly} 承载。
+     */
+    @Test
+    @DisplayName("TE-T193-001：csvEscape 转义行为锁定（M2 击杀）")
+    void csvEscapeQuotesFieldsWithCommaQuoteNewline() {
+        HttpResult r = call("POST", PATH, "{\"startPointType\":\"EXPOSURE\","
+                + "\"startPointIds\":[\"" + EXP + "\",\"" + EXP2 + "\"]}");
+        assertEquals(200, r.status);
+        String body = new String(r.body, StandardCharsets.UTF_8);
+
+        // ① 路径 2 reason 行（reason_text = 仅引号无逗号）：M2 专门形态——
+        //    含引号但无逗号/换行；引号条件摘除后该字段引号裸奔、字段内容失真。
+        List<String> reasonRow2 = splitCsvRecords(body).stream()
+                .map(EvidenceExportHandlerCsvTest::parseCsvRecord)
+                .filter(x -> "reason".equals(x.get(0)) && "4002".equals(x.get(19)))
+                .findFirst().orElse(null);
+        assertNotNull(reasonRow2, "须含 order2 的 reason 行（引号专项载体）");
+        assertEquals("仅\"引号\"无逗号", reasonRow2.get(24),
+                "reason_text 仅引号须原样还原（引号加倍可逆）");
+
+        // ② 原文形态抽查：引号包裹 + 引号加倍在原始字节层可见（非仅解析层等价）。
+        //    reason_text = 仅"引号"无逗号 ⇒ csvEscape 输出 "仅""引号""无逗号"（包裹 + 加倍）。
+        //    该字段无逗号/换行 ⇒ 只因引号触发包裹，正是 M2 摘除「contains("\"")」条件的靶点。
+        assertTrue(body.contains("\"仅\"\"引号\"\"无逗号\""),
+                "仅引号字段须输出「包裹 + 引号加倍」原文形态（M2 靶点）：" + body);
+        //    reason_text 含逗号 ⇒ 包裹；内部引号加倍 ⇒ 原文形态 "...""引号""..."。
+        assertTrue(body.contains(",\"套保执行,含逗号与\"\"引号\"\"\r\n第二行换行文本\","),
+                "含逗号+引号+换行字段须输出包裹+加倍原文形态");
     }
 
     // ------------------------------------------------------------ 夹具
@@ -244,15 +360,15 @@ class EvidenceExportHandlerCsvTest {
 
     /** 交易理由种子（沿用 {@code EvidenceExportServiceTest#seedReason} 同构，独立成静态夹具）。 */
     private static final class TradeReasonSeed {
-        static void seed(TxTemplate tx) {
+        static void seed(TxTemplate tx, long tradeOrderId, String timeDesc, String reasonText) {
             com.hedgeguard.dao.entity.TradeReason reason = new com.hedgeguard.dao.entity.TradeReason();
             reason.subAccountId = SUB;
-            reason.tradeOrderId = ORDER;
+            reason.tradeOrderId = tradeOrderId;
             reason.relatedType = "PLAN_EXECUTION";
             reason.relatedPlanId = PLAN;
             reason.relatedExposureId = EXP;
-            reason.timeDesc = "PRICE_TRIGGERED";
-            reason.reasonText = "套保执行";
+            reason.timeDesc = timeDesc;
+            reason.reasonText = reasonText;
             reason.forcedByFreqAlert = "N";
             reason.relatedObjectMissingFlag = "N";
             reason.reasonMissingFlag = "N";
@@ -261,6 +377,77 @@ class EvidenceExportHandlerCsvTest {
             reason.fillTime = TS;
             tx.inTransaction(connection -> new DmTradeReasonDao(tx).insert(reason, OPERATOR));
         }
+    }
+
+    // ------------------------------------------------ 引号感知 CSV 解析（RFC 4180 子集，TE-T193-001）
+
+    /**
+     * 按引号感知语义把 CSV 文本拆为记录（{@code \r\n} 记录分隔；引号内 {@code \r\n} 不分隔）。
+     * 输入由实现 {@code render()} 产出：每记录以 {@code \r\n} 结尾（含末行）。
+     */
+    private static List<String> splitCsvRecords(String body) {
+        List<String> out = new ArrayList<>();
+        StringBuilder cur = new StringBuilder();
+        boolean inQuotes = false;
+        for (int i = 0; i < body.length(); i++) {
+            char c = body.charAt(i);
+            if (inQuotes) {
+                cur.append(c);
+                if (c == '"') {
+                    // 加倍引号 = 字段内字面引号；单引号 = 闭合。
+                    if (i + 1 < body.length() && body.charAt(i + 1) == '"') {
+                        cur.append('"');
+                        i++;
+                    } else {
+                        inQuotes = false;
+                    }
+                }
+            } else if (c == '"') {
+                inQuotes = true;
+                cur.append(c);
+            } else if (c == '\r' && i + 1 < body.length() && body.charAt(i + 1) == '\n') {
+                out.add(cur.toString());
+                cur.setLength(0);
+                i++;
+            } else {
+                cur.append(c);
+            }
+        }
+        if (cur.length() > 0) {
+            out.add(cur.toString());
+        }
+        return out;
+    }
+
+    /** 引号感知拆列：返回字段值列表（去包裹引号、引号加倍还原）。 */
+    private static List<String> parseCsvRecord(String record) {
+        List<String> out = new ArrayList<>();
+        StringBuilder cur = new StringBuilder();
+        boolean inQuotes = false;
+        for (int i = 0; i < record.length(); i++) {
+            char c = record.charAt(i);
+            if (inQuotes) {
+                if (c == '"') {
+                    if (i + 1 < record.length() && record.charAt(i + 1) == '"') {
+                        cur.append('"');
+                        i++;
+                    } else {
+                        inQuotes = false;
+                    }
+                } else {
+                    cur.append(c);
+                }
+            } else if (c == '"') {
+                inQuotes = true;
+            } else if (c == ',') {
+                out.add(cur.toString());
+                cur.setLength(0);
+            } else {
+                cur.append(c);
+            }
+        }
+        out.add(cur.toString());
+        return out;
     }
 
     private static java.util.List<String> schemaScripts() {
