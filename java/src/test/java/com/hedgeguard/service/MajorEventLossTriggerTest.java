@@ -176,13 +176,19 @@ class MajorEventLossTriggerTest {
     /** 播种一行结算盈亏（模拟未来结算链写入方；本单测试的<b>输入数据</b>，非触发行）。 */
     private void seedPnl(int subAccountId, LocalDate date, long cycleId,
                          String instrumentId, String amount) {
+        seedPnlOfType(subAccountId, date, cycleId, instrumentId, amount, "CLOSE_REALIZED");
+    }
+
+    /** 播种一行指定 pnl_type 的结算盈亏（类型 = ck_t_settle_pnl_pnl_type 冻结域字面量）。 */
+    private void seedPnlOfType(int subAccountId, LocalDate date, long cycleId,
+                               String instrumentId, String amount, String pnlType) {
         SettlePnl p = new SettlePnl();
         p.subAccountId = subAccountId;
         p.settleCycleId = cycleId;
         p.tradeDate = date;
         p.instrumentId = instrumentId;
         p.productId = PRODUCT;
-        p.pnlType = "CLOSE_REALIZED";
+        p.pnlType = pnlType;
         p.amount = new BigDecimal(amount);
         settlePnlDao.insert(p, SYSTEM_OP);
     }
@@ -267,6 +273,39 @@ class MajorEventLossTriggerTest {
         assertEquals(1, t.evaluateSettled(DAY));
         assertEquals(1, t.evaluateSettled(next), "次日应自然重置、可再触发");
         assertEquals(2, majorRows().size());
+    }
+
+    // ---------------- T-190 连带（T-188 裁定记⑦，用户 2026-10-11）：SETTLED 轨排除 FLOAT_UNREALIZED
+
+    @Test
+    @DisplayName("T-190/O-2：FLOAT 行存在但不影响 SETTLED 触发判定——仅未实现亏损越限 ⇒ 不触发（已实现语义）")
+    void settledTrackIgnoresFloatUnrealizedRows() {
+        SettleCycle c = seedCycle(SUB, DAY);
+        // 已实现侧小额（-60000，未越限）+ 未实现侧大额（-150000，若误计入必越限）
+        seedPnl(SUB, DAY, c.id, "cu2612", "-60000");
+        seedPnlOfType(SUB, DAY, c.id, "cu2612", "-150000", "FLOAT_UNREALIZED");
+
+        assertEquals(0, trigger().evaluateSettled(DAY),
+                "FLOAT_UNREALIZED（未实现）不得计入 SETTLED 轨「当日已实现亏损」求和");
+        assertTrue(majorRows().isEmpty(), "不得落行（未实现亏损由轨 2 INTRADAY_MIRROR 覆盖）");
+    }
+
+    @Test
+    @DisplayName("T-190/O-2：FLOAT 行不影响 SETTLED 求和快照值——触发时 event_desc 仅含已实现合计")
+    void settledTrackSnapshotExcludesFloatAmount() {
+        SettleCycle c = seedCycle(SUB, DAY);
+        // 已实现侧越限（-150000）+ 未实现侧大额（-999999，若误计入则快照与判定全变）
+        seedPnl(SUB, DAY, c.id, "cu2612", "-100000");
+        seedPnl(SUB, DAY, c.id, "au2612", "-50000");
+        seedPnlOfType(SUB, DAY, c.id, "cu2612", "-999999", "FLOAT_UNREALIZED");
+
+        assertEquals(1, trigger().evaluateSettled(DAY), "已实现合计 -150000 越限 ⇒ 触发");
+        Map<String, Object> row = singleRow();
+        String desc = String.valueOf(row.get("event_desc"));
+        assertTrue(desc.contains("-150000"), "快照值应恰为已实现合计：" + desc);
+        assertFalse(desc.contains("999999"), "快照值不得混入 FLOAT 未实现金额：" + desc);
+        // FLOAT 行本身仍留在 t_settle_pnl（落库不受影响，仅不计入求和）
+        assertEquals(3, settlePnlDao.findByTradeDate(DAY).size(), "FLOAT 行仍照常落库（3 行不删）");
     }
 
     // ================================================================ 轨 2：盘中镜像（INTRADAY_MIRROR）

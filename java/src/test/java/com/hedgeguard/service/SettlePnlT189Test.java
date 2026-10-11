@@ -333,9 +333,9 @@ class SettlePnlT189Test {
     @Test
     @DisplayName("幂等（跳过式）：同 uk 键已存在 ⇒ 转录跳过不重插（仍恰 1 行、原值不被覆盖）")
     void settleRerunIdempotent() {
-        // ⚠️ 端到端二次结算当前被既有 uk_settle_position_key 崩溃阻断（applyPositionSplit
-        // 无条件重插；T-047 域既有缺陷，本单不修）⇒ 在可达粒度验证跳过式幂等：
         // 预置同键盈亏行（uk_settle_pnl_key 命中）⇒ 结算转录须跳过、不得插入第二行。
+        // （T-190 修复后未关账结算单已可端到端重跑——持仓/资金幂等见 SettleRerunT190Test；
+        // 本用例保留预置形态，锚定「已存在同键行不被转录覆盖」的跳过式语义本身。）
         SettleCycle c = new SettleCycle();
         c.subAccountId = SUB_A;
         c.settleNo = "SC-T189-PRESEEDED";
@@ -577,31 +577,39 @@ class SettlePnlT189Test {
     }
 
     @Test
-    @DisplayName("T-188 轨1 全链路（无替身）：导入持仓携 positionProfit 亏损 -150000 ⇒ 生产路径落 FLOAT 负值行 ⇒ 轨1 触发 ⇒ 端点读出")
+    @DisplayName("T-188 轨1 全链路（无替身）：导入持仓携 closeProfit 亏损 -150000 ⇒ 生产路径落 CLOSE 负值行 ⇒ 轨1 触发 ⇒ 端点读出；FLOAT 行共存不计入（T-190/O-2）")
     void lossSideFloatFullChainViaProductionPath() {
         MajorEventLossThresholdTrigger trigger = new MajorEventLossThresholdTrigger(
                 new DmMajorEventDao(tx), settlePnlDao, () -> null, SYSTEM_OP);
         service = newService(trigger);
 
         SettleService.CtpDataRequest req = ctpRequest();
-        req.positions.get(0).positionProfit = "-150000"; // 亏损侧（负值），越默认阈值 100000
+        // 已实现亏损（轨 1 SETTLED 判定依据）：closeProfit = CloseProfit 逐字转录 → CLOSE_REALIZED
+        req.positions.get(0).closeProfit = "-150000"; // 亏损侧（负值），越默认阈值 100000
+        // 未实现亏损（T-190/O-2：FLOAT 行照常落库，但不计入 SETTLED 轨求和；轨 2 镜像覆盖）
+        req.positions.get(0).positionProfit = "-200.00";
         service.ingestCtpData(req, SYSTEM_OP);
         List<SettleCycle> cycles = service.runSettlement(settlementInput(), SYSTEM_OP);
         assertFalse(cycles.isEmpty(), "结算应产出结算单");
 
         // t_settle_pnl 由生产路径真实落行（不预插替身）
+        List<SettlePnl> closes = closeRows();
+        assertEquals(1, closes.size(), "CLOSE 行应由结算转录生产路径产生");
+        assertEquals(0, closes.get(0).amount.compareTo(new BigDecimal("-150000")));
         List<SettlePnl> floats = floatRows();
-        assertEquals(1, floats.size(), "FLOAT 行应由结算转录生产路径产生");
-        assertEquals(0, floats.get(0).amount.compareTo(new BigDecimal("-150000")));
+        assertEquals(1, floats.size(), "FLOAT 行仍应照常落库（T-190/O-2：落库不排除）");
+        assertEquals(0, floats.get(0).amount.compareTo(new BigDecimal("-200.00")));
 
-        // 轨 1 触发（结算事务提交后接线被调用）
+        // 轨 1 触发（结算事务提交后接线被调用）：求和仅含已实现侧 -150000
         List<Map<String, Object>> majorRows = engine.table("t_major_event").rows;
-        assertEquals(1, majorRows.size(), "结算完成应触发 1 行重大事项");
+        assertEquals(1, majorRows.size(), "结算完成应触发 1 行重大事项（FLOAT -200 不影响判定与快照）");
         Map<String, Object> row = majorRows.get(0);
         assertEquals("LOSS_THRESHOLD", row.get("event_type"));
         assertEquals("TRIGGERED", row.get("status"));
         assertEquals("SETTLED", row.get("trigger_source"));
         assertEquals("LOSS-20261010-" + SUB_A + "-STLD", row.get("event_no"));
+        assertTrue(String.valueOf(row.get("event_desc")).contains("-150000"),
+                "快照值应为已实现合计：" + row.get("event_desc"));
 
         // 端点读出：GET /api/v1/audit/report/major-event
         AuditReportService reportService = new AuditReportService(null, new DmMajorEventDao(tx),

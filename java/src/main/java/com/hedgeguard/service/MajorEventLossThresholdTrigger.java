@@ -32,7 +32,9 @@ import java.util.logging.Logger;
  * 既有 major-event 报告契约不改）：
  * <ol>
  *   <li><b>轨 1 · EOD 已实现（记账级，source=SETTLED）</b>：{@code t_settle_pnl} 按
- *       子账户当日 {@code amount} 求和，亏损绝对值<b>严格大于</b>阈值 ⇒ 触发。
+ *       子账户当日 {@code amount} 求和（<b>排除 {@code FLOAT_UNREALIZED}</b>——「已实现」语义，
+ *       用户 2026-10-11 裁定；FLOAT 行仍照常落库，EOD 未实现亏损由轨 2 覆盖），亏损绝对值
+ *       <b>严格大于</b>阈值 ⇒ 触发。
  *       接线点 = {@code SettleService.runSettlement} 结算落库<b>事务提交后</b>（真实结算流程点；
  *       触发失败不阻断结算主流程）。⚠️ 诚实披露：当前生产<b>无 {@code t_settle_pnl} 写入方</b>
  *       （{@code SettleService} 注入 {@code pnlDao} 但从未 insert，既有缺口）⇒ 该轨在写入方
@@ -119,6 +121,10 @@ public final class MajorEventLossThresholdTrigger implements RiskMetricSink {
      * 轨 1（EOD 已实现，记账级）：对 {@code t_settle_pnl} 按子账户当日 {@code amount} 求和，
      * 亏损绝对值严格大于阈值的子账户各触发 1 行（{@code source=SETTLED}）。
      *
+     * <p><b>求和口径（用户 2026-10-11 裁定，{@code T-188} 裁定记⑦ / {@code T-190} 连带）</b>：
+     * 「当日已实现亏损」语义 ⇒ <b>排除 {@code FLOAT_UNREALIZED}（未实现）行</b>——FLOAT 行仍由
+     * 结算链照常落库（T-189），仅不计入本轨求和；EOD 未实现亏损由轨 2（盘中镜像，提醒级）覆盖。</p>
+     *
      * <p>由 {@code SettleService.runSettlement} 在结算落库事务提交后调用（真实结算流程点）；
      * 本方法抛出的任何 {@link RuntimeException} 由调用侧捕获并记日志，不阻断结算主流程。
      *
@@ -132,6 +138,9 @@ public final class MajorEventLossThresholdTrigger implements RiskMetricSink {
         for (SettlePnl p : rows) {
             if (p.subAccountId == null || p.amount == null) {
                 continue;
+            }
+            if (SettleService.PNL_TYPE_FLOAT_UNREALIZED.equals(p.pnlType)) {
+                continue; // T-188 裁定记⑦：未实现盈亏不计入「当日已实现亏损」（FLOAT 行仍照常落库）
             }
             lossBySub.merge(p.subAccountId, p.amount, BigDecimal::add);
         }
