@@ -503,22 +503,11 @@ public final class SettleService {
                 existingPnlKeys.add(pnlKey(p.tradeDate, p.subAccountId, p.instrumentId, p.pnlType));
             }
             // T-190：持仓/资金幂等键集（uk_settle_position_key / uk_settle_fund_date_sub）。
-            // 重复结算（未关账）此前无条件重插 ⇒ 真库必违 uk 崩溃（InMemory 引擎不 enforce uk 故
-            // 既有测试假绿，te-verify-t189 O-4①）；处置 = 跳过式（已存在跳过、不重插、不重算），
-            // 取舍论证见 applyPositionSplit/applyFund javadoc。
-            Set<String> existingPositionKeys = new LinkedHashSet<>();
-            for (SettlePosition p : positionDao.findPage(
-                    PageQuery.of("1", "100", "id,asc", "id"),
-                    "trade_date = ?", Collections.singletonList((Object) date)).items()) {
-                existingPositionKeys.add(positionKey(p.tradeDate, p.subAccountId,
-                        p.instrumentId, p.direction, p.positionType));
-            }
-            Set<String> existingFundKeys = new LinkedHashSet<>();
-            for (SettleFund f : fundDao.findPage(
-                    PageQuery.of("1", "100", "id,asc", "id"),
-                    "trade_date = ?", Collections.singletonList((Object) date)).items()) {
-                existingFundKeys.add(fundKey(f.tradeDate, f.subAccountId));
-            }
+            // 重复结算（未关账）此前无条件重插 ⇒ 真库必违 uk 崩溃（te-verify-t189 O-4①）；
+            // 处置 = 跳过式（已存在跳过、不重插、不重算），取舍论证见
+            // applyPositionSplit/applyFund javadoc。键集按子账户域内查询（applyPositionSplit/
+            // applyFund 内逐户补载，见其 javadoc），保证「子账户域内完备」：
+            // 守卫漏键 ⇒ 重插 ⇒ uk 崩溃复归，故不采用全局单页预载（多子账户下会截断）。
 
             List<SettleCycle> out = new ArrayList<>();
             for (Integer subId : subs) {
@@ -530,9 +519,8 @@ public final class SettleService {
                 if (cycle == null) {
                     continue; // 已确认关账，拒绝重算（PERIOD_CLOSED 由 upsertCycle 抛）
                 }
-                applyPositionSplit(cycle, posBySub.getOrDefault(subId, Collections.emptyList()),
-                        existingPositionKeys, operatorId);
-                applyFund(cycle, fundBySub.get(subId), existingFundKeys, operatorId);
+                applyPositionSplit(cycle, posBySub.getOrDefault(subId, Collections.emptyList()), operatorId);
+                applyFund(cycle, fundBySub.get(subId), operatorId);
                 // T-189：结算盈亏明细转录（同结算事务：结算成功 ⇔ 盈亏明细落库原子生效；
                 // 轨 1 触发器在事务提交后读取，见 evaluateSettled 接线点）
                 transcribeCommissionPnl(cycle, posBySub, commissionByInstrument, subsByInstrument,
@@ -612,9 +600,22 @@ public final class SettleService {
      * 已确认 CTP 日终数据（uk_ctp_settle_batch_date 保证同日同源一份）⇒ 重跑输入恒同、
      * 跳过式已满足重跑安全；副作用 = 若关账前输入确实变化，旧明细行保留、仅新增键补插
      * （重跑姿态披露，与 T-189 转录同取舍）。</p>
+     *
+     * <p><b>键集完备性</b>：幂等键集按<b>子账户域</b>（trade_date + sub_account_id）查询——
+     * uk 键含 sub_account_id，每户行数 = 合约×方向×仓型，天然远小于单页上限 100；若按日全局
+     * 单页预载，多子账户下行数超限截断 ⇒ 漏键重插 ⇒ uk 崩溃复归。</p>
      */
-    private void applyPositionSplit(SettleCycle cycle, List<SystemPositionRow> rows,
-                                    Set<String> existingPositionKeys, long operatorId) {
+    private void applyPositionSplit(SettleCycle cycle, List<SystemPositionRow> rows, long operatorId) {
+        // 幂等键集：本子账户当日已存在的持仓行（子账户域内完备：uk 键含 sub_account_id，
+        // 每户行数 = 合约×方向×仓型，天然远小于单页上限 100；全局按日单页会截断致漏键重插）
+        Set<String> existingPositionKeys = new LinkedHashSet<>();
+        for (SettlePosition p : positionDao.findPage(
+                PageQuery.of("1", "100", "id,asc", "id"),
+                "trade_date = ? AND sub_account_id = ?",
+                Arrays.asList(cycle.tradeDate, cycle.subAccountId)).items()) {
+            existingPositionKeys.add(positionKey(p.tradeDate, p.subAccountId,
+                    p.instrumentId, p.direction, p.positionType));
+        }
         Map<String, BigDecimal> agg = new TreeMap<>();
         for (SystemPositionRow r : rows) {
             String key = r.instrumentId + "|" + r.direction + "|" + r.positionType;
@@ -658,11 +659,11 @@ public final class SettleService {
      * 资金落 {@code t_settle_fund}（uk_settle_fund_date_sub：date|sub）。
      *
      * <p><b>幂等（{@code T-190}）</b>：跳过式——同 uk 键已存在即跳过插入（不重插、不重算），
-     * 与 {@link #applyPositionSplit} 同取舍（见其 javadoc）。结算单六项仍按本次输入回填
+     * 与 {@link #applyPositionSplit} 同取舍（见其 javadoc）。uk 恒 1 行/户 ⇒ 存在性按
+     * 子账户域直接查询（完备）。结算单六项仍按本次输入回填
      * {@code t_settle_cycle}（该表经 {@code upsertCycle} 天然幂等，重跑输入恒同时六项不变）。</p>
      */
-    private void applyFund(SettleCycle cycle, SystemFundRow row, Set<String> existingFundKeys,
-                           long operatorId) {
+    private void applyFund(SettleCycle cycle, SystemFundRow row, long operatorId) {
         SettleFund f = new SettleFund();
         f.subAccountId = cycle.subAccountId;
         f.settleCycleId = cycle.id;
@@ -706,11 +707,16 @@ public final class SettleService {
             f.attributionSource = row.attributionSource == null ? "LEDGER" : row.attributionSource;
         }
         f.fundLedgerId = null;
-        if (existingFundKeys.contains(fundKey(f.tradeDate, f.subAccountId))) {
-            // 幂等：重复结算跳过资金明细插入（不重插、不重算，见方法 javadoc）；六项仍回填结算单
+        // 幂等：同 uk 键（uk_settle_fund_date_sub = date|sub）已存在即跳过插入（不重插、不重算，
+        // 见方法 javadoc）；uk 恒 1 行/户 ⇒ 存在性按子账户域直接查询（完备，无截断问题）
+        boolean fundRowExists = !fundDao.findPage(
+                PageQuery.of("1", "10", "id,asc", "id"),
+                "trade_date = ? AND sub_account_id = ?",
+                Arrays.asList(cycle.tradeDate, cycle.subAccountId)).items().isEmpty();
+        if (fundRowExists) {
+            // 六项仍回填结算单（该表经 upsertCycle 天然幂等，重跑输入恒同时六项不变）
         } else {
             fundDao.insert(f, operatorId);
-            existingFundKeys.add(fundKey(f.tradeDate, f.subAccountId));
         }
 
         // 结算资金与 FUND 台账勾稽（R-SETTLE-8）：不等即记差异（并成为加总差异的候选归属）
@@ -916,11 +922,6 @@ public final class SettleService {
     private static String positionKey(LocalDate date, Integer subAccountId,
                                       String instrumentId, String direction, String positionType) {
         return date + "|" + subAccountId + "|" + instrumentId + "|" + direction + "|" + positionType;
-    }
-
-    /** 资金行幂等键（对齐 uk_settle_fund_date_sub；{@code T-190}）。 */
-    private static String fundKey(LocalDate date, Integer subAccountId) {
-        return date + "|" + subAccountId;
     }
 
     private void recordDifference(SettleCycle cycle, Long reconcileRecordId, String diffType, String kind,
