@@ -120,15 +120,25 @@ class EvidenceExportServiceTest {
         EvidenceExportResult r = service.export(req("EXPOSURE", String.valueOf(EXP)), OPERATOR);
 
         assertEquals(AuditService.COMPLETE, r.chainIntegrity, "完整链应为 COMPLETE：" + r.breakList);
+        // T-193（TE-T069-003）：内容由纯文本改 CSV（表头行+数据行，section 列区分行类别）。
+        // 旧断言锁定纯文本段头「[EXPOSURE]」等，随载体变更同步订正为 CSV 形状（等价语义：六段全出现）。
+        String[] rows = r.content.split("\r\n");
+        assertTrue(rows.length >= 1 && rows[0].startsWith("section,"), "首行须为 CSV 表头：" + rows[0]);
         for (String seg : Arrays.asList("[EXPOSURE]", "[HEDGE_PLAN]", "[APPROVAL]", "[TRADE]",
                 "[SETTLE]", "[VOUCHER]")) {
-            assertTrue(r.content.contains(seg), "导出内容缺段：" + seg);
+            final String segName = seg.substring(1, seg.length() - 1);
+            assertTrue(Arrays.stream(rows).anyMatch(row -> row.contains("," + segName + ",")),
+                    "导出内容缺段：" + seg);
         }
-        assertTrue(r.content.contains("子账户=" + SUB), "缺子账户维度");
-        assertTrue(r.content.contains("双侧盈亏") && r.content.contains("实货盈亏=800")
-                && r.content.contains("衍生品盈亏=1200"), "缺双侧盈亏：" + r.content);
-        assertTrue(r.content.contains("交易理由") && r.content.contains("PLAN_EXECUTION"),
-                "缺交易理由");
+        assertTrue(Arrays.stream(rows).anyMatch(row -> row.startsWith("node,")
+                        && row.contains("," + SUB + ",")),
+                "缺子账户维度（node 行 sub_account_id 列）");
+        assertTrue(Arrays.stream(rows).anyMatch(row -> row.startsWith("dual_pnl,")
+                        && row.contains(",800,") && row.contains(",1200,")),
+                "缺双侧盈亏（dual_pnl 行）：" + r.content);
+        assertTrue(Arrays.stream(rows).anyMatch(row -> row.startsWith("reason,")
+                        && row.contains("PLAN_EXECUTION")),
+                "缺交易理由（reason 行）");
         assertTrue(r.content.contains(EvidenceExportService.MARK_COMPLETE));
 
         EvidenceExport ex = exportDao.findByExportNo(r.exportNo);
@@ -153,7 +163,9 @@ class EvidenceExportServiceTest {
         assertEquals(AuditService.HAS_BREAK, r.chainIntegrity);
         assertTrue(r.content.contains(EvidenceExportService.MARK_INCOMPLETE), "应显式标注链条不完整");
         assertTrue(!r.breakList.isEmpty(), "断点清单非空");
-        assertTrue(r.content.contains("断点清单"));
+        // T-193：断点清单由旧纯文本「断点清单:」字面改为 CSV break 行承载（等价语义：断点显式落行）。
+        assertTrue(Arrays.stream(r.content.split("\r\n")).anyMatch(row -> row.startsWith("break,")),
+                "断点须显式落 CSV break 行：" + r.content);
         assertEquals("HAS_BREAK", exportDao.findByExportNo(r.exportNo).chainIntegrity);
     }
 

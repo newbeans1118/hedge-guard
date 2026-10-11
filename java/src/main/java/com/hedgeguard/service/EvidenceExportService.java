@@ -30,7 +30,7 @@ import java.util.Set;
  *   <li><b>防篡改校验</b>：{@link AuditLogService#assertChainIntact} 未通过 ⇒ {@code 10018} <b>阻断导出</b>（{@code FR-AUDIT-10} 验收 2）；</li>
  *   <li><b>先写审计日志</b>：写失败 ⇒ {@code 10017} <b>中断本次导出</b>（{@code R-AUDIT-4}「不记录即不允许发生」）；</li>
  *   <li><b>落导出记录</b>：{@code t_evidence_export}（{@code audit_log_id} 关联先写的日志）；</li>
- *   <li><b>组装文件</b>：六段全链 + 子账户维度 + 双侧盈亏 + 交易理由；断点<b>显式标注「链条不完整」及断点清单</b>（{@code R-AUDIT-2}）。</li>
+ *   <li><b>组装文件</b>：六段全链 + 子账户维度 + 双侧盈亏 + 交易理由；断点<b>显式标注「链条不完整」及断点清单</b>（{@code R-AUDIT-2}）。文件形态自 {@code T-193}（{@code TE-T069-003} 修复）起为 <b>CSV</b>（表头行 + 数据行，单表宽列、{@code section} 列区分行类别），由 Handler 以 {@code text/csv} 直返；</li>
  * </ol>
  *
  * <p><b>只读其它模块（{@code R-AUDIT-6}）</b>：遍历复用冻结的 {@link AuditService}（{@code T-067}），
@@ -55,6 +55,22 @@ public final class EvidenceExportService {
     public static final String MARK_COMPLETE = "链条完整";
 
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
+
+    /**
+     * CSV 列集（{@code T-193}；单表宽列形态：全部段共用一 schema，{@code section} 列区分行类别；
+     * 对齐 {@code /spot/price/export}、{@code /product/export} 先例体例——表头行 + 数据行、
+     * {@code \r\n} 换行、含逗号/引号字段按 CSV 规则加引号）。
+     */
+    private static final String[] CSV_COLUMNS = {
+            "section", "start_type", "start_id", "date_from", "date_to", "sub_account_scope",
+            "generated_time", "generated_by", "integrity", "integrity_mark",
+            "segment", "sub_account_id", "object_type", "object_id", "object_no", "status", "detail",
+            "physical_pnl", "derivative_pnl",
+            "reason_trade_order_id", "reason_related_type", "reason_plan_id", "reason_exposure_id",
+            "reason_time_desc", "reason_text", "reason_missing_flag", "related_missing_flag"};
+
+    /** CSV 表头行（由 {@link #CSV_COLUMNS} 派生，保证行拼装与列集同源）。 */
+    private static final String CSV_HEADER = String.join(",", CSV_COLUMNS);
 
     private final AuditService auditService;
     private final AuditLogService auditLogService;
@@ -221,44 +237,57 @@ public final class EvidenceExportService {
         return out;
     }
 
-    /** 渲染导出文件（纯文本；断点显式标注）。 */
+    /**
+     * 渲染导出文件（CSV 直返形态，{@code T-193} / {@code TE-T069-003} 修复）。
+     *
+     * <p>数据源与流程与修复前纯文本形态完全同源（六段全链遍历 + 双侧盈亏 + 交易理由 +
+     * 断点显式标注），仅<b>输出载体</b>由纯文本改为 CSV：表头行 + 数据行（元信息行 / 断点行 /
+     * 链节点行 / 盈亏行 / 理由行共用单表宽列 schema，按 {@code section} 列区分）。
+     * 转义体例对齐 {@code /spot/price/export}、{@code /product/export} 先例。
+     */
     private String render(String type, EvidenceExportRequest req,
                           List<AuditService.TraceResult> traces, String integrity,
                           List<String> breaks, long operatorId) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("# 审计证据链导出（FR-AUDIT-8）\n");
-        sb.append("起点类型: ").append(type).append('\n');
-        sb.append("起点标识: ").append(String.join(",", req.startPointIds)).append('\n');
-        sb.append("时间范围: ").append(req.dateFrom).append(" ~ ").append(req.dateTo).append('\n');
-        sb.append("子账户范围: ")
-                .append(req.subAccountIds == null ? "全部可见" : req.subAccountIds).append('\n');
-        sb.append("生成时间: ").append(Clocks.now()).append('\n');
-        sb.append("生成人: ").append(operatorId).append('\n');
-        sb.append("完整性: ").append(integrity).append('\n');
-        if (!AuditService.COMPLETE.equals(integrity)) {
-            sb.append(">>> ").append(MARK_INCOMPLETE).append("\n");
-        } else {
-            sb.append(">>> ").append(MARK_COMPLETE).append("\n");
+        List<String> lines = new ArrayList<>();
+        lines.add(CSV_HEADER);
+
+        // 元信息行（section=meta；完整性标注列承载 R-AUDIT-2 红线：断点显式标注，不得静默为完整）。
+        lines.add(new CsvRow()
+                .put("section", "meta")
+                .put("start_type", type)
+                .put("start_id", String.join(",", req.startPointIds))
+                .put("date_from", req.dateFrom == null ? "" : req.dateFrom.toString())
+                .put("date_to", req.dateTo == null ? "" : req.dateTo.toString())
+                .put("sub_account_scope",
+                        req.subAccountIds == null ? "ALL_VISIBLE" : req.subAccountIds.toString())
+                .put("generated_time", Clocks.now().toString())
+                .put("generated_by", String.valueOf(operatorId))
+                .put("integrity", integrity)
+                .put("integrity_mark",
+                        AuditService.COMPLETE.equals(integrity) ? MARK_COMPLETE : MARK_INCOMPLETE)
+                .render());
+        // 断点行（section=break；R-AUDIT-2：断点清单显式落行，绝不粉饰）。
+        for (String b : breaks) {
+            lines.add(new CsvRow().put("section", "break").put("detail", b).render());
         }
-        if (!breaks.isEmpty()) {
-            sb.append("断点清单:\n");
-            for (String b : breaks) {
-                sb.append("  - ").append(b).append('\n');
-            }
-        }
+
         List<Integer> visible = authService == null ? null : authService.visibleSubAccountIds(operatorId);
         boolean cross = visible != null && visible.contains(SubAccountScope.ALL_ACCOUNT_SENTINEL);
         Map<Integer, List<TradeReason>> reasonsBySub = new LinkedHashMap<>();
         for (AuditService.TraceResult tr : traces) {
-            sb.append("\n== 追溯链: ").append(tr.startType).append('/').append(tr.startId)
-                    .append(" 完整性=").append(tr.chainIntegrity).append(" ==\n");
             for (AuditService.TraceNode n : tr.nodes) {
-                sb.append('[').append(n.segment).append("] ").append(n.objectType)
-                        .append(" id=").append(n.objectId)
-                        .append(" no=").append(n.objectNo)
-                        .append(" 子账户=").append(n.subAccountId)
-                        .append(" 状态=").append(n.status)
-                        .append(" 明细=").append(n.detail).append('\n');
+                lines.add(new CsvRow()
+                        .put("section", "node")
+                        .put("start_type", tr.startType)
+                        .put("start_id", tr.startId)
+                        .put("segment", n.segment)
+                        .put("sub_account_id", n.subAccountId == null ? "" : String.valueOf(n.subAccountId))
+                        .put("object_type", n.objectType)
+                        .put("object_id", n.objectId)
+                        .put("object_no", n.objectNo)
+                        .put("status", n.status)
+                        .put("detail", n.detail == null ? "" : n.detail.toString())
+                        .render());
                 if ("t_trade_order".equals(n.objectType)) {
                     Long orderId = parseLong(n.objectId);
                     TradeReason reason = orderId == null ? null : tradeReasonDao.findByTradeOrderId(orderId);
@@ -268,8 +297,7 @@ public final class EvidenceExportService {
                 }
             }
         }
-        // 双侧盈亏段（FR-AUDIT-8 验收 1）。
-        sb.append("\n== 双侧盈亏 ==\n");
+        // 双侧盈亏段（FR-AUDIT-8 验收 1；数据缺失标注「数据缺口」不伪造数值，R-AUDIT-2）。
         Set<Integer> subs = new LinkedHashSet<>();
         for (AuditService.TraceResult tr : traces) {
             for (AuditService.TraceNode n : tr.nodes) {
@@ -278,46 +306,83 @@ public final class EvidenceExportService {
                 }
             }
         }
-        if (subs.isEmpty()) {
-            sb.append("（无可归属子账户）\n");
-        }
         for (Integer sub : subs) {
+            CsvRow pnl = new CsvRow()
+                    .put("section", "dual_pnl")
+                    .put("sub_account_id", String.valueOf(sub));
             if (dualPnlProvider == null) {
-                sb.append("子账户=").append(sub)
-                        .append(" 实货盈亏=数据缺口(ACCT T-076+未交付) 衍生品盈亏=数据缺口\n");
+                pnl.put("physical_pnl", "数据缺口(ACCT T-076+未交付)")
+                        .put("derivative_pnl", "数据缺口");
             } else {
                 DualPnl dp = dualPnlProvider.forSubAccount(sub, req.dateFrom, req.dateTo);
                 if (dp == null) {
-                    sb.append("子账户=").append(sub).append(" 实货盈亏=数据缺口 衍生品盈亏=数据缺口\n");
+                    pnl.put("physical_pnl", "数据缺口").put("derivative_pnl", "数据缺口");
                 } else {
-                    sb.append("子账户=").append(sub)
-                            .append(" 实货盈亏=").append(dp.physicalPnl)
-                            .append(" 衍生品盈亏=").append(dp.derivativePnl)
-                            .append(dp.note == null ? "" : " 注=" + dp.note).append('\n');
+                    pnl.put("physical_pnl", dp.physicalPnl == null ? "" : dp.physicalPnl.toPlainString())
+                            .put("derivative_pnl",
+                                    dp.derivativePnl == null ? "" : dp.derivativePnl.toPlainString())
+                            .put("detail", dp.note == null ? "" : dp.note);
                 }
             }
+            lines.add(pnl.render());
         }
         // 交易理由段（FR-AUDIT-8 验收 1）。
-        sb.append("\n== 交易理由 ==\n");
-        if (reasonsBySub.isEmpty()) {
-            sb.append("（无交易指令或无理由记录）\n");
-        } else {
-            for (Map.Entry<Integer, List<TradeReason>> e : reasonsBySub.entrySet()) {
-                for (TradeReason r : e.getValue()) {
-                    sb.append("子账户=").append(e.getKey())
-                            .append(" 指令=").append(r.tradeOrderId)
-                            .append(" 类型=").append(r.relatedType)
-                            .append(" 计划=").append(r.relatedPlanId)
-                            .append(" 敞口=").append(r.relatedExposureId)
-                            .append(" 时点=").append(r.timeDesc)
-                            .append(" 说明=").append(r.reasonText)
-                            .append(" 理由缺失=").append(r.reasonMissingFlag)
-                            .append(" 关联缺失=").append(r.relatedObjectMissingFlag)
-                            .append('\n');
-                }
+        for (Map.Entry<Integer, List<TradeReason>> e : reasonsBySub.entrySet()) {
+            for (TradeReason r : e.getValue()) {
+                lines.add(new CsvRow()
+                        .put("section", "reason")
+                        .put("sub_account_id", String.valueOf(e.getKey()))
+                        .put("reason_trade_order_id",
+                                r.tradeOrderId == null ? "" : String.valueOf(r.tradeOrderId))
+                        .put("reason_related_type", r.relatedType)
+                        .put("reason_plan_id",
+                                r.relatedPlanId == null ? "" : String.valueOf(r.relatedPlanId))
+                        .put("reason_exposure_id",
+                                r.relatedExposureId == null ? "" : String.valueOf(r.relatedExposureId))
+                        .put("reason_time_desc", r.timeDesc)
+                        .put("reason_text", r.reasonText)
+                        .put("reason_missing_flag", r.reasonMissingFlag)
+                        .put("related_missing_flag", r.relatedObjectMissingFlag)
+                        .render());
             }
         }
-        return sb.toString();
+        return String.join("\r\n", lines) + (lines.isEmpty() ? "" : "\r\n");
+    }
+
+    /**
+     * CSV 行构造器（具名列填充，{@code T-193}）：按 {@link #CSV_COLUMNS} 顺序渲染、未填列归空串，
+     * 保证<b>数据行与表头逐列对齐</b>（列语义不漂移）；转义经 {@link #csvEscape}（对齐
+     * {@code VarietyService} 先例，额外覆盖换行符）。
+     */
+    private static final class CsvRow {
+        private final Map<String, String> cells = new LinkedHashMap<>();
+
+        CsvRow put(String column, String value) {
+            cells.put(column, value == null ? "" : value);
+            return this;
+        }
+
+        String render() {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < CSV_COLUMNS.length; i++) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                sb.append(csvEscape(cells.getOrDefault(CSV_COLUMNS[i], "")));
+            }
+            return sb.toString();
+        }
+    }
+
+    /** CSV 字段转义（对齐 {@code VarietyService} 先例；额外覆盖换行符）。 */
+    private static String csvEscape(String value) {
+        if (value == null) {
+            return "";
+        }
+        String text = value.replace("\"", "\"\"");
+        boolean quoted = text.contains(",") || text.contains("\"")
+                || text.contains("\n") || text.contains("\r");
+        return quoted ? "\"" + text + "\"" : text;
     }
 
     private boolean visible(Integer sub, List<Integer> visible, boolean cross) {
@@ -411,7 +476,7 @@ public final class EvidenceExportService {
         public int nodeCount;
         /** 出现过的段名（六段子集）。 */
         public List<String> segments = new ArrayList<>();
-        /** 导出文件内容。 */
+        /** 导出文件内容（{@code T-193} 起 = CSV 文本：表头行 + 数据行，{@code \r\n} 换行）。 */
         public String content;
     }
 
