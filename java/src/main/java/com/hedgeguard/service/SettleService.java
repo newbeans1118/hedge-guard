@@ -601,20 +601,35 @@ public final class SettleService {
      * 跳过式已满足重跑安全；副作用 = 若关账前输入确实变化，旧明细行保留、仅新增键补插
      * （重跑姿态披露，与 T-189 转录同取舍）。</p>
      *
-     * <p><b>键集完备性</b>：幂等键集按<b>子账户域</b>（trade_date + sub_account_id）查询——
-     * uk 键含 sub_account_id，每户行数 = 合约×方向×仓型，天然远小于单页上限 100；若按日全局
-     * 单页预载，多子账户下行数超限截断 ⇒ 漏键重插 ⇒ uk 崩溃复归。</p>
+     * <p><b>键集完备性</b>：幂等键集按<b>子账户域</b>（trade_date + sub_account_id）<b>逐页循环补载</b>——
+     * {@code PageQuery} size 白名单上限 100（{@code PageQuery.ALLOWED_SIZES}），单页预载在单户行数
+     * 超 100 时截断 ⇒ 漏键重插 ⇒ uk 崩溃复归（{@code te-verify-t190} {@code TE-T190-001} 实证：
+     * 单户 110 行 + 他户 2 行探针，二跑仍违 uk）。「每户行数天然远小于 100」是未验证假设，不成立；
+     * 逐页以「返回条数 {@code <} size」为终止条件，排序键 id 唯一（{@code orderByEnsuringUnique} 兜底
+     * 全序）⇒ 不重不漏，任意行数下键集完备。</p>
      */
+    /** 键集补载每页条数：{@code PageQuery.ALLOWED_SIZES} 白名单上限。 */
+    private static final int KEYSET_PAGE_SIZE = 100;
+
     private void applyPositionSplit(SettleCycle cycle, List<SystemPositionRow> rows, long operatorId) {
-        // 幂等键集：本子账户当日已存在的持仓行（子账户域内完备：uk 键含 sub_account_id，
-        // 每户行数 = 合约×方向×仓型，天然远小于单页上限 100；全局按日单页会截断致漏键重插）
+        // 幂等键集：本子账户当日已存在的持仓行（子账户域内逐页循环补载，单页 100 上限截断会
+        // 漏键重插 ⇒ uk 崩溃复归，TE-T190-001；排序键 id 唯一 ⇒ 全序分页不重不漏）
         Set<String> existingPositionKeys = new LinkedHashSet<>();
-        for (SettlePosition p : positionDao.findPage(
-                PageQuery.of("1", "100", "id,asc", "id"),
-                "trade_date = ? AND sub_account_id = ?",
-                Arrays.asList(cycle.tradeDate, cycle.subAccountId)).items()) {
-            existingPositionKeys.add(positionKey(p.tradeDate, p.subAccountId,
-                    p.instrumentId, p.direction, p.positionType));
+        int pageNo = 1;
+        while (true) {
+            PageResult<SettlePosition> page = positionDao.findPage(
+                    PageQuery.of(String.valueOf(pageNo), String.valueOf(KEYSET_PAGE_SIZE),
+                            "id,asc", "id"),
+                    "trade_date = ? AND sub_account_id = ?",
+                    Arrays.asList(cycle.tradeDate, cycle.subAccountId));
+            for (SettlePosition p : page.items()) {
+                existingPositionKeys.add(positionKey(p.tradeDate, p.subAccountId,
+                        p.instrumentId, p.direction, p.positionType));
+            }
+            if (page.items().size() < KEYSET_PAGE_SIZE) {
+                break; // 末页（含空页）：键集补载完毕
+            }
+            pageNo++;
         }
         Map<String, BigDecimal> agg = new TreeMap<>();
         for (SystemPositionRow r : rows) {

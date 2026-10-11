@@ -55,13 +55,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code T-190} 修复①：未关账重复结算端到端幂等（「真实 DAO + 内存假 JDBC 引擎」，禁假 DAO）。
  *
  * <p>缺陷（te-verify-t189 O-4① 结构性确认）：{@code applyPositionSplit}/{@code applyFund}
- * 无条件重插 ⇒ 真库（DM8 enforce uk_settle_position_key / uk_settle_fund_date_sub）重复结算必崩；
- * InMemory 引擎不 enforce uk 故既有测试全绿（假绿盲区）。
+ * 无条件重插 ⇒ 真库（DM8 enforce uk_settle_position_key / uk_settle_fund_date_sub）重复结算必崩。
  *
- * <p>⚠️ 断言纪律（派单明示）：InMemory 引擎不 enforce uk ⇒ 幂等用例断言
- * 「重复执行后<b>行数/内容正确</b>」，不依赖 uk 报错路径。修复语义 = 跳过式幂等
- * （同 uk 键已存在即跳过，与 T-189 盈亏转录姿态一致）；「已确认/关账」单重算仍走
- * R-SETTLE-5 作废重签（PERIOD_CLOSED），状态机不变。</p>
+ * <p><b>勘误（te-verify-t190 探针证伪，2026-09）</b>：本类早期 javadoc 称「InMemory 引擎不
+ * enforce uk」<b>不成立</b>——引擎在建表时登记表级 UNIQUE 约束并在写入时强制校验
+ * （{@code InMemoryDmEngine} UNIQUE 违反即抛，与 DM8 同语义）；既有测试假绿的真因是
+ * <b>从未端到端重跑结算</b>（无重复执行路径 ⇒ uk 校验从未被触发），而非引擎不 enforce。
+ *
+ * <p><b>断言纪律</b>：幂等用例以「重复执行后<b>行数/内容正确</b>」为主判据（幂等语义的
+ * 验收口径），不以「uk 报错路径」作为预期行为；引擎事实上 enforce uk ⇒ 守卫漏键时
+ * 重插会以 UNIQUE 违反异常当场显形（TE-T190-001 探针即据此复现崩溃）。
+ * 修复语义 = 跳过式幂等（同 uk 键已存在即跳过，与 T-189 盈亏转录姿态一致）；
+ * 「已确认/关账」单重算仍走 R-SETTLE-5 作废重签（PERIOD_CLOSED），状态机不变。
  */
 class SettleRerunT190Test {
 
@@ -282,7 +287,115 @@ class SettleRerunT190Test {
                 "资金行须为首跑同一行（跳过式，不是删后重插）");
     }
 
-    // ================================================================ 二、关账单重算被拒（R-SETTLE-5 状态机不变）
+    // ================================================================ 二、单户 >100 行（TE-T190-001 回归）
+
+    /** TE-T190-001 探针形态：SUB_A 110 行（超单页上限 100）+ SUB_B 2 行。 */
+    private static final int SUB_B = 12;
+    private static final int WIDE_ROWS = 110;
+
+    /**
+     * 宽输入：SUB_A 110 个不同合约（LONG/TODAY）+ SUB_B 2 个合约。
+     * 110 个合约共用已播种品种 {@code PRODUCT}（fk_t_settle_position_product 满足）；
+     * 这些合约不在 CTP 批次 ⇒ 盈亏转录跳过（无转录值，T-189 语义），不影响持仓拆分。
+     */
+    private SettleService.SettlementInput wideInput() {
+        SettleService.SettlementInput in = new SettleService.SettlementInput();
+        in.tradeDate = DAY.toString();
+        in.positions = new ArrayList<>();
+        for (int i = 1; i <= WIDE_ROWS; i++) {
+            in.positions.add(row(SUB_A, String.format("cu2%03d", i)));
+        }
+        in.positions.add(row(SUB_B, "cu2301"));
+        in.positions.add(row(SUB_B, "cu2302"));
+        in.funds = new ArrayList<>();
+        in.funds.add(fund(SUB_A));
+        in.funds.add(fund(SUB_B));
+        in.trades = new ArrayList<>();
+        return in;
+    }
+
+    private static SettleService.SystemPositionRow row(int subId, String instrumentId) {
+        SettleService.SystemPositionRow p = new SettleService.SystemPositionRow();
+        p.subAccountId = subId;
+        p.instrumentId = instrumentId;
+        p.productId = PRODUCT;
+        p.instrumentType = "FUTURES";
+        p.direction = "LONG";
+        p.positionType = "TODAY";
+        p.positionQty = "1";
+        return p;
+    }
+
+    private static SettleService.SystemFundRow fund(int subId) {
+        SettleService.SystemFundRow f = new SettleService.SystemFundRow();
+        f.subAccountId = subId;
+        f.beginBalance = "0";
+        f.equity = "1000";
+        f.ledgerEquity = "1000";
+        f.availableFund = "800";
+        f.marginOccupied = "200";
+        f.closePnl = "0";
+        f.floatPnl = "0";
+        f.commission = "0";
+        return f;
+    }
+
+    /** 全量持仓行（逐页补载——单页 100 上限会截断，断言侧同主代码纪律）。 */
+    private List<SettlePosition> allPositionRows() {
+        List<SettlePosition> out = new ArrayList<>();
+        int pageNo = 1;
+        while (true) {
+            PageResult<SettlePosition> page = positionDao.findPage(
+                    PageQuery.of(String.valueOf(pageNo), "100", "id,asc", "id"),
+                    "trade_date = ?", Arrays.asList((Object) DAY));
+            out.addAll(page.items());
+            if (page.items().size() < 100) {
+                return out;
+            }
+            pageNo++;
+        }
+    }
+
+    @Test
+    @DisplayName("TE-T190-001 回归：单户 110 行 + 他户 2 行重复结算——键集逐页补载，不违 uk、行数内容不变")
+    void rerunSingleSubOverPageSizeIdempotent() throws Exception {
+        M2E2eSeed.subAccount(engine, SUB_B, "SA-B", "商品子账户B");
+        service.ingestCtpData(ctpRequest(), SYSTEM_OP);
+        List<SettleCycle> first = service.runSettlement(wideInput(), SYSTEM_OP);
+        assertEquals(2, first.size(), "两子账户各 1 张结算单");
+
+        List<SettlePosition> pos1 = allPositionRows();
+        assertEquals(WIDE_ROWS + 2, pos1.size(),
+                "首跑持仓 112 行（SUB_A 110 + SUB_B 2；超单页上限 100）");
+        long subA1 = pos1.stream().filter(p -> p.subAccountId == SUB_A).count();
+        long subB1 = pos1.stream().filter(p -> p.subAccountId == SUB_B).count();
+        assertEquals(WIDE_ROWS, subA1, "SUB_A 首跑 110 行");
+        assertEquals(2, subB1, "SUB_B 首跑 2 行");
+
+        // 二跑：修复前键集单页截断（100 行上限）⇒ SUB_A 第 101~110 行漏键重插
+        // ⇒ uk_settle_position_key 违反崩溃（TE-T190-001 探针实测）；
+        // 修复后键集逐页循环补载 ⇒ 全部命中跳过 ⇒ 不崩且行数/内容不变
+        List<SettleCycle> second = service.runSettlement(wideInput(), SYSTEM_OP);
+        assertEquals(2, second.size(), "重跑不新增结算单");
+        assertEquals(first.get(0).id, second.get(0).id, "SUB_A 复用同一结算单");
+        assertEquals(first.get(1).id, second.get(1).id, "SUB_B 复用同一结算单");
+
+        List<SettlePosition> pos2 = allPositionRows();
+        assertEquals(pos1.size(), pos2.size(), "重复结算后持仓行数不变（112 行，不重插）");
+        // 内容逐行一致（uk 全序：date|sub|instrument|direction|type 唯一 ⇒ 按 id 排序可比）
+        for (int i = 0; i < pos1.size(); i++) {
+            assertEquals(pos1.get(i).subAccountId, pos2.get(i).subAccountId);
+            assertEquals(pos1.get(i).instrumentId, pos2.get(i).instrumentId,
+                    "第 " + (i + 1) + " 行合约一致（含 SUB_A 边界行 cu2100/cu2110）");
+            assertEquals(0, pos1.get(i).positionQty.compareTo(pos2.get(i).positionQty));
+        }
+        // 跳过式：首跑同一物理行（非删后重插）
+        assertEquals(pos1.get(0).id, pos2.get(0).id, "首行为首跑同一物理行");
+        assertEquals(pos1.get(pos1.size() - 1).id, pos2.get(pos2.size() - 1).id,
+                "末行（单页截断边界外）为首跑同一物理行");
+    }
+
+    // ================================================================ 三、关账单重算被拒（R-SETTLE-5 状态机不变）
 
     @Test
     @DisplayName("已确认关账结算单重算 ⇒ PERIOD_CLOSED 拒绝；明细行数不被扰动（R-SETTLE-5 不绕过）")
@@ -308,7 +421,7 @@ class SettleRerunT190Test {
         assertEquals(pnlBefore, pnlRows().size(), "被拒后盈亏行数不变");
     }
 
-    // ================================================================ 三、回归：结算单六项与勾稽在重跑后仍正确
+    // ================================================================ 四、回归：结算单六项与勾稽在重跑后仍正确
 
     @Test
     @DisplayName("重跑后结算单六项仍与首跑一致（跳过资金插入但六项回填不破坏一致性）")
