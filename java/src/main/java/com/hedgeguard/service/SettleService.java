@@ -131,6 +131,10 @@ public final class SettleService {
 
     /** 盈亏类型：手续费（{@code ck_t_settle_pnl_pnl_type} 冻结域；{@code T-189} 转录行）。 */
     public static final String PNL_TYPE_COMMISSION = "COMMISSION";
+    /** 盈亏类型：平仓已实现盈亏（冻结域；{@code T-189}/{@code CH-023} 转录行，源 CTP {@code CloseProfit}）。 */
+    public static final String PNL_TYPE_CLOSE_REALIZED = "CLOSE_REALIZED";
+    /** 盈亏类型：持仓浮动盈亏（冻结域；{@code T-189}/{@code CH-023} 转录行，源 CTP {@code PositionProfit}）。 */
+    public static final String PNL_TYPE_FLOAT_UNREALIZED = "FLOAT_UNREALIZED";
     /** 差异处理状态：已闭环。 */
     public static final String DIFF_CLOSED = "CLOSED";
 
@@ -375,6 +379,9 @@ public final class SettleService {
                 e.avgPrice = dec(row.avgPrice);
                 e.settlementPrice = dec(row.settlementPrice);
                 e.margin = dec(row.margin);
+                // CH-023：逐合约盈亏中间持久化承载（逐字转录，上游未供即空；NULL = 旧模板缺列/未携带）
+                e.closePnl = dec(row.closeProfit);
+                e.positionPnl = dec(row.positionProfit);
                 ctpPositionDao.insert(e, operatorId);
             }
         }
@@ -422,9 +429,8 @@ public final class SettleService {
      * ② 按子账户聚合系统内持仓/资金，生成 {@code t_settle_cycle}（每子账户一份，含平仓/浮动盈亏、
      * 手续费、保证金占用、可用资金、权益、风险度六项）→ ③ 持久化 {@code t_settle_position}/
      * {@code t_settle_fund}/{@code t_settle_pnl}（逐行携带子账户，可直接求和；
-     * {@code t_settle_pnl} 本期落 {@code COMMISSION} 转录行——{@code CLOSE_REALIZED}/
-     * {@code FLOAT_UNREALIZED} 的数据源扩列裁定见 {@link #transcribeCommissionPnl}，
-     * 冻结面升级中、批准前不落，勿误读为「无亏损」）→
+     * {@code t_settle_pnl} 落 {@code COMMISSION}/{@code CLOSE_REALIZED}/{@code FLOAT_UNREALIZED}
+     * 转录行——CLOSE/FLOAT 数据源承载见 {@link #transcribePositionPnl}（{@code CH-023}））→
      * ④ 与 CTP 台账逐子账户勾稽（不等即记资金差异）→ ⑤ 三类核对（成交/仓位/资金）。</p>
      *
      * <p>子账户资金为负时置 {@code negative_fund_flag='Y'} 并记差异（{@code FR-SETTLE-4} 验收3）。</p>
@@ -462,6 +468,22 @@ public final class SettleService {
                     commissionByInstrument.merge(t.instrumentId, nz(t.commission), BigDecimal::add);
                 }
             }
+            // T-189：逐合约盈亏聚合（Σ CTP 持仓日终逐字转录值，加总非推算；CH-023 承载列）。
+            // 仅累计非空值（NULL = 上游未供/旧模板，该行不参与转录）；全空 ⇒ 无该合约该类行。
+            // 金额符号 = CTP 原值（盈正亏负）；轨 1 亏损阈值语义依赖负值求和（T-188）。
+            Map<String, BigDecimal> closePnlByInstrument = new LinkedHashMap<>();
+            Map<String, BigDecimal> floatPnlByInstrument = new LinkedHashMap<>();
+            for (SettleCtpPosition p : ctpPositions) {
+                if (p.instrumentId == null) {
+                    continue;
+                }
+                if (p.closePnl != null) {
+                    closePnlByInstrument.merge(p.instrumentId, p.closePnl, BigDecimal::add);
+                }
+                if (p.positionPnl != null) {
+                    floatPnlByInstrument.merge(p.instrumentId, p.positionPnl, BigDecimal::add);
+                }
+            }
             // 归属辅助：合约 → 系统内持仓子账户去重数（>1 ⇒ 合并持仓拆分不出，不默认归入）
             Map<String, Integer> subsByInstrument = new LinkedHashMap<>();
             for (List<SystemPositionRow> rows : posBySub.values()) {
@@ -491,6 +513,8 @@ public final class SettleService {
                 // 轨 1 触发器在事务提交后读取，见 evaluateSettled 接线点）
                 transcribeCommissionPnl(cycle, posBySub, commissionByInstrument, subsByInstrument,
                         existingPnlKeys, operatorId);
+                transcribePositionPnl(cycle, posBySub, closePnlByInstrument, floatPnlByInstrument,
+                        subsByInstrument, existingPnlKeys, operatorId);
                 cycle.status = CYCLE_GENERATED;
                 cycleDao.updateById(cycle, operatorId);
                 out.add(cycle);
@@ -671,10 +695,8 @@ public final class SettleService {
      *
      * <p><b>本期范围（裁定授权）</b>：{@code COMMISSION} 行 = 该合约当日 CTP 成交手续费聚合
      * （Σ {@code CtpTradeRow.commission}，<b>加总非推算</b>，符号语义照转录原值/DDL「金额（可为负）」）。
-     * {@code CLOSE_REALIZED}/{@code FLOAT_UNREALIZED} 行的数据源（导入契约扩列）已裁方案 A，
-     * 但其<b>中间持久化承载</b>须扩 {@code TB-SETTLE-2}（DATA_MODEL 冻结面，
-     * {@code M2SettleSchemaTest} 以 DATA_MODEL §2.7 为期望逐列锁 DDL）⇒ 按派单停手条款升级 CH，
-     * 批准前不落该两类行（诚实披露，勿误读为「无亏损」）。
+     * {@code CLOSE_REALIZED}/{@code FLOAT_UNREALIZED} 行已由 {@code CH-023}（扩 {@code TB-SETTLE-2}
+     * 两列承载）授权落行，见 {@link #transcribePositionPnl}。
      *
      * <p><b>归属规则</b>（无法避免的归属设计，采纳最保守形态）：CTP 明细为账户级合并数据
      * （DATA_MODEL 例外 E1，无子账户维度），归属借结算输入的系统内持仓（子账户维度由业务侧确定，
@@ -742,6 +764,94 @@ public final class SettleService {
             pnlDao.insert(p, operatorId);
             existingPnlKeys.add(key);
         }
+    }
+
+    /**
+     * 结算盈亏明细转录——CLOSE/FLOAT 行（{@code T-189} + {@code CH-023}；落 {@code t_settle_pnl}，
+     * R-SETTLE-9 子账户贯穿可加总）。框架与归属/幂等取舍同 {@link #transcribeCommissionPnl}。
+     *
+     * <p><b>数据源（CH-023 授权）</b>：{@code t_ctp_settle_position.close_pnl}/{@code position_pnl}
+     * （转录自 CTP 持仓日终 {@code CloseProfit}/{@code PositionProfit}，逐字转录不推算）。
+     * 每合约按方向/仓型多行<b>加总非空值</b>（Σ 加总非推算；NULL 行不参与）；全空 ⇒ 无该类行。
+     * {@code positionPnl} → {@code FLOAT_UNREALIZED}、{@code closePnl} → {@code CLOSE_REALIZED}
+     * （pnl_type 冻结域 {@code ck_t_settle_pnl_pnl_type}）；金额符号 = CTP 原值（盈正亏负，
+     * 轨 1 亏损阈值语义依赖负值求和，T-188）。
+     *
+     * <p><b>归属规则 / 幂等</b>：与手续费转录完全一致（合约当日恰被一个结算子账户持有才转录；
+     * 歧义跳过+LOG；无品种归属跳过；同 uk 键跳过式幂等）。
+     *
+     * @param cycle                 当前结算单（子账户）
+     * @param posBySub              系统内持仓（按子账户）
+     * @param closePnlByInstrument  合约 → 当日 CTP 平仓盈亏合计（仅含有非空值的合约）
+     * @param floatPnlByInstrument  合约 → 当日 CTP 持仓盈亏合计（同上）
+     * @param subsByInstrument      合约 → 持有该合约的系统内子账户数
+     * @param existingPnlKeys       当日已存在的盈亏行幂等键集（本事务内累计）
+     * @param operatorId            操作人
+     */
+    private void transcribePositionPnl(SettleCycle cycle, Map<Integer, List<SystemPositionRow>> posBySub,
+                                       Map<String, BigDecimal> closePnlByInstrument,
+                                       Map<String, BigDecimal> floatPnlByInstrument,
+                                       Map<String, Integer> subsByInstrument, Set<String> existingPnlKeys,
+                                       long operatorId) {
+        List<SystemPositionRow> rows = posBySub.getOrDefault(cycle.subAccountId, Collections.emptyList());
+        Set<String> instruments = new LinkedHashSet<>();
+        Map<String, Long> productByInstrument = new LinkedHashMap<>();
+        for (SystemPositionRow r : rows) {
+            instruments.add(r.instrumentId);
+            if (r.productId != null && !productByInstrument.containsKey(r.instrumentId)) {
+                productByInstrument.put(r.instrumentId, r.productId);
+            }
+        }
+        for (String instrument : instruments) {
+            boolean hasClose = closePnlByInstrument.containsKey(instrument);
+            boolean hasFloat = floatPnlByInstrument.containsKey(instrument);
+            if (!hasClose && !hasFloat) {
+                continue; // 合约当日 CTP 持仓行未携带任何盈亏值 ⇒ 无转录
+            }
+            Integer holders = subsByInstrument.getOrDefault(instrument, 0);
+            if (holders != 1) {
+                // 合并持仓拆分不出子账户：不默认归入（不得重复计入多个子账户破坏可加总性）
+                LOG.warning("合约盈亏归属歧义（多子账户持有，跳过 CLOSE/FLOAT 转录，T-189）：tradeDate="
+                        + cycle.tradeDate + " instrumentId=" + instrument + " 子账户数=" + holders);
+                continue;
+            }
+            Long productId = productByInstrument.get(instrument);
+            if (productId == null) {
+                // t_settle_pnl.product_id NOT NULL + FK → t_product：无品种归属不得伪造哨兵（FK 硬约束）
+                LOG.warning("合约缺品种归属，跳过 CLOSE/FLOAT 转录（T-189）：tradeDate=" + cycle.tradeDate
+                        + " instrumentId=" + instrument);
+                continue;
+            }
+            if (hasClose) {
+                insertTranscribedPnl(cycle, instrument, productId, PNL_TYPE_CLOSE_REALIZED,
+                        closePnlByInstrument.get(instrument), existingPnlKeys, operatorId);
+            }
+            if (hasFloat) {
+                insertTranscribedPnl(cycle, instrument, productId, PNL_TYPE_FLOAT_UNREALIZED,
+                        floatPnlByInstrument.get(instrument), existingPnlKeys, operatorId);
+            }
+        }
+    }
+
+    /** 落一行转录盈亏（跳过式幂等：同 uk 键已存在即跳过；框架见 {@link #transcribeCommissionPnl}）。 */
+    private void insertTranscribedPnl(SettleCycle cycle, String instrument, Long productId, String pnlType,
+                                      BigDecimal amount, Set<String> existingPnlKeys, long operatorId) {
+        String key = pnlKey(cycle.tradeDate, cycle.subAccountId, instrument, pnlType);
+        if (existingPnlKeys.contains(key)) {
+            return; // 幂等：重复结算跳过（不重插、不重算）
+        }
+        SettlePnl p = new SettlePnl();
+        p.subAccountId = cycle.subAccountId;
+        p.settleCycleId = cycle.id;
+        p.tradeDate = cycle.tradeDate;
+        p.instrumentId = instrument;
+        p.productId = productId;
+        p.hedgePlanId = null;
+        p.pnlType = pnlType;
+        p.amount = amount;
+        p.qty = null;
+        pnlDao.insert(p, operatorId);
+        existingPnlKeys.add(key);
     }
 
     /** 盈亏行幂等键（对齐 uk_settle_pnl_key）。 */
@@ -1839,11 +1949,11 @@ public final class SettleService {
          *
          * <p><b>可缺省（旧模板向后兼容）</b>：缺列/空值 ⇒ 该合约行不参与盈亏转录
          * （在接收回执 {@code positionPnlMissingCount} 披露），不硬失败。
-         * ⚠️ 逐合约盈亏的<b>中间持久化承载</b>须扩 {@code TB-SETTLE-2}（DATA_MODEL 冻结面），
-         * 裁定前本字段仅入库回执披露、不落 {@code t_ctp_settle_position}（T-189 升级报告中）。
+         * 承载：经 {@code CH-023} 扩 {@code TB-SETTLE-2} 落 {@code t_ctp_settle_position.close_pnl}，
+         * 结算时转录 {@code t_settle_pnl.CLOSE_REALIZED}（{@code T-189}）。</p>
          */
         public String closeProfit;
-        /** 持仓盈亏（浮动，{@code T-189} 方案 A；转录自 CTP SDK {@code PositionProfit}；可缺省，同上）。 */
+        /** 持仓盈亏（浮动，{@code T-189} 方案 A；转录自 CTP SDK {@code PositionProfit}；可缺省，同上；落 {@code position_pnl} → {@code FLOAT_UNREALIZED}）。 */
         public String positionProfit;
     }
 

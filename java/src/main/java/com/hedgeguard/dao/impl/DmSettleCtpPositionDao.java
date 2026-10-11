@@ -22,7 +22,7 @@ public final class DmSettleCtpPositionDao extends AbstractDmDao<SettleCtpPositio
 
     /** 业务列（不含主键与通用审计字段）。 */
     private static final String[] COLUMNS = {
-            "trade_date", "settle_batch_id", "instrument_id", "direction", "position_type", "position_qty", "avg_price", "settlement_price", "margin"
+            "trade_date", "settle_batch_id", "instrument_id", "direction", "position_type", "position_qty", "avg_price", "settlement_price", "margin", "close_pnl", "position_pnl"
     };
 
     /**
@@ -61,6 +61,8 @@ public final class DmSettleCtpPositionDao extends AbstractDmDao<SettleCtpPositio
         bind(ps, i++, e.avgPrice);
         bind(ps, i++, e.settlementPrice);
         bind(ps, i++, e.margin);
+        bind(ps, i++, e.closePnl);
+        bind(ps, i++, e.positionPnl);
     }
 
     @Override
@@ -75,6 +77,8 @@ public final class DmSettleCtpPositionDao extends AbstractDmDao<SettleCtpPositio
         e.avgPrice = decimal(rs, "avg_price");
         e.settlementPrice = decimal(rs, "settlement_price");
         e.margin = decimal(rs, "margin");
+        e.closePnl = decimal(rs, "close_pnl");
+        e.positionPnl = decimal(rs, "position_pnl");
     }
 
     @Override

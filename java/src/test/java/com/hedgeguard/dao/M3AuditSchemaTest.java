@@ -200,7 +200,7 @@ class M3AuditSchemaTest {
         assertTrue(!upper.contains("CREATE TRIGGER"), "禁止触发器");
         assertTrue(!upper.contains("CREATE FUNCTION"), "禁止自定义函数");
         assertTrue(raw.contains("-- DM-SPECIFIC:"), "DM 特性须带注释");
-        assertTrue(raw.contains("md5 201682e5aff5ee9f01fec9dd1728a4c5"), "文件头须引 DATA_MODEL 现行 md5");
+        assertTrue(raw.contains("md5 5c468b3701426b4baf230f3889f27ab8"), "文件头须引 DATA_MODEL 现行 md5");
     }
 
     // ------------------------------------------------------------------ 文档解析

@@ -40,4 +40,15 @@ public final class SettleCtpPosition extends AuditedEntity {
 
     /** 占用保证金。 */
     public BigDecimal margin;
+
+    /**
+     * 平仓盈亏（{@code CH-023} 增列；转录自 CTP SDK 持仓字段 {@code CloseProfit}，逐字转录不推算）。
+     * 允许 {@code NULL} 语义：上游（导入契约 {@code closeProfit}）未供即空，该行不参与结算盈亏转录。
+     */
+    public BigDecimal closePnl;
+
+    /**
+     * 持仓盈亏/浮动（{@code CH-023} 增列；转录自 CTP SDK 持仓字段 {@code PositionProfit}，同上）。
+     */
+    public BigDecimal positionPnl;
 }

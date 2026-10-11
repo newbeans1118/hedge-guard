@@ -3,6 +3,7 @@ package com.hedgeguard.service;
 import com.hedgeguard.common.Clocks;
 import com.hedgeguard.dao.entity.SettleCycle;
 import com.hedgeguard.dao.entity.SettlePnl;
+import com.hedgeguard.dao.impl.DmMajorEventDao;
 import com.hedgeguard.dao.impl.DmSettleAggDiffCandidateDao;
 import com.hedgeguard.dao.impl.DmSettleAggregationCheckDao;
 import com.hedgeguard.dao.impl.DmSettleCtpBatchDao;
@@ -25,6 +26,7 @@ import com.hedgeguard.dao.testsupport.M2E2eSeed;
 import com.hedgeguard.dao.tx.TxTemplate;
 import com.hedgeguard.web.HttpResult;
 import com.hedgeguard.web.RequestContext;
+import com.hedgeguard.web.handler.audit.AuditReportHandler;
 import com.hedgeguard.web.handler.settle.SettleCtpDataHandler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,12 +56,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>覆盖：导入契约扩列（{@code closeProfit}/{@code positionProfit}）回执披露与旧模板兼容
  * （缺列/空值不硬失败）、{@code COMMISSION} 转录行落库（Σ {@code CtpTradeRow.commission}
- * 加总非推算）、重复结算幂等（跳过式，uk_settle_pnl_key）、多子账户共用合约归属歧义跳过
- * （不默认归入）、无成交/空手续费边界。触发行与全链路见 {@code MajorEventLossTriggerTest}。</p>
- *
- * <p>⚠️ 诚实披露：{@code CLOSE_REALIZED}/{@code FLOAT_UNREALIZED} 转录行的数据源（导入契约扩列）
- * 已裁方案 A，但其中间持久化承载须扩 {@code TB-SETTLE-2}（DATA_MODEL 冻结面，
- * {@code M2SettleSchemaTest} 逐列锁 DDL）⇒ 本单按停手条款升级 CH，批准前不落该两类行。</p>
+ * 加总非推算）、{@code CLOSE_REALIZED}/{@code FLOAT_UNREALIZED} 转录行落库
+ * （{@code CH-023} 承载列 {@code close_pnl}/{@code position_pnl}，Σ 非空值加总、符号 = CTP 原值）、
+ * 重复结算幂等（跳过式，uk_settle_pnl_key）、多子账户共用合约归属歧义跳过
+ * （不默认归入）、无成交/空手续费边界。亏损侧轨 1 全链路（生产路径落行 → 触发 → 端点读出）
+ * 见本类「三、CLOSE/FLOAT 转录」；触发行语义详见 {@code MajorEventLossTriggerTest}。</p>
  */
 class SettlePnlT189Test {
 
@@ -225,9 +226,21 @@ class SettlePnlT189Test {
     private List<SettlePnl> commissionRows() {
         // 断言侧锚定冻结字面量（ck_t_settle_pnl_pnl_type CHECK 域），不引生产常量：
         // 防止「常量翻转双侧同变」的自我同源变异存活（T-189 变异 M2 教训）
+        return pnlRowsOf("COMMISSION");
+    }
+
+    private List<SettlePnl> closeRows() {
+        return pnlRowsOf("CLOSE_REALIZED");
+    }
+
+    private List<SettlePnl> floatRows() {
+        return pnlRowsOf("FLOAT_UNREALIZED");
+    }
+
+    private List<SettlePnl> pnlRowsOf(String literal) {
         List<SettlePnl> out = new ArrayList<>();
         for (SettlePnl p : pnlRows()) {
-            if ("COMMISSION".equals(p.pnlType)) {
+            if (literal.equals(p.pnlType)) {
                 out.add(p);
             }
         }
@@ -407,5 +420,199 @@ class SettlePnlT189Test {
         List<SettlePnl> rows = settlePnlDao.findByTradeDate(next);
         assertEquals(1, rows.size(), "有成交但未记录手续费 ⇒ 转录为 0（Σ 空值）");
         assertEquals(0, rows.get(0).amount.compareTo(BigDecimal.ZERO));
+    }
+
+    // ================================================================ 三、CLOSE/FLOAT 转录行（CH-023 承载列）
+
+    private void addPositionWithPnl(SettleService.CtpDataRequest r, String instrumentId, String qty,
+                                    String closeProfit, String positionProfit) {
+        SettleService.CtpPositionRow p = new SettleService.CtpPositionRow();
+        p.instrumentId = instrumentId;
+        p.direction = "LONG";
+        p.positionType = "TODAY";
+        p.positionQty = qty;
+        p.closeProfit = closeProfit;
+        p.positionProfit = positionProfit;
+        r.positions.add(p);
+    }
+
+    @Test
+    @DisplayName("CLOSE/FLOAT 转录：携盈亏持仓行 ⇒ 承载列落库 + 两转录行内容逐项断言（CH-023）")
+    void settleTranscribesCloseAndFloatRows() {
+        SettleService.CtpDataRequest req = ctpRequest();
+        req.positions.get(0).closeProfit = "1000.50";
+        req.positions.get(0).positionProfit = "-200.00";
+        service.ingestCtpData(req, SYSTEM_OP);
+
+        // 承载列落库（t_ctp_settle_position.close_pnl/position_pnl，CH-023）
+        Map<String, Object> posRow = engine.table("t_ctp_settle_position").rows.get(0);
+        assertEquals(0, new BigDecimal(String.valueOf(posRow.get("close_pnl")))
+                .compareTo(new BigDecimal("1000.50")), "close_pnl 应逐字落库");
+        assertEquals(0, new BigDecimal(String.valueOf(posRow.get("position_pnl")))
+                .compareTo(new BigDecimal("-200.00")), "position_pnl 应逐字落库（负值原样）");
+
+        List<SettleCycle> cycles = service.runSettlement(settlementInput(), SYSTEM_OP);
+        assertEquals(1, cycles.size());
+
+        List<SettlePnl> closes = closeRows();
+        assertEquals(1, closes.size(), "应恰落 1 行 CLOSE_REALIZED");
+        SettlePnl close = closes.get(0);
+        assertEquals("CLOSE_REALIZED", close.pnlType, "pnl_type 须为冻结域字面量");
+        assertEquals(SUB_A, close.subAccountId);
+        assertEquals("cu2612", close.instrumentId);
+        assertEquals(0, close.amount.compareTo(new BigDecimal("1000.50")), "金额 = CTP 原值（盈正）");
+        assertEquals(PRODUCT, close.productId);
+        assertEquals(cycles.get(0).id, close.settleCycleId);
+        assertEquals(DAY, close.tradeDate);
+
+        List<SettlePnl> floats = floatRows();
+        assertEquals(1, floats.size(), "应恰落 1 行 FLOAT_UNREALIZED");
+        SettlePnl f = floats.get(0);
+        assertEquals("FLOAT_UNREALIZED", f.pnlType, "pnl_type 须为冻结域字面量");
+        assertEquals(SUB_A, f.subAccountId);
+        assertEquals("cu2612", f.instrumentId);
+        assertEquals(0, f.amount.compareTo(new BigDecimal("-200.00")), "金额 = CTP 原值（亏负，不取绝对值）");
+        assertEquals(PRODUCT, f.productId);
+    }
+
+    @Test
+    @DisplayName("旧模板缺列跳过：持仓行均未携盈亏 ⇒ 无 CLOSE/FLOAT 行（COMMISSION 转录不受影响）")
+    void oldTemplateRowsSkipCloseFloatTranscription() {
+        SettleService.CtpDataRequest req = ctpRequest(); // 持仓行无盈亏字段
+        req.trades.add(trade("cu2612", "T1", "12.50"));
+        service.ingestCtpData(req, SYSTEM_OP);
+        service.runSettlement(settlementInput(), SYSTEM_OP);
+
+        assertTrue(closeRows().isEmpty(), "未携平仓盈亏 ⇒ 无 CLOSE 行");
+        assertTrue(floatRows().isEmpty(), "未携持仓盈亏 ⇒ 无 FLOAT 行");
+        assertEquals(1, commissionRows().size(), "手续费转录不受影响");
+    }
+
+    @Test
+    @DisplayName("部分携带：同合约两行仅一行携值 ⇒ Σ 非空值（未携行不参与、不按 0 拉平）")
+    void partialCarriageSumsOnlyCarriedRows() {
+        SettleService.CtpDataRequest req = ctpRequest();
+        req.positions.get(0).closeProfit = "300.00"; // LONG/TODAY 携带
+        SettleService.CtpPositionRow p2 = new SettleService.CtpPositionRow();
+        p2.instrumentId = "cu2612";
+        p2.direction = "LONG";
+        p2.positionType = "YESTERDAY"; // uk 不同键 ⇒ 允许同合约第二行（旧模板，未携值）
+        p2.positionQty = "2";
+        req.positions.add(p2);
+        service.ingestCtpData(req, SYSTEM_OP);
+        service.runSettlement(settlementInput(), SYSTEM_OP);
+
+        List<SettlePnl> closes = closeRows();
+        assertEquals(1, closes.size(), "同合约同类型仍只一行（uk_settle_pnl_key）");
+        assertEquals(0, closes.get(0).amount.compareTo(new BigDecimal("300.00")),
+                "Σ 非空值：未携行（NULL）不参与求和");
+        assertTrue(floatRows().isEmpty(), "两行均未携持仓盈亏 ⇒ 无 FLOAT 行");
+    }
+
+    @Test
+    @DisplayName("归属歧义：两子账户共用合约 ⇒ CLOSE/FLOAT 均跳过不默认归入")
+    void closeFloatAttributionAmbiguitySkipped() {
+        SettleService.CtpDataRequest req = ctpRequest();
+        req.positions.get(0).closeProfit = "1000.50";
+        req.positions.get(0).positionProfit = "-200.00";
+        addPosition(req, "au2612", "2");
+        service.ingestCtpData(req, SYSTEM_OP);
+
+        SettleService.SettlementInput in = settlementInput();
+        in.positions.add(sysPosition(SUB_B, "au2612", "1"));
+        in.positions.add(sysPosition(SUB_A, "au2612", "1"));
+        SettleService.SystemFundRow fb = new SettleService.SystemFundRow();
+        fb.subAccountId = SUB_B;
+        fb.equity = "500";
+        fb.ledgerEquity = "500";
+        in.funds.add(fb);
+        service.runSettlement(in, SYSTEM_OP);
+
+        // cu2612 仅 SUB_A 持有 ⇒ 正常落行；au2612 共同持有 ⇒ 歧义跳过
+        assertEquals(1, closeRows().size());
+        assertEquals(1, floatRows().size());
+        assertTrue(closeRows().stream().noneMatch(p -> "au2612".equals(p.instrumentId)),
+                "共用合约不得默认归入任一子账户（CLOSE）");
+        assertTrue(floatRows().stream().noneMatch(p -> "au2612".equals(p.instrumentId)),
+                "共用合约不得默认归入任一子账户（FLOAT）");
+    }
+
+    @Test
+    @DisplayName("幂等（跳过式）：同 uk 键 FLOAT 行已存在 ⇒ 转录跳过、原值不被覆盖")
+    void closeFloatIdempotentSkip() {
+        SettleCycle c = new SettleCycle();
+        c.subAccountId = SUB_A;
+        c.settleNo = "SC-T189-PREFLOAT";
+        c.tradeDate = DAY;
+        c.isAggregate = "N";
+        c.status = "PENDING";
+        c.closePnl = BigDecimal.ZERO;
+        c.floatPnl = BigDecimal.ZERO;
+        c.commission = BigDecimal.ZERO;
+        c.marginOccupied = BigDecimal.ZERO;
+        c.availableFund = BigDecimal.ZERO;
+        c.equity = BigDecimal.ZERO;
+        c.negativeFundFlag = "N";
+        c.voidedFlag = "N";
+        new DmSettleCycleDao(tx).insert(c, SYSTEM_OP);
+        SettlePnl pre = new SettlePnl();
+        pre.subAccountId = SUB_A;
+        pre.settleCycleId = c.id;
+        pre.tradeDate = DAY;
+        pre.instrumentId = "cu2612";
+        pre.productId = PRODUCT;
+        pre.pnlType = "FLOAT_UNREALIZED";
+        pre.amount = new BigDecimal("-1.23");
+        settlePnlDao.insert(pre, SYSTEM_OP);
+
+        SettleService.CtpDataRequest req = ctpRequest();
+        req.positions.get(0).positionProfit = "-200.00";
+        service.ingestCtpData(req, SYSTEM_OP);
+        service.runSettlement(settlementInput(), SYSTEM_OP);
+
+        List<SettlePnl> floats = floatRows();
+        assertEquals(1, floats.size(), "同键已存在 ⇒ 转录跳过（uk 幂等）");
+        assertEquals(0, floats.get(0).amount.compareTo(new BigDecimal("-1.23")),
+                "已存在行不得被转录覆盖（跳过式语义）");
+    }
+
+    @Test
+    @DisplayName("T-188 轨1 全链路（无替身）：导入持仓携 positionProfit 亏损 -150000 ⇒ 生产路径落 FLOAT 负值行 ⇒ 轨1 触发 ⇒ 端点读出")
+    void lossSideFloatFullChainViaProductionPath() {
+        MajorEventLossThresholdTrigger trigger = new MajorEventLossThresholdTrigger(
+                new DmMajorEventDao(tx), settlePnlDao, () -> null, SYSTEM_OP);
+        service = newService(trigger);
+
+        SettleService.CtpDataRequest req = ctpRequest();
+        req.positions.get(0).positionProfit = "-150000"; // 亏损侧（负值），越默认阈值 100000
+        service.ingestCtpData(req, SYSTEM_OP);
+        List<SettleCycle> cycles = service.runSettlement(settlementInput(), SYSTEM_OP);
+        assertFalse(cycles.isEmpty(), "结算应产出结算单");
+
+        // t_settle_pnl 由生产路径真实落行（不预插替身）
+        List<SettlePnl> floats = floatRows();
+        assertEquals(1, floats.size(), "FLOAT 行应由结算转录生产路径产生");
+        assertEquals(0, floats.get(0).amount.compareTo(new BigDecimal("-150000")));
+
+        // 轨 1 触发（结算事务提交后接线被调用）
+        List<Map<String, Object>> majorRows = engine.table("t_major_event").rows;
+        assertEquals(1, majorRows.size(), "结算完成应触发 1 行重大事项");
+        Map<String, Object> row = majorRows.get(0);
+        assertEquals("LOSS_THRESHOLD", row.get("event_type"));
+        assertEquals("TRIGGERED", row.get("status"));
+        assertEquals("SETTLED", row.get("trigger_source"));
+        assertEquals("LOSS-20261010-" + SUB_A + "-STLD", row.get("event_no"));
+
+        // 端点读出：GET /api/v1/audit/report/major-event
+        AuditReportService reportService = new AuditReportService(null, new DmMajorEventDao(tx),
+                null, null, null, null, null, null, null);
+        HttpResult result = new AuditReportHandler(AuditReportHandler.MODE_MAJOR_EVENT, reportService)
+                .handle(new RequestContext("GET", AuditReportHandler.PATH_MAJOR_EVENT, null,
+                        new HashMap<>(), null, "t189", "127.0.0.1"));
+        assertEquals(200, result.status);
+        String body = new String(result.body, StandardCharsets.UTF_8);
+        assertTrue(body.contains("LOSS-20261010-" + SUB_A + "-STLD"),
+                "端点响应应含触发行事项编号：" + body);
+        assertTrue(body.contains("LOSS_THRESHOLD"), "端点响应应含事项类型：" + body);
     }
 }
