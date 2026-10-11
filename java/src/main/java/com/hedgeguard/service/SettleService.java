@@ -128,6 +128,9 @@ public final class SettleService {
     public static final String DIFF_PENDING = "PENDING";
     /** 差异处理状态：处理中。 */
     public static final String DIFF_HANDLING = "HANDLING";
+
+    /** 盈亏类型：手续费（{@code ck_t_settle_pnl_pnl_type} 冻结域；{@code T-189} 转录行）。 */
+    public static final String PNL_TYPE_COMMISSION = "COMMISSION";
     /** 差异处理状态：已闭环。 */
     public static final String DIFF_CLOSED = "CLOSED";
 
@@ -283,13 +286,17 @@ public final class SettleService {
         int fundCount = req.funds == null ? 0 : req.funds.size();
         int tradeCount = req.trades == null ? 0 : req.trades.size();
         boolean arrived = posCount > 0 || fundCount > 0 || tradeCount > 0;
+        // T-189：逐合约盈亏字段覆盖面（旧模板兼容——缺列/空值不硬失败，回执披露）
+        int[] pnlCoverage = positionPnlCoverage(req.positions);
+        final int pnlPresent = pnlCoverage[0];
+        final int pnlMissing = pnlCoverage[1];
 
         return tx.inTransaction(conn -> {
             SettleCtpBatch existing = batchDao.findByTradeDateAndSource(tradeDate, source);
             if (existing != null && "Y".equals(existing.isConfirmed)) {
                 // 幂等：重复接收同一批次不再插入明细（以最后一次确认为准并留痕）
                 return new CtpIngestResult(existing.id, false, existing.positionCount, existing.fundCount,
-                        existing.tradeCount, "已接收（幂等 no-op）");
+                        existing.tradeCount, pnlPresent, pnlMissing, "已接收（幂等 no-op）");
             }
             SettleCtpBatch batch = existing == null ? new SettleCtpBatch() : existing;
             batch.tradeDate = tradeDate;
@@ -309,7 +316,7 @@ public final class SettleService {
                 } else {
                     batchDao.updateById(batch, operatorId);
                 }
-                return new CtpIngestResult(batch.id, true, 0, 0, 0,
+                return new CtpIngestResult(batch.id, true, 0, 0, 0, 0, 0,
                         "数据未到达，已置待重试（NOT_ARRIVED）");
             }
             batch.parseStatus = PARSE_PARSED;
@@ -323,8 +330,36 @@ public final class SettleService {
                 batchDao.updateById(batch, operatorId);
             }
             persistCtpDetails(batch, req, operatorId);
-            return new CtpIngestResult(batch.id, false, posCount, fundCount, tradeCount, "接收成功");
+            String message = "接收成功";
+            if (pnlMissing > 0) {
+                // 旧模板兼容披露（T-189）：未携带逐合约盈亏的行，结算时不参与 CLOSE/FLOAT 转录（跳过，不硬失败）
+                message = "接收成功；持仓盈亏字段缺失 " + pnlMissing + " 行（旧模板兼容：盈亏转录跳过该行）";
+            }
+            return new CtpIngestResult(batch.id, false, posCount, fundCount, tradeCount,
+                    pnlPresent, pnlMissing, message);
         });
+    }
+
+    /**
+     * 统计持仓行逐合约盈亏字段覆盖面（{@code T-189}）。
+     *
+     * @return {@code [携带行数, 未携带行数]}（缺列/空值均计为未携带，旧模板兼容）
+     */
+    private static int[] positionPnlCoverage(java.util.List<CtpPositionRow> positions) {
+        int present = 0;
+        int missing = 0;
+        if (positions != null) {
+            for (CtpPositionRow row : positions) {
+                boolean carried = (row.closeProfit != null && !row.closeProfit.trim().isEmpty())
+                        || (row.positionProfit != null && !row.positionProfit.trim().isEmpty());
+                if (carried) {
+                    present++;
+                } else {
+                    missing++;
+                }
+            }
+        }
+        return new int[] {present, missing};
     }
 
     private void persistCtpDetails(SettleCtpBatch batch, CtpDataRequest req, long operatorId) {
@@ -386,7 +421,10 @@ public final class SettleService {
      * <p>顺序：① 取 CTP 当日明细（缺失即 {@code DATA_INSUFFICIENT}，不推算）→
      * ② 按子账户聚合系统内持仓/资金，生成 {@code t_settle_cycle}（每子账户一份，含平仓/浮动盈亏、
      * 手续费、保证金占用、可用资金、权益、风险度六项）→ ③ 持久化 {@code t_settle_position}/
-     * {@code t_settle_fund}/{@code t_settle_pnl}（逐行携带子账户，可直接求和）→
+     * {@code t_settle_fund}/{@code t_settle_pnl}（逐行携带子账户，可直接求和；
+     * {@code t_settle_pnl} 本期落 {@code COMMISSION} 转录行——{@code CLOSE_REALIZED}/
+     * {@code FLOAT_UNREALIZED} 的数据源扩列裁定见 {@link #transcribeCommissionPnl}，
+     * 冻结面升级中、批准前不落，勿误读为「无亏损」）→
      * ④ 与 CTP 台账逐子账户勾稽（不等即记资金差异）→ ⑤ 三类核对（成交/仓位/资金）。</p>
      *
      * <p>子账户资金为负时置 {@code negative_fund_flag='Y'} 并记差异（{@code FR-SETTLE-4} 验收3）。</p>
@@ -417,6 +455,26 @@ public final class SettleService {
             subs.addAll(posBySub.keySet());
             subs.addAll(fundBySub.keySet());
 
+            // T-189：逐合约手续费聚合（Σ CtpTradeRow.commission，加总非推算，裁定授权）
+            Map<String, BigDecimal> commissionByInstrument = new LinkedHashMap<>();
+            for (SettleCtpTrade t : ctpTrades) {
+                if (t.instrumentId != null) {
+                    commissionByInstrument.merge(t.instrumentId, nz(t.commission), BigDecimal::add);
+                }
+            }
+            // 归属辅助：合约 → 系统内持仓子账户去重数（>1 ⇒ 合并持仓拆分不出，不默认归入）
+            Map<String, Integer> subsByInstrument = new LinkedHashMap<>();
+            for (List<SystemPositionRow> rows : posBySub.values()) {
+                for (SystemPositionRow r : rows) {
+                    subsByInstrument.merge(r.instrumentId, 1, Integer::sum);
+                }
+            }
+            // 幂等键集：当日已存在的 (date|sub|instrument|pnl_type)，重复结算跳过（不重插）
+            Set<String> existingPnlKeys = new LinkedHashSet<>();
+            for (SettlePnl p : pnlDao.findByTradeDate(date)) {
+                existingPnlKeys.add(pnlKey(p.tradeDate, p.subAccountId, p.instrumentId, p.pnlType));
+            }
+
             List<SettleCycle> out = new ArrayList<>();
             for (Integer subId : subs) {
                 if (subId == null || subId <= 0) {
@@ -429,6 +487,10 @@ public final class SettleService {
                 }
                 applyPositionSplit(cycle, posBySub.getOrDefault(subId, Collections.emptyList()), operatorId);
                 applyFund(cycle, fundBySub.get(subId), operatorId);
+                // T-189：结算盈亏明细转录（同结算事务：结算成功 ⇔ 盈亏明细落库原子生效；
+                // 轨 1 触发器在事务提交后读取，见 evaluateSettled 接线点）
+                transcribeCommissionPnl(cycle, posBySub, commissionByInstrument, subsByInstrument,
+                        existingPnlKeys, operatorId);
                 cycle.status = CYCLE_GENERATED;
                 cycleDao.updateById(cycle, operatorId);
                 out.add(cycle);
@@ -602,6 +664,89 @@ public final class SettleService {
         } else {
             cycle.negativeFundFlag = "N";
         }
+    }
+
+    /**
+     * 结算盈亏明细转录（{@code T-189}；落 {@code t_settle_pnl}，R-SETTLE-9 子账户贯穿可加总）。
+     *
+     * <p><b>本期范围（裁定授权）</b>：{@code COMMISSION} 行 = 该合约当日 CTP 成交手续费聚合
+     * （Σ {@code CtpTradeRow.commission}，<b>加总非推算</b>，符号语义照转录原值/DDL「金额（可为负）」）。
+     * {@code CLOSE_REALIZED}/{@code FLOAT_UNREALIZED} 行的数据源（导入契约扩列）已裁方案 A，
+     * 但其<b>中间持久化承载</b>须扩 {@code TB-SETTLE-2}（DATA_MODEL 冻结面，
+     * {@code M2SettleSchemaTest} 以 DATA_MODEL §2.7 为期望逐列锁 DDL）⇒ 按派单停手条款升级 CH，
+     * 批准前不落该两类行（诚实披露，勿误读为「无亏损」）。
+     *
+     * <p><b>归属规则</b>（无法避免的归属设计，采纳最保守形态）：CTP 明细为账户级合并数据
+     * （DATA_MODEL 例外 E1，无子账户维度），归属借结算输入的系统内持仓（子账户维度由业务侧确定，
+     * DATA_MODEL §4.6.3）：仅当合约当日在<b>恰好一个</b>结算子账户名下有持仓时转录给该子账户；
+     * 多子账户共用合约时合并值拆分不出 ⇒ <b>跳过并告警</b>，不默认归入（先例
+     * {@code reconcilePositions} 仓位差异「无法归属不默认归入」）。合约当日无 CTP 成交 ⇒ 无行。
+     *
+     * <p><b>幂等</b>：跳过式——同 uk 键 (trade_date, sub_account_id, instrument_id, pnl_type)
+     * 已存在即跳过（不重插、不重算）。相对「先删后插」的取舍：先删后插需新增 DAO 删除方法并回写
+     * {@code CONTRACTS §2.2.1}（本单冻结面），且重复接收同一批次本就幂等 no-op、明细不可变，
+     * 跳过式已满足重跑安全；副作用 = 若换 source 重导且手续费变化，旧值保留（重跑姿态披露）。
+     *
+     * @param cycle                  当前结算单（子账户）
+     * @param posBySub               系统内持仓（按子账户）
+     * @param commissionByInstrument 合约 → 当日 CTP 成交手续费合计（仅含有成交的合约）
+     * @param subsByInstrument       合约 → 持有该合约的系统内子账户数
+     * @param existingPnlKeys        当日已存在的盈亏行幂等键集（本事务内累计）
+     * @param operatorId             操作人
+     */
+    private void transcribeCommissionPnl(SettleCycle cycle, Map<Integer, List<SystemPositionRow>> posBySub,
+                                         Map<String, BigDecimal> commissionByInstrument,
+                                         Map<String, Integer> subsByInstrument, Set<String> existingPnlKeys,
+                                         long operatorId) {
+        List<SystemPositionRow> rows = posBySub.getOrDefault(cycle.subAccountId, Collections.emptyList());
+        Set<String> instruments = new LinkedHashSet<>();
+        Map<String, Long> productByInstrument = new LinkedHashMap<>();
+        for (SystemPositionRow r : rows) {
+            instruments.add(r.instrumentId);
+            if (r.productId != null && !productByInstrument.containsKey(r.instrumentId)) {
+                productByInstrument.put(r.instrumentId, r.productId);
+            }
+        }
+        for (String instrument : instruments) {
+            if (!commissionByInstrument.containsKey(instrument)) {
+                continue; // 合约当日无 CTP 成交 ⇒ 无手续费可转录
+            }
+            Integer holders = subsByInstrument.getOrDefault(instrument, 0);
+            if (holders != 1) {
+                // 合并持仓拆分不出子账户：不默认归入（不得重复计入多个子账户破坏可加总性）
+                LOG.warning("合约盈亏归属歧义（多子账户持有，跳过转录，T-189）：tradeDate=" + cycle.tradeDate
+                        + " instrumentId=" + instrument + " 子账户数=" + holders);
+                continue;
+            }
+            Long productId = productByInstrument.get(instrument);
+            if (productId == null) {
+                // t_settle_pnl.product_id NOT NULL + FK → t_product：无品种归属不得伪造哨兵（FK 硬约束）
+                LOG.warning("合约缺品种归属，跳过手续费转录（T-189）：tradeDate=" + cycle.tradeDate
+                        + " instrumentId=" + instrument);
+                continue;
+            }
+            String key = pnlKey(cycle.tradeDate, cycle.subAccountId, instrument, PNL_TYPE_COMMISSION);
+            if (existingPnlKeys.contains(key)) {
+                continue; // 幂等：重复结算跳过（见方法 javadoc 取舍）
+            }
+            SettlePnl p = new SettlePnl();
+            p.subAccountId = cycle.subAccountId;
+            p.settleCycleId = cycle.id;
+            p.tradeDate = cycle.tradeDate;
+            p.instrumentId = instrument;
+            p.productId = productId;
+            p.hedgePlanId = null;
+            p.pnlType = PNL_TYPE_COMMISSION;
+            p.amount = commissionByInstrument.get(instrument);
+            p.qty = null;
+            pnlDao.insert(p, operatorId);
+            existingPnlKeys.add(key);
+        }
+    }
+
+    /** 盈亏行幂等键（对齐 uk_settle_pnl_key）。 */
+    private static String pnlKey(LocalDate date, Integer subAccountId, String instrumentId, String pnlType) {
+        return date + "|" + subAccountId + "|" + instrumentId + "|" + pnlType;
     }
 
     private void recordDifference(SettleCycle cycle, Long reconcileRecordId, String diffType, String kind,
@@ -1688,6 +1833,18 @@ public final class SettleService {
         public String settlementPrice;
         /** 占用保证金。 */
         public String margin;
+        /**
+         * 平仓盈亏（{@code T-189} 方案 A 扩导入契约；转录自 CTP SDK
+         * {@code ThostFtdcUserApiStruct.h} 持仓字段 {@code CloseProfit}，逐字转录不推算）。
+         *
+         * <p><b>可缺省（旧模板向后兼容）</b>：缺列/空值 ⇒ 该合约行不参与盈亏转录
+         * （在接收回执 {@code positionPnlMissingCount} 披露），不硬失败。
+         * ⚠️ 逐合约盈亏的<b>中间持久化承载</b>须扩 {@code TB-SETTLE-2}（DATA_MODEL 冻结面），
+         * 裁定前本字段仅入库回执披露、不落 {@code t_ctp_settle_position}（T-189 升级报告中）。
+         */
+        public String closeProfit;
+        /** 持仓盈亏（浮动，{@code T-189} 方案 A；转录自 CTP SDK {@code PositionProfit}；可缺省，同上）。 */
+        public String positionProfit;
     }
 
     /** CTP 资金行。 */
@@ -1744,16 +1901,23 @@ public final class SettleService {
         public int fundCount;
         /** 成交条数。 */
         public int tradeCount;
+        /** 持仓行中<b>携带</b>逐合约盈亏字段（closeProfit/positionProfit 至少其一非空）的条数（{@code T-189}）。 */
+        public int positionPnlPresentCount;
+        /** 持仓行中<b>未携带</b>逐合约盈亏字段（缺列/空值，旧模板）的条数；该部分行结算时不参与盈亏转录（{@code T-189}）。 */
+        public int positionPnlMissingCount;
         /** 说明。 */
         public String message;
 
         CtpIngestResult(long batchId, boolean pendingRetry, int positionCount, int fundCount,
-                        int tradeCount, String message) {
+                        int tradeCount, int positionPnlPresentCount, int positionPnlMissingCount,
+                        String message) {
             this.batchId = batchId;
             this.pendingRetry = pendingRetry;
             this.positionCount = positionCount;
             this.fundCount = fundCount;
             this.tradeCount = tradeCount;
+            this.positionPnlPresentCount = positionPnlPresentCount;
+            this.positionPnlMissingCount = positionPnlMissingCount;
             this.message = message;
         }
     }

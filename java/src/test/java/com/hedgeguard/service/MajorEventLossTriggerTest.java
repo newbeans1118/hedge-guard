@@ -53,6 +53,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -284,6 +285,9 @@ class MajorEventLossTriggerTest {
                 Collections.emptyList(), Collections.emptyList(), Collections.emptySet(),
                 Clocks.epochMilli());
 
+        // T-188 O-2 补强：镜像轨（提醒级）触发前，记账面各表行数基线
+        Map<String, Integer> bookBefore = bookTableCounts();
+
         trigger().publish(eval);
 
         Map<String, Object> row = singleRow();
@@ -295,6 +299,23 @@ class MajorEventLossTriggerTest {
         assertTrue(desc.contains("提醒级"), "裁定边界应落描述（镜像禁止记账）：" + desc);
         // 铁律 4：镜像轨只落提醒行，不得产生任何记账写操作（t_major_event 即唯一副作用）
         assertEquals(1, engine.table("t_major_event").rows.size());
+        // T-188 O-2 补强：镜像轨触发后，记账面各表行数一律不变（唯一副作用 = t_major_event +1）
+        Map<String, Integer> bookAfter = bookTableCounts();
+        for (Map.Entry<String, Integer> e : bookBefore.entrySet()) {
+            assertEquals(e.getValue(), bookAfter.get(e.getKey()),
+                    "镜像轨（提醒级）不得写记账表：" + e.getKey());
+        }
+    }
+
+    /** 记账面表行数快照（T-188 O-2 补强：镜像轨「其他表行数不变」断言的取样面）。 */
+    private Map<String, Integer> bookTableCounts() {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (String t : Arrays.asList("t_settle_pnl", "t_settle_position", "t_settle_fund",
+                "t_settle_cycle", "t_risk_alert", "t_risk_metric_snapshot", "t_mirror_watermark",
+                "t_abnormal_order_stat")) {
+            counts.put(t, engine.table(t).rows.size());
+        }
+        return counts;
     }
 
     @Test
@@ -326,6 +347,8 @@ class MajorEventLossTriggerTest {
 
         SubAccountRiskMetrics sub = new SubAccountRiskMetrics(SUB);
         sub.floatPnl = new BigDecimal("-120000");
+        // T-188 O-2 补强：镜像段触发前记账面基线（seedPnl/seedCycle 属Arrange，不计入）
+        Map<String, Integer> bookBefore = bookTableCounts();
         trigger().publish(new RiskEvaluation(
                 new com.hedgeguard.risk_intraday.MirrorMetrics(ReplayProgress.State.READY, 42L, 7L,
                         DAY.atTime(11, 0).toString(), 0L, false,
@@ -338,6 +361,12 @@ class MajorEventLossTriggerTest {
         long mirror = majorRows().stream().filter(r -> "INTRADAY_MIRROR".equals(r.get("trigger_source"))).count();
         assertEquals(1, settled);
         assertEquals(1, mirror);
+        // T-188 O-2 补强：镜像段（提醒级）不得写任何记账表
+        Map<String, Integer> bookAfter = bookTableCounts();
+        for (Map.Entry<String, Integer> e : bookBefore.entrySet()) {
+            assertEquals(e.getValue(), bookAfter.get(e.getKey()),
+                    "镜像轨（提醒级）不得写记账表：" + e.getKey());
+        }
     }
 
     // ================================================================ 配置处置

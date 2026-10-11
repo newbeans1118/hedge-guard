@@ -45,6 +45,9 @@ public final class SettleCtpDataHandler implements RouteHandler {
         data.put("positionCount", r.positionCount);
         data.put("fundCount", r.fundCount);
         data.put("tradeCount", r.tradeCount);
+        // T-189：逐合约盈亏字段覆盖面回执（旧模板兼容披露）
+        data.put("positionPnlPresentCount", r.positionPnlPresentCount);
+        data.put("positionPnlMissingCount", r.positionPnlMissingCount);
         data.put("message", r.message);
         return HttpResult.json(200, ApiResponse.ok(data, ctx.traceId()));
     }
