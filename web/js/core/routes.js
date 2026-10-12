@@ -111,6 +111,19 @@ export const ROUTES = {
     action: (id, action) => '/plan/' + enc(id) + '/' + enc(action),
     ratio: (method) => '/plan/ratio/' + enc(method)   // simple | minvar | custom
   },
+  AUDIT: {
+    TRACE_FORWARD: '/audit/trace/forward',
+    TRACE_BACKWARD: '/audit/trace/backward',
+    TRACE_INTEGRITY: '/audit/trace/integrity',
+    VIOLATION_SCREEN: '/audit/violation-screen',
+    REPORT_QUARTERLY: '/audit/report/quarterly',
+    REPORT_ANNUAL: '/audit/report/annual',
+    REPORT_MAJOR_EVENT: '/audit/report/major-event',
+    EVIDENCE_EXPORT: '/audit/evidence/export',
+    LOG: '/audit/log',
+    LOG_VERIFY: '/audit/log/verify',
+    OPERATION_LOG: '/audit/operation-log'
+  },
   /** 未注册：仅登记路径，**禁止调用**（调用即 404；handler/ 下无 risk/trade 等模块目录）。 */
   NOT_REGISTERED: {
     RISK_DASHBOARD: '/risk/dashboard',
