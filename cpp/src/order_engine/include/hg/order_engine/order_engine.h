@@ -34,6 +34,7 @@
 
 #include "hg/ctp_adapter/ct_types.h"
 #include "hg/flow_store/flow_store.h"
+#include "hg/flow_store/replay.h"  // T-041 还原接缝：ReplayOrderState 还原源
 #include "hg/order_engine/trade_gateway.h"
 #include "hg/risk_engine/order_request.h"
 #include "hg/risk_engine/risk_engine.h"
@@ -257,6 +258,40 @@ class OrderEngine {
   // 缺位 ⇒ OrderRequest.prev_settlement_price=0 ⇒ 风控诚实拒 0x1015（无可用基准价）。
   void setPrevSettlement(const std::string& instrument_code, hg::risk_state::Fixed value);
 
+  // ---- 崩溃还原接缝（T-041；启动重放后一次性调用，§4.5.3 ⑤）-------------------
+  // 还原指令生命周期到 OrderMap（orders_/ref_index_/next_order_id_）。
+  //   · st.terminal==true：还原为与流水末类对应终态（kFilled/kRejected/kExpired/
+  //     kCancelled → 同名 OrderStatus；kReported 终态不可判 ⇒ 保守 kSubmitted）；
+  //   · st.sent && !st.terminal：在途单（CTP 对账决策由 RecoveryHook 处置，
+  //     本方法先还原为 kSubmitted；冻结份额按 hold 入账，见 restoreFrozenHold）；
+  //   · !sent && !terminal（pending_unsent）：还原 kPendingConfirm（壳档案；
+  //     confirm_deadline 不可还原 ⇒ 置 now_ms + cfg 现值，超时后由 expirePending
+  //     正常失效——保守语义：不因还原而永久卡死，也不释放冻结）。
+  // 幂等护栏：restore_done_ 一次性（二次调用 = 编排错误，返回 false 拒绝）；
+  // next_order_id_ 推进到 max(见过的 order_id)+1（防还原后重号，工单 M4 打点）。
+  // 冻结份额不可由 T-036 行格式重算（recovery_hook.h 头注披露）⇒ held 单须由
+  // 调用方随后经 restoreFrozenHold 显式入账。
+  // 返回实际还原条数；engine 存在终态前状态非空（先还原后使用的编排约束）。
+  bool restoreFromReplay(const std::vector<hg::flow_store::ReplayOrderState>& orders,
+                         std::int64_t now_ms);
+
+  // 在途/未知单冻结份额入账（配合 restoreFromReplay；份额由调用方外源注入——
+  // 装配方按快照+流水外档案推定，T-039 装配裁定；份额 0 ⇒ 不入账仅占档）。
+  // 档案须已由 restoreFromReplay 建立；幂等：份额非零且档案冻结份额已非零 ⇒ 拒。
+  bool restoreFrozenHold(std::uint64_t order_id, hg::risk_state::Fixed l1,
+                         hg::risk_state::Fixed l2, hg::risk_state::Fixed l3);
+
+  // 还原单终态化（T-041 决策执行接缝）：对还原档案执行 markTerminal（终态迁移
+  // + 释放冻结 + 流水留痕）。守卫：档案存在且非终态 ⇒ 否则 false（幂等拒绝，
+  // 防二次释放/二次留痕）。用途：ReplayDecision 三分类的终态修正（adopt/release
+  // expired）与人工核验后的 unknown 单闭环。*detail 为留痕 detail（建议 recovery:
+  // 前缀，区分于常规生命周期轨）。
+  bool finalizeRecovered(std::uint64_t order_id, OrderStatus st, std::int64_t now_ms,
+                         const char* detail);
+
+  // 还原观测（测试/装配诊断；还原完成后 = true）。
+  bool restore_done() const { return restore_done_; }
+
   // ---- 观测面（测试 / 装配诊断）----------------------------------------------
   std::size_t order_count() const { return orders_.size(); }
   std::size_t pending_count() const;
@@ -296,6 +331,9 @@ class OrderEngine {
   // 终态迁移 + 释放冻结 + 流水。
   void markTerminal(OrderRecord* rec, OrderStatus st, std::int64_t now_ms,
                     const char* detail);
+
+  // T-041 还原态：一次性护栏（restoreFromReplay 已执行）。
+  bool restore_done_ = false;
 
   risk_engine::RiskEngine* risk_;
   flow_store::FlowStore* flow_;

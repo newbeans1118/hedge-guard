@@ -3,6 +3,7 @@
 
 #include <cmath>
 
+#include "hg/flow_store/replay.h"  // T-041 还原接缝：ReplayOrderState（只读还原源）
 #include "hg/risk_engine/fixed_math.h"
 
 namespace hg {
@@ -686,6 +687,92 @@ std::size_t OrderEngine::expirePending(std::int64_t now_ms, EngineEvent* out,
   }
   return n;
 }
+
+// =========================== T-041 还原接缝（起） ===========================
+
+bool OrderEngine::restoreFromReplay(
+    const std::vector<hg::flow_store::ReplayOrderState>& orders, std::int64_t now_ms) {
+  // 一次性护栏：还原后 OrderMap 既有条目，二次还原 = 编排错误（重复计入风险，
+  // 正是验收 1 要阻断的形态）⇒ 拒绝而非合并。
+  if (restore_done_) return false;
+  if (orders_.empty()) restore_done_ = true;  // 空还原亦占坑（编排一致性）
+  if (orders.empty()) return true;
+
+  std::uint64_t max_id = 0;
+  for (std::size_t k = 0; k < orders.size(); ++k) {
+    const hg::flow_store::ReplayOrderState& st = orders[k];
+    if (st.order_id == 0) continue;  // 流水契约下不产生；防御保留
+
+    OrderRecord rec;
+    rec.order_id = st.order_id;
+    rec.input.client_order_ref = st.client_order_ref;
+    rec.accepted_ts_ms = st.last_ts_ms;
+    rec.volume_total = 0;   // 要素不可还原（recovery_hook.h 头注披露）
+    rec.volume_traded = 0;
+    rec.volume_left = 0;
+
+    if (st.terminal) {
+      // 流水末类 → 终态映射（kReported 终态不可判 ⇒ 保守 kSubmitted）。
+      switch (st.last_kind) {
+        case flow_store::FlowKind::kFilled: rec.status = OrderStatus::kFilled; break;
+        case flow_store::FlowKind::kRejected: rec.status = OrderStatus::kRejected; break;
+        case flow_store::FlowKind::kExpired: rec.status = OrderStatus::kExpired; break;
+        case flow_store::FlowKind::kCancelled: rec.status = OrderStatus::kCancelled; break;
+        default: rec.status = OrderStatus::kSubmitted; break;
+      }
+    } else if (st.sent) {
+      // 在途单：先还原为 kSubmitted；处置决策由 RecoveryHook 执行（修正/释放/未知）。
+      rec.status = OrderStatus::kSubmitted;
+    } else {
+      // pending_unsent：待确认（壳档案）；超时由 expirePending 正常失效。
+      rec.status = OrderStatus::kPendingConfirm;
+      rec.confirm_deadline_ms = now_ms + cfg_.confirm_timeout_ms;
+      rec.confirm_token.clear();  // 不可还原 ⇒ 清空（确认须 token，重放后不可确认）
+    }
+
+    orders_[rec.order_id] = rec;
+    if (!rec.input.client_order_ref.empty()) {
+      ref_index_[rec.input.client_order_ref] = rec.order_id;
+    }
+    if (rec.order_id > max_id) max_id = rec.order_id;
+  }
+  // 防还原后重号（工单 M4 打点方向）：next_order_id_ 推进到见过最大 id + 1。
+  if (next_order_id_ <= max_id) next_order_id_ = max_id + 1;
+  return true;
+}
+
+bool OrderEngine::restoreFrozenHold(std::uint64_t order_id, hg::risk_state::Fixed l1,
+                                    hg::risk_state::Fixed l2, hg::risk_state::Fixed l3) {
+  const std::unordered_map<std::uint64_t, OrderRecord>::iterator it = orders_.find(order_id);
+  if (it == orders_.end()) return false;
+  OrderRecord& rec = it->second;
+  // 幂等/防重入账：档案冻结份额已非零 ⇒ 已入过账（重复计入 = 验收 1 阻断形态）。
+  if (rec.frozen_l1 != 0 || rec.frozen_l2 != 0 || rec.frozen_l3 != 0) return false;
+  rec.frozen_l1 = l1;
+  rec.frozen_l2 = l2;
+  rec.frozen_l3 = l3;
+  // 直入三层账本（份额为外源推定值，非 requestInQuotaUnit 重算）。
+  const std::uint64_t k1 = packKey(rec.input.sub_account_id, rec.input.product_id);
+  const std::uint64_t k2 = packKey(rec.input.sub_account_id, rec.input.instrument_key);
+  const std::uint64_t k3 = packKey(kAccountKey, rec.input.product_id);
+  if (l1 > 0) frozen_l1_[k1] += l1;
+  if (l2 > 0) frozen_l2_[k2] += l2;
+  if (l3 > 0) frozen_l3_[k3] += l3;
+  return true;
+}
+
+bool OrderEngine::finalizeRecovered(std::uint64_t order_id, OrderStatus st,
+                                    std::int64_t now_ms, const char* detail) {
+  const std::unordered_map<std::uint64_t, OrderRecord>::iterator it = orders_.find(order_id);
+  if (it == orders_.end()) return false;
+  OrderRecord& rec = it->second;
+  // 幂等守卫：已终态 ⇒ 拒（防二次释放/二次留痕；TE-T036-001 同向）。
+  if (isTerminalStatus(rec.status)) return false;
+  markTerminal(&rec, st, now_ms, detail != nullptr ? detail : "recovery: finalized");
+  return true;
+}
+
+// =========================== T-041 还原接缝（完） ===========================
 
 }  // namespace order_engine
 }  // namespace hg

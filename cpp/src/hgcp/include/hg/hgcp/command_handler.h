@@ -56,6 +56,7 @@ class ReplayController;  // 前置声明（T-037 重放就绪源接缝；可空�
 }  // namespace flow_store
 namespace order_engine {
 class OrderEngine;  // 前置声明（T-036 交易路径消费接缝；可空持有）
+class RecoveryHook;  // 前置声明（T-041 恢复未闭环台账门禁接缝；可空持有）
 }  // namespace order_engine
 namespace hgcp {
 
@@ -103,6 +104,14 @@ class CommandHandler {
   // T-033 银期轨 / T-039，不在本接缝）。
   void set_order_engine(hg::order_engine::OrderEngine* engine);
 
+  // ---- 恢复未闭环接缝（T-041，验收 4）---------------------------------------
+  // 注入恢复钩子（可空持有；缺省 null = 维持 T-038/T-037 门卫语义——
+  // recovery_ == nullptr 时行为与现状逐字节等价）。
+  // system_ready() 合取其 has_unknown_open()==false：存在「状态未知」在途
+  // （kUnknownKeepFrozen·kTimeout 台账未闭环）⇒ 一律 false ⇒ 交易指令回 0x0401，
+  // 直到人工双人核验闭环（RecoveryHook::manualRelease → Coordinator 台账清零）。
+  void set_recovery_hook(hg::order_engine::RecoveryHook* recovery);
+
   // ---- 重放接缝（T-037）-------------------------------------------------------
   // 注入重放控制器（可空持有；缺省 null = 维持 T-038 门卫语义）。
   //   · system_ready() 合取其 ready()（0x0401 单一门卫扩展，见上）；
@@ -119,6 +128,7 @@ class CommandHandler {
   hg::risk_state::ParamRebuildSession session_;
   hg::order_engine::OrderEngine* engine_ = nullptr;
   hg::flow_store::ReplayController* replay_ = nullptr;
+  hg::order_engine::RecoveryHook* recovery_ = nullptr;  // T-041 未闭环台账门禁（可空）
 
   // 交易路径三指令的消费体（T-036；engine_ 注入后由 handle() 分派）。
   CommandOutcome handleTradePath(std::uint16_t type, const std::vector<std::uint8_t>& body,

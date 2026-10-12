@@ -12,7 +12,8 @@
 add_library(hg_order_engine STATIC
   src/module.cc
   src/order_engine.cc
-  src/trade_gateway.cc)
+  src/trade_gateway.cc
+  src/recovery_hook.cc)                  # T-041：恢复决策执行主体（还原/终态化/核验）
 add_library(hg::order_engine ALIAS hg_order_engine)
 target_include_directories(hg_order_engine PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(hg_order_engine PUBLIC
@@ -40,5 +41,23 @@ set_target_properties(order_engine_order_engine_test PROPERTIES
   CXX_EXTENSIONS OFF)
 add_test(NAME "order_engine.order_engine" COMMAND order_engine_order_engine_test)
 set_tests_properties("order_engine.order_engine" PROPERTIES
+  FIXTURES_REQUIRED hg_arch_check
+  TIMEOUT 60)
+
+# -----------------------------------------------------------------------------
+# 单测（ctest）：T-041 崩溃恢复集成——还原/决策执行/人工核验/强杀重启模拟（验收 1–4）
+#   进程内模拟承载（工单门禁 4：非真跨进程 E2E，诚实披露于用例注释）。
+# -----------------------------------------------------------------------------
+add_executable(order_engine_recovery_hook_test "tests/order_engine_recovery_hook_test.cc")
+target_link_libraries(order_engine_recovery_hook_test PRIVATE hg::order_engine)
+target_include_directories(order_engine_recovery_hook_test PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../risk_engine/tests")  # 复用 testutil（harness/构造器）
+set_target_properties(order_engine_recovery_hook_test PROPERTIES
+  CXX_STANDARD 11
+  CXX_STANDARD_REQUIRED ON
+  CXX_EXTENSIONS OFF)
+add_test(NAME "order_engine.recovery_hook" COMMAND order_engine_recovery_hook_test)
+set_tests_properties("order_engine.recovery_hook" PROPERTIES
   FIXTURES_REQUIRED hg_arch_check
   TIMEOUT 60)

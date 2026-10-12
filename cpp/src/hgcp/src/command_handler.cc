@@ -7,6 +7,7 @@
 #include "hg/hgcp/payload_codec.h"
 #include "hg/flow_store/replay.h"
 #include "hg/order_engine/order_engine.h"
+#include "hg/order_engine/recovery_hook.h"  // T-041：RecoveryHook::has_unknown_open（完整型）
 #include "hgcp.pb.h"
 
 namespace hg {
@@ -826,6 +827,9 @@ bool CommandHandler::system_ready() const {
   // 重放接缝未注入时保持 T-038 语义（仅参数面）——0x0401 仍由本函数唯一承载。
   if (!state_->ready()) return false;
   if (replay_ != nullptr && !replay_->ready()) return false;
+  // T-041（验收 4，单一门卫第三合取项）：「状态未知」在途未人工闭环 ⇒ 不 READY。
+  // 可空持有：recovery_ == nullptr ⇒ 本项不参与（T-038/T-037 语义逐字节等价）。
+  if (recovery_ != nullptr && recovery_->has_unknown_open()) return false;
   return true;
 }
 
@@ -835,6 +839,10 @@ void CommandHandler::set_order_engine(hg::order_engine::OrderEngine* engine) {
 
 void CommandHandler::set_replay_controller(hg::flow_store::ReplayController* replay) {
   replay_ = replay;
+}
+
+void CommandHandler::set_recovery_hook(hg::order_engine::RecoveryHook* recovery) {
+  recovery_ = recovery;
 }
 
 // 交易路径三指令消费（T-036）：engine_ 注入后由 handle() 分派至此。

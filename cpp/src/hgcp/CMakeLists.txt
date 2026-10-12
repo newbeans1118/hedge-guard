@@ -144,3 +144,21 @@ add_test(NAME "hgcp.replay_gate" COMMAND hgcp_replay_gate_test)
 set_tests_properties("hgcp.replay_gate" PROPERTIES
   FIXTURES_REQUIRED hg_arch_check
   TIMEOUT 60)
+
+# -----------------------------------------------------------------------------
+# T-041：恢复未闭环门禁单测（0x0401 单一门卫第三合取项 + 可空持有负控 +
+#        人工闭环先后序）。复用 risk_engine testutil（就绪夹具同形）。
+# -----------------------------------------------------------------------------
+add_executable(hgcp_recovery_gate_test "tests/recovery_gate_test.cc")
+target_link_libraries(hgcp_recovery_gate_test PRIVATE hg::hgcp hg::risk_engine)
+target_include_directories(hgcp_recovery_gate_test PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../risk_engine/tests")
+set_target_properties(hgcp_recovery_gate_test PROPERTIES
+  CXX_STANDARD 11
+  CXX_STANDARD_REQUIRED ON
+  CXX_EXTENSIONS OFF)
+add_test(NAME "hgcp.recovery_gate" COMMAND hgcp_recovery_gate_test)
+set_tests_properties("hgcp.recovery_gate" PROPERTIES
+  FIXTURES_REQUIRED hg_arch_check
+  TIMEOUT 60)
