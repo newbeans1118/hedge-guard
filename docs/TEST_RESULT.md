@@ -16946,3 +16946,193 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 - **新发现**：
   - **TE-T193B-001（观察·低）**：Service :355/:378 javadoc 声称「额外覆盖换行符」（与 VarietyService 先例的差异点），但新增用例三类载体（start_id 拼接串/reason 三重形态）均**同时含逗号或引号**——M3（换行条件摘除）存活 ⇒ 换行独立触发分支（`contains("\n")||contains("\r")`）零用例锁定，「额外覆盖换行符」属**已声明未落实**（与首轮 TE-T193-001 同构、更小面）。修复建议：补一个仅换行载体（如 `仅\r\n换行无逗号引号`）+ 原文形态断言（复核探针已验证击杀可行，形态见上）；或由产出方裁断降级为已披露残留。
 - **结论**：**有条件通过** —— 产出方自述全部独立证实（1074/0/0/0、树锚、M2/M2b 双杀、实现零改动、arch rc0）；TE-T193-001 主缺口（列数等数/转义体例）已闭环。条件 1 项：TE-T193B-001（换行分支零锁定，观察级）须补载体或获权威席裁断降级为已披露残留后，T-193 可转 DONE。
+
+---
+
+## T-059 证据章：C++ 单测验收级汇总（独立取证；te-t059，2026-10-12T21:25:04+08:00）
+
+> 性质：验证执行单（TASKS §2 T-059 验收三条的独立取证）。测试件未重写、实现零改动；
+> 本席只在隔离副本 `/root/t059-ws/`（自 `d6fe701` 工作树拷贝）内加 `ENABLE_COVERAGE`
+> 构建选项做覆盖率实验，共享树 `cpp/CMakeLists.txt` 未动（副本内 diff 见 §E-3）。
+> 全部数字为本席独立实测，未引用编排者数字。
+
+### T059-0 执行环境与版本
+
+- 仓库 HEAD：`d6fe701aa960b7e38ee4e6e6c822ffbb5667c0a8`（T-041 交付提交，工作树 `docs/TEST_RESULT.md` 之外无本席改动）
+- 编译器：gcc 15.2.0（Ubuntu）；gcov：`/usr/bin/gcov`（gcov (Ubuntu 15.2.0-16ubuntu1) 15.2.0）；本机无 gcovr / llvm-cov（工单前置事实①属实）
+- CTP SDK：`/root/myspace/hedge-guard/sdk/v6.7.13_20260225_api`，`HG_CTP_HEADER_STYLE=CLASSIC`（两轨 CMakeCache 实测）
+- 隔离副本：`/root/t059-ws/{cpp,proto,tools}`（804M tmpfs 规避先例；副本内新增 `build_cov/` 覆盖率构建目录与两个实验脚本 `gcov_union.py`/`gcov_miss.py`，均已留在副本内未回写共享树）
+
+### T059-1 门禁一：双轨 ctest 全绿复跑（独立复现）
+
+```
+ctest --test-dir cpp/build      --output-on-failure
+  → 100% tests passed, 0 tests failed out of 54   (Total Test time 28.88 s)
+ctest --test-dir cpp/build_stub --output-on-failure
+  → 100% tests passed, 0 tests failed out of 50   (Total Test time 28.08 s)
+ctest --test-dir cpp/build -N → Total Tests: 54（末位 hgcp.recovery_gate）
+```
+
+判定：**CTP 轨 54/54、桩轨 50/50 全绿**，与工单前置事实①一致。
+
+### T059-2 门禁三：-Werror 零警告（干净重配置 + 覆盖率构建双取证）
+
+- 覆盖率构建（更严：Debug + `--coverage` 全目标插桩）：
+  `cmake -S cpp -B build_cov -DCTP_SDK_ROOT=… -DENABLE_COVERAGE=ON -DCMAKE_BUILD_TYPE=Debug`
+  rc=0；`cmake --build build_cov -j 4` rc=0，**构建日志 grep -ci "warning" = 0**
+  （日志 `/root/t059-ws/build_cov.log`）。
+- `-Wall -Wextra -Werror` 全局生效于 `cpp/CMakeLists.txt:36`（工单前置事实①属实；
+  E3 判据①亦实测 `-Wall=1 -Wextra=1 -Werror=1`）。
+- 判定：**零警告达成**（-Werror 下任何警告都会使构建失败，rc=0 即证明）。
+
+### T059-3 架构判据（门禁伴行）
+
+`bash tools/arch-check/arch-check.sh` → **E1–E8 八判据全部退出码 0**，聚合 rc0
+（E4 WARN 3 处为未覆盖判据 C/D 的信息性提示，不判红）。
+
+### T059-4 验收 2：覆盖率实测（额度校验 + 事前风控口径）
+
+**口径声明**（按工单 §②）：
+- 统计对象（分母）= `cpp/src/risk_engine/src/**`（6 个 .cc）+ `cpp/src/order_engine/src/order_engine.cc`；头文件与测试件不计入分母；`order_engine` 其余 3 个 .cc（module/trade_gateway/recovery_hook）**不在工单口径字面内**，但本席一并实测供参考（见分文件表）。
+- 统计方法 = gcc `--coverage`（`-fprofile-arcs -ftest-coverage`）+ 全量 92 个 .gcda 的 `gcov -i` JSON，行并集聚合（每源「可执行行」并集为分母，「至少被执行一次」的行并集为分子）。聚合脚本与原始输出留痕于 `/root/t059-ws/gcov_union.py`、`/root/t059-ws/cov_all/coverage_by_file.txt`。
+- 驱动集 = CTP 轨 54 用例在覆盖率构建（build_cov）上全量通过（54/54）后采集。
+
+**逐文件行覆盖率（gcov 实测）：**
+
+| 文件 | 行覆盖 | 未执行行要点 |
+|---|---|---|
+| risk_engine/src/risk_engine.cc | 97.25%（353/363） | 576–586 = `applySnapshot(RiskSnapshot&)` 裸指针重载整体未执行（10 行） |
+| risk_engine/src/quota_selection.cc | 100.00%（11/11） | — |
+| risk_engine/src/order_request.cc | 78.95%（15/19） | 11/16/21/30 = 四个字段非法 return 串（见缺口 G-2） |
+| risk_engine/src/risk_result.cc | 7.02%（4/57） | 三个诊断名函数 ruleIdName/limitLayerName/valueScaleName/riskCodeName 整体未测（见缺口 G-1） |
+| risk_engine/src/clock.cc | 0.00%（0/6） | SystemClock::todayYmd 未测（测试用 FakeClock 注入，真实时钟路径无载体，见缺口 G-3） |
+| risk_engine/src/module.cc | 100.00%（1/1） | — |
+| order_engine/src/order_engine.cc | 91.68%（496/541） | 45 行未执行，逐行定性见 §T059-5 |
+| order_engine/src/recovery_hook.cc（口径外参考） | 81.16%（56/69） | 13 行未执行 |
+| order_engine/src/module.cc（口径外参考） | 100.00%（1/1） | — |
+
+**聚合判定（工单口径 = risk_engine/src/** + order_engine.cc）：**
+
+实测聚合（行并集口径，逐文件累加；与 cov_all 聚合行交叉核对一致）：
+**880 / 998 = 88.18%** —— risk_engine 六文件合计 384/457（84.03%）+ order_engine.cc 496/541（91.68%）。
+
+**判定：验收 2 ≥80% 达成**（88.18% ≥ 80%）。口径外参考聚合（order_engine 全 4 文件）= 553/612 = 90.36%。
+
+> 诚实披露：聚合含 risk_result.cc 7.02% 与 clock.cc 0% 的低覆盖文件；未做「挑好看的文件」的分母裁剪。
+> 剔除这两个非核心文件（诊断名映射表 + 注入式设计的真实时钟桩）后，核心聚合升至
+> 876/935 = 93.7%——两种口径均 ≥80%，结论稳健。
+
+### T059-5 order_engine.cc 未执行 45 行逐行定性（诚实披露）
+
+| 行 | 函数/分支 | 定性 |
+|---|---|---|
+| 42,49–51,60 | `requestInQuotaUnit` 非 LOT（TON）折算分支 | 额度单元换算的非 LOT 路径零载体（G-4） |
+| 76–83 | `orderStatusName` switch 各 case | 诊断名函数，无断言消费（同 G-1 族） |
+| 170–173 | `freezeFor` 无快照防御分支 | 源注释自述「就绪门卫下不可达，防御保留」 |
+| 260–264 | quota 拒绝时 0x1017/0x1004/0x1005 的 limit_layer 三元赋值 | 层①/②/③ 拒绝码已由 risk_engine 侧测试覆盖（risk_engine_quota_layers_test），order_engine 内该三元表达式行未命中（部分覆盖） |
+| 380 | `confirm` 档案不存在（orders_.find 空）| `test_confirm_guards` 覆盖 0x2001（经 401 行守卫），380 lambda 内 find 行本身未命中（等价行为已断言） |
+| 425–429 | `confirm` 账本复核拒绝（markTerminal kRejected） | `test_confirm_reruns_full_risk` 走风控拒绝（0x1010）路径，但**账本复核拒绝分支**（quotaLedgerViolation 为真）无载体（G-5） |
+| 434–436 | `confirm` 流水未就绪 0x0401 | 无载体（G-5） |
+| 440–442 | `confirm` 落流水失败 0x0304 | 无载体（G-5） |
+| 473–475 | `confirm` CTP submit ack.code!=0（0x2005） | FakeGateway 只模拟未连接（retained），不模拟提交失败码（G-5） |
+| 505–507 | `cancel` operator_id==0（0x0305） | `test_cancel_paths` 未含 operator=0 形态（G-5） |
+| 533–535 | `cancel` 网关 reqCancel rc!=0 | FakeGateway.reqCancel 恒返 0（G-5） |
+| 642–643 | 回报：volume_left<=0 且 traded>0 ⇒ kFilled | `test_report_and_partial_fill` 覆盖部分成交路径；全成经 cancel 事件分类路径未命中（相邻 339 行 kCancelled 分类已覆盖） |
+| 666 | `onOrderEvent` 未匹配 return false | 防御尾部 |
+| 718–721 | `restoreFromReplay` 终态映射 kRejected/kExpired/kCancelled/default 四 case | 测试只注入 kFilled 终态（355–359 行）；其余三种终态映射无载体（G-6） |
+
+### T059-6 验收 1：逐项覆盖清点表
+
+清点方法：验收字面 → 测试函数名（`void test_*` / `parity*`）→ 判定。用例名为测试文件内函数名（ctest 测试名 = 可执行名，如 `risk_engine.risk_engine_quota_layers_test`）。
+
+**① risk_engine：8 规则**
+
+| 规则 | 承载用例（文件::函数） | 判定 |
+|---|---|---|
+| R-RISK-1 白名单 | risk_engine_whitelist_test（5 函数：happy/未入白/品种不符/未知合约/非境内交易所） | 已覆盖 |
+| R-RISK-2 额度（三层） | risk_engine_quota_layers_test（7 函数）+ double_layer_test（5 函数）+ close_exemption_test 层①②③ | 已覆盖 |
+| R-RISK-3 限仓 | risk_engine_position_limit_test（5 函数：超限/平仓豁免/边界相等/品种级回退/卖出开空） | 已覆盖 |
+| R-RISK-4 规模红线 | risk_engine_scale_redline_test（6 函数：商品<90 过/达 90 拒/金融 80/不混算/双_scope取严/平仓豁免） | 已覆盖 |
+| R-RISK-5 时点净持仓（空间乙） | risk_engine_net_position_test（4 函数：通过并注时间/超限/空头/平仓豁免） | 已覆盖 |
+| R-RISK-6 期限 | risk_engine_term_test（7 函数：含 grace 警告/展期批准/平仓豁免） | 已覆盖 |
+| R-RISK-7 权限 | risk_engine_permission_test（13 函数：岗位冲突/角色禁入/子账户与品种授权/个人额度） | 已覆盖 |
+| R-RISK-8 偏离 | risk_engine_price_deviation_test（8 函数） | 已覆盖 |
+| （附加）0x1011 交易暂停（T-181，编号 R-RISK-5 空间甲） | risk_engine_trading_suspend_test（6 函数） | 已覆盖（超出 8 规则字面，不并入判定） |
+| （附加）R-TRADE-9 关联对象 | risk_engine_related_object_test（6 函数） | 已覆盖（同上） |
+
+**② risk_engine：三层限额全序 + 并列取一**
+
+| 字面 | 承载用例 | 判定 |
+|---|---|---|
+| 三层全序（最细命中） | risk_engine_selector_test::test_finest_order / test_ignores_non_quota_layers / test_hit_better_direct；quota_layers_test::test_only_layer3 / test_layer1_and_layer3_returns_layer1 | 已覆盖 |
+| 并列取一（同层占用率→id 升序） | risk_engine_selector_test::test_same_layer_occupancy_then_id（源 :67「占用率并列 → id 升序」） | 已覆盖 |
+| 账户层跨子账户共享 | quota_layers_test::test_account_level_is_shared_across_sub_accounts + double_layer_test::test_quota_account_dimension_shared_across_sub_accounts | 已覆盖 |
+| golden 对拍（TSV 双侧同源） | risk_engine_parity_golden_test（scale 33 行 / netpos 31 行 / term 30 行，三组向量） | 已覆盖 |
+| 纯函数性（无副作用/确定性） | risk_engine_purity_test（6 函数） | 已覆盖（超出字面） |
+
+**③ order_engine：状态机/超时/确认人一致**
+
+| 字面 | 承载用例（order_engine_test.cc，17 函数） | 判定 |
+|---|---|---|
+| 状态机受理→风控→冻结→待确认→确认→落流水→发 CTP→回报→终态 | test_accept_happy_path（冻结三层断言 :135-137）+ test_confirm_happy_flow_before_submit（⑨先于⑩顺序断言 flow_count_at_submit） | 已覆盖 |
+| 超时失效 | test_confirm_guards（CFG-28 60s 超时 0x2003+失效+释放）+ test_expire_pending_sweep（扫描失效） | 已覆盖 |
+| 确认人一致（防代确认） | test_confirm_guards :210（operator=8 ≠ 提交人 7 ⇒ 0x0305）+ token 错 0x0307 | 已覆盖（confirm 路径；cancel 路径 0x0305 守卫无载体 → G-5，**不并入已覆盖**，属分支级部分覆盖） |
+| 幂等回报 / 终态守卫 | test_accept_duplicate_ref_idempotent + test_report_monotonic_and_post_terminal_guard | 已覆盖 |
+| 撤单/部分成交/CTP 拒单释放 | test_cancel_paths + test_report_and_partial_fill + test_ctp_reject_releases_freeze + test_ctp_cancel_completed_classified_cancelled | 已覆盖 |
+| 确认时全量再校验（含账本自扣） | test_confirm_reruns_full_risk + test_confirm_ledger_excludes_self_freeze（MUT-B 守卫） | 已覆盖 |
+
+**④ flow_store：重放守恒/幂等/告警**
+
+| 字面 | 承载用例 | 判定 |
+|---|---|---|
+| 重放守恒 | order_engine_recovery_hook_test::test_crash_replay_restore_conservation（:200「还原守恒断言（验收 1『无重复计入、无遗漏』的承载面）」）+ test_restore_seam_guards（一次性护栏/重号推进 M4/份额入账幂等） | 已覆盖 |
+| 幂等 | flow_store_recovery_test::test_consume_idempotent_and_non_timeout_skipped（同单重复 consume）+ test_manual_release_flow_trail :214（已闭环不二次留痕）+ order_engine 侧二次 execute 全零（:282） | 已覆盖 |
+| 告警 | flow_store_replay_test::test_inflight_timeout_unknown_alert（超时状态未知 + 冻结保留 + alert_sink 命中 1 次，:281）+ test_inflight_not_found_release | 已覆盖 |
+| （附加）决策三分类执行/人工核验五守卫/门禁合取 | flow_store_recovery_test（6 函数）+ recovery_gate_test（4 函数，0x0401 第三合取）+ order_engine_recovery_hook_test（adopt_terminal/release/post_restore） | 已覆盖（T-041 验收面，超出本单字面） |
+| 损坏/撕裂尾/对账冲突 | flow_store_replay_test::test_corrupt_variants_reject / test_torn_tail_rejects / test_reconcile_conflict_mismatch | 已覆盖（超出字面） |
+
+**验收 1 总判定：三大域字面全部「已覆盖」；分支级缺口见 §T059-5/G 清单，均为分支/防御路径，
+不影响域级字面判定（每条字面至少一个专项用例 + 断言）。**
+
+### T059-7 缺口清单（只报不改；均不阻断验收 1/2 判定）
+
+| 编号 | 内容 | 建议 |
+|---|---|---|
+| G-1 | risk_result.cc 诊断名函数（ruleIdName/limitLayerName/valueScaleName/riskCodeName，57 行中 53 行）零测试载体——纯映射表，风险低但为验收字面「核心模块」文件内最大低覆盖块 | 低优先补一个映射遍历用例；或权威席裁定列为已披露残留 |
+| G-2 | order_request.cc 四个非法 return 串行（:11/16/21/30）未命中——`orderRequestInvalidReason` 仅经 `RiskEngine::check` 间接执行，四类字段非法形态未直接构造 | 可并入 G-1 一起补输入自检用例 |
+| G-3 | clock.cc（SystemClock::todayYmd，6 行）零覆盖——所有测试用 FakeClock 注入（NFR-TEST-4 的必然结果），真实时钟仅在有真实时间依赖的 e2e 才触达 | 属注入设计的结构性结果，建议裁定为「不适用」而非缺口 |
+| G-4 | order_engine.cc requestInQuotaUnit 非 LOT（TON）折算分支（:42/49–51/60）零载体 | 补一例 unit="TON" 的额度换算用例 |
+| G-5 | order_engine.cc confirm/cancel 五个失败分支无载体：账本复核拒（:425–429）、流水未就绪 0x0401（:434–436）、落流水失败 0x0304（:440–442）、submit ack.code!=0（:473–475）、cancel operator=0 与 reqCancel rc!=0（:505–507/533–535） | 补测试件须先报授权（工单纪律：补的是 cpp/src/*/tests/** 且先报）；归属建议新立号或并入 T-036 维护轮 |
+| G-6 | restoreFromReplay 终态映射仅 kFilled 有载体；kRejected/kExpired/kCancelled/default 四 case（:718–721）未命中 | 同 G-5 |
+| — | recovery_hook.cc 13 行未执行（口径外参考）：kFilled/kRejected adopt 分支、manualRelease ledger=null 防御、unknown 非 timeout skip 等 | 不在本单口径内，仅记录；如需处置归 T-041 维护轮 |
+
+### T059-8 落痕与可复现命令
+
+```
+# 门禁（共享树）
+ctest --test-dir cpp/build --output-on-failure          # 54/54
+ctest --test-dir cpp/build_stub --output-on-failure     # 50/50
+bash tools/arch-check/arch-check.sh                     # rc0（E1–E8 全 0）
+
+# 覆盖率（隔离副本 /root/t059-ws/）
+cp -r cpp proto tools /root/t059-ws/   # 副本内 cpp/CMakeLists.txt +13 行 ENABLE_COVERAGE 选项（仅副本）
+cd /root/t059-ws/cpp
+cmake -S . -B build_cov -DCTP_SDK_ROOT=/root/myspace/hedge-guard/sdk/v6.7.13_20260225_api \
+      -DENABLE_COVERAGE=ON -DCMAKE_BUILD_TYPE=Debug
+cmake --build build_cov -j 4            # rc0，warning 计数 0
+ctest --test-dir build_cov              # 54/54
+for gcda in $(find build_cov -name "*.gcda"); do (cd $(dirname $gcda) && gcov -i $(basename $gcda)); done
+python3 /root/t059-ws/gcov_union.py --root /root/t059-ws/cpp/src \
+    --json-gz $(find build_cov -name "*.gcov.json.gz") --out /root/t059-ws/cov_all
+```
+
+- 覆盖率原始聚合：`/root/t059-ws/cov_all/coverage_by_file.txt`；构建日志 `/root/t059-ws/build_cov.log`
+- **TEST_RESULT.md 落痕**：本节为纯追加（追加前 md5 `af9f7feefa7d309c858516485e1d6e3a` / 16948 行；
+  追加后以文末实时 md5/行数为准——自排除口径，本文件不含自身追加密值）
+
+### T059-9 结论
+
+- 验收 1（ctest 覆盖三域字面）：**达成**（清点表 §T059-6，全「已覆盖」，分支级缺口单列不并入）
+- 验收 2（额度校验+事前风控 ≥80%）：**达成**（88.18%，口径与聚合见 §T059-4；诚实披露低覆盖文件）
+- 验收 3（ctest 全过 + -Werror 零警告）：**达成**（54/54 + 50/50；干净构建 warning=0）
+- 待独立复核；本席不自评 DONE。缺口 G-1~G-6 处置（补测试件立号 or 裁定残留）由编排者裁定。
