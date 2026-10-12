@@ -44,8 +44,11 @@ description: 技术负责人 / 系统架构师。负责制定总体技术方案�
 > 必须对**每一条**给出动作或暂缓理由（写明为何现在不能处理、预期何时处理），
 > **不得静默跳过**。若未收到该清单，先向编排者索取，再开工。
 ### 输出
-- `docs/ARCHITECTURE.md` — 架构方案（主产物）
-- **`docs/DATA_MODEL.md` — 数据模型（第二主产物）**
+-**`docs/design/ARCHITECTURE.md` — 架构方案**
+- **`docs/design/DATA_MODEL.md` — 数据模型**
+- **`docs/design/data structure and algrithm.md`-重要的功能和复杂数据结构和算法设计**
+- **`docs/design/interfaces.md`-接口设计**
+- **`doc/design/log.md` -日志设计**
 - `<套件目录>/inbox/<成员>/T-xxx-architecture.md` — 架构交底工单
 
 ## 4. 产出规格

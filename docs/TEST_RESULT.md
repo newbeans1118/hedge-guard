@@ -16887,3 +16887,62 @@ M2.md §3.2 真联档前置「C++ `hg-trading` 监听 + `MSG_HELLO`/`HELLO_ACK`�
 ### 旁证：账务收口执行态（第 230 轮）
 - `grep '^| T-' docs/TASKS.md | grep -c '机读:DONE'` = **115**（live DONE 机械口径，命令原文与口径定义见 `docs/TASKS.md` §1 合计行第 230 轮订正注）
 - 任务总数 191；分区重算 M1 51 / M2 105 / M3 21 / M4 14（和 = 191；逐笔证据表 = `docs/TASKS.md` §4 表后注）
+
+### 独立复核（te-verify-t193）：T-193 证据链导出 CSV 直返（TE-T069-003 修复）交付复核
+- **复核人**：te-verify-t193（独立复核席）／**复核时间**：2026-10-11 23:3x+08:00
+- **受审版本**：commit `77425a6`（基线 `5ceddee`）
+- **锚点（独立实测）**：
+  - 树锚 `cd java && find src -type f | LC_ALL=C sort | xargs md5sum | md5sum` = `dfd1a7d3d7697e427ca90093499be383`、`find src -type f | wc -l` = 690 —— 与产出方自述一致
+  - 全量 `mvn -B -o clean test` = **1072 / 0 / 0 / 0（skip=0）**、BUILD SUCCESS（独立复跑 2m41s）
+  - `@Test` 计数（排除注释行）= 1072 == surefire `Tests run` 合计 1072 == 报告文件 137 份
+  - `arch-check.sh` 聚合 rc=0（E1–E8 全 0）
+- **先例同构逐点核验（/spot/price/export、/product/export vs 本单 POST）**：
+  | 点 | 先例 | 本单 | 判定 |
+  |---|---|---|---|
+  | Content-Type | `text/csv; charset=UTF-8`（SpotPriceExportHandler:46） | 同值（Handler:68） | 同构 |
+  | Disposition | `attachment; filename="spot-prices.csv"`（静态名） | `evidence-<exportNo>.csv`（动态名） | 同构（形态升级为确定性 exportNo，非注入面） |
+  | 换行 | `String.join("\r\n")+尾 \r\n`（:44-45） | 同构（Service:349） | 同构 |
+  | csvEscape | VarietyService:1070-1076（逗号/引号） | 同 + 额外覆盖 `\n`/`\r`（Service:378-386） | 同构且更严 |
+  | 同步拼装 | 全部既有 CSV 导出先例同步 | 同 | 「流式」=同步拼装披露与先例一致 |
+- **CSV 内容正确性**：CSV_HEADER 由 CSV_COLUMNS 派生（Service:73，同源）；CsvRow 按 CSV_COLUMNS 顺序渲染、未填列归空（:365-374）；六段 → section 列映射 meta/break/node/dual_pnl/reason 逐段核过（:255-348）；csvEscape 逗号/引号/换行转义逻辑核过（:378-386）
+- **GET 面零改动**：Handler diff 仅 POST 分支 + javadoc（git diff 实测，GET 分支/view/可见性逐字未动）；Service diff opcode 图显示改动只落 javadoc/常量/render/csvEscape —— `export` 主体、`queryExports`/`inScope`/`parseScope`/`sortForPage`/`uniqueExportNo` 逐字节未动
+- **旧断言订正合规**：EvidenceExportServiceTest 2 处改动均为载体等价改写且留痕（前值「[EXPOSURE]」段头/「断点清单」字面 → CSV 段名行断言，注释明示前后语义）；六段/断点/双侧盈亏/理由/完整性标注语义均仍被锁定
+- **变异（隔离副本 /root/iso-t193v，git archive HEAD，clean 重建）**：
+  | 编号 | 变异 | 结果 |
+  |---|---|---|
+  | M1 | CSV_HEADER 摘除（`:73` → `""`） | ✅ 双侧红：ServiceTest 8 跑 1 红 + HandlerCsvTest 2 跑 1 红 |
+  | M2（自设） | csvEscape 引号条件摘除（`quoted=false`） | ❌ **存活**（10 全绿）—— 转义行为零测试锁定 |
+  | M2b（自设） | 列渲染少一列（`length-1`） | ❌ **存活**（10 全绿）—— 「逐列等数」断言未落实 |
+- **新发现**：TE-T193-001（M）：CsvTest javadoc :65 声称断言「数据行与表头逐列等数」、Service javadoc :354 声称「数据行与表头逐列对齐」，但实测无任何用例锁定列数/转义（M2/M2b 存活）——「已声明未落实」类缺口（转义行为可静默回归：start_id 多起点逗号拼接、reason_text 中文引号等均属真实可发生数据形态）
+- **观察**：
+  - O-1「流式」裁量：HttpResult 无 chunked 接缝、既有先例（/spot/price/export、/product/export、/config/export、/spot/exposure/export）全为同步拼装 —— 建议接受「同步拼装+CSV 直返」口径（与 FR-SPOT-19 等同构），javadoc 已据实披露，裁定建议=**接受**
+  - O-2 CSV 公式注入（`=`开头单元格）：先例（VarietyService csvEscape）亦未处理，本单对齐先例=无新增风险面，不另立缺陷；如需统一处置属横切议题
+  - O-3 Disposition 文件名注入面：exportNo 由 `EV+yyyyMMddHHmmssSSS(+重试 -N)` 系统生成（Service:392-405），无用户可控特殊字符，无注入面
+  - O-4 失败路径：BizException 经 RequestDispatcher.errorResult 统一转 JSON 错误信封（Dispatcher:94-97），POST 失败仍 JSON——形态合规；该路径由既有异常处理用例族承载，本单未新增（可接受）
+- **结论**：**有条件通过** —— 条件 1 项：TE-T193-001 须补齐（新增列数等数 + 转义锁定用例，或产出方裁断降级为观察并给出理由）；补齐并 delta 复检通过后可转 DONE。
+
+### 独立复核（te-verify-t193b，delta 复检）：T-193 退回修复（TE-T193-001 收口，e6cfa45）
+- **复核人**：te-verify-t193b（独立复核席，delta）/ **复核时间**：2026-10-12T00:40+08:00
+- **受审版本**：commit `e6cfa45`（基线 `77425a6` = 首轮交付）；**交付域** = 仅 `EvidenceExportHandlerCsvTest.java` +193/−6（`git diff 77425a6..e6cfa45 --stat` 实测恰 1 文件；`git diff 77425a6..e6cfa45 -- java/src/main` = 0 行 ⇒ **实现零改动独立证实**）
+- **锚点（独立实测，隔离副本 /root/iso-t193b = `git archive HEAD`）**：
+  - 树锚（口径与首轮同：`cd java && find src -type f | LC_ALL=C sort | xargs md5sum | md5sum`）= `9d7a1d4b5abb8463446b319391e29098`、690 文件 —— 与产出方自述一致；共享树同值
+  - 交付文件 md5：`EvidenceExportHandlerCsvTest.java` = `c9de036d2f41502b9aede77b2bbc885c`；`EvidenceExportService.java` = `bd1504ed8656adf55dac850216be3569`
+- **全量（独立复跑，隔离副本 clean）**：`mvn -B -o clean test` = **1074 / 0 / 0 / 0（skip=0）**、BUILD SUCCESS（基线 1072 + 新增 2）；`@Test` 合计 1074 == surefire `Tests run` 合计 1074 == 报告文件 137 份；CsvTest 单类 4/4（2 既有 + 2 新增）
+- **arch-check**：rc=0（E1–E8 全 0，独立复跑于隔离副本）
+- **用例质量核验（独立取证）**：
+  - **解析器往返**：以独立编写的 RFC 4180 子集参考实现（非转写夹具）对 12 组形态做「csvEscape → 拆记录 → 拆列」往返全部还原（含三重形态/仅引号/裸引号/自带包裹/多段换行/全逗号）；夹具 splitCsvRecords/parseCsvRecord 与参考实现逐形态输出一致；负向自查证实朴素 `split(',')` 列数 ≠ 引号感知列数（引号感知必要性成立）
+  - **列数/下标实算**：`CSV_COLUMNS` 实算 27 列；`reason_text` 下标 24、`reason_trade_order_id` 下标 19 —— 与用例①断言 `headerCols==27`、用例② `x.get(19)`/`x.get(24)` 一致
+  - **风险形态触达（非死数据）**：三类载体均实测进入渲染路径——`meta.start_id` 多起点拼接（Service:258 `String.join(",", req.startPointIds)`）、`node.detail` map `toString()` 自带逗号（AuditService `detail(...)` LinkedHashMap 字面量）、`reason_text` 经 `TradeReasonSeed.seed(tx, ORDER/ORDER2, ...)` 落 `t_trade_reason` 且由 Service:293-295 `findByTradeOrderId` 读取后 :343 入行——非只构造不断言的死数据
+  - **断言层级**：用例②含**原文形态断言**（`body.contains("\"仅\"\"引号\"\"无逗号\"")` 等，转义后字节层）+ 解析还原层断言双层级——非仅二次解析语义，转义回归可在字节层直接捕获
+  - **种子取值域合规**：`PRICE_TRIGGERED`/`CONTRACT_SIGNED` 均在 `ck_trade_reason_time_desc` CHECK 枚举（m2_trade.sql:262）内；用例内注释「time_desc 受 CHECK ⇒ 载体落 reason_text」与 schema 实测一致
+- **变异复测（隔离副本，每轮 clean 重建、复位 md5 对交付值 `bd1504ed…`/`c9de036d…`）**：
+  | 编号 | 变异 | 结果 | 击杀者 |
+  |---|---|---|---|
+  | M2 | csvEscape 引号条件摘除（`:383` `text.contains("\"")`→`false`） | ✅ 杀（rc=1，`Tests run: 4, Failures: 1`） | 用例② `csvEscapeQuotesFieldsWithCommaQuoteNewline:287` |
+  | M2b | CsvRow.render 列少一列（`:367` `length`→`length-1`） | ✅ 杀（rc=1，Failures: 1） | 用例① `csvRowsAreAlignedWithHeader`（27 vs 26） |
+  | M3（复核席自设） | **换行触发条件摘除**（`:383-384` `contains("\n")||contains("\r")`→`false||false`） | ❌ **存活**（rc=0，4/4 绿；两轮确认含非 `-q` 重跑） | —— 详见下「新发现」 |
+  - M3 击杀可行性探针（复核席自设，隔离副本内）：将 ORDER2 载体改为仅换行 `仅\r\n换行\r\n无逗号引号`（断言随之对准）⇒ M3 下 2 红（列数 27 vs 25 + 原文形态）而原实现 4/4 绿——**证明缺口可由测试侧载体补齐**；探针已复位、树锚复算回 `b63cdb45…`（`find java/src` 口径）/`9d7a1d4b…`（`cd java&&find src` 口径）= 交付值
+- **javadoc 一致性**：CsvTest :57-70 声称（逐列等数/转义体例）已有用例锁定 ✔；Service :354/:378「逐列对齐/额外覆盖换行符」——**「额外覆盖换行符」行为本身未获独立专项载体锁定**（见 M3）
+- **新发现**：
+  - **TE-T193B-001（观察·低）**：Service :355/:378 javadoc 声称「额外覆盖换行符」（与 VarietyService 先例的差异点），但新增用例三类载体（start_id 拼接串/reason 三重形态）均**同时含逗号或引号**——M3（换行条件摘除）存活 ⇒ 换行独立触发分支（`contains("\n")||contains("\r")`）零用例锁定，「额外覆盖换行符」属**已声明未落实**（与首轮 TE-T193-001 同构、更小面）。修复建议：补一个仅换行载体（如 `仅\r\n换行无逗号引号`）+ 原文形态断言（复核探针已验证击杀可行，形态见上）；或由产出方裁断降级为已披露残留。
+- **结论**：**有条件通过** —— 产出方自述全部独立证实（1074/0/0/0、树锚、M2/M2b 双杀、实现零改动、arch rc0）；TE-T193-001 主缺口（列数等数/转义体例）已闭环。条件 1 项：TE-T193B-001（换行分支零锁定，观察级）须补载体或获权威席裁断降级为已披露残留后，T-193 可转 DONE。
