@@ -149,6 +149,7 @@ import com.hedgeguard.web.handler.PingHandler;
 import com.hedgeguard.web.handler.audit.AuditLogRoutes;
 import com.hedgeguard.web.handler.audit.AuditReportRoutes;
 import com.hedgeguard.web.handler.audit.AuditTraceRoutes;
+import com.hedgeguard.web.handler.audit.CheckTaskQueryRoutes;
 import com.hedgeguard.web.handler.audit.EvidenceExportRoutes;
 import com.hedgeguard.web.handler.audit.ViolationScreenRoutes;
 import com.hedgeguard.web.handler.auth.AuthRoutes;
@@ -655,6 +656,10 @@ public final class Bootstrap {
         AuditLogRoutes.register(router, auditLogService);
         CheckTaskQueryService checkTaskQueryService = new CheckTaskQueryService(
                 new DmSettleCheckTaskDao(tx), new DmSettleCheckSignatureDao(tx), authService);
+        // T-194（te-verify-t071 O-1 承接）：核对任务与签署记录查询接线 —— 消费既有
+        // CheckTaskQueryService.query/overdue（服务本体零改动），补齐 FR-AUDIT-13 验收 1/2/5 的
+        // REST 端点缺口（此前 web/ 零 handler 调用）。只读（R-AUDIT-6），仅 GET。
+        CheckTaskQueryRoutes.register(router, checkTaskQueryService);
         AuditReportService auditReportService = new AuditReportService(new DmAuditReportDao(tx),
                 new DmMajorEventDao(tx), new DmOperationLogDao(tx), auditLogService,
                 checkTaskQueryService, new DmPostRiskReportDao(tx),
@@ -671,6 +676,9 @@ public final class Bootstrap {
                 + "/api/v1/audit/report/{quarterly,annual,major-event}、/api/v1/audit/evidence/export；"
                 + "防篡改告警端口=NOOP（运维告警 sink 未交付，据实披露）；"
                 + "导出列表子账户隔离=fail-closed（R-AUDIT-9/NFR-SEC-7）");
+        LOG.info("已装配核对任务查询面（T-194）：GET /api/v1/audit/check-tasks、"
+                + "GET /api/v1/audit/check-tasks/overdue（FR-AUDIT-13 验收 1/2/5；只读 R-AUDIT-6；"
+                + "子账户可见性经 SubAccountVisibility 软隔离 R-AUDIT-9）");
         return authService;
     }
 

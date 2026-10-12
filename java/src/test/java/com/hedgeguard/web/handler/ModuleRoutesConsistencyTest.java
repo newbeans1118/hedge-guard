@@ -6,6 +6,7 @@ import com.hedgeguard.web.Router;
 import com.hedgeguard.web.handler.audit.AuditLogRoutes;
 import com.hedgeguard.web.handler.audit.AuditReportRoutes;
 import com.hedgeguard.web.handler.audit.AuditTraceRoutes;
+import com.hedgeguard.web.handler.audit.CheckTaskQueryRoutes;
 import com.hedgeguard.web.handler.audit.EvidenceExportRoutes;
 import com.hedgeguard.web.handler.audit.ViolationScreenRoutes;
 import com.hedgeguard.web.handler.auth.AuthRoutes;
@@ -60,7 +61,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p><b>装配范围</b>：与生产装配（{@code Bootstrap#registerBusinessRoutes} + 平台级 {@code ping}）
  * 同构——{@code AUTH}/{@code CONFIG}/{@code PRODUCT}/{@code SPOT}/{@code PLAN}/{@code RISK}/
  * {@code TRADE}/{@code SETTLE}（含 {@code SettleCheckRoutes}）/{@code FUND}/
- * {@code AUDIT}（T-067 追溯留痕、T-068 违规筛查、T-069 报表/证据链导出/审计日志）十模块注册器 +
+ * {@code AUDIT}（T-067 追溯留痕、T-068 违规筛查、T-069 报表/证据链导出/审计日志、
+ * T-194 核对任务查询）十模块注册器 +
  * {@code ping} 的 {@code GET}/{@code HEAD}。未交付模块（{@code ACCT}）不在
  * {@link ApiRoutes#allRoutes()} 内，故亦不参与等值比较（其路径级声明见 {@link ApiRoutes#byModule()}）。
  */
@@ -97,6 +99,9 @@ class ModuleRoutesConsistencyTest {
         AuditReportRoutes.register(router, null);
         EvidenceExportRoutes.register(router, null);
         AuditLogRoutes.register(router, null);
+        // T-194（te-verify-t071 O-1 承接）：核对任务查询面（GET /audit/check-tasks、
+        // GET /audit/check-tasks/overdue；FR-AUDIT-13 验收 1/2/5）同构重放。
+        CheckTaskQueryRoutes.register(router, null);
         return router;
     }
 

@@ -122,7 +122,10 @@ export const ROUTES = {
     EVIDENCE_EXPORT: '/audit/evidence/export',
     LOG: '/audit/log',
     LOG_VERIFY: '/audit/log/verify',
-    OPERATION_LOG: '/audit/operation-log'
+    OPERATION_LOG: '/audit/operation-log',
+    // T-194：核对任务查询（FR-AUDIT-13 验收 1/2/5；CheckTaskQueryHandler.PATH 逐字一致）
+    CHECK_TASKS: '/audit/check-tasks',
+    CHECK_TASKS_OVERDUE: '/audit/check-tasks/overdue'
   },
   /** 未注册：仅登记路径，**禁止调用**（调用即 404；handler/ 下无 risk/trade 等模块目录）。 */
   NOT_REGISTERED: {

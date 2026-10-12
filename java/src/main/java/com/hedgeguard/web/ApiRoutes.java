@@ -76,7 +76,9 @@ public final class ApiRoutes {
                 "/audit/trace/forward", "/audit/trace/backward", "/audit/trace/integrity",
                 "/audit/violation-screen", "/audit/report/quarterly", "/audit/report/annual",
                 "/audit/report/major-event", "/audit/evidence/export", "/audit/log",
-                "/audit/log/verify", "/audit/operation-log"));
+                "/audit/log/verify", "/audit/operation-log",
+                // T-194：核对任务与签署记录查询（FR-AUDIT-13 验收 1/2/5；te-verify-t071 O-1 承接）
+                "/audit/check-tasks", "/audit/check-tasks/overdue"));
         BY_MODULE.put("ACCT", Arrays.asList(
                 "/acct/hedge-relation", "/acct/effectiveness", "/acct/rebalance", "/acct/voucher",
                 "/acct/voucher/{id}/review", "/acct/voucher/{id}/reverse", "/acct/period",
@@ -148,7 +150,9 @@ public final class ApiRoutes {
                 "GET /audit/report/major-event", "POST /audit/report/major-event",
                 "GET /audit/evidence/export", "POST /audit/evidence/export",
                 "GET /audit/log", "POST /audit/log",
-                "GET /audit/log/verify", "POST /audit/log/verify"));
+                "GET /audit/log/verify", "POST /audit/log/verify",
+                // T-194：核对任务查询（FR-AUDIT-13 验收 1/2/5；只读 R-AUDIT-6，仅 GET）
+                "GET /audit/check-tasks", "GET /audit/check-tasks/overdue"));
         BY_MODULE_ROUTES.put("FUND", Arrays.asList(
                 "GET /fund/ledger", "POST /fund/ledger", "GET /fund/flow", "POST /fund/deposit",
                 "POST /fund/withdraw", "POST /fund/{id}/review", "POST /fund/transfer",
@@ -200,7 +204,8 @@ public final class ApiRoutes {
      *
      * <p>仅含<b>当前已注册</b>的模块（{@code AUTH}/{@code CONFIG}/{@code PRODUCT}/{@code SPOT}/
      * {@code PLAN}/{@code TRADE}/{@code SETTLE}/{@code RISK}/{@code FUND}，以及 {@code T-067} 接入、
-     * {@code T-069} 补齐的 {@code AUDIT} 全部 11 条已声明路径）；后续里程碑模块（{@code ACCT}）
+     * {@code T-069} 补齐、{@code T-194} 追加核对任务查询 2 对的 {@code AUDIT} 已声明路径）；
+     * 后续里程碑模块（{@code ACCT}）
      * 仅在 {@link #byModule()} 的路径级声明中列出。
      *
      * @return 模块 → {@code "METHOD /module-relative-path"} 清单

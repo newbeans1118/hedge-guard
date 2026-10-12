@@ -202,9 +202,17 @@ class BootstrapAssemblyTest {
             //   AuditReportRoutes（6 对）/ EvidenceExportRoutes（2 对）/ AuditLogRoutes（4 对）注册进
             //   生产装配，AUDIT 由 10 增为 22（+12 对、+6 路径），业务路由 143（AUTH17/CONFIG18/PRODUCT13/
             //   SPOT15/PLAN18/RISK7/TRADE3/SETTLE15/FUND15/AUDIT22）+ ping 2 = 145。非为过测试而放宽断言。
-            assertEquals(145, assembly.routeCount(),
-                    "业务路由必须全部注册：143（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/"
-                            + "SETTLE15/FUND15/AUDIT22）+ ping 2");
+            // 【T-194 订正（加注）】断言值由 145 订正为 147：订正理由 = 需求面（{@code FR-AUDIT-13} 验收
+            //   1/2/5，{@code AUDIT.md:282}「查询某月核对任务，可见三方签署记录」；独立复核
+            //   {@code te-verify-t071} 观察 {@code O-1}：{@code CheckTaskQueryService.query/overdue}
+            //   实存但 {@code web/} 零 handler 调用 ⇒ 月度查询无 REST 端点）——
+            //   CheckTaskQueryRoutes 于新增声明路径 /audit/check-tasks、/audit/check-tasks/overdue
+            //   注册 GET（2 对），AUDIT 由 22 增为 24（+2 对、+2 路径），业务路由 145（AUTH17/CONFIG18/
+            //   PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/SETTLE15/FUND15/AUDIT24）+ ping 2 = 147。
+            //   非为过测试而放宽断言。
+            assertEquals(147, assembly.routeCount(),
+                    "业务路由必须全部注册：145（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/"
+                            + "SETTLE15/FUND15/AUDIT24）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。
             // （不真发 HTTP：经 RequestDispatcher 进程内分发；handler 因无真实库而 4xx/5xx 皆可，

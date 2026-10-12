@@ -96,15 +96,16 @@ HG.router.register = realRegister;
 const routes = HG.routes.AUDIT;
 const R = routes;
 
-/* ================= 断言 0：AUDIT 键 11 路径对账（== ApiRoutes.java AUDIT 模块） ================= */
+/* ================= 断言 0：AUDIT 键 13 路径对账（== ApiRoutes.java AUDIT 模块） ================= */
 const EXPECT = {
   TRACE_FORWARD: '/audit/trace/forward', TRACE_BACKWARD: '/audit/trace/backward',
   TRACE_INTEGRITY: '/audit/trace/integrity', VIOLATION_SCREEN: '/audit/violation-screen',
   REPORT_QUARTERLY: '/audit/report/quarterly', REPORT_ANNUAL: '/audit/report/annual',
   REPORT_MAJOR_EVENT: '/audit/report/major-event', EVIDENCE_EXPORT: '/audit/evidence/export',
-  LOG: '/audit/log', LOG_VERIFY: '/audit/log/verify', OPERATION_LOG: '/audit/operation-log'
+  LOG: '/audit/log', LOG_VERIFY: '/audit/log/verify', OPERATION_LOG: '/audit/operation-log',
+  CHECK_TASKS: '/audit/check-tasks', CHECK_TASKS_OVERDUE: '/audit/check-tasks/overdue'
 };
-ok(JSON.stringify(routes) === JSON.stringify(EXPECT), 'AUDIT 键 11 路径逐字对齐 ApiRoutes');
+ok(JSON.stringify(routes) === JSON.stringify(EXPECT), 'AUDIT 键 13 路径逐字对齐 ApiRoutes（含 T-194 追加 2 键）');
 
 /* ================= 页面渲染 + Tab 走查 ================= */
 const root = document.createElement('div');

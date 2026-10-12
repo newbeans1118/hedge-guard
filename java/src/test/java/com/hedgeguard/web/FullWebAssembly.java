@@ -3,6 +3,7 @@ package com.hedgeguard.web;
 import com.hedgeguard.web.handler.audit.AuditLogRoutes;
 import com.hedgeguard.web.handler.audit.AuditReportRoutes;
 import com.hedgeguard.web.handler.audit.AuditTraceRoutes;
+import com.hedgeguard.web.handler.audit.CheckTaskQueryRoutes;
 import com.hedgeguard.web.handler.audit.EvidenceExportRoutes;
 import com.hedgeguard.web.handler.audit.ViolationScreenRoutes;
 import com.hedgeguard.web.handler.auth.AuthRoutes;
@@ -94,8 +95,15 @@ final class FullWebAssembly {
      * {@code /audit/evidence/export}（2 对）、{@code /audit/log(/verify)}（4 对）⇒ {@code 131 → 143}
      * （非为过测试而放宽：未新增路径，路径逐字取自 {@code ApiRoutes} 的 {@code AUDIT} 清单；
      * 生产装配含平台级 {@code ping} 2 条后为 {@code 145}，与 {@code BootstrapAssemblyTest} 断言同锚）。
+     *
+     * <p>【{@code T-194}】核对任务查询面（{@code te-verify-t071} 观察 {@code O-1} 承接）——
+     * 新增声明路径 {@code /audit/check-tasks}、{@code /audit/check-tasks/overdue} 各 {@code GET}（2 对）
+     * ⇒ {@code 143 → 145}（非为过测试而放宽：{@code FR-AUDIT-13} 验收 1/2/5 的独立 REST 端点缺口，
+     * 服务侧 {@code CheckTaskQueryService.query/overdue} 实存但此前 {@code web/} 零 handler 调用；
+     * {@code ApiRoutes} 模块表 + 方法注册表已同步；生产装配含平台级 {@code ping} 2 条后为 {@code 147}，
+     * 与 {@code BootstrapAssemblyTest} 断言同锚）。
      */
-    static final int ROUTE_COUNT = 143;
+    static final int ROUTE_COUNT = 145;
 
     private FullWebAssembly() {
     }
@@ -141,6 +149,10 @@ final class FullWebAssembly {
         AuditReportRoutes.register(router, null);
         // T-069：证据链导出面（2 对：GET|POST /audit/evidence/export）。
         EvidenceExportRoutes.register(router, null);
+        // T-194（te-verify-t071 O-1 承接）：核对任务查询面（2 对：GET /audit/check-tasks、
+        // GET /audit/check-tasks/overdue；FR-AUDIT-13 验收 1/2/5）。服务入参 null：
+        // 装配期只调用 router.register(...)。注册序与生产装配（Bootstrap）一致。
+        CheckTaskQueryRoutes.register(router, null);
         // T-065：风控告警查询与处置面（2 个 (方法,路径) 对：GET /risk/alert、
         // POST /risk/alert/{id}/dispose）。服务入参 null：装配期只调用 router.register(...)。
         RiskAlertRoutes.register(router, null);
