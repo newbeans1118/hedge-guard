@@ -404,3 +404,108 @@ approval(plan, plan.applicantId, plan.applicantId, "SUBMIT", null, null, prechec
 2. E7/E8 是否扩入验收字面（R2-003）归编排者；
 3. 层③链（T-108/T-118/T-119）推进时序归编排者（M2.6①）；
 4. 本报告按纪律只落 `docs/REVIEW.md`，未写 `dev-team/**` 工单（S7 节先例同姿态，工单投递建议由编排者据 M2.5 派发）。
+
+---
+
+# M3 代码与架构合规审查（T-075，第 243 轮）
+
+> 审查席 `cr-t075`；冻结点 `21b1b26e…`（HEAD，工作树仅 `?? .verify/` 非本席创建）；追加前基线 406 行 / md5 `04218d7b…`（负控吻合）。
+> 审查范围 = **a129a4a（T-060 冻结点）之后的代码增量**。范围勘误见 §M3.2①。
+
+## M3.1 审查结论
+
+**通过（0 阻断 / 0 严重）**。四验收逐条判定见 §M3.4；验收 2 专项（审计旁路 + 阻断无开关）全部成立；问题清单 R3-001~R3-005 均为一般/建议级，不构成放行障碍。
+
+## M3.2 审查范围实测勘误（工单前置事实① vs 实测）
+
+1. **工单称 T-193/T-194/T-041 属本单新审面，实测均在 a129a4a 之前已交付**（`git merge-base --is-ancestor` 证实：T-193 `77425a6`、T-194 `8cec406`、T-041 `d6fe701` 均为 a129a4a 祖先）。T-060 冻结点后的**真实代码增量**仅有：
+   - Java：T-195（`FundExportHandler` CSV 直返 + `FundApplyListHandler` 新端点 + `FundService.listDepositWithdrawApplies`/`listFlow` 载体改写 + `FundParams`/`FundRoutes`/`ApiRoutes`/`FullWebAssembly`/`BootstrapAssemblyTest` 随动，共 8 文件）；
+   - 前端：T-070（`risk.js` 832 行全新 + `routes.js` RISK/NOT_REGISTERED 键）+ T-195 随动（`fund.js`）；
+   - **C++ 零增量**（a129a4a 后 `cpp/` 无任何改动）。
+   - 处置：T-193/T-194 虽在冻结点前，但其交付与复核记录均落在 T-060 审查时点之后（第 236~240 轮），**T-060 的 M2 节未实际覆盖**——本单按「采信各自 te-verify 结论 + 本单补核审计旁路面」处置（T-193/T-194 的 te-verify 均已通过，且两者审计链面在 §M3.5 专项中实际覆盖）。
+2. **路由计数口径**：工单派发上下文引「147→149」，实际链路为 145→147（T-194，`BootstrapAssemblyTest` 断言值）→ **148**（T-195，FUND 15→16 对 + ping 2）；工单「147→149 实为 148」的自查结论与实测吻合（146 业务 + 2 ping）。
+
+## M3.3 已执行的验证（全量实跑，逐 rc）
+
+| # | 验证 | 命令 | 结果 | vs T-060 时点 |
+|---|------|------|------|--------------|
+| 1 | E1 | `arch-check.sh`（E1 C++ 链接检查） | rc=0（218 link.txt + 2 binary 实扫） | 零回归 |
+| 2 | E2 | 同上（C++ SQL 痕迹，142 文件） | rc=0 | 零回归 |
+| 3 | E3 | 同上（C++11 合规，142 文件 + 10 CMakeLists） | rc=0 | 零回归 |
+| 4 | E4 | 同上（三目录并集无锁/无同步 I/O，61 文件） | rc=0（WARN 3 处为已知未覆盖判据信息性提示） | 零回归 |
+| 5 | E5 | 同上（Java dao 外无 SQL，336 文件——T-195 新增文件已含入扫描面） | rc=0 | 零回归 |
+| 6 | E6 | 同上（前端零构建链 + 无直连——risk.js 新增面已含入） | rc=0 | 零回归 |
+| 7 | E7 | 同上（HGCP §4.2.8 ↔ proto：40+10 消息、214+67 字段、28 枚举） | rc=0 | 零回归 |
+| 8 | E8 | 同上（CONTRACTS §3.2.1 payload 键 ↔ proto 字段名） | rc=0 | 零回归 |
+| 9 | Java 全量 | `cd java && mvn -B -o clean test` | **1099/0/0/0 skip=0**，BUILD SUCCESS（2m39s） | T-195 交付自述 1099，独立复现吻合 |
+| 10 | C++ ctest | `cd cpp/build && ctest` | 54/54 通过（含 hgcp.recovery_gate） | 与 be-t041 自述 54 吻合 |
+| 11 | 前端语法 | `node --check risk.js/fund.js/routes.js` | rc=0 ×3 | — |
+| 12 | 前端探针 | `node tools/probes/t070_risk_probe.mjs` / `t055_fund_probe.mjs` | 104/0 与 100/0，双 rc=0 | 独立复现吻合 |
+
+## M3.4 四验收逐条判定
+
+1. **E1~E6 复跑通过** ✅——E1~E8 全量 rc=0（§M3.3 表），对 T-060 时点全 0 零回归；E5 扫描面 336 文件已含 T-195 新增 Java 文件、E6 已含 risk.js 832 行新增面，非「旧文件旧口径」通过。
+2. **无绕过审计日志的旁路；阻断无开关** ✅——专项见 §M3.5。
+3. **组件边界无越界；敏感字段零落盘** ✅——E 系承载（E1~E8 rc=0）；T-070 risk.js 新增面敏感扫描：`password/口令/资金密码/secret/token` **零命中**（无凭据输入框、无敏感字段渲染）；74 处 `F.esc` 覆盖全部插值渲染（`ui.tableHTML` 对 `render` 回调结果不再转义，本页所有 `render` 回调内插值均经 `F.esc`——抽查 15 处无一漏逸；`alertLevelHTML`/`disposedHTML`/`lagBadgeHTML`/`hintBadgeHTML` 四个徽标函数内部已转义）。
+4. **问题清单不改代码** ✅——R3-001~R3-005（§M3.6），本席零触碰源码/TASKS/BOARD/工具。
+
+## M3.5 验收 2 专项：审计旁路扫描与阻断无开关（本单独有判据）
+
+### M3.5.1 扫描面声明
+
+| 扫什么 | 怎么扫 | 命中 |
+|--------|--------|------|
+| 「写业务数据但不写审计日志」的写路径 | ① `t_audit_log` 生产者面清点：`grep -rln AuditLogService`（src/main）= 6 文件（AuditLogService 自身 + AuditReportService + EvidenceExportService + AuditLogHandler/Routes + Bootstrap）——即审计日志**唯一写入口** = `AuditLogService.append`（`logDao.insert` 单点 `:131`）；② 逐写路径对照 `R-AUDIT-3` 留痕范围：业务写留痕承载 = **各业务表自身**（`t_deposit_withdraw_apply` 状态机、`t_fund_review_record` 越权留痕、`t_risk_disposal` 处置留痕、`t_param_change_log` 等）——`R-AUDIT-3` 明文「留痕范围…每条含操作人、时间、对象、动作、结果」以**业务留痕表**为承载，`t_audit_log` 承载「审计操作自身」（`AUDIT.md` 术语表「审计日志 = 审计操作自身的记录」）；③ 导出链交叉核验：三个导出面（evidence/report/fund）均先 `assertChainIntact` + 写 `AuditLog`（10017 先写日志），无「只导出不留痕」面 | **0 旁路** |
+| 10017/10018 阻断链开关 | `grep -iE 'enabled\|skip\|bypass\|dryRun\|dry_run'` 于审计链 6 文件（AuditLogService/EvidenceExportService/AuditReportService/ErrorCode/DmAuditLogDao/DmAuditLogChecksumDao）：**零命中**；`System.getProperty/getenv/config` 于审计链两 service：**零命中**（阻断不可经配置/环境变量关闭） | **0 开关** |
+| 全仓开关字面命中甄别 | service 层 8 文件命中逐条核语境：`ENABLED/DISABLED` = 用户/角色/产品状态枚举（AuthService/ConfigService/VarietyService，业务状态非开关）；`skipIfUnsourced`（TradeService 10 处）= 事件富化缺源跳过落库（T-172 既有语义，非审计链）；`dryRun/bypass` 全仓 src/main **零命中** | 全部为非开关语义 |
+| 10018 阻断无条件性 | `assertChainIntact`（AuditLogService:287）→ `verify(1,0)` 不通过即抛 `AUDIT_CHAIN_TAMPERED`（412），无任何条件分支可跳过；两个消费点（EvidenceExportService:125 / AuditReportService:279）均为方法体首行无条件调用 | 无条件成立 |
+| 10017 先写后导出 | EvidenceExportService:143-166：组装 AuditLog → `append` → **catch RuntimeException 转 10017 中断**（403）；导出文件组装与落库均在 append 成功之后（`:168` 起）——「不记录即不允许发生」时序成立 | 成立 |
+| t_audit_log 不可篡改 | AuditLogService 无 update/delete 方法；DmAuditLogDao 显式拒绝改写（`:100`） | 成立 |
+
+### M3.5.2 T-194/T-195 新端点只读语义核实
+
+- **T-194**（`GET /audit/check-tasks`、`GET /audit/check-tasks/overdue`）：`CheckTaskQueryHandler` 仅 GET 分派（POST 405 兜底）；消费既有 `CheckTaskQueryService.query/overdue`（服务本体零改动），两方法均为 `findPage`/清单查询，**无任何 insert/update 路径**——无隐藏写，无审计旁路面（只读端点不写业务数据即不涉旁路）。
+- **T-195**（`GET /fund/apply-list`）：`FundApplyListHandler.handle` 单一 `PageQuery` → `FundService.listDepositWithdrawApplies` → `dwDao.findPage`，只读成立；`/fund/export` CSV 化改写的是**响应载体**（JSON→CSV 直返），取数链 `exportReconcile` 不变且无写路径。
+- 佐证：全量 1099 测试含 T-194 十二用例（405/隔离/分页信封）与 `FundApplyListHandlerTest` 292 行，均绿。
+
+### M3.5.3 旁路结论
+
+**无旁路**。`t_audit_log` 写入单点（`AuditLogService.append`）+ 三导出面均「先校验（10018）→ 先写日志（失败 10017 中断）→ 后出文件」时序完整；阻断链无配置/环境/条件开关。唯一近似风险点为 `AuditLogService.query` 自写日志（`append(self)` `:191`）在 append 失败时会向上抛——该失败路径本身即 10017 语义（写失败即拒绝查询结果返回），属 fail-closed，非旁路。
+
+### M3.5.4 R3-003 关联披露（审计链外的诚实披露项）
+
+生产装配两处「暂未接线」均**显式注释披露**且各有承接号，不判缺陷、列 R3-003 跟踪：
+- `Bootstrap.java:652`：`TamperAlarm` 暂接 NOOP（运维告警 sink 未交付，与 T-065/T-177 同姿态）——校验结论仍落库可查、10018 阻断不受影响（阻断在 service 层，与告警端口无关）；
+- `Bootstrap.java:718`：`RiskAlertNotifier = null`（/ws/alert 生产推送未接线，T-040 承接）——**注意**：risk.js 验收 3 的「实时推送」依赖此端口，当前生产面实际为「REST 补拉可用、推送待 T-040」；前端断线重连补拉逻辑（`since=lastTsMs`，`alert_ts_ms > since` 服务端谓词 + `alertView.alertTsMs` 出参齐全）不受影响。
+
+## M3.6 问题清单（R3 系；一般/低/建议，无阻塞/严重）
+
+| 编号 | 级别 | 类型 | 位置 | 问题与失效场景 | 建议 | 对应需求 |
+|------|------|------|------|----------------|------|----------|
+| R3-001 | 一般 | 语义不对称 | web/js/pages/risk.js:232 | **断线补拉窗口依赖 WS 帧时钟，静默期后补拉可能漏行**：`backfillAfterReconnect` 以 `st.lastTsMs`（最后收到的 WS 推送帧 tsMillis）为 since；若断线期间既有「WS 推送失败未达」又有「此后再无新告警」（lastTsMs 停留在断线前最后一条），则 `alert_ts_ms > lastTsMs` 能补齐该最后一条之后的所有行——该方向正确；但**首连后未加载列表即断线重连**时 `st.lastTsMs=0`，`backfillAfterReconnect` 因 `!st.lastTsMs` 直接 return（:229），补拉被跳过、依赖用户手动查询列表。失效场景：页面加载→WS 首连前/后立即断线→重连成功→实时流为空且无提示诱导手动查询。 | 首连成功时即做一次 `loadAlerts(1)` 或在 lastTsMs=0 时以「当前时间−窗口」兜底拉取 | FR-RISK-19 / T-070 验收 3 |
+| R3-002 | 一般 | 边界 | web/js/pages/risk.js:321 | `q.fromTime = aFrom.value.replace('T','T')` 为**恒等替换**（疑似占位残留）；dtInput 值形如 `2026-10-13T09:30`（无秒），服务端 `localDateTime` 可解析（ISO-8601 允许无秒），现行为不致错，但恒等 replace 无谓且易被误读为有时区/格式转换语义。 | 删除恒等 replace 或改为显式秒补齐 | 可维护性 |
+| R3-003 | 一般 | 披露面 | Bootstrap.java:652/:718 | 两处「暂未接线」披露只存在于**代码注释与 LOG**，REVIEW/ARCH 制品面未见对应「生产推送/告警 sink 未接线」的运行时声明汇总（T-060 §M2.6 已登记层③链，但 TamperAlarm NOOP 与 notifier=null 两项在此前审查制品中未单列）。失效场景：运维据「告警不可静默（R-RISK-11）」与「防篡改须告警（FR-AUDIT-10）」验收采信，实际生产告警链路半通。 | 在 DEPLOY 或运维面文档汇总「暂未接线端口清单」（承接号 T-040/sink） | NFR-MAINT-4 |
+| R3-004 | 低 | 一致性 | java/.../FundExportHandler.java:170 | `csvEscape` 判定 `quoted = text.contains("\"")` 恒假：`:169` 已将 `"` 全部加倍为 `""`，加倍后仍含 `"`（成对存在），故该分支实际可达——**但**注释称「额外覆盖换行符」而先例 VarietyService 版本不含 `\r\n`，两实现同名单不同行为，后读先例者可能误判等价性。现行行为正确（换行字段确被包裹，CsvTest 已锁定）。 | 注释点明「与 VarietyService 先例的差异 = 增 \r\n 覆盖」 | 可维护性 |
+| R3-005 | 建议 | 一致性 | web/js/core/routes.js:152 | `dispose: (id) => '/risk/alert/' + enc(id) + '/dispose'` 为 routes.js 首个**函数型键**（其余全为字符串常量）；NOT_REGISTERED 注释与 risk.js 头注均称「调用即 404」仅适用于 5 个未注册路径，函数型键为已注册路径的正常形态——但与「ROUTES 值恒为字符串」的潜在消费方假设（如深链生成、枚举遍历）可能不兼容。现消费面（risk.js:417）正确使用函数调用，无现行缺陷。 | 在 routes.js 头注显式声明「允许函数型键（参数化路径）」约定 | NFR-MAINT-4 |
+
+## M3.7 一致性核对（文档 vs 实现）
+
+| 项 | 文档说法 | 实现情况 | 判定 |
+|----|----------|----------|------|
+| 路由计数 148 | BootstrapAssemblyTest 注释 146 业务 + ping 2 | `ROUTE_COUNT=146`（FullWebAssembly）+ Bootstrap 装配实测 | 一致 |
+| FUND 模块 13 路径 | routes.js 注释「13 路径，T-195 起新增」 | ApiRoutes FUND 表实数 13 | 一致 |
+| RISK 端点注册面不对称 | risk.js 头注「可接 5 + 未注册 5」 | ApiRoutes 路径表 10 / BY_MODULE_ROUTES 6 对（alert GET+dispose POST + rule 2 + limit-usage 2 = 5 端点 + mirror-status 装配面）实数吻合；NOT_REGISTERED 5 路径 handler/ 零实存 | 一致 |
+| WS /ws/alert NEVER_DROP 语义 | ws.js 注释「断线重连后补拉」 | 服务端 WsConnection.enqueue NEVER_DROP → 队列满 close(1013)（:258）实存；补拉谓词 `alert_ts_ms > since` 实存 | 一致（生产推送未接线 = R3-003 披露） |
+| ARCHITECTURE v1.5.22 FUND 行 | apply-list 已补登（96f01b3） | ApiRoutes/routes.js/FundRoutes 三落点同步 | 一致 |
+
+## M3.8 采信 / 新扫分列
+
+- **采信**（有独立证据链、本单不复算）：T-193/T-194/T-041 的 te-verify 结论；T-195 变异 M1/M2/M3 击杀；T-070 探针 104 断言逐项设计。
+- **新扫**（本单独立执行）：E1~E8 全量；Java 1099 全量复跑；C++ ctest 54；双探针复跑；审计旁路全仓扫描（§M3.5.1）；开关字面全仓甄别；risk.js 敏感字段/XSS 面扫描；T-194/T-195 只读语义核验。
+
+## M3.9 遗留风险与未决项
+
+1. **R3-001 补拉首连盲区**（一般级）：生产 notifier 未接线（T-040 承接）期间该盲区实际不可达（无推送即无「重连补拉」场景）；T-040 落地后即成真缺口——建议 T-040 验收清单纳入本条。
+2. **R3-003** 汇总披露落点（DEPLOY/运维面）归编排者指定承接任务。
+3. 层③链（T-108/T-118/T-119）、R2-001~006 处置：维持 T-060 §M2.6/M2.9 口径，无恶化，不重复立。
+4. `.verify/` 未跟踪目录：同 T-060 §M2.8 口径，非本席创建，列披露不处置。
