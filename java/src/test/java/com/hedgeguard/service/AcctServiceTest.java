@@ -13,6 +13,7 @@ import com.hedgeguard.dao.pool.DataSourcePool;
 import com.hedgeguard.dao.pool.PoolConfig;
 import com.hedgeguard.dao.testsupport.InMemoryDmEngine;
 import com.hedgeguard.dao.testsupport.T077AcctSeed;
+import com.hedgeguard.dao.testsupport.TransactionAwareInMemory;
 import com.hedgeguard.dao.tx.TxTemplate;
 import com.hedgeguard.web.BizException;
 import com.hedgeguard.web.ErrorCode;
@@ -25,6 +26,7 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -60,13 +62,23 @@ class AcctServiceTest {
     private DmEffectivenessAssessDao assessDao;
     private DmHedgeDocDao docDao;
 
+    /** 时间敏感断言的固定运行日（TE-T077-002：时钟 pin 后断言与运行日解耦）。 */
+    private static final LocalDate TODAY = LocalDate.of(2026, 9, 30);
+
     @BeforeEach
     void setUp() throws Exception {
+        // TE-T077-002（NFR-TEST-4）：固定时钟，日期相关判定（termDeviationDays 等）与运行日解耦
+        com.hedgeguard.common.Clocks.set(
+                Clock.fixed(TODAY.atStartOfDay(com.hedgeguard.common.Clocks.ZONE).toInstant(),
+                        com.hedgeguard.common.Clocks.ZONE));
         engine = new InMemoryDmEngine();
         engine.executeScript(Files.readString(repoRoot().resolve(SCRIPT), StandardCharsets.UTF_8));
         T077AcctSeed.createParentTables(engine);
         T077AcctSeed.seedChains(engine);
-        pool = new DataSourcePool(engine, new PoolConfig(0, 4, 500, 2));
+        // TE-T077-001：以事务感知包装承载等价引擎的 commit/rollback 语义
+        //（引擎裸连接对回滚为 no-op，已披露不覆盖；判例 SettleCheckT048bFixTest.Store 同型）
+        pool = new DataSourcePool(new TransactionAwareInMemory(engine),
+                new PoolConfig(0, 4, 500, 2));
         tx = new TxTemplate(pool);
         relationDao = new DmHedgeRelationDao(tx);
         assessDao = new DmEffectivenessAssessDao(tx);
@@ -79,6 +91,7 @@ class AcctServiceTest {
 
     @AfterEach
     void tearDown() {
+        com.hedgeguard.common.Clocks.reset();
         if (pool != null) {
             pool.close();
         }
@@ -168,8 +181,9 @@ class AcctServiceTest {
         assertTrue(ea.actionNote.contains("需终止或再平衡"));
         assertTrue(ea.actionNote.contains("不得自动修改会计处理"));
         assertEquals("NEED_REBALANCE", relationDao.findById(r.id).status);
-        assertEquals(99, ea.termDeviationDays,
-                "期限偏离天数留痕（2026-09-30 当日 → 2027-01-20 = 99 天，判定可复现）");
+        assertEquals((int) java.time.temporal.ChronoUnit.DAYS.between(TODAY, LocalDate.of(2027, 1, 20)),
+                ea.termDeviationDays,
+                "期限偏离天数留痕（固定时钟 " + TODAY + " → 2027-01-20，判定可复现且与运行日解耦）");
     }
 
     @Test
@@ -284,6 +298,29 @@ class AcctServiceTest {
                 () -> svc.correctAssessment(original.id,
                         req(r.id, "2026-09", "Y", "Y", "N", LocalDate.of(2027, 1, 20), null), 8L));
         assertEquals(ErrorCode.STATE_NOT_ALLOWED, ex.errorCode());
+    }
+
+    @Test
+    @DisplayName("TE-T077-001 回归：更正请求校验拒绝 ⇒ 整笔回滚（原记录 is_corrected 必须='N'）")
+    void correctionRejectedMustRollbackMarkCorrected() {
+        HedgeRelation r = svc.generateHedgeRelation(11L, 21L, "FUTURES", "cu2612", 7L);
+        EffectivenessAssess original = svc.assessEffectiveness(
+                req(r.id, "2026-09", "Y", "Y", "Y", LocalDate.of(2026, 9, 20), null), 7L);
+        assertEquals("N", original.isCorrected);
+
+        // 更正请求缺判定基准（exposureExpectedDate=null）⇒ doAssess 在 markCorrected 之后被拒
+        BizException ex = assertThrows(BizException.class,
+                () -> svc.correctAssessment(original.id,
+                        req(r.id, "2026-09", "Y", "Y", "Y", null, null), 8L));
+        assertEquals(ErrorCode.DATA_INSUFFICIENT, ex.errorCode());
+
+        // 整笔事务回滚：原记录不得残留 is_corrected='Y'（留痕链不失真）
+        assertEquals("N", assessDao.findById(original.id).isCorrected,
+                "TE-T077-001：更正被拒后原记录 is_corrected 须回滚为 'N'");
+        assertEquals(1, assessDao.findBySubAccountAndPeriod(1, "2026-09").size(),
+                "不得落任何更正记录（全笔回滚）");
+        assertEquals("EFFECTIVE", relationDao.findById(r.id).status,
+                "状态机在拒绝路径不得被触碰（本场景 doAssess 未及状态机，回归防未来形态漂移）");
     }
 
     // ------------------------------------------------------------------ 隔离与提醒

@@ -300,7 +300,9 @@ public final class AcctService {
      * @return 落库的评估记录
      */
     public EffectivenessAssess assessEffectiveness(AssessRequest req, long operatorId) {
-        return doAssess(req, operatorId, null);
+        // TE-T077-001：insert + 状态机 update 两段写整笔事务包裹（状态机失败须回滚插入，
+        // 不得留失真留痕；FundService 同族形态）
+        return tx.inTransaction(conn -> doAssess(req, operatorId, null));
     }
 
     /**
@@ -319,6 +321,8 @@ public final class AcctService {
      *
      * <p><b>时序</b>：先标记原记录、再插入新记录——{@code uk_eff_assess_rel_period} 的第三键为
      * {@code is_corrected}，不先释放唯一槽位新记录必撞约束（同期间同关系只允许一条未更正记录）。
+     * 两段写（标记 + 新增）整笔 {@code tx.inTransaction} 包裹（TE-T077-001：校验拒绝须整笔回滚，
+     * 不得留 {@code is_corrected='Y'} 的失真留痕；FundService 同族事务形态）。
      *
      * @param originalId 被更正的原记录
      * @param req        更正后的评估请求（重新走完整判定）
@@ -326,21 +330,26 @@ public final class AcctService {
      * @return 新评估记录（{@code correctedFromId} = 原记录）
      */
     public EffectivenessAssess correctAssessment(long originalId, AssessRequest req, long operatorId) {
-        EffectivenessAssess original = assessDao.findById(originalId);
-        if (original == null) {
-            throw BizException.of(ErrorCode.PARAM_INVALID, "被更正的评估记录不存在：id=" + originalId);
-        }
-        if ("Y".equals(original.isCorrected)) {
-            throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
-                    "该评估记录已被更正（不得二次更正同一记录）：id=" + originalId
-                            + "；复现=以最新记录为更正来源");
-        }
-        visibility.assertSubAccountWritable(operatorId, requireSubOfAssess(original));
-        if (assessDao.markCorrected(originalId, operatorId) != 1) {
-            throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
-                    "原记录标记已更正失败（并发冲突）：id=" + originalId + "；复现=重新读取后再更正");
-        }
-        return doAssess(req, operatorId, originalId);
+        // TE-T077-001：markCorrected + doAssess 新记录 = 整笔事务（复核探针实证：更正请求
+        // 校验拒绝后原记录 is_corrected 已='Y' 且无更正记录 ⇒ 留痕链失真）；拒绝路径
+        // （记录不存在 / 已更正 / 可见性 / 新请求校验）在事务开启前后均整笔回滚。
+        return tx.inTransaction(conn -> {
+            EffectivenessAssess original = assessDao.findById(originalId);
+            if (original == null) {
+                throw BizException.of(ErrorCode.PARAM_INVALID, "被更正的评估记录不存在：id=" + originalId);
+            }
+            if ("Y".equals(original.isCorrected)) {
+                throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                        "该评估记录已被更正（不得二次更正同一记录）：id=" + originalId
+                                + "；复现=以最新记录为更正来源");
+            }
+            visibility.assertSubAccountWritable(operatorId, requireSubOfAssess(original));
+            if (assessDao.markCorrected(originalId, operatorId) != 1) {
+                throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                        "原记录标记已更正失败（并发冲突）：id=" + originalId + "；复现=重新读取后再更正");
+            }
+            return doAssess(req, operatorId, originalId);
+        });
     }
 
     /** 评估落库主体（{@code correctedFromId} 非空 = 更正链新增）。 */
