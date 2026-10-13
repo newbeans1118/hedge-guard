@@ -275,3 +275,132 @@ approval(plan, plan.applicantId, plan.applicantId, "SUBMIT", null, null, prechec
 
 > **报告性质**：本项目**首次**对 Java/业务组件做独立代码审查。审查**只读**（未修改任何源码/文档；`docs/REVIEW.md` 为本席唯一产出）。
 > **问题工单**：按派发说明 §6 文件边界，本席不写 `dev-team/**`；CR-001~CR-006 已完整登记于本报告，**建议由编排者据此派发**（责任方：CR-001 → `backend-engineer#java`、CR-002 → `#java`/`#java2` + `tech-lead` 裁定、CR-003 → 项目经理、CR-004/CR-005 → 测试经理、CR-006 → 技术负责人）。
+
+---
+
+# M2 代码与架构合规审查（T-060，审查席 cr-t060，2026-10-13）
+
+> **审查范围**：S7 首审（2026-09-21 时点，`60ea187`）之后交付的 M2 主体——C++ 六模块（含 T-041 recovery/recovery_hook/0x0401）、Java 后端 M2 服务面（fund/trade/settle/risk/audit + T-194 check-tasks）、前端 12 页面（含 T-071 audit.js / T-055 fund.js）。**只读审查，未改任何代码。**
+> **冻结点快照**：HEAD = `a129a4a449a35e0b7defdcf0676e280c31ccb59f`（2026-10-13 00:15:22 +0800，"ledger: 第 238 轮"）；`git status --short` = 仅 `?? .verify/`（未跟踪审查夹具目录，非源码面）；`web/`、`docs/REVIEW.md` 工作树干净。
+> **追加前基线**：`docs/REVIEW.md` = 277 行 / md5 `8eb53017e30f052f6f1c878e0cc16c31`（本节为其纯追加）。
+
+## M2.1 审查结论
+
+**通过**（M2 合规门禁口径）。E1~E6 全量实跑全部退出码 0（E7/E8 亦 0，一并报告）；C++ 无 DB 无 SQL、C++11 词法合规、敏感字段零落盘三项独立复核均成立；新发现问题仅 **低/建议级 3 项**（R2-001/002/006），无阻塞/严重项。已知 P0 缺口（层③功能权限门禁，T-118/T-119 在途）按纪律列「已知项」不重复开单，但作为 M2 收官遗留明示于 M2.6。
+
+## M2.2 E1~E8 实跑结果表（2026-10-13，仓库根，`bash tools/arch-check/arch-check.sh` 聚合 + 逐脚本单跑）
+
+| 判据 | 脚本 | 聚合 rc | 单跑 rc | 扫描量（实测） |
+|------|------|---------|---------|----------------|
+| E1 C++ 链接检查 | `check_no_db_links.sh` | 0 | 0 | **实扫非 SKIP**：ldd 2 个 binary（`cpp/build/src/hg-trading`、`cpp/build_stub/src/hg-trading`）+ **218 个 link.txt** |
+| E2 C++ SQL 扫描 | `scan_cpp_sql.sh` | 0 | 0 | 142 个 C++ 源文件，0 命中 |
+| E3 C++11 合规 | `scan_cpp11.sh` | 0 | 0 | 142 个文件；判据①编译参数通过 + ②禁用特性 0 命中 |
+| E4 无锁/无同步 I/O | `scan_lock_free.sh` | 0 | 0 | **实扫非 SKIP**：`待扫描文件: 61 个`（三目录并集）；WARN 3 处（`new RiskSnapshot` 动态分配，属已披露未覆盖判据 C，信息性不判红） |
+| E5 Java SQL 扫描 | `scan_java_sql.sh` | 0 | 0 | 333 个 Java 文件，0 命中 |
+| E6 前端零构建链 | `check_frontend.sh` | 0 | 0 | `web/`，0 命中 |
+| E7 HGCP schema | `scan_hgcp_schema.py` | 0 | 0（以 `python3` 直跑；见 R2-006） | 消息 40+10 / 字段 214+67 / 枚举 28 一致 |
+| E8 CONTRACTS payload | `scan_contracts_payload.py` | 0 | 0（以 `python3` 直跑；见 R2-006） | 四指令双向差集空 |
+
+> 聚合退出码 0；逐脚本 rc 均独立记录如上。**字面口径 E1~E6 全 0 ⇒ 验收 1 成立**；E7/E8 按 M2 期间新增判据一并报告（同为 0），是否扩入口径报**建议**（M2.5 R2-005）不自行改。
+
+## M2.3 六项验收逐条判定
+
+1. **E1~E6 全量通过**：✅（见 M2.2；聚合任一失败即整体失败——实测无一失败）。
+2. **C++ 不链接 DB 客户端库、无 SQL**：✅。E1/E2 之外独立复核：① CMake `target_link_libraries` 全量 grep（21 处）——链接目标仅 `hg::*` 内部库 / `Threads::Threads` / `protobuf` / `hg_deps::protobuf`，无任何 DB 客户端；② `cpp/` 内 `mysql|postgres|sqlite|odbc|oci|libpq|jdbc|DmDriver` 全量 grep **0 命中**；③ SQL 语句形态 grep（SELECT…FROM / INSERT INTO）**0 命中**。
+3. **C++11 严格合规**：✅。E3 全量 + 本席独立词法 grep：`std::optional` / `std::string_view` / `std::variant` / `make_unique` / `if constexpr` / 结构化绑定（`auto[…] =`）在 `cpp/src` + `cpp/proto_smoke` **0 命中**（含 T-041 新增 `recovery.cc` / `recovery_hook.cc` 覆盖面内）。
+4. **敏感字段零落盘（结构 + grep + 跨页汇总）**：✅。结构面：`t_user` 唯一口令形态 = `password_hash`（`m1_config_auth.sql:335`，明文列不存在）；`PasswordHasher` = PBKDF2WithHmacSHA256、盐 16 字节 SecureRandom、`MessageDigest.isEqual` 恒时比较、javadoc 明载明文不返回/不入库/不入日志；`SensitiveLog` 脱敏过滤器（CFG-19 四字段 `password/auth_code/fund_password/auth_token`）已在 `RequestDispatcher`/`Bootstrap` 装配。grep 面：Java `src/main` 无口令进日志路径；前端 `auth.js`/`login.js` 全部口令输入 `type=password` + `autocomplete` 正确形态；**跨页汇总**：`fund.js`/`audit.js` 等其余 12 页 0 个资金密码/口令字段；`session.js` 仅落 sessionStorage 非敏感摘要（userId/username/expireTime/mustChangePassword）；全仓硬编码密钥字面量 grep 0 命中。种子数据 `data-init.sql` 无 `INSERT INTO t_user`（⇒ 无明文口令落盘，但见 R2-001 的部署面后果）。
+5. **问题清单（只报不改）**：✅ 见 M2.5（R2-001~R2-006，分级：低 2 / 建议 4；无严重/阻塞）。
+6. **E4 扫描根 vs §3.1–§3.6 六模块布局一致性**：✅。§3.0.2 E4 脚注（v1.5.13）扫描根 = `cpp/src/{order_engine,risk_engine,risk_state}`；实际目录 = `ctp_adapter/order_engine/risk_engine/risk_state/flow_store/hgcp` + `main.cc`，与 §3.1–§3.6 六模块**逐一对得上**（无增删/改名）；扫描根为六模块子集系 v1.5.12 裁定口径（T4 交易路径），非漂移。E4 实扫 61 文件（v1.5.13 时点 6 → 现 61，系 T-059 等测试文件入扫，覆盖面扩大方向，非缺陷；ARCH 内「6 个」系历史时点实测语）。
+
+## M2.4 采信/新扫分列（重复劳动规避声明）
+
+**采信既有独立复核（不重复其逐行工作）**：
+- T-041（te-verify-t041：崩溃恢复/0x0401 合取/树锚 9df51d8c）——C++ recovery 功能正确性面；
+- T-042/T-058（装配级 e2e 五缺陷修复 + 复核）——Java↔C++ 桥接语义面；
+- T-059（te-verify-t059c：覆盖率 880/998=88.18% 双轮复现）——C++ 单测覆盖面；
+- T-055（te-verify-t055：fund.js 六态/负例四方向）与 T-071（te-verify-t071：audit.js 红线四点）——前端两单大交付逐行面；
+- T-194（te-verify-t194：check-tasks 端点/路由四方对账）——AUDIT 增量面；
+- T-193/T-190/T-189/T-188 等 settle 链各 te-verify——结算幂等/落库面。
+
+**本席新扫（本单价值面）**：
+① E1~E8 全量机器执行（此前复核多为聚焦跑；E1 实测 218 link.txt + 2 binary、E4 实扫 61 文件均为本单首证）；
+② C++11 词法全量独立 grep（验收 3 指定本席价值点）；
+③ DB 库链接面独立三查（CMake link 目标 + DB 名 grep + SQL 形态 grep）；
+④ 敏感字段跨页汇总复核（12 页 × 口令/资金密码/密钥字面量/sessionStorage 落盘内容，此前各席只扫本页）；
+⑤ S7 后无人复核的边角：`main.cc`（66 行工程骨架，与 TEST_PLAN/M2.md §2「真联档不可达」披露一致，未漂移）、`docs/DEPLOY/`（两工具脚本实跑 rc=0，见 M2.7；发现 R2-001）、`tools/arch-check/` 解释器分派面（R2-006）；
+⑥ `putQuota` 层③门禁现状机制取证（M2.6 遗留风险①，非新缺陷、已由 T-118/T-119 承载）。
+
+## M2.5 问题清单（R2 系 = M2 审查轮系；只报不改）
+
+| 编号 | 级别 | 类型 | 位置 | 摘要 |
+|------|------|------|------|------|
+| R2-001 | 低 | 部署面漂移 | `docs/DEPLOY/schema/data-init.sql`（无 `INSERT INTO t_user`/`t_user_role`）+ `docs/DEPLOY/README.md` §7 步骤 6 | 首个管理员账号无创建路径 |
+| R2-002 | 低 | 判据环境依赖 | `tools/arch-check/check_no_db_links.sh`（E1） | E1 实扫依赖仓库内 build 产物（link.txt 218 个） |
+| R2-003 | 建议 | 口径扩展 | `docs/ARCHITECTURE.md` §3.0.2 / TASKS T-060 验收 1 | E7/E8 已稳定接入聚合入口，建议 M3 收官单起字面口径扩为 E1~E8 |
+| R2-004 | 建议 | 文档时点语 | `docs/ARCHITECTURE.md` §3.0.2 E4 脚注「待扫描文件: 6 个」 | 历史时点实测语现值为 61（测试文件入扫），建议下次触碰时点注化 |
+| R2-005 | 建议 | 工程健壮性 | `tools/arch-check/scan_hgcp_schema.py` / `scan_contracts_payload.py` | 脱离聚合入口以 `bash` 直跑得 rc=2（见 R2-006 复现），建议加可执行位或入口注释 |
+| R2-006 | 建议 | 可维护性 | `cpp/src/main.cc`（66 行） | 生产装配仍为骨架——**已披露未达项**（TEST_PLAN/M2 §2/§6、T-057 未达 5），非新缺陷，登记防「收官=完成」误读 |
+
+**逐条明细**：
+
+- **R2-001（低·部署面漂移）**
+  - 位置：`docs/DEPLOY/schema/data-init.sql`（播种覆盖表 `:84-90` 共 7 表，无 `t_user`/`t_user_role`；全文 0 处 `INSERT INTO t_user`）；`docs/DEPLOY/README.md:222`（部署步骤 6 = 仅执行 `data-init.sql`）。
+  - 复现：`grep -rn 'INSERT INTO t_user' docs/DEPLOY/schema/*.sql` → 0 命中；`grep -c 'INSERT INTO' docs/DEPLOY/schema/data-init.sql` → 8（`t_sub_account`/`t_product`/`t_position_group`/`t_role`/`t_position_conflict`/`t_account_subject`/`t_report_period_config`/`t_dict_item`/`t_config_item` 系，无用户表）。
+  - 失效场景：按 DEPLOY README §7 十步部署后，`t_user` 零行 ⇒ **无人能登录**（`/auth/login` 查无用户；`must_change_password` 首登门禁也无从触发）；`t_role` 已播 7 角色但 `t_user_role` 零行，CH-012 落地硬前置「播种须与实现同批」的后半（`t_user_role`）同样缺位。
+  - 对应需求：部署可用性（DEPLOY README §7 目标 ≤30 分钟可交付）、`CH-012` 播种硬前置（ARCHITECTURE §8.2③）。
+  - 建议方向：立号补「初始管理员 bootstrap」承载（其一：种子脚本加受控初始行 + 首登强制改密已天然覆盖；或提供一次性引导命令），并同步 DEPLOY README §7。
+  - 级别说明：**低**而非严重——部署尚未实机执行（§8.1 DM8 不可达已披露），缺陷在实机部署前暴露即可，未影响任何已验证面。
+
+- **R2-002（低·判据环境依赖）**
+  - 位置：`tools/arch-check/check_no_db_links.sh`（E1）。
+  - 复现：本冻结点实测 E1 实扫 218 个 link.txt + 2 个 binary——**这些产物来自仓库内 `cpp/build*` 目录**；干净检出（无 build）时 E1 走「无产物 ⇒ SKIP + 退出 0」分支（脚本头自述该行为）。
+  - 失效场景：CI 若在无 build 环境跑聚合门禁，E1 静默降级为 SKIP——**E1「通过」与「实扫通过」不可区分**（输出有 SKIP 说明但聚合 rc 同为 0），M2 收官本单赖以成立的是实扫形态。
+  - 建议：聚合入口对 E1 输出形态（SKIP vs 实扫）做可见性提示，或 CI 固定先构建后跑判据。不判缺陷：脚本头已如实披露 SKIP 语义，属环境约定缺口。
+  - 对应需求：`NFR-SEC-9`（E1 链接检查 CI 强制）。
+
+- **R2-003（建议·口径扩展）**：T-060 验收 1 字面为 E1~E6；实测 E7（T-121）/E8（T-170）已接入聚合入口且多单依赖其守卫（CH-019 四制品链）。建议 M3 起任务字面口径扩为 E1~E8（编排者裁决域，本席不改口径）。
+
+- **R2-004（建议·文档时点语）**：ARCHITECTURE §3.0.2 E4 脚注载「实测待扫描文件: 6 个」为 v1.5.13 时点语；现值 61（T-059 等测试入扫）。按「活跃制品禁固定时点值当 live 值」先例，建议下次触碰该节时加时点标注。不影响判据正确性。
+
+- **R2-005（建议）**：`scan_hgcp_schema.py`/`scan_contracts_payload.py` 无可执行位（`-rw-r--r--`）；以 `bash tools/arch-check/scan_hgcp_schema.py` 直跑被 bash 解释 python 语法，报错退出 **2**（幸为「用法/前置错误」语义、非 0，**不构成假绿**）。建议加可执行位 + shebang 已有（`#!/usr/bin/env python3`）即闭环。
+
+- **R2-006（建议·登记防误读）**：`cpp/src/main.cc` 仍为 66 行自检骨架（打印六模块名 + `--self-test`），不监听端口/不做握手。此系 **已披露未达项**（TEST_PLAN/M2.md §2「真联档不可达」、§6.5「生产侧启动装配 🔴 未达」、T-057 未达项），M2 收官语境下重申：**M2 合规门禁通过 ≠ C++ 生产进程可联**，真联档欠账仍在（见 M2.6③）。
+
+## M2.6 遗留风险
+
+| # | 风险 | 现状与依据 | 建议 |
+|---|------|-----------|------|
+| ① | **层③（账户级）功能权限门禁仍缺位** | 本席机制取证（2026-10-13 冻结点）：`VarietyService.putQuota`（`VarietyService.java:676-752`）层③分支仅有参数校验 + 层①可见性强制（`:708-710` 仅 `scopeSubAccount > 0` 触发），**无任何功能权限/角色断言**；`AuthService.hasFunctionPermission` 在 `java/src/main` **0 命中**；`RolePermissionDao` 仅自身接口文件、无 impl、无 caller、`t_role_permission` 零播种——与 TASKS T-108/T-118/T-119（均 `TODO`）登记完全一致 | 按既定编号推进 T-119（断言器）→ T-108（链路+播种）→ T-118（全局对象写面）；M3 收官单须复核该链闭合 |
+| ② | **E1 覆盖面声明** | E1 仅覆盖直接链接（ldd 一层 + link.txt 文本）；静态库间接引入不在覆盖内（脚本头已披露） | 维持脚本自述口径；符号级检查待有真实构建产物后再议 |
+| ③ | **真联档欠账** | `main.cc` 骨架 ⇒ 跨进程真联不可达（TEST_PLAN/M2 已披露，B 档结论以打桩档标注） | C++ 生产侧启动装配派单后补跑真联档；勿因本单「通过」而跳过 |
+| ④ | **前端非敏感面未全扫** | 本席敏感字段跨页汇总只扫口令/资金密码/密钥/直连四类；`localStorage` 仅 `GATE_KEY`（布尔门禁标记）与 sessionStorage 摘要，无 token 类持久化——但前端整体（audit.js 1183 行等）功能正确性面已由各自 te-verify 承载，本席不重复 | 维持现状 |
+
+## M2.7 已执行的验证（全部真实执行，2026-10-13）
+
+| 验证 | 命令 | 结果 |
+|------|------|------|
+| 冻结点 | `git log -1` / `git status --short` | `a129a4a…` / 仅 `?? .verify/` |
+| 聚合门禁 | `bash tools/arch-check/arch-check.sh` | rc=0，八判据全 0 |
+| 逐脚本单跑 | 8 脚本逐一执行记 rc | E1~E8 逐 rc 见 M2.2 |
+| E1 实扫形态 | `bash tools/arch-check/check_no_db_links.sh`（看输出头） | 待检 binary 2 / link 218，非 SKIP |
+| CMake 链接面 | `grep -rn 'target_link_libraries' cpp/` | 21 处，无 DB 库 |
+| DB 痕迹 grep | `grep -rniE 'mysql\|postgres\|sqlite\|odbc\|oci\|libpq\|jdbc\|DmDriver' cpp/ …` | 0 命中 |
+| SQL 形态 grep | `SELECT…FROM / INSERT INTO` 于 `cpp/src` | 0 命中 |
+| C++11 词法 | `std::optional\|string_view\|variant\|make_unique\|if constexpr\|auto[…]` | 0 命中 |
+| E4 实扫量 | `bash tools/arch-check/scan_lock_free.sh` | 61 文件，WARN 3（判据 C 信息性） |
+| 敏感面 | `PasswordHasher` 通读 / `t_user` 结构 / `SensitiveLog` 装配 / 14 页 grep / sessionStorage 内容审 | 均成立（M2.3-4） |
+| DEPLOY 工具 | `python3 docs/DEPLOY/tools/reconcile-schema.py` / `fk-order-check.py` | rc=0 / rc=0（与文档声明一致） |
+| 种子核查 | `grep 'INSERT INTO t_user' docs/DEPLOY/schema/*.sql` | 0 命中 ⇒ R2-001 |
+| 基线锚 | `md5sum docs/REVIEW.md`（追加前） | `8eb53017e30f052f6f1c878e0cc16c31` / 277 行 ✓ |
+
+## M2.8 在途并发披露
+
+- **T-195（/fund/export CSV 化 + 申请列表端点，backend 席）**：与本单并行。冻结点实测：`routes.js` FUND 键 = 12 路径（T-055 交付形态，`EXPORT: '/fund/export'` 注释仍为「JSON 数据」）；`git status` 无 FUND 面未提交改动 ⇒ 冻结点未见在途痕迹，FUND 面按 T-055 复核结论采信。T-195 落地后 FUND 键数/形态将变，**不构成本单缺陷**。
+- **`.verify/` 未跟踪目录**：本会话前已存在，非本席创建（本席零写入该目录），列披露不处置。
+
+## M2.9 未决项
+
+1. R2-001~R2-006 处置（立号/收编/仅登记）归编排者裁定；
+2. E7/E8 是否扩入验收字面（R2-003）归编排者；
+3. 层③链（T-108/T-118/T-119）推进时序归编排者（M2.6①）；
+4. 本报告按纪律只落 `docs/REVIEW.md`，未写 `dev-team/**` 工单（S7 节先例同姿态，工单投递建议由编排者据 M2.5 派发）。
