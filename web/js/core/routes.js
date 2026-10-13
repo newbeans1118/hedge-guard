@@ -168,6 +168,15 @@ export const ROUTES = {
     RISK_VIOLATION: '/risk/violation',
     RISK_POST_REPORT: '/risk/post-report',
     TRADE_ORDER: '/trade/order'
+  },
+  // T-077：套期会计（FR-ACCT-1/2/4）。**键先行**（fund.js 同形态：本单后端交付 4 对方法注册面，
+  // acct.js 页面归 T-083 未建——键先落，页面随后真接，勿臆造调用）。路径逐字取自
+  // ApiRoutes.byModule().get("ACCT")；方法对取自 handler/acct/AcctRoutes.java（GET|POST
+  // hedge-relation、GET|POST effectiveness）。其余 10 条已声明路径（rebalance/voucher/period/
+  // effect/dual-pnl/selfcheck/export）未注册，留在 ApiRoutes 路径级声明中、本键不收录。
+  ACCT: {
+    HEDGE_RELATION: '/acct/hedge-relation',   // GET 分页；POST 生成（三要素门禁 R-ACCT-1，缺任一要素 10012 阻断并列缺失项）
+    EFFECTIVENESS: '/acct/effectiveness'      // GET 分页/监测复核清单(monitorOnly=true)/未评估提醒(unassessedPeriod=…)；POST 提交评估（三项定性观察点，Q-7）
   }
 };
 

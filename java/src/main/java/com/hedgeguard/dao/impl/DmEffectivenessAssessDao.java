@@ -157,4 +157,31 @@ public final class DmEffectivenessAssessDao extends AbstractDmDao<EffectivenessA
                 + " WHERE period_key = ? AND monitor_review_flag = ? ORDER BY assess_time ASC, id ASC";
         return queryList(sql, Arrays.asList(periodKey, "Y"), this::mapRow);
     }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>专用窄口通道（{@code SET is_corrected = 'Y'}，带乐观锁）：评估记录的业务列仍只能经
+     * {@link #insert} 首次写入，本方法不提供任何业务列改写面（R-ACCT-2 红线的边界=业务字段）。
+     */
+    @Override
+    public int markCorrected(long id, long operatorId) {
+        String sql = "UPDATE " + tableName()
+                + " SET is_corrected = ?, updated_by = ?, updated_time = ?,"
+                + " row_version = row_version + 1"
+                + " WHERE id = ? AND is_corrected = ?";
+        return executeUpdateSql(sql,
+                Arrays.asList("Y", operatorId, LocalDateTime.now(), id, "N"));
+    }
+
+    /** {@inheritDoc}：专用窄口通道（仅 SET corrected_from_id，带乐观锁）。 */
+    @Override
+    public int updateCorrectedFrom(long id, long correctedFromId, long operatorId) {
+        String sql = "UPDATE " + tableName()
+                + " SET corrected_from_id = ?, updated_by = ?, updated_time = ?,"
+                + " row_version = row_version + 1"
+                + " WHERE id = ?";
+        return executeUpdateSql(sql,
+                Arrays.asList(correctedFromId, operatorId, LocalDateTime.now(), id));
+    }
 }

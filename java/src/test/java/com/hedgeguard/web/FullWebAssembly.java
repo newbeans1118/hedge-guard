@@ -6,6 +6,7 @@ import com.hedgeguard.web.handler.audit.AuditTraceRoutes;
 import com.hedgeguard.web.handler.audit.CheckTaskQueryRoutes;
 import com.hedgeguard.web.handler.audit.EvidenceExportRoutes;
 import com.hedgeguard.web.handler.audit.ViolationScreenRoutes;
+import com.hedgeguard.web.handler.acct.AcctRoutes;
 import com.hedgeguard.web.handler.auth.AuthRoutes;
 import com.hedgeguard.web.handler.config.ConfigRoutes;
 import com.hedgeguard.web.handler.fund.FundRoutes;
@@ -110,8 +111,17 @@ final class FullWebAssembly {
      * {@code ApiRoutes} 模块表 + 方法注册表已同步；生产装配含平台级 {@code ping} 2 条后为 {@code 148}，
      * 与 {@code BootstrapAssemblyTest} 断言同锚）。同单 {@code /fund/export} 响应形态 JSON→CSV 直返
      * （{@code FR-FUND-4}「输出=CSV 对账表」，{@code te-verify-t055} 观察 {@code O-3}）不增减路由条数。
+     *
+     * <p>【{@code T-077}】ACCT 模块首批注册面（套期关系 + 有效性评估；ACCT 方法注册表从零建）——
+     * 已声明路径 {@code /acct/hedge-relation}、{@code /acct/effectiveness} 各注册 {@code GET}/{@code POST}
+     * （2 路径 × 2 方法 = 4 对）⇒ {@code 146 → 150}（非为过测试而放宽：路径逐字取自
+     * {@code ApiRoutes} 的 {@code ACCT} 清单；{@code ARCHITECTURE.md} §6.10 + §4.1.1 行 641）。
+     * {@code ACCT} 方法注册表键由 0 对增为 4 对；其余 10 条已声明路径归 T-078/T-079/T-080。
+     * 算术分解：业务路由 146 → 150（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/
+     * SETTLE15/FUND16/AUDIT24 不变 + ACCT4）；生产装配含平台级 {@code ping} 2 条后为 {@code 152}，
+     * 与 {@code BootstrapAssemblyTest} 断言同锚。
      */
-    static final int ROUTE_COUNT = 146;
+    static final int ROUTE_COUNT = 150;
 
     private FullWebAssembly() {
     }
@@ -161,6 +171,10 @@ final class FullWebAssembly {
         // GET /audit/check-tasks/overdue；FR-AUDIT-13 验收 1/2/5）。服务入参 null：
         // 装配期只调用 router.register(...)。注册序与生产装配（Bootstrap）一致。
         CheckTaskQueryRoutes.register(router, null);
+        // T-077：ACCT 模块首批注册面（4 对：GET|POST /acct/hedge-relation、GET|POST
+        // /acct/effectiveness；三要素门禁 R-ACCT-1 + 三项定性观察点 R-ACCT-2/Q-7）。
+        // 服务入参 null：装配期只调用 router.register(...)。注册序与生产装配（Bootstrap）一致。
+        AcctRoutes.register(router, null);
         // T-065：风控告警查询与处置面（2 个 (方法,路径) 对：GET /risk/alert、
         // POST /risk/alert/{id}/dispose）。服务入参 null：装配期只调用 router.register(...)。
         RiskAlertRoutes.register(router, null);

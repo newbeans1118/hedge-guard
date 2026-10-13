@@ -3,6 +3,7 @@ package com.hedgeguard.web.handler;
 import com.hedgeguard.risk_intraday.RiskRoutes;
 import com.hedgeguard.web.ApiRoutes;
 import com.hedgeguard.web.Router;
+import com.hedgeguard.web.handler.acct.AcctRoutes;
 import com.hedgeguard.web.handler.audit.AuditLogRoutes;
 import com.hedgeguard.web.handler.audit.AuditReportRoutes;
 import com.hedgeguard.web.handler.audit.AuditTraceRoutes;
@@ -62,9 +63,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 同构——{@code AUTH}/{@code CONFIG}/{@code PRODUCT}/{@code SPOT}/{@code PLAN}/{@code RISK}/
  * {@code TRADE}/{@code SETTLE}（含 {@code SettleCheckRoutes}）/{@code FUND}/
  * {@code AUDIT}（T-067 追溯留痕、T-068 违规筛查、T-069 报表/证据链导出/审计日志、
- * T-194 核对任务查询）十模块注册器 +
- * {@code ping} 的 {@code GET}/{@code HEAD}。未交付模块（{@code ACCT}）不在
- * {@link ApiRoutes#allRoutes()} 内，故亦不参与等值比较（其路径级声明见 {@link ApiRoutes#byModule()}）。
+ * T-194 核对任务查询）+ {@code ACCT}（T-077 首批 4 对：hedge-relation/effectiveness 各 GET|POST）
+ * 注册器 + {@code ping} 的 {@code GET}/{@code HEAD}。{@code ACCT} 其余 10 条已声明路径
+ * （rebalance/voucher/period/effect/dual-pnl/selfcheck/export）未交付，仍仅存在于
+ * {@link ApiRoutes#byModule()} 的路径级声明中、不参与对级等值比较。
  */
 class ModuleRoutesConsistencyTest {
 
@@ -102,6 +104,9 @@ class ModuleRoutesConsistencyTest {
         // T-194（te-verify-t071 O-1 承接）：核对任务查询面（GET /audit/check-tasks、
         // GET /audit/check-tasks/overdue；FR-AUDIT-13 验收 1/2/5）同构重放。
         CheckTaskQueryRoutes.register(router, null);
+        // T-077：ACCT 模块首批注册面（GET|POST /acct/hedge-relation、GET|POST /acct/effectiveness，
+        // 4 对）同构重放；ACCT 方法注册表键自此存在于 ApiRoutes.BY_MODULE_ROUTES。
+        AcctRoutes.register(router, null);
         return router;
     }
 

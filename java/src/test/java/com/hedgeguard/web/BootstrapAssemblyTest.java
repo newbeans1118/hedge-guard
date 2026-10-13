@@ -220,9 +220,19 @@ class BootstrapAssemblyTest {
             //   另：本单将既有 /fund/export 的响应形态由 JSON 信封改为 CSV 直返（FR-FUND-4
             //   「输出=CSV 对账表」；te-verify-t055 O-3）——响应形态变更不增减路由条数。
             //   非为过测试而放宽断言。
-            assertEquals(148, assembly.routeCount(),
-                    "业务路由必须全部注册：146（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/"
-                            + "SETTLE15/FUND16/AUDIT24）+ ping 2");
+            // 【T-077 订正（加注）】断言值由 148 订正为 152：订正理由 = 需求面（{@code FR-ACCT-1/2/4}、
+            //   {@code ARCHITECTURE.md} §6.10 套期会计 + §4.1.1 行 641 {@code ACCT} 路径 GET/POST；
+            //   {@code ApiRoutes} 路径级声明早已含 ACCT 12 路径、但方法注册表（BY_MODULE_ROUTES）
+            //   此前<b>无 ACCT 键</b>——「已声明未注册」缺口）——
+            //   AcctRoutes 于已声明路径 /acct/hedge-relation、/acct/effectiveness 各注册 GET/POST
+            //   （2 路径 × 2 方法 = 4 对；ACCT 方法注册表键由 0 增为 4，路径 +2），
+            //   业务路由 150（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/SETTLE15/
+            //   FUND16/AUDIT24/ACCT4）+ ping 2 = 152。算术分解：148（前值）+ 4 对 = 152；
+            //   ACCT 其余 10 条已声明路径归 T-078/T-079/T-080，本单不注册。
+            //   非为过测试而放宽断言。
+            assertEquals(152, assembly.routeCount(),
+                    "业务路由必须全部注册：150（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/"
+                            + "SETTLE15/FUND16/AUDIT24/ACCT4）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。
             // （不真发 HTTP：经 RequestDispatcher 进程内分发；handler 因无真实库而 4xx/5xx 皆可，

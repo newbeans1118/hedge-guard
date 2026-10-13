@@ -46,6 +46,8 @@ import com.hedgeguard.dao.impl.DmAuthorizationDao;
 import com.hedgeguard.dao.impl.DmExposureDetailDao;
 import com.hedgeguard.dao.impl.DmHedgeDocDao;
 import com.hedgeguard.dao.impl.DmHedgePlanDao;
+import com.hedgeguard.dao.impl.DmHedgeRelationDao;
+import com.hedgeguard.dao.impl.DmEffectivenessAssessDao;
 import com.hedgeguard.dao.impl.DmHedgePlanExposureDao;
 import com.hedgeguard.dao.impl.DmHedgeRatioCalcDao;
 import com.hedgeguard.dao.impl.DmInventoryLedgerDao;
@@ -125,6 +127,7 @@ import com.hedgeguard.service.AuditLogService;
 import com.hedgeguard.service.AuditReportService;
 import com.hedgeguard.service.AuditService;
 import com.hedgeguard.service.AuthService;
+import com.hedgeguard.service.AcctService;
 import com.hedgeguard.service.CheckTaskQueryService;
 import com.hedgeguard.service.ConfigService;
 import com.hedgeguard.service.EvidenceExportService;
@@ -153,6 +156,7 @@ import com.hedgeguard.web.handler.audit.CheckTaskQueryRoutes;
 import com.hedgeguard.web.handler.audit.EvidenceExportRoutes;
 import com.hedgeguard.web.handler.audit.ViolationScreenRoutes;
 import com.hedgeguard.web.handler.auth.AuthRoutes;
+import com.hedgeguard.web.handler.acct.AcctRoutes;
 import com.hedgeguard.web.handler.config.ConfigRoutes;
 import com.hedgeguard.web.handler.fund.FundRoutes;
 import com.hedgeguard.web.handler.plan.PlanRoutes;
@@ -562,6 +566,21 @@ public final class Bootstrap {
                 new DmCapitalReceiptDao(tx), new DmFundReviewRecordDao(tx),
                 new DmFundQuotaDao(tx), new DmFundQuotaAlertDao(tx), new DmFundReconcileDao(tx));
         FundRoutes.register(router, fundService);
+
+        // M4 套期会计服务（T-077，ACCT 首批）：套期关系生成（CAS 24 三要素门禁 R-ACCT-1）+
+        // 有效性评估（三项定性观察点 R-ACCT-2/Q-7；量化监测 CFG-07b 仅提示不判定）。
+        // CFG-07/07b 经 ConfigService 惰性读取（data-init.sql:318/:322 已播种；缺种子容错缺省）。
+        AcctService acctService = new AcctService(tx, authService,
+                key -> {
+                    com.hedgeguard.dao.entity.ConfigItem ci = configService.getConfig(key);
+                    return ci == null ? null : ci.configValue;
+                },
+                new DmHedgePlanDao(tx), new DmHedgeDocDao(tx),
+                new DmHedgeRelationDao(tx), new DmEffectivenessAssessDao(tx));
+        AcctRoutes.register(router, acctService);
+        LOG.info("已装配套期会计首批面（T-077）：GET|POST /api/v1/acct/hedge-relation、"
+                + "GET|POST /api/v1/acct/effectiveness；三要素门禁=R-ACCT-1；"
+                + "有效性=三项定性观察点（CFG-07），量化监测（CFG-07b）仅提示不判定");
 
         // M3 风控阈值配置与下发闭环（T-063）：t_risk_threshold 配置 + 合规下限 + CMD_UPDATE_RISK_THRESHOLD 下发。
         // 复用既有 ParamDispatchService 下发通道（T-011）与 t_config_change_log 留痕（双人复核）。

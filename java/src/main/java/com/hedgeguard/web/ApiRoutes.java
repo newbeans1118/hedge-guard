@@ -164,6 +164,12 @@ public final class ApiRoutes {
                 "POST /fund/reconcile", "GET /fund/export",
                 // T-195：出入金申请列表查询（FR-FUND-8 验收3；只读，仅 GET）
                 "GET /fund/apply-list"));
+        // T-077：ACCT 模块首批注册面（套期关系 + 有效性评估，各 GET/POST；ACCT 方法注册表从零建）。
+        // 路径逐字取自本类 ACCT 路径级声明；其余 10 条已声明路径归 T-078（rebalance）/T-079（voucher/
+        // period）/T-080（effect/dual-pnl/selfcheck/export）交付。
+        BY_MODULE_ROUTES.put("ACCT", Arrays.asList(
+                "GET /acct/hedge-relation", "POST /acct/hedge-relation",
+                "GET /acct/effectiveness", "POST /acct/effectiveness"));
         BY_MODULE_ROUTES.put("AUTH", Arrays.asList(
                 "POST /auth/login", "POST /auth/logout",
                 "GET /auth/user", "POST /auth/user", "PUT /auth/user",
@@ -208,9 +214,8 @@ public final class ApiRoutes {
      *
      * <p>仅含<b>当前已注册</b>的模块（{@code AUTH}/{@code CONFIG}/{@code PRODUCT}/{@code SPOT}/
      * {@code PLAN}/{@code TRADE}/{@code SETTLE}/{@code RISK}/{@code FUND}，以及 {@code T-067} 接入、
-     * {@code T-069} 补齐、{@code T-194} 追加核对任务查询 2 对的 {@code AUDIT} 已声明路径）；
-     * 后续里程碑模块（{@code ACCT}）
-     * 仅在 {@link #byModule()} 的路径级声明中列出。
+     * {@code T-069} 补齐、{@code T-194} 追加核对任务查询 2 对的 {@code AUDIT} 已声明路径，
+     * 与 {@code T-077} 首批注册 4 对的 {@code ACCT}）；
      *
      * @return 模块 → {@code "METHOD /module-relative-path"} 清单
      */

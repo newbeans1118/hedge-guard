@@ -52,4 +52,34 @@ public interface EffectivenessAssessDao extends BaseDao<EffectivenessAssess, Lon
      * @return 列表（{@code assess_time} 升序，{@code id} 升序收官）
      */
     List<EffectivenessAssess> findMonitorFlaggedByPeriod(String periodKey);
+
+    /**
+     * 标记评估记录「已被更正」（{@code is_corrected = 'Y'}；{@code T-077} 新增，
+     * 承接 FR-ACCT-2 验收 3「更正须新增记录并留痕」的更正链）。
+     *
+     * <p><b>为何不用 {@code updateById}</b>：通用更新通道已显式拒绝（R-ACCT-2「评估记录不得事后
+     * 修改」，防借编辑入口静默改写判定结果）。本方法是<b>唯一</b>可改动 {@code is_corrected}
+     * 标记位的专用通道——SQL 固定形如 {@code SET is_corrected = 'Y'}，<b>不携带</b>任何业务列
+     * （结论 / 观察点 / 明细均不可触碰）；带乐观锁（{@code row_version}），并发更正第二次必 0 行。
+     *
+     * @param id         评估记录
+     * @param operatorId 操作人（{@code updated_by} 留痕）
+     * @return 影响行数；{@code 0} = 已被更正或并发冲突
+     */
+    int markCorrected(long id, long operatorId);
+
+    /**
+     * 回写更正来源（{@code corrected_from_id}；仅更正链新增记录需要，{@code T-077}）。
+     *
+     * <p>与 {@link #markCorrected} 同理为专用窄口通道：仅 SET {@code corrected_from_id}，
+     * 不触碰业务列。插入时无法一并写入（候选记录 ID 由自增回填后才可知原记录 ID 已知，
+     * 但更正时序=先释放原记录唯一槽位再插入新记录，原记录 ID 在插入前即已知——
+     * 为保持「插入零特殊分支」与 Dm 实现最小增量，拆为插入后窄口回写）。
+     *
+     * @param id              新评估记录
+     * @param correctedFromId 被更正的原记录
+     * @param operatorId      操作人
+     * @return 影响行数（正常为 1）
+     */
+    int updateCorrectedFrom(long id, long correctedFromId, long operatorId);
 }

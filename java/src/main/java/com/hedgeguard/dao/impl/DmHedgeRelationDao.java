@@ -8,7 +8,9 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -113,5 +115,50 @@ public final class DmHedgeRelationDao extends AbstractDmDao<HedgeRelation, Long>
         String sql = "SELECT " + selectList() + " FROM " + tableName()
                 + " WHERE hedged_item_exposure_id = ? ORDER BY designated_time ASC, id ASC";
         return queryList(sql, Arrays.asList(exposureId), this::mapRow);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>直查专属 SQL：{@code SELECT relation_no FROM t_hedge_relation WHERE relation_no LIKE ?}
+     * （前缀区间，走 {@code uk_hedge_relation_no} 唯一索引；T-077 取号取数入口，O-4 教训：
+     * 全系统前缀 max 非当日 max）。返回前在应用侧取最大，避免依赖行序。
+     */
+    @Override
+    public String findMaxRelationNoByPrefix(String relationNoPrefix) {
+        String sql = "SELECT relation_no FROM " + tableName() + " WHERE relation_no LIKE ?";
+        List<String> nos = queryList(sql, Collections.singletonList(relationNoPrefix + "%"),
+                rs -> rs.getString("relation_no"));
+        String max = null;
+        for (String no : nos) {
+            if (no != null && (max == null || no.compareTo(max) > 0)) {
+                max = no;
+            }
+        }
+        return max;
+    }
+
+    /**
+     * {@inheritDoc}：{@code null} 不过滤；否则 {@code sub_account_id IN (?...)}（占位符绑定）。
+     */
+    @Override
+    public List<HedgeRelation> findBySubAccounts(List<Integer> subAccountIds) {
+        if (subAccountIds == null) {
+            String sql = "SELECT " + selectList() + " FROM " + tableName()
+                    + " ORDER BY designated_time ASC, id ASC";
+            return queryList(sql, Collections.emptyList(), this::mapRow);
+        }
+        if (subAccountIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        StringBuilder in = new StringBuilder("(");
+        for (int i = 0; i < subAccountIds.size(); i++) {
+            in.append(i == 0 ? "?" : ", ?");
+        }
+        in.append(')');
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE sub_account_id IN " + in
+                + " ORDER BY designated_time ASC, id ASC";
+        return queryList(sql, new ArrayList<>(subAccountIds), this::mapRow);
     }
 }
