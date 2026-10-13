@@ -13,7 +13,8 @@
  *   GET|POST /fund/quota                  额度查询 / 额度设定（FR-FUND-13）
  *   GET      /fund/margin                 保证金占用视图（只读；FR-FUND-15）
  *   POST     /fund/reconcile              每日资金对账（FR-FUND-17）
- *   GET      /fund/export                 资金对账导出（JSON 数据：columns/rows/小计/合计；FR-FUND-4）
+ *   GET      /fund/export                 资金对账导出（T-195 起 CSV 直返下载；FR-FUND-4）
+ *   GET      /fund/apply-list             出入金申请列表分页（FR-FUND-8 验收3；T-195 新增）
  *
  * ## 业务红线（写进页面逻辑）
  *   · R-FUND-3 双人复核：出入金复核与划拨审批的发起人与复核/审批人不得为同一人——
@@ -324,23 +325,66 @@ function depositWithdrawTab(container) {
   aInBtn.addEventListener('click', () => apply('IN'));
   aOutBtn.addEventListener('click', () => apply('OUT'));
 
-  // —— 申请形态说明（无独立申请列表只读端点，见 loadApplies 内披露）+ 复核
+  // —— 申请列表（FR-FUND-8 验收3「查询接口确认」；T-195 新增 GET /fund/apply-list 只读端点。
+  //     dwStatusHTML 就绪件在此激活——「超时待查」独立徽标形态首次有真实数据承载）。
   const listCard = ui.el('section', { class: 'hg-card' });
-  listCard.appendChild(ui.el('h3', { class: 'hg-card__title', text: '出入金申请状态与复核（FR-FUND-7/8）' }));
-  const qBtn = ui.el('button', { class: 'hg-btn', type: 'button', text: '查看申请形态' });
-  listCard.appendChild(ui.el('div', { class: 'hg-form-actions' }, [qBtn]));
+  listCard.appendChild(ui.el('h3', { class: 'hg-card__title', text: '出入金申请列表与复核（FR-FUND-7/8）' }));
+  const dState = { page: 1, size: HG.api.DEFAULT_PAGE_SIZE };
+  const qStatus = ui.el('select', { id: 'fd-q-status' });
+  qStatus.appendChild(ui.el('option', { value: '', text: '全部状态' }));
+  Object.keys(DW_STATUS).forEach((k) => qStatus.appendChild(ui.el('option', { value: k, text: DW_STATUS[k] })));
+  const qSub = numInput('fd-q-sub', { min: '1', placeholder: '可空' });
+  const qFrom = dateInput('fd-q-from');
+  const qTo = dateInput('fd-q-to');
+  const qBtn = ui.el('button', { class: 'hg-btn', type: 'button', text: '查询申请' });
+  listCard.appendChild(ui.el('div', { class: 'hg-form-actions' }, [
+    ui.field({ id: 'fd-q-status', label: '状态', control: qStatus }),
+    ui.field({ id: 'fd-q-sub', label: '子账户', control: qSub }),
+    ui.field({ id: 'fd-q-from', label: '创建日期起', control: qFrom }),
+    ui.field({ id: 'fd-q-to', label: '创建日期止', control: qTo }),
+    qBtn
+  ]));
   const qBody = ui.el('div');
+  const qPager = ui.el('div', { class: 'hg-pager' });
   listCard.appendChild(qBody);
+  listCard.appendChild(qPager);
   container.appendChild(listCard);
 
   async function loadApplies(page) {
-    // 出入金申请查询：ApiRoutes FUND 12 路径中无独立「申请列表查询」只读端点（如实披露，不臆造）；
-    // 申请明细以「复核 + 回执成功 → 资金流水（depositWithdrawId 关联）」承接（FR-FUND-16）。
-    ui.clear(qBody);
-    qBody.appendChild(ui.banner(
-      '出入金申请为<strong>写后经流水可见</strong>形态：申请经复核 + CTP 回执成功后生成资金流水'
-        + '（voucherNo 关联），请转「资金流水」页签按出入金申请 ID 关联查询；'
-        + '回执处理见下方「CTP 回执处理」。', 'warn'));
+    dState.page = page || 1;
+    const q = { page: dState.page, size: dState.size, sort: 'id,desc' };
+    if (qStatus.value) q.status = qStatus.value;
+    if (qSub.value) q.subAccountId = qSub.value;
+    if (qFrom.value) q.from = qFrom.value;
+    if (qTo.value) q.to = qTo.value;
+    ui.clear(qBody); ui.renderLoading(qBody, '正在查询出入金申请…');
+    try {
+      const data = await HG.api.get(R.APPLY_LIST, q);
+      attachPager(qPager, { total: data.total, page: data.page, size: data.size }, loadApplies);
+      ui.clear(qBody);
+      if (!data.items || !data.items.length) {
+        ui.renderEmpty(qBody, '该筛选条件下无出入金申请。');
+        return;
+      }
+      qBody.appendChild(ui.el('div', { html: ui.tableHTML(
+        [
+          { key: 'id', title: '申请 ID', num: true },
+          { title: '申请号', render: (r) => F.esc(r.applyNo || '—') },
+          { title: '子账户', num: true, render: (r) => F.esc(r.subAccountId === null || r.subAccountId === undefined ? '—' : String(r.subAccountId)) },
+          { title: '方向', render: (r) => F.esc(r.direction === 'IN' ? '入金' : (r.direction === 'OUT' ? '出金' : (r.direction || '—'))) },
+          { title: '金额', num: true, render: (r) => F.esc(F.money(r.amount)) },
+          { title: '状态', render: (r) => dwStatusHTML(r.status) },
+          { title: '申请人', num: true, render: (r) => F.esc(r.applicantId === null || r.applicantId === undefined ? '—' : String(r.applicantId)) },
+          { title: '复核人', num: true, render: (r) => F.esc(r.reviewerId === null || r.reviewerId === undefined ? '—' : String(r.reviewerId)) },
+          { title: '驳回原因', render: (r) => F.esc(r.rejectReason || '—') },
+          { title: '创建时间', render: (r) => F.esc(F.dateTime(r.createdTime)) }
+        ],
+        data.items
+      ) }));
+      if (data.items.some((r) => r.status === 'TIMEOUT_UNKNOWN')) {
+        qBody.appendChild(ui.el('div', { html: TIMEOUT_NOTE_HTML }));
+      }
+    } catch (err) { ui.renderError(qBody, err, () => loadApplies(dState.page)); }
   }
   qBtn.addEventListener('click', () => loadApplies(1));
 
@@ -921,20 +965,22 @@ function marginTab(container) {
 }
 
 /* ------------------------------------------------------------------ *
- * Tab 7：资金对账导出（FR-FUND-4；GET /fund/export 返回 JSON 数据面）
+ * Tab 7：资金对账导出（FR-FUND-4；T-195 起 GET /fund/export 返回 CSV 直返——
+ *        Content-Type=text/csv，前端以 HG.api.download 下载；与 /product/export 同构）
  * ------------------------------------------------------------------ */
 function exportTab(container) {
   const card = ui.el('section', { class: 'hg-card' });
   card.appendChild(ui.el('h3', { class: 'hg-card__title', text: '资金对账导出（FR-FUND-4）' }));
   card.appendChild(ui.banner(
-    '导出仅覆盖<strong>有权限的子账户范围</strong>；含期初余额、各类型发生额小计、期末余额、凭证编号与'
-      + '<strong>子账户小计 + 全账户合计</strong>（便于加总对账）；无数据时不生成文件并给出提示。',
+    '导出仅覆盖<strong>有权限的子账户范围</strong>；导出物为 <strong>CSV 对账表</strong>，含期初余额、'
+      + '各类型发生额小计、期末余额、凭证编号与<strong>子账户小计 + 全账户合计</strong>（便于加总对账）；'
+      + '无数据时不生成文件并给出提示（FR-FUND-4 验收 4）。',
     'warn'
   ));
   const eFrom = dateInput('fd-e-from');
   const eTo = dateInput('fd-e-to');
   const eSub = numInput('fd-e-sub', { min: '1', placeholder: '可空' });
-  const eBtn = ui.el('button', { class: 'hg-btn', type: 'button', text: '生成导出数据' });
+  const eBtn = ui.el('button', { class: 'hg-btn', type: 'button', text: '导出 CSV 对账表' });
   card.appendChild(ui.el('div', { class: 'hg-form-actions' }, [
     ui.field({ id: 'fd-e-from', label: '日期起', control: eFrom }),
     ui.field({ id: 'fd-e-to', label: '日期止', control: eTo }),
@@ -952,24 +998,34 @@ function exportTab(container) {
     if (eSub.value) q.subAccountId = eSub.value;
     ui.clear(eBody); ui.renderLoading(eBody, '正在生成资金对账导出…');
     try {
-      const r = await HG.api.get(R.EXPORT, q);
-      ui.clear(eBody);
-      const rows = (r && r.rows) || [];
-      if (!rows.length) { ui.renderEmpty(eBody, '无数据——不生成导出文件（FR-FUND-4 验收 4）。'); return; }
-      eBody.appendChild(ui.el('p', { class: 'hg-muted', text: '导出时间：' + F.esc(F.dateTime(r.exportTime)) + '；导出人 #' + F.esc(String(r.exportedBy ?? '—')) + '；共 ' + F.esc(String(r.rowCount ?? rows.length)) + ' 行。' }));
-      const cols = (r && r.columns) || [];
-      if (cols.length) {
-        eBody.appendChild(ui.el('div', { html: ui.tableHTML(
-          cols.map((c) => ({ title: c, render: (row) => F.esc(row[c] === undefined || row[c] === null ? '' : String(row[c])) })),
-          rows
-        ) }));
+      const res = await HG.api.download(R.EXPORT, q);
+      const text = await res.blob.text();
+      // 行数统计：仅用于「无数据 ⇒ 不生成空文件」的界面裁决（FR-FUND-4 验收 4；/product/export 同构）
+      const lines = text.replace(/^\uFEFF/, '').split(/\r\n|\n/).filter((l) => l !== '');
+      if (lines.length <= 1) {
+        ui.clear(eBody);
+        ui.renderEmpty(eBody, '无数据——不生成导出文件（FR-FUND-4 验收 4）。');
+        return;
       }
-      eBody.appendChild(ui.el('h4', { text: '子账户小计' }));
-      eBody.appendChild(ui.el('pre', { class: 'hg-pre', text: JSON.stringify((r && r.subTotals) || {}, null, 2) }));
-      eBody.appendChild(ui.el('h4', { text: '全账户合计' }));
-      eBody.appendChild(ui.el('p', { text: F.money(r && r.grandTotal) }));
+      eBody.appendChild(ui.el('p', { class: 'hg-muted', text: 'CSV 已生成：数据行 '
+        + (lines.length - 1) + ' 行（含元信息/小计/合计行），正在触发下载…' }));
+      triggerCsvDownload(res.blob, res.filename || 'fund-reconcile.csv');
+      ui.toast('资金对账表已导出（CSV）', 'ok');
     } catch (err) { ui.renderError(eBody, err, () => eBtn.click()); }
   });
+}
+
+/** 触发浏览器下载（/product/pages 先例同构；探针 DOM 桩下 appendChild 为 no-op 安全）。 */
+function triggerCsvDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || 'fund-reconcile.csv';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.setTimeout(() => { URL.revokeObjectURL(url); }, 1000);
 }
 
 /* ------------------------------------------------------------------ *

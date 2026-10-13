@@ -342,6 +342,85 @@ public final class FundService {
     }
 
     /**
+     * 分页查询出入金申请（{@code FR-FUND-8} 验收 3「查询接口确认」；{@code GET /fund/apply-list}；
+     * {@code T-195}）。
+     *
+     * <p><b>为何补此只读面</b>：「超时待查」（{@code TIMEOUT_UNKNOWN}）态资金岗须通过查询接口
+     * 确认申请 ID 与最终结果——此前申请仅「写后经流水可见」（{@code te-verify-t055} 披露①），
+     * 超时态无承载定位入口。本方法<b>只读</b>：复用既有 {@code dwDao.findPage}，不新增写路径、
+     * 不改任何既有语义（{@code CheckTaskQueryService} 先例：服务本体最小增量）。
+     *
+     * <p><b>子账户可见性</b>（{@code NFR-SEC-7}）：显式指定 {@code subAccountId} 时先
+     * {@link SubAccountVisibility#assertSubAccountVisible(long, int) assertSubAccountVisible}
+     * （读面断言，越权明确 403）；再以 {@link #applyScope} 对整页结果做可见集过滤
+     * （空可见集 ⇒ 恒假，fail-closed）。
+     *
+     * <p><b>WHERE 形态</b>：条件全部为占位符原子（{@code col >= ?} 形），按需以 {@code AND} 连接——
+     * 与 {@code listFlow} 同语义；不写恒真字面量原子（{@code 1 = 1} 在内存等价引擎中不可求值）。
+     *
+     * @param query        分页
+     * @param from         申请创建时间起（含；按 {@code created_time} 列）
+     * @param to           申请创建时间止（含）
+     * @param subAccountId 子账户（可空）
+     * @param status       状态（可空；取值域 {@code ck_dw_status}，含 {@code TIMEOUT_UNKNOWN}）
+     * @param operatorId   调用者
+     * @return 分页申请（{@code id} 升序缺省，由 DAO 全序兜底）
+     */
+    public PageResult<DepositWithdrawApply> listDepositWithdrawApplies(
+            PageQuery query, LocalDateTime from, LocalDateTime to, Integer subAccountId,
+            String status, long operatorId) {
+        if (status != null) {
+            requireDwStatus(status);
+        }
+        List<String> conds = new ArrayList<>();
+        List<Object> args = new ArrayList<>();
+        if (from != null) {
+            conds.add("created_time >= ?");
+            args.add(from);
+        }
+        if (to != null) {
+            conds.add("created_time <= ?");
+            args.add(to);
+        }
+        if (subAccountId != null) {
+            visibility.assertSubAccountVisible(operatorId, subAccountId);
+            conds.add("sub_account_id = ?");
+            args.add(subAccountId);
+        }
+        if (status != null) {
+            conds.add("status = ?");
+            args.add(status);
+        }
+        applyScope(conds::add, args::add, operatorId);
+        return dwDao.findPage(query,
+                conds.isEmpty() ? null : String.join(" AND ", conds), args);
+    }
+
+    /**
+     * 校验出入金状态取值域（{@code ck_dw_status} 7 值）；非法值明确报参数错误，不静默忽略
+     * （「数据不足时明确报错，不静默降级」）。
+     *
+     * @param status 状态值
+     */
+    private void requireDwStatus(String status) {
+        switch (status) {
+            case DW_PENDING_REVIEW:
+            case DW_SUBMITTED:
+            case DW_SUCCESS:
+            case DW_FAILED:
+            case DW_TIMEOUT_UNKNOWN:
+            case DW_REJECTED:
+            case "PENDING_SUBMIT":
+                return;
+            default:
+                throw BizException.of(ErrorCode.PARAM_INVALID,
+                        "status 取值非法（ck_dw_status）：" + status
+                                + "；复现=使用 PENDING_SUBMIT/PENDING_REVIEW/SUBMITTED/SUCCESS"
+                                + "/FAILED/TIMEOUT_UNKNOWN/REJECTED 之一");
+        }
+    }
+
+    /**
      * 分页查询资金流水（{@code FR-FUND-3} / {@code FR-FUND-16}；{@code GET /fund/flow}）。
      *
      * @param query       分页
@@ -354,27 +433,33 @@ public final class FundService {
      */
     public PageResult<FundFlow> listFlow(PageQuery query, LocalDate from, LocalDate to,
                                          Integer subAccountId, String flowType, long operatorId) {
-        StringBuilder where = new StringBuilder("1 = 1");
+        // T-195 载体等价改写（披露）：原「1 = 1」恒真字面量前缀 + AND 追加，改为条件收集 + join。
+        // 最终 WHERE 语义逐字节等价（X ≡ 1 = 1 AND X）；动因 = 「1 = 1」是 InMemoryDmEngine
+        // 不可求值的 WHERE 原子（导出面 exportReconcile → listFlow 在等价引擎测试中不可达，
+        // te-verify-t055 O-3 复核在引擎轨上复现该端点时暴露），恒真前缀本身无谓词价值。
+        // 判据面 FundServiceTest.scopeFailClosed 断言 lastWhere.contains("sub_account_id IN") 不受影响。
+        List<String> conds = new ArrayList<>();
         List<Object> args = new ArrayList<>();
         if (from != null) {
-            where.append(" AND ledger_date >= ?");
+            conds.add("ledger_date >= ?");
             args.add(from);
         }
         if (to != null) {
-            where.append(" AND ledger_date <= ?");
+            conds.add("ledger_date <= ?");
             args.add(to);
         }
         if (flowType != null && !flowType.isEmpty()) {
-            where.append(" AND flow_type = ?");
+            conds.add("flow_type = ?");
             args.add(flowType);
         }
         if (subAccountId != null) {
             visibility.assertSubAccountVisible(operatorId, subAccountId);
-            where.append(" AND sub_account_id = ?");
+            conds.add("sub_account_id = ?");
             args.add(subAccountId);
         }
-        applyScope(where, args, operatorId);
-        return flowDao.findPage(query, where.toString(), args);
+        applyScope(conds::add, args::add, operatorId);
+        return flowDao.findPage(query,
+                conds.isEmpty() ? null : String.join(" AND ", conds), args);
     }
 
     /**
@@ -1563,6 +1648,30 @@ public final class FundService {
             SubAccountScope scope = SubAccountScope.of("sub_account_id", visible);
             where.append(" AND ").append(scope.sql());
             args.addAll(scope.params());
+        }
+    }
+
+    /**
+     * 子账户可见集过滤（谓词拼接形态；{@code T-195} 随 {@code listDepositWithdrawApplies} 增设）。
+     *
+     * <p>与 {@link #applyScope(StringBuilder, List, long)} 同一判据，仅承载形态不同：
+     * 本重载向条件收集器追加<b>裸谓词</b>（不带 {@code AND} 前缀），供「逐条件拼接 + {@code AND} 连接」
+     * 的调用方使用（空可见集 ⇒ 追加恒假条件 {@code sub_account_id IN (-1)}，fail-closed 不变；
+     * 含哨兵 0 ⇒ 不追加，跨账户只读不过滤）。
+     *
+     * @param cond       条件收集器（追加裸谓词，如 {@code sub_account_id IN (?,?)}）
+     * @param args       参数收集器（与追加顺序一致）
+     * @param operatorId 调用者
+     */
+    private void applyScope(java.util.function.Consumer<String> cond,
+                            java.util.function.Consumer<Object> args, long operatorId) {
+        List<Integer> visible = visibility.visibleSubAccountIds(operatorId);
+        if (visible == null || visible.isEmpty()) {
+            cond.accept("sub_account_id IN (-1)");
+        } else if (!visible.contains(SubAccountScope.ALL_ACCOUNT_SENTINEL)) {
+            SubAccountScope scope = SubAccountScope.of("sub_account_id", visible);
+            cond.accept(scope.sql());
+            scope.params().forEach(args);
         }
     }
 

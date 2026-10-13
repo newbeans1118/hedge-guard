@@ -34,6 +34,26 @@ final class FundParams {
         return d == null ? com.hedgeguard.common.Clocks.today() : d;
     }
 
+    /**
+     * 解析「日期 → 时间戳区间端点」（{@code T-195}；{@code /fund/apply-list} 的 from/to 按
+     * {@code created_time} 过滤）。
+     *
+     * <p>{@code startOfDay=true} ⇒ 当日 {@code 00:00}（起始端）；{@code false} ⇒ 当日
+     * {@code 23:59:59.999999999}（截止端，含当日全部时刻）。日期语义与 {@code dateOrNull} 一致
+     * （yyyy-MM-dd、非法明确报参错），仅<b>落点端</b>不同——使「from=to=同一天」恰好覆盖当日全天。
+     *
+     * @param raw        日期串（可空）
+     * @param startOfDay {@code true} = 当日起点；{@code false} = 当日终点
+     * @return 时间戳；未传返回 {@code null}
+     */
+    static java.time.LocalDateTime dateTimeEndOfDayOrNull(String raw, boolean startOfDay) {
+        LocalDate d = dateOrNull(raw, startOfDay ? "from" : "to");
+        if (d == null) {
+            return null;
+        }
+        return startOfDay ? d.atStartOfDay() : d.atTime(23, 59, 59, 999999999);
+    }
+
     static Integer intOrNull(String raw, String field) {
         if (raw == null || raw.trim().isEmpty()) {
             return null;

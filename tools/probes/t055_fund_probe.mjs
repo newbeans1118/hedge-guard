@@ -21,6 +21,11 @@ globalThis.window = {
   location: { host: 'probe.local', search: '' },
   addEventListener() {}
 };
+// T-195：fund.js 导出面走 triggerCsvDownload（URL.createObjectURL 先例 /product.js 同构）
+// ⇒ 探针在原生 URL 上补 createObjectURL/revokeObjectURL（不覆盖 URL 构造器本身，
+//   `new URL(...)` 仍被源码读取分支使用）。
+URL.createObjectURL = URL.createObjectURL || (() => 'blob:probe');
+URL.revokeObjectURL = URL.revokeObjectURL || (() => {});
 
 const { HG } = await import('../../web/js/core/ns.js');
 
@@ -97,7 +102,15 @@ HG.api = {
   async put() { throw { code: -1, message: 'fund 页不应调用 put' }; },
   async del() { throw { code: -1, message: 'fund 页不应调用 del' }; },
   async list() { throw { code: -1, message: 'fund 页不应调用 list' }; },
-  async download() { throw { code: -1, message: 'fund 页不应调用 download（export 为 JSON 数据面）' }; }
+  async download(path, query) {
+    // T-195：/fund/export 改 CSV 直返 ⇒ export 页走 download（blob 桩形态与 api.js 一致）
+    this._calls.push({ m: 'DOWNLOAD', p: path, q: query });
+    const k = 'GET ' + path;
+    if (!(k in this._responses)) throw { code: -1, message: '探针未 stub：' + k };
+    const text = this._responses[k](query || {});
+    // Node 22 原生 URL.createObjectURL 强校验 Blob 实例 ⇒ 桩 blob 用真 Blob（fund.js triggerCsvDownload 可直达）
+    return { blob: new Blob([String(text)], { type: 'text/csv; charset=UTF-8' }), filename: 'fund-reconcile.csv' };
+  }
 };
 HG.router = {
   _routes: {},
@@ -125,13 +138,13 @@ HG.router.register = function (p, fn) { registeredPaths.push(p); return realRegi
 await import('../../web/js/pages/fund.js');
 HG.router.register = realRegister;
 
-/* ================= 断言 0：FUND 键集逐字对账（== ApiRoutes.java FUND 模块 12 路径） ================= */
+/* ================= 断言 0：FUND 键集逐字对账（== ApiRoutes.java FUND 模块 13 路径，T-195 起新增 apply-list） ================= */
 const R = HG.routes.FUND;
-// 静态键：12 路径中 10 个静态（ledger/flow/deposit/withdraw/transfer/receipt/quota/margin/reconcile/export）
+// 静态键：13 路径中 11 个静态（ledger/flow/deposit/withdraw/transfer/receipt/quota/margin/reconcile/export/apply-list）
 const EXPECT_STATIC = {
   LEDGER: '/fund/ledger', FLOW: '/fund/flow', DEPOSIT: '/fund/deposit', WITHDRAW: '/fund/withdraw',
   TRANSFER: '/fund/transfer', RECEIPT: '/fund/receipt', QUOTA: '/fund/quota', MARGIN: '/fund/margin',
-  RECONCILE: '/fund/reconcile', EXPORT: '/fund/export'
+  RECONCILE: '/fund/reconcile', EXPORT: '/fund/export', APPLY_LIST: '/fund/apply-list'
 };
 ok(JSON.stringify(Object.assign({}, R, { review: undefined, transferApprove: undefined })).replace(/,"review":undefined,"transferApprove":undefined/, '') !== '', 'FUND 键存在');
 ok(R.LEDGER === EXPECT_STATIC.LEDGER && R.FLOW === EXPECT_STATIC.FLOW, 'FUND 静态键 LEDGER/FLOW 逐字一致');
@@ -139,13 +152,14 @@ ok(R.DEPOSIT === EXPECT_STATIC.DEPOSIT && R.WITHDRAW === EXPECT_STATIC.WITHDRAW,
 ok(R.TRANSFER === EXPECT_STATIC.TRANSFER && R.RECEIPT === EXPECT_STATIC.RECEIPT, 'FUND 静态键 TRANSFER/RECEIPT 逐字一致');
 ok(R.QUOTA === EXPECT_STATIC.QUOTA && R.MARGIN === EXPECT_STATIC.MARGIN, 'FUND 静态键 QUOTA/MARGIN 逐字一致');
 ok(R.RECONCILE === EXPECT_STATIC.RECONCILE && R.EXPECT === undefined && R.EXPORT === EXPECT_STATIC.EXPORT, 'FUND 静态键 RECONCILE/EXPORT 逐字一致');
+ok(R.APPLY_LIST === EXPECT_STATIC.APPLY_LIST, 'FUND 静态键 APPLY_LIST 逐字一致（T-195 新增 /fund/apply-list）');
 // 参数化函数键（先例：PLAN.detail / SPOT.exposureDetail 同构）
 ok(typeof R.review === 'function' && R.review(77) === '/fund/77/review', 'FUND.review 函数键 → /fund/77/review（占位符路径）');
 ok(typeof R.transferApprove === 'function' && R.transferApprove(9) === '/fund/transfer/9/approve', 'FUND.transferApprove 函数键 → /fund/transfer/9/approve');
 ok(R.review('a/b') === '/fund/a%2Fb/review', 'FUND.review 走 encodeURIComponent（enc 先例）');
-// 覆盖断言：12/12 路径全接（静态 10 + 参数化 2）
+// 覆盖断言：13/13 路径全接（静态 11 + 参数化 2）
 const pathSet = new Set(Object.values(EXPECT_STATIC).concat([R.review('X').replace('X', '{id}'), R.transferApprove('X').replace('X', '{id}')]));
-ok(pathSet.size === 12, 'FUND 键集覆盖 12 路径（10 静态 + 2 参数化）');
+ok(pathSet.size === 13, 'FUND 键集覆盖 13 路径（11 静态 + 2 参数化；T-195 +apply-list）');
 ok(registeredPaths.includes('/fund'), '/fund 路由已注册');
 
 /* ---------------- 页面渲染与 Tab 走查辅助 ---------------- */
@@ -279,6 +293,46 @@ switchTab('dw');
   const rec = HG.api._calls.find((c) => c.p === '/fund/receipt');
   ok(rec && rec.b.result === 'UNKNOWN' && rec.opts.idempotencyKey === 'probe-uuid', 'dw：回执提交带 result=UNKNOWN + 幂等');
   HG.ui.confirm = uiConfirmReal;
+}
+
+/* ================= Tab dw：申请列表查询（T-195 新增 GET /fund/apply-list；dwStatusHTML 就绪件激活落点） ================= */
+switchTab('dw');
+{
+  // 空态
+  HG.api._stub('GET /fund/apply-list', () => ({ items: [], total: 0, page: 1, size: 20 }));
+  const qBtn = findBtnByText(root, '查询申请');
+  await qBtn.click(); await tick();
+  ok(textOf(cardOf(qBtn)).includes('暂无数据'), 'dw：申请列表空态显式提示（FR-FUND-8 验收3 查询面三态）');
+  // 数据态：含 TIMEOUT_UNKNOWN 行（超时态定位申请 ID = 本端点的验收承载）
+  HG.api._stub('GET /fund/apply-list', (q) => ({
+    items: [
+      { id: 20, applyNo: 'DW-20', subAccountId: 8, direction: 'IN', amount: '50000.00', status: 'TIMEOUT_UNKNOWN', applicantId: 1, reviewerId: 2, createdTime: '2026-10-12T10:00:00' },
+      { id: 12, applyNo: 'DW-12', subAccountId: 8, direction: 'OUT', amount: '1000.00', status: 'REJECTED', applicantId: 1, reviewerId: 2, rejectReason: '金额与用途不符', createdTime: '2026-10-12T09:00:00' }
+    ], total: 2, page: 1, size: 20
+  }));
+  HG.api._calls.length = 0;
+  await qBtn.click(); await tick();
+  const listBody = cardOf(qBtn);
+  ok(textOf(listBody).includes('DW-20') && textOf(listBody).includes('DW-12'), 'dw：申请列表数据态渲染申请号（FR-FUND-8 验收3）');
+  ok(textOf(listBody).includes('超时待查'), 'dw：TIMEOUT_UNKNOWN 行渲染「超时待查」文案（dwStatusHTML 激活）');
+  ok(textOf(listBody).includes('金额与用途不符'), 'dw：驳回原因列渲染（rejectReason）');
+  ok(textOf(listBody).includes('网络超时不代表未到账'), 'dw：列表含 TIMEOUT_UNKNOWN 行时展示超时警示条');
+  const listCall = HG.api._calls.find((c) => c.m === 'GET' && c.p === '/fund/apply-list');
+  ok(!!listCall, 'dw：GET /fund/apply-list 已调用（T-195 新端点）');
+  // 筛选参数透传
+  HG.api._calls.length = 0;
+  findInput(root, 'fd-q-status').value = 'TIMEOUT_UNKNOWN';
+  findInput(root, 'fd-q-sub').value = '8';
+  await qBtn.click(); await tick();
+  const fCall = HG.api._calls.find((c) => c.m === 'GET' && c.p === '/fund/apply-list');
+  ok(fCall && fCall.q.status === 'TIMEOUT_UNKNOWN' && fCall.q.subAccountId === '8', 'dw：申请列表筛选参数透传（status 含 TIMEOUT_UNKNOWN / subAccountId）');
+  // 错误态
+  HG.api._stub('GET /fund/apply-list', () => { throw { code: 10001, message: 'status 取值非法' }; });
+  await qBtn.click(); await tick();
+  ok(textOf(cardOf(qBtn)).includes('10001') || textOf(cardOf(qBtn)).includes('错误') || textOf(cardOf(qBtn)).includes('失败'), 'dw：申请列表错误态显式（三态齐全）');
+  // 负控：超时行不渲染 danger 徽标（dwStatusHTML 红线在真实数据面上的投影）
+  const src = (await import('node:fs')).readFileSync(new URL('../../web/js/pages/fund.js', import.meta.url), 'utf8');
+  ok(src.indexOf('APPLY_LIST') !== -1, 'dw：fund.js 已消费 /fund/apply-list（R.APPLY_LIST 键引用）');
 }
 
 /* ================= Tab dw：超时待查徽标红线（dwStatusHTML 独立形态） ================= */
@@ -455,20 +509,34 @@ switchTab('margin');
   HG.ui.confirm = uiConfirmReal;
 }
 
-/* ================= Tab export：空数据不生成 + 数据态 ================= */
+/* ================= Tab export：CSV 直返下载（T-195 起 /fund/export 返回 CSV；空数据不生成 + 数据态） ================= */
 switchTab('export');
 {
-  ok(textOf(root).includes('不生成') || textOf(root).includes('子账户小计'), 'export：无数据不生成声明');
-  HG.api._stub('GET /fund/export', () => ({ exportTime: '2026-10-12T10:00:00', exportedBy: 1, columns: ['subAccountId', 'endBalance'], rows: [], rowCount: 0, subTotals: {}, grandTotal: null }));
-  const eBtn = findBtnByText(root, '生成导出数据');
+  ok(textOf(root).includes('CSV'), 'export：导出面声明 CSV 对账表形态（FR-FUND-4「输出=CSV 对账表」）');
+  // 空数据（服务端仅表头）→ 拦截不下载并提示（FR-FUND-4 验收 4）
+  HG.api._stub('GET /fund/export', () => 'section,subAccountId\r\n');
+  const eBtn = findBtnByText(root, '导出 CSV');
+  ok(!!eBtn, 'export：导出按钮存在（文本=导出 CSV 对账表）');
   await eBtn.click(); await tick();
   ok(textOf(cardOf(eBtn)).includes('暂无数据') && textOf(cardOf(eBtn)).includes('不生成'), 'export：无数据不生成文件并提示（FR-FUND-4 验收 4）');
-  HG.api._stub('GET /fund/export', () => ({ exportTime: '2026-10-12T10:00:00', exportedBy: 1, columns: ['subAccountId', 'endBalance'], rows: [{ subAccountId: '8', endBalance: '990000.00' }], rowCount: 1, subTotals: { '8': '990000.00' }, grandTotal: '990000.00' }));
+  // 数据态（含 meta/data/sub_total/grand_total 行）→ 走 download
+  HG.api._stub('GET /fund/export', () => 'section,subAccountId,ledgerDate,voucherNo,amount,endBalance,exportTime,exportedBy\r\n'
+    + 'meta,,,,,,2026-10-12T10:00:00,1\r\n'
+    + 'data,8,2026-10-12,FV202610120001,DEPOSIT,990000.00,,\r\n'
+    + 'sub_total,8,,,,990000.00,,\r\n'
+    + 'grand_total,,,,,990000.00,,\r\n');
+  HG.api._calls.length = 0;
   await eBtn.click(); await tick();
-  const eBody = cardOf(eBtn);
-  ok(textOf(eBody).includes('990,000.00'), 'export：数据态渲染行（千分位）');
-  ok(textOf(eBody).includes('子账户小计') && textOf(eBody).includes('全账户合计'), 'export：小计 + 合计区渲染（FR-FUND-4 验收 2）');
-  ok(textOf(eBody).includes('导出时间') && textOf(eBody).includes('导出人'), 'export：导出时间与导出人展示');
+  const dl = HG.api._calls.find((c) => c.m === 'DOWNLOAD' && c.p === '/fund/export');
+  ok(!!dl, 'export：数据态走 HG.api.download（T-195 CSV 直返契约）');
+  ok(dl && dl.q && dl.q.from === undefined, 'export：无筛选时不传空参（q 形态）');
+  ok(textOf(cardOf(eBtn)).includes('正在触发下载') || textOf(cardOf(eBtn)).includes('数据行'), 'export：数据态反馈下载动作');
+  // 筛选参数透传
+  findInput(root, 'fd-e-sub').value = '8';
+  HG.api._calls.length = 0;
+  await eBtn.click(); await tick();
+  const dl2 = HG.api._calls.find((c) => c.m === 'DOWNLOAD' && c.p === '/fund/export');
+  ok(dl2 && dl2.q.subAccountId === '8', 'export：导出筛选参数透传（subAccountId）');
 }
 
 /* ================= 三态完备性走查（每 Tab 错误态抽验已覆盖 ledger/flow/transfer 前置，此处计数） ================= */

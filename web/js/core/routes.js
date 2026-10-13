@@ -127,10 +127,11 @@ export const ROUTES = {
     CHECK_TASKS: '/audit/check-tasks',
     CHECK_TASKS_OVERDUE: '/audit/check-tasks/overdue'
   },
-  // T-055：资金管理（FR-FUND-1~17）。路径逐字取自 ApiRoutes.byModule().get("FUND")（12 路径）；
-  // 方法对取自 handler/fund/FundRoutes.java（GET|POST ledger / GET flow / POST deposit|withdraw /
-  // POST {id}/review / GET|POST transfer / POST transfer/{id}/approve / POST receipt /
-  // GET|POST quota / GET margin / POST reconcile / GET export）。
+  // T-055：资金管理（FR-FUND-1~17）。路径逐字取自 ApiRoutes.byModule().get("FUND")（13 路径，
+  // T-195 起新增 /fund/apply-list）；方法对取自 handler/fund/FundRoutes.java（GET|POST ledger /
+  // GET flow / POST deposit|withdraw / POST {id}/review / GET|POST transfer /
+  // POST transfer/{id}/approve / POST receipt / GET|POST quota / GET margin / POST reconcile /
+  // GET export / GET apply-list）。
   FUND: {
     LEDGER: '/fund/ledger',                                        // GET 台账分页；POST 建立台账（双人复核）
     FLOW: '/fund/flow',                                            // GET 资金流水
@@ -143,7 +144,8 @@ export const ROUTES = {
     QUOTA: '/fund/quota',                                          // GET 额度查询；POST 额度设定
     MARGIN: '/fund/margin',                                        // GET 保证金占用视图（只读）
     RECONCILE: '/fund/reconcile',                                  // POST 每日资金对账
-    EXPORT: '/fund/export'                                         // GET 资金对账导出（JSON 数据：columns/rows/合计）
+    EXPORT: '/fund/export',                                        // GET 资金对账导出（T-195 起 CSV 直返下载）
+    APPLY_LIST: '/fund/apply-list'                                 // GET 出入金申请列表分页（FR-FUND-8 验收3；T-195）
   },
   /** 未注册：仅登记路径，**禁止调用**（调用即 404；handler/ 下无 risk/trade 等模块目录）。 */
   NOT_REGISTERED: {

@@ -210,9 +210,19 @@ class BootstrapAssemblyTest {
             //   注册 GET（2 对），AUDIT 由 22 增为 24（+2 对、+2 路径），业务路由 145（AUTH17/CONFIG18/
             //   PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/SETTLE15/FUND15/AUDIT24）+ ping 2 = 147。
             //   非为过测试而放宽断言。
-            assertEquals(147, assembly.routeCount(),
-                    "业务路由必须全部注册：145（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/"
-                            + "SETTLE15/FUND15/AUDIT24）+ ping 2");
+            // 【T-195 订正（加注）】断言值由 147 订正为 148：订正理由 = 需求面（{@code FR-FUND-8}
+            //   验收 3「未收到回执时状态为『超时待查』，系统可通过查询接口确认最终结果」——独立复核
+            //   {@code te-verify-t055} 披露①：FUND 模块无「出入金申请列表」只读端点，超时态资金岗
+            //   无法定位申请 ID）——
+            //   FundApplyListHandler 于新增声明路径 /fund/apply-list 注册 GET（1 对、+1 路径），
+            //   FUND 由 15 增为 16（15 对不变 + 1 对新增），业务路由 146（AUTH17/CONFIG18/PRODUCT13/
+            //   SPOT15/PLAN18/RISK7/TRADE3/SETTLE15/FUND16/AUDIT24）+ ping 2 = 148。
+            //   另：本单将既有 /fund/export 的响应形态由 JSON 信封改为 CSV 直返（FR-FUND-4
+            //   「输出=CSV 对账表」；te-verify-t055 O-3）——响应形态变更不增减路由条数。
+            //   非为过测试而放宽断言。
+            assertEquals(148, assembly.routeCount(),
+                    "业务路由必须全部注册：146（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/"
+                            + "SETTLE15/FUND16/AUDIT24）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。
             // （不真发 HTTP：经 RequestDispatcher 进程内分发；handler 因无真实库而 4xx/5xx 皆可，

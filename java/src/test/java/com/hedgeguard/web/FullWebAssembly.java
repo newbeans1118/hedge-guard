@@ -102,8 +102,16 @@ final class FullWebAssembly {
      * 服务侧 {@code CheckTaskQueryService.query/overdue} 实存但此前 {@code web/} 零 handler 调用；
      * {@code ApiRoutes} 模块表 + 方法注册表已同步；生产装配含平台级 {@code ping} 2 条后为 {@code 147}，
      * 与 {@code BootstrapAssemblyTest} 断言同锚）。
+     *
+     * <p>【{@code T-195}】出入金申请列表查询面（{@code FR-FUND-8} 验收 3「查询接口确认」；
+     * {@code te-verify-t055} 披露①承接）——新增声明路径 {@code /fund/apply-list} 注册 {@code GET}
+     * （1 对、+1 路径）⇒ {@code 145 → 146}（非为过测试而放宽：超时态资金岗此前无法定位申请 ID，
+     * 服务侧 {@code FundService.listDepositWithdrawApplies} 系本单最小增量只读查询；
+     * {@code ApiRoutes} 模块表 + 方法注册表已同步；生产装配含平台级 {@code ping} 2 条后为 {@code 148}，
+     * 与 {@code BootstrapAssemblyTest} 断言同锚）。同单 {@code /fund/export} 响应形态 JSON→CSV 直返
+     * （{@code FR-FUND-4}「输出=CSV 对账表」，{@code te-verify-t055} 观察 {@code O-3}）不增减路由条数。
      */
-    static final int ROUTE_COUNT = 145;
+    static final int ROUTE_COUNT = 146;
 
     private FullWebAssembly() {
     }

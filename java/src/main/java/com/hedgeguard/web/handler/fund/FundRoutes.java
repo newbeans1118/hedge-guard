@@ -21,7 +21,8 @@ import com.hedgeguard.web.Router;
  *   POST /api/v1/fund/quota                  额度设定（FR-FUND-13）
  *   GET  /api/v1/fund/margin                 保证金占用视图（FR-FUND-15）
  *   POST /api/v1/fund/reconcile              每日资金对账（FR-FUND-17）
- *   GET  /api/v1/fund/export                 资金对账导出（FR-FUND-4）
+ *   GET  /api/v1/fund/export                 资金对账导出（FR-FUND-4；T-195 起 CSV 直返）
+ *   GET  /api/v1/fund/apply-list             出入金申请列表查询（FR-FUND-8 验收3；T-195 新增路径）
  * </pre>
  *
  * <p><b>注册序约束（{@code BUG-004}）</b>：{@code Router.match} 按注册序首次命中。
@@ -51,6 +52,8 @@ public final class FundRoutes {
         router.register("GET", FundMarginHandler.PATH, new FundMarginHandler(fundService));
         router.register("POST", FundReconcileHandler.PATH, new FundReconcileHandler(fundService));
         router.register("GET", FundExportHandler.PATH, new FundExportHandler(fundService));
+        // T-195：出入金申请列表查询面（FR-FUND-8 验收3「查询接口确认」；只读，仅 GET）。
+        router.register("GET", FundApplyListHandler.PATH, new FundApplyListHandler(fundService));
         for (FundApplyHandler.Action action : FundApplyHandler.Action.values()) {
             router.register("POST", action.path(), new FundApplyHandler(fundService, action));
         }

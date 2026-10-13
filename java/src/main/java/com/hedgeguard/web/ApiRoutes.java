@@ -87,7 +87,9 @@ public final class ApiRoutes {
         BY_MODULE.put("FUND", Arrays.asList(
                 "/fund/ledger", "/fund/flow", "/fund/deposit", "/fund/withdraw", "/fund/{id}/review",
                 "/fund/transfer", "/fund/transfer/{id}/approve", "/fund/receipt", "/fund/quota",
-                "/fund/margin", "/fund/reconcile", "/fund/export"));
+                "/fund/margin", "/fund/reconcile", "/fund/export",
+                // T-195：出入金申请列表查询（FR-FUND-8 验收3「查询接口确认」；te-verify-t055 披露①承接）
+                "/fund/apply-list"));
         BY_MODULE.put("AUTH", Arrays.asList(
                 "/auth/login", "/auth/logout", "/auth/user", "/auth/role", "/auth/position-group",
                 "/auth/authorization", "/auth/sub-account-perm", "/auth/change-log",
@@ -159,7 +161,9 @@ public final class ApiRoutes {
                 "GET /fund/transfer", "POST /fund/transfer/{id}/approve", "POST /fund/receipt",
                 "GET /fund/quota",
                 "POST /fund/quota", "GET /fund/margin",
-                "POST /fund/reconcile", "GET /fund/export"));
+                "POST /fund/reconcile", "GET /fund/export",
+                // T-195：出入金申请列表查询（FR-FUND-8 验收3；只读，仅 GET）
+                "GET /fund/apply-list"));
         BY_MODULE_ROUTES.put("AUTH", Arrays.asList(
                 "POST /auth/login", "POST /auth/logout",
                 "GET /auth/user", "POST /auth/user", "PUT /auth/user",
