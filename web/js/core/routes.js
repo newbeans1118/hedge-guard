@@ -147,9 +147,26 @@ export const ROUTES = {
     EXPORT: '/fund/export',                                        // GET 资金对账导出（T-195 起 CSV 直返下载）
     APPLY_LIST: '/fund/apply-list'                                 // GET 出入金申请列表分页（FR-FUND-8 验收3；T-195）
   },
+  // T-070：风险控制（FR-RISK-1~19）。**端点注册面不对称**——ApiRoutes 路径表登记 10 路径，
+  // 但方法注册表（BY_MODULE_ROUTES）仅 6 对、handler/ 下仅三组 Routes（Alert/LimitUsage/Rule）
+  // + risk_intraday 事中面（MirrorStatus）。本键**只放可接 5 端点**（不得臆造调用）；
+  // 未注册 5 路径留在 NOT_REGISTERED（见下），页面保留框架 + 「未注册」诚实提示（T-070）。
+  RISK: {
+    ALERT: '/risk/alert',                                   // GET 告警历史查询（FR-RISK-19；筛选/分页/缺省 alert_time desc/since 补拉）
+    dispose: (id) => '/risk/alert/' + enc(id) + '/dispose', // POST 告警处置（FR-RISK-15/16；参数化函数键）
+    LIMIT_USAGE: '/risk/limit-usage',                       // GET 限额使用统计 / POST 红线复算落库（T-066；FR-RISK-4/5/6/18）
+    MIRROR_STATUS: '/risk/mirror-status',                   // GET 事中镜像状态（T-065；只读，非权威源）
+    RULE: '/risk/rule'                                      // GET 阈值清单 / POST 变更下发（T-063；FR-CONFIG-5/6）
+  },
   /** 未注册：仅登记路径，**禁止调用**（调用即 404；handler/ 下无 risk/trade 等模块目录）。 */
   NOT_REGISTERED: {
+    // T-070 补登记：ApiRoutes RISK 路径表 10 路径中未注册方法对的 5 个（页面保留 Tab 框架 +
+    // 「未注册」诚实提示，缺口只报不改——属 T-108/T-118/T-119 层③链或后续立号承接）。
     RISK_DASHBOARD: '/risk/dashboard',
+    RISK_LIMIT_OPEN: '/risk/limit-open',
+    RISK_FORCE_CLOSE_HINT: '/risk/force-close-hint',
+    RISK_VIOLATION: '/risk/violation',
+    RISK_POST_REPORT: '/risk/post-report',
     TRADE_ORDER: '/trade/order'
   }
 };
