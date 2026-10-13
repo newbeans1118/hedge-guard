@@ -258,6 +258,11 @@ class BindExposureHandlerTest {
         }
 
         @Override
+        public int updateCurrentDocVersion(long planId, int version, long operatorId) {
+            throw com.hedgeguard.testsupport.FakeDao.unsupported("updateCurrentDocVersion");
+        }
+
+        @Override
         public int deleteById(Long id) {
             throw com.hedgeguard.testsupport.FakeDao.unsupported("deleteById");
         }

@@ -188,6 +188,25 @@ public final class DmHedgePlanDao extends AbstractDmDao<HedgePlan, Long> impleme
     /**
      * {@inheritDoc}
      *
+     * <p>定向单列 UPDATE：{@code UPDATE t_hedge_plan SET current_doc_version = ?, updated_by = ?,
+     * updated_time = ?, row_version = row_version + 1 WHERE id = ?}（窄口；不走全行
+     * {@code updateById} 乐观锁——再平衡流程不持有计划行其余业务列的最新值，全行更新会以
+     * 陈旧快照覆盖并发写入〔丢更新〕）。调用方（{@code AcctService} 再平衡流程）须在文档写入
+     * 同一事务内调用（同笔提交同笔回滚，TE-T078-001）。
+     */
+    @Override
+    public int updateCurrentDocVersion(long planId, int version, long operatorId) {
+        String sql = "UPDATE " + tableName()
+                + " SET current_doc_version = ?, updated_by = ?, updated_time = ?,"
+                + " row_version = row_version + 1"
+                + " WHERE " + idColumn() + " = ?";
+        return executeUpdateSql(sql, Arrays.asList(version, operatorId,
+                java.time.LocalDateTime.now(), planId));
+    }
+
+    /**
+     * {@inheritDoc}
+     *
      * <p><b>物理删除仅限例外态</b>（{@code DATA_MODEL.md} §0.3）：{@code t_hedge_plan} 仅 DRAFT 态套保计划 可删；
      * 由服务层在删除前校验状态，本层不做状态判断（保持 SQL 单一职责）。
      */

@@ -120,8 +120,15 @@ final class FullWebAssembly {
      * 算术分解：业务路由 146 → 150（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/
      * SETTLE15/FUND16/AUDIT24 不变 + ACCT4）；生产装配含平台级 {@code ping} 2 条后为 {@code 152}，
      * 与 {@code BootstrapAssemblyTest} 断言同锚。
+     *
+     * <p>【{@code T-078}】再平衡面（{@code FR-ACCT-3} 四类触发 Q-8 + R-ACCT-3 重新指定）——
+     * 已声明路径 {@code /acct/rebalance} 注册 {@code GET}/{@code POST}（1 路径 × 2 方法 = 2 对）
+     * ⇒ {@code 150 → 152}（非为过测试而放宽：路径逐字取自 {@code ApiRoutes} 的 {@code ACCT}
+     * 清单；{@code ACCT} 方法注册表键 4 → 6，路径数不变）。算术分解：业务路由 150 → 152
+     * （ACCT4 → ACCT6）；生产装配含平台级 {@code ping} 2 条后为 {@code 154}，
+     * 与 {@code BootstrapAssemblyTest} 断言同锚。其余 8 条已声明路径归 T-079/T-080。
      */
-    static final int ROUTE_COUNT = 150;
+    static final int ROUTE_COUNT = 152;
 
     private FullWebAssembly() {
     }

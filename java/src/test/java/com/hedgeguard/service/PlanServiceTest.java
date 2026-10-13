@@ -728,6 +728,11 @@ class PlanServiceTest {
         }
 
         @Override
+        public int updateCurrentDocVersion(long planId, int version, long operatorId) {
+            throw com.hedgeguard.testsupport.FakeDao.unsupported("updateCurrentDocVersion");
+        }
+
+        @Override
         public int deleteById(Long id) {
             return rows.removeIf(row -> row.id == id) ? 1 : 0;
         }

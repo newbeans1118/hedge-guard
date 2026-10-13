@@ -122,16 +122,19 @@ public final class T077AcctSeed {
                     new BigDecimal("0.8"), "SIMPLE", LocalDate.of(2026, 9, 1), "APPROVED",
                     new BigDecimal("0"), new BigDecimal("0"), 100L, 1, "N", 0L);
         }
-        // 文档 21：三要素齐备（正例载体）
+        // 文档 21：三要素齐备（正例载体）。row_version=1：生产中 PLAN 侧文档经 DAO 落库
+        // （applyInsert 置 rv=1），T-078 再平衡须对该行做版本化更新 ⇒ 夹具按生产形态播种
+        // （rv=0 的裸插行不可更新，属夹具失真非生产形态）。
         exec(engine,
                 "INSERT INTO t_hedge_doc (id, sub_account_id, hedge_plan_id, doc_no, doc_version,"
                         + " is_current, elem_formal_designation, elem_effectiveness_method,"
                         + " elem_rebalance_mechanism, hedged_item_exposure_id, hedging_instrument,"
-                        + " pending_external_review, generated_by, generated_time, created_by)"
-                        + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        + " pending_external_review, generated_by, generated_time, created_by,"
+                        + " row_version)"
+                        + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 21L, 1, 11L, "HD202609010001", 1, "Y", "正式指定：敞口21×cu2612",
                 "定性经济关系法", "偏离>20%再平衡", 21L, "cu2612", "Y", 7L,
-                LocalDateTime.of(2026, 9, 1, 9, 0), 7L);
+                LocalDateTime.of(2026, 9, 1, 9, 0), 7L, 1);
         // 文档 22：缺要素③的负例载体——生产表 elem_rebalance_mechanism NOT NULL 使「缺要素文档」
         // 结构上写不进库（DATA_MODEL TB-PLAN-4 备注：缺任一要素写不进库=数据库级保证），
         // 故服务层门禁的负例以「空串」构造（NOT NULL 允许空串；服务层 isBlank 判空 ⇒ 语义等价缺失）。
@@ -176,6 +179,73 @@ public final class T077AcctSeed {
                         + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 90L, 1, "HR0009", 11L, 21L, "FUTURES", "旧关系", 21L, "DESIGNATED",
                 LocalDateTime.of(2026, 9, 1, 9, 0), 7L);
+    }
+
+    /** 用例级小步变更：敞口量改写（T-078 触发场景构造；单表单列，不做联动）。 */
+    public static void setExposureQty(InMemoryDmEngine engine, long exposureId, String qty) {
+        exec(engine, "UPDATE t_exposure SET exposure_qty = ? WHERE id = ?",
+                new BigDecimal(qty), exposureId);
+    }
+
+    /** 用例级小步变更：删除敞口行（T-078「敞口消失」场景构造）。 */
+    public static void deleteExposure(InMemoryDmEngine engine, long exposureId) {
+        exec(engine, "DELETE FROM t_exposure WHERE id = ?", exposureId);
+    }
+
+    /** 用例级小步变更：计划状态改写（T-078「计划修订/终止」场景构造）。 */
+    public static void setPlanStatus(InMemoryDmEngine engine, long planId, String status) {
+        exec(engine, "UPDATE t_hedge_plan SET status = ? WHERE id = ?", status, planId);
+    }
+
+    /** 用例级小步变更：文档要素③改写（T-078 三要素门禁负例构造；空串 = 语义缺失）。 */
+    public static void setDocRebalanceMechanism(InMemoryDmEngine engine, long docId, String value) {
+        exec(engine, "UPDATE t_hedge_doc SET elem_rebalance_mechanism = ? WHERE id = ?",
+                value, docId);
+    }
+
+    /** 用例级小步变更：关系行乐观锁版本拨乱（T-078 整笔事务回滚构造）。 */
+    public static void forceRelationRowVersion(InMemoryDmEngine engine, long relationId, int version) {
+        exec(engine, "UPDATE t_hedge_relation SET row_version = ? WHERE id = ?", version, relationId);
+    }
+
+    /**
+     * 用例级小步变更：预置一个占用指定版本号的<b>非当前</b>版本文档行（T-078 整笔事务
+     * 回滚构造：使再平衡的新文档插入撞 {@code uk_hedge_doc_no}）。
+     */
+    public static void seedDocVersionConflict(InMemoryDmEngine engine, long planId,
+                                              long exposureId, String docNo, int version, long id) {
+        exec(engine,
+                "INSERT INTO t_hedge_doc (id, sub_account_id, hedge_plan_id, doc_no, doc_version,"
+                        + " is_current, elem_formal_designation, elem_effectiveness_method,"
+                        + " elem_rebalance_mechanism, hedged_item_exposure_id, hedging_instrument,"
+                        + " pending_external_review, generated_by, generated_time, created_by)"
+                        + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                id, 1, planId, docNo, version, "N", "占用版本号的冲突行",
+                "定性经济关系法", "偏离>20%再平衡", exposureId, "cu2612", "Y", 7L,
+                LocalDateTime.of(2026, 9, 2, 9, 0), 7L);
+    }
+
+    /** 用例级小步变更：预置旧编号再平衡记录（T-078 RB 取号负例载体：RB0009；父关系行 id=1 须先在）。 */
+    public static void seedLegacyRebalance(InMemoryDmEngine engine) {
+        // 父关系行（t_rebalance_record.hedge_relation_id 有 FK）
+        exec(engine,
+                "INSERT INTO t_hedge_relation (id, sub_account_id, relation_no, hedge_plan_id,"
+                        + " hedged_item_exposure_id, hedging_instrument_type, hedging_instrument_desc,"
+                        + " hedge_doc_id, status, designated_time, created_by)"
+                        + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                1L, 1, "HR0001", 11L, 21L, "FUTURES", "旧关系", 21L, "NEED_REBALANCE",
+                LocalDateTime.of(2026, 9, 1, 9, 0), 7L);
+        exec(engine,
+                "INSERT INTO t_rebalance_record (id, sub_account_id, hedge_relation_id,"
+                        + " rebalance_no, trigger_type, trigger_side, trigger_reason,"
+                        + " trigger_threshold, ratio_before, ratio_after, qty_before, qty_after,"
+                        + " new_hedge_doc_id, executor_id, rebalance_time, plan_feedback_flag,"
+                        + " created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                90L, 1, 1L, "RB0009", "EXPOSURE_DELTA", "EXPOSURE_SIDE", "旧记录",
+                new BigDecimal("0.200000"), new BigDecimal("0.800000"),
+                new BigDecimal("0.800000"), new BigDecimal("100.0000"),
+                new BigDecimal("100.0000"), 21L, 7L,
+                LocalDateTime.of(2026, 9, 1, 9, 0), "N", 7L);
     }
 
     /** 通用执行（测试夹具专用）。 */

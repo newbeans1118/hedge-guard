@@ -230,9 +230,17 @@ class BootstrapAssemblyTest {
             //   FUND16/AUDIT24/ACCT4）+ ping 2 = 152。算术分解：148（前值）+ 4 对 = 152；
             //   ACCT 其余 10 条已声明路径归 T-078/T-079/T-080，本单不注册。
             //   非为过测试而放宽断言。
-            assertEquals(152, assembly.routeCount(),
-                    "业务路由必须全部注册：150（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/"
-                            + "SETTLE15/FUND16/AUDIT24/ACCT4）+ ping 2");
+            // 【T-078 增注】断言值由 152 订正为 154：再平衡面（{@code FR-ACCT-3}、
+            //   {@code ARCHITECTURE.md} §6.10 + §4.1.1 行 641 {@code /acct/rebalance} GET/POST；
+            //   Q-8 四类触发 + R-ACCT-3 重新指定）——
+            //   RebalanceHandler 于已声明路径 /acct/rebalance 注册 GET/POST（1 路径 × 2 方法 = 2 对；
+            //   ACCT 方法注册表键 4 → 6，路径数不变），
+            //   业务路由 152（…/ACCT6）+ ping 2 = 154。算术分解：152（前值）+ 2 对 = 154；
+            //   ACCT 其余 8 条已声明路径归 T-079/T-080。
+            //   非为过测试而放宽断言。
+            assertEquals(154, assembly.routeCount(),
+                    "业务路由必须全部注册：152（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/"
+                            + "SETTLE15/FUND16/AUDIT24/ACCT6）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。
             // （不真发 HTTP：经 RequestDispatcher 进程内分发；handler 因无真实库而 4xx/5xx 皆可，

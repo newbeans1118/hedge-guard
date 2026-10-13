@@ -62,4 +62,28 @@ public interface HedgePlanDao extends DeletableDao<HedgePlan, Long> {
      * @return 命中且可见的计划；不可见或不存在返回 {@code null}
      */
     HedgePlan findByIdScoped(long id, SubAccountScope scope);
+
+    /**
+     * 定向回写当前书面文件版本号（T-078 再平衡承接：TE-T078-001 修复窄口）。
+     *
+     * <p><b>为何需要专用窄口</b>：{@code current_doc_version} 与 {@code t_hedge_doc} 的版本链是
+     * <b>同一事务面状态对</b>——{@code PlanService.generateHedgeDoc}（PLAN 侧再生成）以
+     * {@code plan.currentDocVersion + 1} 推导下一版本号，ACCT 再平衡流程生成 v+1 文档后若不
+     * 同步回写，PLAN 侧再生成将推导出已占用的版本号撞 {@code uk_hedge_doc_no}（永久失败，
+     * {@code requireDocElements} 预校验不拦截、失败在 insert 时点爆出）。
+     *
+     * <p><b>为何不用全行 {@code updateById}</b>：再平衡流程仅持有主键与版本号语义（不持有计划
+     * 行的其余业务列最新值），全行更新会以陈旧快照覆盖并发写入的其它列（丢更新）；定向单列
+     * UPDATE 只触碰本状态对字段，并发面最小。
+     *
+     * <p>审计字段（{@code updated_by/updated_time}）随写推进，{@code row_version} +1
+     * （{@code AbstractDmDao} 统一乐观锁纪律）。调用方须在<b>文档写入同一事务内</b>调用
+     * （同笔提交同笔回滚）。
+     *
+     * @param planId     计划主键
+     * @param version    新版本文档号（与 {@code t_hedge_doc.doc_version} 同值）
+     * @param operatorId 操作人（审计字段）
+     * @return 受影响行数（0 = 计划不存在）
+     */
+    int updateCurrentDocVersion(long planId, int version, long operatorId);
 }

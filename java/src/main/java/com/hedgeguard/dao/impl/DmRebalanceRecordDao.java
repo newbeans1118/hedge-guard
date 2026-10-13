@@ -143,4 +143,24 @@ public final class DmRebalanceRecordDao extends AbstractDmDao<RebalanceRecord, L
                 + " WHERE trigger_type = ? AND trigger_side = ? ORDER BY rebalance_time ASC, id ASC";
         return queryList(sql, Arrays.asList(triggerType, triggerSide), this::mapRow);
     }
+
+    /**
+     * {@inheritDoc}：直查专属 SQL：{@code SELECT rebalance_no FROM t_rebalance_record
+     * WHERE rebalance_no LIKE ?}（前缀区间，走 {@code uk_rebalance_no} 唯一索引；
+     * T-078 取号取数入口，O-4 教训：全系统前缀 max 非当日 max）。
+     * 返回前在应用侧取最大，避免依赖行序。
+     */
+    @Override
+    public String findMaxRebalanceNoByPrefix(String rebalanceNoPrefix) {
+        String sql = "SELECT rebalance_no FROM " + tableName() + " WHERE rebalance_no LIKE ?";
+        List<String> nos = queryList(sql, Arrays.asList(rebalanceNoPrefix + "%"),
+                rs -> rs.getString("rebalance_no"));
+        String max = null;
+        for (String no : nos) {
+            if (no != null && (max == null || no.compareTo(max) > 0)) {
+                max = no;
+            }
+        }
+        return max;
+    }
 }
