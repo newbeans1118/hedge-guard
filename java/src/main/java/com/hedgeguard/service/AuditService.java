@@ -215,6 +215,12 @@ public final class AuditService {
                 c.addUnknown(SEG_VOUCHER, "ACCT 未交付（T-076~T-080）：会计凭证无数据源，无法反向定位");
             } else {
                 VoucherRef v = voucherLookup.findByVoucher(startId);
+                // TE-T079-001（T-067 O-7 承接）：反向起点按本服务已解析的操作人可见集过滤——
+                // 不可见 = 视同不存在（不泄露行存在性/归属/关联），与 collectVouchers 消费面
+                // 同一 allowed 判据（起点路径此前无二次检查，越权编号探测可泄露 VoucherRef）。
+                if (v != null && !visible(v.subAccountId, c.allowed)) {
+                    v = null;
+                }
                 if (v == null) {
                     c.addBreak(SEG_VOUCHER, "t_voucher", startId, "凭证不存在或不可见");
                 } else {

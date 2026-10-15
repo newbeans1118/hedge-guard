@@ -126,9 +126,19 @@ final class FullWebAssembly {
      * ⇒ {@code 150 → 152}（非为过测试而放宽：路径逐字取自 {@code ApiRoutes} 的 {@code ACCT}
      * 清单；{@code ACCT} 方法注册表键 4 → 6，路径数不变）。算术分解：业务路由 150 → 152
      * （ACCT4 → ACCT6）；生产装配含平台级 {@code ping} 2 条后为 {@code 154}，
-     * 与 {@code BootstrapAssemblyTest} 断言同锚。其余 8 条已声明路径归 T-079/T-080。
+     * 与 {@code BootstrapAssemblyTest} 断言同锚。
+     *
+     * <p>【{@code T-079}】凭证与期间面（FR-ACCT-6/7/13 + FR-ACCT-12；CFG-09 DRAFT_ONLY +
+     * R-ACCT-5/6/8 + DC-032）——已声明路径 {@code /acct/voucher} GET/POST（2 对）、
+     * {@code /acct/voucher/{id}/review} POST（1 对）、{@code /acct/voucher/{id}/reverse} POST
+     * （1 对）、{@code /acct/period} GET/POST（2 对）、{@code /acct/period/{id}/close} POST
+     * （1 对）= 7 对 ⇒ {@code 152 → 159}（非为过测试而放宽：路径逐字取自 {@code ApiRoutes}
+     * 的 {@code ACCT} 清单；{@code ACCT} 方法注册表键 6 → 13）。算术分解：业务路由 152 → 159
+     * （ACCT6 → ACCT13）；生产装配含平台级 {@code ping} 2 条后为 {@code 161}，
+     * 与 {@code BootstrapAssemblyTest} 断言同锚。其余 4 条已声明路径
+     * （effect/dual-pnl/selfcheck/export）归 T-080。
      */
-    static final int ROUTE_COUNT = 152;
+    static final int ROUTE_COUNT = 159;
 
     private FullWebAssembly() {
     }

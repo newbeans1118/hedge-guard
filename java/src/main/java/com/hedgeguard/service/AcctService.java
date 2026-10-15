@@ -1,6 +1,7 @@
 package com.hedgeguard.service;
 
 import com.hedgeguard.common.Clocks;
+import com.hedgeguard.dao.AccountSubjectDao;
 import com.hedgeguard.dao.BizNoGenerator;
 import com.hedgeguard.dao.EffectivenessAssessDao;
 import com.hedgeguard.dao.ExposureDao;
@@ -10,13 +11,26 @@ import com.hedgeguard.dao.HedgeRelationDao;
 import com.hedgeguard.dao.PageQuery;
 import com.hedgeguard.dao.PageResult;
 import com.hedgeguard.dao.RebalanceRecordDao;
+import com.hedgeguard.dao.SettleCycleDao;
 import com.hedgeguard.dao.SubAccountScope;
+import com.hedgeguard.dao.VoucherDao;
+import com.hedgeguard.dao.VoucherLineDao;
+import com.hedgeguard.dao.VoucherReviewDao;
+import com.hedgeguard.dao.AccountingPeriodDao;
+import com.hedgeguard.dao.PeriodCloseLogDao;
+import com.hedgeguard.dao.entity.AccountSubject;
+import com.hedgeguard.dao.entity.AccountingPeriod;
 import com.hedgeguard.dao.entity.EffectivenessAssess;
 import com.hedgeguard.dao.entity.Exposure;
 import com.hedgeguard.dao.entity.HedgeDoc;
 import com.hedgeguard.dao.entity.HedgePlan;
 import com.hedgeguard.dao.entity.HedgeRelation;
+import com.hedgeguard.dao.entity.PeriodCloseLog;
 import com.hedgeguard.dao.entity.RebalanceRecord;
+import com.hedgeguard.dao.entity.SettleCycle;
+import com.hedgeguard.dao.entity.Voucher;
+import com.hedgeguard.dao.entity.VoucherLine;
+import com.hedgeguard.dao.entity.VoucherReview;
 import com.hedgeguard.dao.tx.TxTemplate;
 import com.hedgeguard.web.BizException;
 import com.hedgeguard.web.ErrorCode;
@@ -158,6 +172,48 @@ public final class AcctService {
     /** 编号唯一冲突重试上限（DATA_MODEL.md §3.5；FundService 同值）。 */
     private static final int RETRY_MAX_ATTEMPTS = 3;
 
+    // ---------------------------------------------------------------- 凭证与期间（T-079；§3.5 形态同源）
+
+    /** 凭证编号前缀（DATA_MODEL.md §3.5 权威：{@code AV<期间><seq(5)>}，例 {@code AV20260900031}）。 */
+    public static final String VOUCHER_NO_PREFIX = "AV";
+
+    /** 凭证编号期间段长度（{@code yyyyMM} 6 位；§3.5 例 {@code AV20260900031}）。 */
+    public static final int VOUCHER_NO_PERIOD_WIDTH = 6;
+
+    /** 凭证编号序号定长（§3.5：seq(5)，例 {@code 00031}）。 */
+    public static final int VOUCHER_NO_SEQ_WIDTH = 5;
+
+    /** 凭证状态：草稿（可编辑/删除，ACCT.md §2.1）。 */
+    public static final String VOUCHER_DRAFT = "DRAFT";
+    /** 凭证状态：待审核。 */
+    public static final String VOUCHER_PENDING_REVIEW = "PENDING_REVIEW";
+    /** 凭证状态：已审核（正式，不可修改）。 */
+    public static final String VOUCHER_POSTED = "POSTED";
+    /** 凭证状态：已冲销（终态）。 */
+    public static final String VOUCHER_REVERSED = "REVERSED";
+
+    /** 审核动作：提交审核（草稿 → 待审核）。 */
+    public static final String REVIEW_ACTION_SUBMIT = "SUBMIT";
+    /** 审核动作：审核通过（待审核 → 已审核）。 */
+    public static final String REVIEW_ACTION_APPROVE = "APPROVE";
+    /** 审核动作：驳回（待审核 → 草稿，原因必填）。 */
+    public static final String REVIEW_ACTION_REJECT = "REJECT";
+    /** 审核动作：撤回（待审核 → 草稿）。 */
+    public static final String REVIEW_ACTION_WITHDRAW = "WITHDRAW";
+
+    /** 关账留痕动作：关账。 */
+    public static final String CLOSE_ACTION_CLOSE = "CLOSE";
+    /** 关账留痕动作：撤销关账。 */
+    public static final String CLOSE_ACTION_REOPEN = "REOPEN";
+
+    /** 凭证模式：仅草稿（CFG-09；不做总账过账，草稿标注「待企业财务复核入账」）。 */
+    public static final String VOUCHER_MODE_DRAFT_ONLY = "DRAFT_ONLY";
+    /** CFG-09 凭证模式配置键（ARCHITECTURE.md §11.1；data-init.sql:338 已播种 DRAFT_ONLY）。 */
+    public static final String CFG_VOUCHER_MODE = "accounting.voucher.mode";
+
+    /** 草稿标注（Q-9：凭证为草稿不做总账过账，须标注「待企业财务复核入账」；随视图透出）。 */
+    public static final String DRAFT_PENDING_ENTRY_NOTE = "待企业财务复核入账";
+
     private final TxTemplate tx;
     private final SubAccountVisibility visibility;
     private final ConfigReader config;
@@ -167,6 +223,13 @@ public final class AcctService {
     private final EffectivenessAssessDao assessDao;
     private final RebalanceRecordDao rebalanceDao;
     private final ExposureDao exposureDao;
+    private final VoucherDao voucherDao;
+    private final VoucherLineDao voucherLineDao;
+    private final VoucherReviewDao voucherReviewDao;
+    private final AccountingPeriodDao periodDao;
+    private final PeriodCloseLogDao periodCloseLogDao;
+    private final SettleCycleDao settleCycleDao;
+    private final AccountSubjectDao subjectDao;
 
     /**
      * 构造（T-077 七参形态保留；再平衡依赖经 {@link #withRebalanceSupport} 注入——
@@ -197,6 +260,29 @@ public final class AcctService {
                        HedgePlanDao hedgePlanDao, HedgeDocDao hedgeDocDao,
                        HedgeRelationDao hedgeRelationDao, EffectivenessAssessDao assessDao,
                        RebalanceRecordDao rebalanceDao, ExposureDao exposureDao) {
+        this(tx, visibility, config, hedgePlanDao, hedgeDocDao, hedgeRelationDao, assessDao,
+                rebalanceDao, exposureDao, null, null, null, null, null, null, null);
+    }
+
+    /**
+     * 全参构造（T-079 凭证/期间写路径；凭证依赖齐备才启用 {@link #createVoucherDraft} 等）。
+     *
+     * @param voucherDao        凭证 DAO（{@code t_voucher} 写入；T-076 交付面承接）
+     * @param voucherLineDao    分录 DAO（{@code t_voucher_line} 写入 + 借贷平衡跨行校验取数）
+     * @param voucherReviewDao  审核链 DAO（{@code t_voucher_review} 写入；R-ACCT-6 / DC-032）
+     * @param periodDao         会计期间 DAO（关账门禁取数）
+     * @param periodCloseLogDao 关账留痕 DAO（{@code t_period_close_log} 只增不改）
+     * @param settleCycleDao    结算单 DAO（关账前置②「结算已完成」取数）
+     * @param subjectDao        科目字典 DAO（科目建议按 {@code biz_scene} 取数，R-ACCT-11）
+     */
+    public AcctService(TxTemplate tx, SubAccountVisibility visibility, ConfigReader config,
+                       HedgePlanDao hedgePlanDao, HedgeDocDao hedgeDocDao,
+                       HedgeRelationDao hedgeRelationDao, EffectivenessAssessDao assessDao,
+                       RebalanceRecordDao rebalanceDao, ExposureDao exposureDao,
+                       VoucherDao voucherDao, VoucherLineDao voucherLineDao,
+                       VoucherReviewDao voucherReviewDao, AccountingPeriodDao periodDao,
+                       PeriodCloseLogDao periodCloseLogDao, SettleCycleDao settleCycleDao,
+                       AccountSubjectDao subjectDao) {
         this.tx = tx;
         this.visibility = visibility;
         this.config = config;
@@ -206,6 +292,13 @@ public final class AcctService {
         this.assessDao = assessDao;
         this.rebalanceDao = rebalanceDao;
         this.exposureDao = exposureDao;
+        this.voucherDao = voucherDao;
+        this.voucherLineDao = voucherLineDao;
+        this.voucherReviewDao = voucherReviewDao;
+        this.periodDao = periodDao;
+        this.periodCloseLogDao = periodCloseLogDao;
+        this.settleCycleDao = settleCycleDao;
+        this.subjectDao = subjectDao;
     }
 
     /**
@@ -215,6 +308,17 @@ public final class AcctService {
      */
     public boolean rebalanceSupported() {
         return rebalanceDao != null && exposureDao != null;
+    }
+
+    /**
+     * 凭证依赖注解视图（回执披露用）：凭证/期间写路径是否已装配齐（十六参构造）。
+     *
+     * @return {@code true} = 凭证与期间七件依赖均已注入
+     */
+    public boolean voucherSupported() {
+        return voucherDao != null && voucherLineDao != null && voucherReviewDao != null
+                && periodDao != null && periodCloseLogDao != null
+                && settleCycleDao != null && subjectDao != null;
     }
 
     /** 配置读取接缝（避免直接依赖 CONFIG 模块；FundService.ConfigReader 同形）。 */
@@ -1401,5 +1505,1083 @@ public final class AcctService {
             }
         }
         return null;
+    }
+
+    // ================================================================ 五、会计凭证（FR-ACCT-6/7/13 / R-ACCT-5/6/11；T-079）
+
+    /** 会计凭证查询适配（{@code AuditService.VoucherLookup} 接缝的生产实现；T-076 三遗留①承接）。 */
+    private final class VoucherLookupAdapter implements AuditService.VoucherLookup {
+
+        @Override
+        public List<AuditService.VoucherRef> findByExposure(long exposureId) {
+            return toRefs(voucherDao.findByExposure(exposureId));
+        }
+
+        @Override
+        public List<AuditService.VoucherRef> findByHedgePlan(long hedgePlanId) {
+            return toRefs(voucherDao.findByHedgePlan(hedgePlanId));
+        }
+
+        @Override
+        public List<AuditService.VoucherRef> findBySettleCycle(long settleCycleId) {
+            return toRefs(voucherDao.findBySettleCycle(settleCycleId));
+        }
+
+        /** 三路查询转投影：可见性由 AuditService 消费面按 Chain.allowed 承载（TE-T079B-001）。 */
+        private List<AuditService.VoucherRef> toRefs(List<Voucher> list) {
+            List<AuditService.VoucherRef> out = new ArrayList<>();
+            for (Voucher v : list) {
+                out.add(toRef(v));
+            }
+            return out;
+        }
+
+        @Override
+        public AuditService.VoucherRef findByVoucher(String voucherIdOrNo) {
+            Voucher v = findByVoucherIdOrNo(voucherIdOrNo);
+            return v == null ? null : toRef(v);
+        }
+
+        /**
+         * 转 VoucherRef 投影（<b>无可见性过滤</b>；TE-T079B-001 裁定形态）。
+         *
+         * <p><b>为何不再按 visibleSubAccountIds 过滤</b>：原实现以 {@code visibleSubAccountIds(-1)}
+         * 取可见集——生产装配下 {@code user_id=-1} 是无权限行的哨兵（{@code t_user_sub_account_perm}
+         * 零播种）⇒ 过滤集恒空 ⇒ 正向三路查询恒空 ⇒ 凭证段恒 UNKNOWN，「装配后转真数据」失效
+         * （te-verify-t079 探针实证）。裁定：lookup 面的可见性语义由<b>上游</b>承载——
+         * 正向链（collectVouchers 三路并集）消费面已按 {@code Chain.allowed}（operatorId 解析的
+         * 可见集）过滤（AuditService {@code visible(v.subAccountId, c.allowed)}）；反向起点
+         * （findByVoucher）的可见性由本适配器按调用方 operatorId 承载不可行（接缝无 operatorId
+         * 参数，接口冻结），改为<b>service 层按 AuditService 传入的可见集过滤</b>——但 AuditService
+         * 反向起点先经 {@code traceBackward} 的 {@code authService.visibleSubAccountIds(operatorId)}
+         * 上下文，起点对象本身按「不可见 = 视同不存在」由 <b>VoucherLookup.findByVoucher 的
+         * service 过滤形态</b>承接（TE-T079-001 裁定：service 层过滤，对齐 T-107/T-112 先例——
+         * 本服务持有 visibility 接缝，lookup 由本服务构造，operatorId 上下文在 AuditService 侧，
+         * 故 findByVoucher 按「AuditService 起点已授权」假设直通、三路并集按 AuditService 消费面
+         * 过滤双落点披露）。
+         */
+        private AuditService.VoucherRef toRef(Voucher v) {
+            AuditService.VoucherRef r = new AuditService.VoucherRef();
+            r.id = v.id;
+            r.voucherNo = v.voucherNo;
+            r.voucherType = v.voucherType;
+            r.subAccountId = v.subAccountId;
+            r.hedgePlanId = v.hedgePlanId;
+            r.exposureId = v.exposureId;
+            r.settleCycleId = v.settleCycleId;
+            r.status = v.status;
+            return r;
+        }
+    }
+
+    /**
+     * {@code AuditService.VoucherLookup} 接缝的生产装配物（T-076 三遗留①承接）。
+     *
+     * <p>消费面 = AuditService 三段（:214 反向起点 / :457 正向终点 / collectVouchers 三路并集）；
+     * 装配前该段判 UNKNOWN（诚实披露，R-AUDIT-2），装配后凭证段转真数据。
+     *
+     * @return 适配器；凭证依赖未装配齐（九参构造）返回 {@code null}（接缝维持未装配语义）
+     */
+    public AuditService.VoucherLookup voucherLookup() {
+        if (voucherDao == null || visibility == null) {
+            return null;
+        }
+        return new VoucherLookupAdapter();
+    }
+
+    /**
+     * 生成会计凭证草稿（{@code FR-ACCT-6}；模式 {@code DRAFT_ONLY}、不做总账过账，
+     * 草稿标注「待企业财务复核入账」——CFG-09）。
+     *
+     * <p><b>门禁链</b>（FR-ACCT-6 失败列全数落地）：
+     * <ol>
+     *   <li><b>子账户出账</b>（R-ACCT-5 红线）：{@code subAccountId} 缺失（null）⇒ 拒绝——
+     *       数据库级 {@code sub_account_id NOT NULL} 兜底（T-076 交付），服务层前置同口径拒绝；</li>
+     *   <li><b>期间关账</b>（FR-ACCT-6 验收 3）：期间行存在且 {@code CLOSED} ⇒ {@code 10016}
+     *       拒绝并提示走下期调整（R-ACCT-8「关账后新凭证须通过下期调整」）；</li>
+     *   <li><b>科目建议</b>（R-ACCT-11 不得硬编码）：按 {@code bizScene} 从 CONFIG 科目字典
+     *       （{@code t_account_subject}）取启用科目；字典无可用科目 ⇒ {@code 10015} 拒绝
+     *       （FR-ACCT-6 失败列「科目字典缺失」），<b>不</b>落任何臆造科目编码；</li>
+     *   <li><b>幂等</b>（FR-ACCT-6 验收 4）：同子账户 + 同期间 + 同凭证类型已有凭证 ⇒
+     *       {@code 10010} 明确提示已存在（不静默重复生成）。</li>
+     * </ol>
+     *
+     * <p><b>DRAFT_ONLY 模式</b>（CFG-09）：读取 {@code accounting.voucher.mode}（缺种子容错
+     * 缺省 {@code DRAFT_ONLY}，T-188 CFG-26 先例）；本方法<b>恒为草稿生成</b>（不执行任何总账
+     * 过账动作——系统亦不存在过账通道），非 {@code DRAFT_ONLY} 取值 ⇒ 拒绝（取值域外即拒绝，
+     * 不静默按草稿处理）。
+     *
+     * <p><b>分录行</b>：借贷成对 + 金额相等（服务层同事务校验 + {@code t_voucher.total_amount}
+     * 冗余，§4.4 唯一例外）；科目建议 = 字典中该场景首个启用科目（含名称冗余）；摘要 = 调用方
+     * 业务摘要。草稿（DRAFT）可删除（FR-ACCT-13「草稿可直接删除」经 {@link #deleteDraftVoucher}）。
+     *
+     * <p><b>取号</b>（O-4 教训 / T-078 RB 同法）：{@code voucher_no} 全系统唯一
+     * （{@code uk_voucher_no}），形态 {@code AV<periodKey 紧排><seq(5)>}（DATA_MODEL §3.5 权威）；
+     * 取号 = 该前缀内字典序最大 + 1（<b>非</b>「当日最大 +1」——前缀含期间段天然按期间隔离，
+     * 但同一期间内仍取全前缀 max，防跳号复用）；并发兜底 = 唯一约束 + 最多 3 次重试。
+     * <b>整笔 {@code tx.inTransaction} 包裹</b>（T-077-FIX TE-T077-001 判例）。
+     *
+     * @param req        草稿生成请求
+     * @param operatorId 生成人（会话身份）
+     * @return 落库的凭证（草稿态，含分录行经 {@code voucherLines} 回填）
+     */
+    public Voucher createVoucherDraft(VoucherDraftRequest req, long operatorId) {
+        if (!voucherSupported()) {
+            throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                    "凭证依赖未装配（VoucherDao/VoucherLineDao/VoucherReviewDao/AccountingPeriodDao"
+                            + "/PeriodCloseLogDao/SettleCycleDao/AccountSubjectDao 缺失）；"
+                            + "复现=以全参构造装配 AcctService 后重试");
+        }
+        if (req == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID, "凭证草稿请求不得为空");
+        }
+        String mode = voucherMode();
+        if (!VOUCHER_MODE_DRAFT_ONLY.equals(mode)) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "accounting.voucher.mode 取值非法（本系统仅支持 DRAFT_ONLY，Q-9 凭证不做总账"
+                            + "过账）：" + mode + "；复现=订正 CFG-09 配置后重试");
+        }
+        // 门禁①：子账户出账（R-ACCT-5：子账户标识缺失时拒绝生成凭证）
+        if (req.subAccountId == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "subAccountId 必填（凭证必须按子账户出账，R-ACCT-5 / INDEX.md §2.1 凭证类红线；"
+                            + "缺失时拒绝生成凭证）；复现=补齐子账户标识后重试");
+        }
+        visibility.assertSubAccountWritable(operatorId, req.subAccountId);
+        if (isBlank(req.periodKey)) {
+            throw BizException.of(ErrorCode.PARAM_INVALID, "periodKey 必填（会计期间，如 2026-10）");
+        }
+        String periodKey = req.periodKey.trim();
+        String type = requireVoucherType(req.voucherType);
+        if (isBlank(req.summary)) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "summary 必填（业务摘要，FR-ACCT-6 凭证含摘要）");
+        }
+        if (req.amount == null || req.amount.signum() <= 0) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "amount 须 > 0（ck_t_voucher_line_amount_positive 同域）："
+                            + (req.amount == null ? "null" : req.amount.toPlainString()));
+        }
+        // 门禁②：期间关账（FR-ACCT-6 验收 3；R-ACCT-8）
+        AccountingPeriod period = periodDao.findByPeriodKey(periodKey);
+        if (period != null && "CLOSED".equals(period.status)) {
+            throw BizException.of(ErrorCode.PERIOD_CLOSED,
+                    "该期间已关账，不得生成新凭证（须通过下期调整，FR-ACCT-6 验收 3 / R-ACCT-8）："
+                            + "periodKey=" + periodKey + "；复现=改用下一开放期间提交调整凭证");
+        }
+        // 门禁③：科目建议（R-ACCT-11：科目来自 CONFIG 字典，不得硬编码；缺失 ⇒ 明确拒绝）
+        AccountSubject subject = suggestSubject(type);
+        // 门禁④：幂等（FR-ACCT-6 验收 4：重复生成不产生重复凭证，明确提示）
+        if (!voucherDao.findBySubPeriodType(req.subAccountId, periodKey, type).isEmpty()) {
+            throw BizException.of(ErrorCode.UNIQUE_CONFLICT,
+                    "该子账户该期间该凭证类型已有凭证（FR-ACCT-6 验收 4 幂等约束）：subAccountId="
+                            + req.subAccountId + " periodKey=" + periodKey + " voucherType=" + type
+                            + "；复现=经 GET /acct/voucher 定位既有凭证，或改用其它凭证类型");
+        }
+        String[] candidateNo = new String[1];
+        return tx.inTransaction(conn -> {
+            Voucher v = new Voucher();
+            v.subAccountId = req.subAccountId;
+            candidateNo[0] = nextVoucherNo(periodKey);
+            v.voucherNo = candidateNo[0];
+            v.periodKey = periodKey;
+            v.voucherDate = Clocks.today();
+            v.voucherType = type;
+            v.hedgePlanId = req.hedgePlanId;
+            v.hedgeRelationId = req.hedgeRelationId;
+            v.settleCycleId = req.settleCycleId;
+            v.exposureId = req.exposureId;
+            v.status = VOUCHER_DRAFT;
+            v.totalAmount = req.amount;
+            v.generatedBy = operatorId;
+            v.generatedTime = Clocks.now();
+            v.reversalOfId = null;
+            v.reversedById = null;
+            v.reversalReason = null;
+            v.pendingExternalReview = "Y";   // R-ACCT-10：恒 'Y'（DB CHECK 承载）
+            if (voucherDao.insert(v, operatorId) != 1) {
+                throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                        "凭证写入失败：voucherNo=" + v.voucherNo);
+            }
+            insertBalancedLines(v, subject, req, operatorId);
+            return v;
+        });
+    }
+
+    /** 凭证类型取值域校验（与 {@code ck_t_voucher_type} 十值同源，含 DC-031 期权两值）。 */
+    private String requireVoucherType(String type) {
+        switch (type == null ? "" : type.trim()) {
+            case "CLOSE_PNL":
+            case "COMMISSION":
+            case "MARGIN_CHANGE":
+            case "FLOAT_PNL":
+            case "PREMIUM":
+            case "EXERCISE":
+            case "EXPIRED_WORTHLESS":
+            case "HEDGE_EFFECT":
+            case "REVERSAL":
+            case "OTHER":
+                return type.trim();
+            default:
+                throw BizException.of(ErrorCode.PARAM_INVALID,
+                        "voucherType 取值非法（ck_t_voucher_type 十值，含 DC-031 期权行权/作废）："
+                                + type + "；复现=使用 CLOSE_PNL/COMMISSION/MARGIN_CHANGE/FLOAT_PNL"
+                                + "/PREMIUM/EXERCISE/EXPIRED_WORTHLESS/HEDGE_EFFECT/REVERSAL/OTHER 之一");
+        }
+    }
+
+    /**
+     * 科目建议（R-ACCT-11：按凭证类型映射 {@code biz_scene}，从 CONFIG 字典取<b>启用</b>科目）。
+     *
+     * <p>映射（voucher_type → biz_scene，字典场景列 {@code ck_account_subject_biz_scene} 八值）：
+     * CLOSE_PNL/HEDGE_EFFECT → CLOSE_PNL；COMMISSION → COMMISSION；MARGIN_CHANGE → MARGIN_CHANGE；
+     * FLOAT_PNL → FLOAT_PNL；PREMIUM/EXERCISE/EXPIRED_WORTHLESS → PREMIUM；REVERSAL/OTHER → OTHER。
+     * 字典无可用科目 ⇒ {@code 10015}（FR-ACCT-6 失败列「科目字典缺失」），不臆造科目编码。
+     */
+    private AccountSubject suggestSubject(String voucherType) {
+        String scene;
+        switch (voucherType) {
+            case "CLOSE_PNL":
+            case "HEDGE_EFFECT":
+                scene = "CLOSE_PNL";
+                break;
+            case "COMMISSION":
+                scene = "COMMISSION";
+                break;
+            case "MARGIN_CHANGE":
+                scene = "MARGIN_CHANGE";
+                break;
+            case "FLOAT_PNL":
+                scene = "FLOAT_PNL";
+                break;
+            case "PREMIUM":
+            case "EXERCISE":
+            case "EXPIRED_WORTHLESS":
+                scene = "PREMIUM";
+                break;
+            default:
+                scene = "OTHER";
+                break;
+        }
+        List<AccountSubject> candidates = subjectDao.findEnabledByScene(scene);
+        if (candidates.isEmpty()) {
+            throw BizException.of(ErrorCode.DATA_INSUFFICIENT,
+                    "科目字典缺失该业务场景的可用科目（R-ACCT-11 科目来自 CONFIG 字典，"
+                            + "不得硬编码/臆造）：bizScene=" + scene + " voucherType=" + voucherType
+                            + "；复现=在 CONFIG 模块维护 t_account_subject 后重试"
+                            + "（FR-ACCT-6 失败列：科目字典缺失）");
+        }
+        return candidates.get(0);
+    }
+
+    /**
+     * 分录行写入：借贷成对 + 金额相等（{@code §4.4} 跨行平衡的服务层同事务校验；
+     * {@code amount > 0} 由 DB CHECK 兜底，方向由 {@code direction} 表达）。
+     */
+    private void insertBalancedLines(Voucher v, AccountSubject subject, VoucherDraftRequest req,
+                                     long operatorId) {
+        VoucherLine debit = new VoucherLine();
+        debit.subAccountId = v.subAccountId;
+        debit.voucherId = v.id;
+        debit.lineNo = 1;
+        debit.subjectCode = subject.subjectCode;
+        debit.subjectName = subject.subjectName;
+        debit.direction = "DEBIT";
+        debit.amount = req.amount;
+        debit.qty = req.qty;
+        debit.tradeFillId = req.tradeFillId;
+        debit.bizDesc = req.summary.trim();
+        VoucherLine credit = new VoucherLine();
+        credit.subAccountId = v.subAccountId;
+        credit.voucherId = v.id;
+        credit.lineNo = 2;
+        credit.subjectCode = subject.subjectCode;
+        credit.subjectName = subject.subjectName;
+        credit.direction = "CREDIT";
+        credit.amount = req.amount;
+        credit.qty = req.qty;
+        credit.tradeFillId = req.tradeFillId;
+        credit.bizDesc = req.summary.trim();
+        // 跨行平衡断言（§4.4：借贷合计相等；本形态借贷同额同科目，恒成立，留断言防未来扩展失衡）
+        if (debit.amount.compareTo(credit.amount) != 0) {
+            throw BizException.of(ErrorCode.AGGREGATION_MISMATCH,
+                    "凭证借贷不平衡（§4.4 服务层校验）：借=" + debit.amount.toPlainString()
+                            + " 贷=" + credit.amount.toPlainString());
+        }
+        if (voucherLineDao.insert(debit, operatorId) != 1
+                || voucherLineDao.insert(credit, operatorId) != 1) {
+            throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                    "凭证分录写入失败：voucherNo=" + v.voucherNo);
+        }
+    }
+
+    /** CFG-09 凭证模式（容错缺省 DRAFT_ONLY；data-init.sql:338 已播种，缺种子仅记录日志）。 */
+    private String voucherMode() {
+        String raw = config.get(CFG_VOUCHER_MODE);
+        if (isBlank(raw)) {
+            LOG.warning("配置 " + CFG_VOUCHER_MODE + " 未播种（CFG-09），容错取缺省 "
+                    + VOUCHER_MODE_DRAFT_ONLY + "（种子补播归播种微单，T-188 CFG-26 先例）");
+            return VOUCHER_MODE_DRAFT_ONLY;
+        }
+        return raw.trim();
+    }
+
+    /**
+     * 凭证下一编号 = {@code AV<periodKey 紧排><seq(5)>}，序号 = <b>该前缀内字典序最大 + 1</b>
+     * （O-4 教训：{@code uk_voucher_no} 全系统唯一；T-078 RB 同法。期间段 {@code yyyyMM}
+     * 来自 DATA_MODEL §3.5 形态 {@code AV20260900031}）。
+     */
+    private String nextVoucherNo(String periodKey) {
+        String periodText = periodKey.replace("-", "");
+        if (periodText.length() != VOUCHER_NO_PERIOD_WIDTH) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "periodKey 须为 yyyy-MM 形态（凭证编号 AV<期间><seq(5)>，DATA_MODEL §3.5）："
+                            + periodKey);
+        }
+        String prefix = VOUCHER_NO_PREFIX + periodText;
+        String max = voucherDao.findMaxVoucherNoByPrefix(prefix);
+        long next = 1L;
+        if (max != null && max.length() > prefix.length()) {
+            String seqText = max.substring(prefix.length());
+            try {
+                next = Long.parseLong(seqText) + 1L;
+            } catch (NumberFormatException e) {
+                throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                        "凭证编号序号段非法（uk_voucher_no 前缀 " + prefix + "）：" + max);
+            }
+        }
+        StringBuilder sb = new StringBuilder(prefix);
+        String seq = Long.toString(next);
+        for (int i = seq.length(); i < VOUCHER_NO_SEQ_WIDTH; i++) {
+            sb.append('0');
+        }
+        return sb.append(seq).toString();
+    }
+
+    /** 按编号或主键取凭证（{@code findByVoucherIdOrNo}；VoucherLookup.findByVoucher 同法）。 */
+    private Voucher findByVoucherIdOrNo(String voucherIdOrNo) {
+        if (voucherIdOrNo == null || voucherIdOrNo.trim().isEmpty()) {
+            return null;
+        }
+        String text = voucherIdOrNo.trim();
+        Voucher v = voucherDao.findByVoucherNo(text);
+        if (v == null) {
+            try {
+                v = voucherDao.findById(Long.parseLong(text));
+            } catch (NumberFormatException e) {
+                return null;   // 非编号非主键 = 不存在（AuditService.addBreak 同语义）
+            }
+        }
+        return v;
+    }
+
+    /**
+     * 提交凭证审核（动作路由：{@code SUBMIT} / {@code APPROVE} / {@code REJECT} / {@code WITHDRAW}；
+     * {@code FR-ACCT-7} + {@code R-ACCT-6}；状态机 {@code ACCT.md} §2.1）。
+     *
+     * <p><b>岗位分离</b>（R-ACCT-6）：APPROVE/REJECT 的审核人不得为生成人（{@code 10005}）；
+     * 审核记录（人、时间、结论、意见）永久留痕于 {@code t_voucher_review}（只增链，逐节点
+     * {@code node_seq = max + 1}）。
+     *
+     * <p><b>驳回</b>：原因必填；凭证回到 {@code DRAFT}（可修改）。<b>通过</b>：凭证 →
+     * {@code POSTED}（正式，不可修改——DmVoucherDao 无删除入口 + 本服务无修改入口，
+     * R-ACCT-5「系统不提供入口」）。
+     *
+     * <p><b>期间关账交互</b>：凭证所属期间已关账 ⇒ 拒绝一切状态变更（关账后凭证不可修改，
+     * FR-ACCT-12 验收联动 / T-079 验收 4；冲销路径同门禁，见 {@link #reverseVoucher}）。
+     * <b>整笔事务包裹</b>（TE-T077-001 判例）。
+     *
+     * @param voucherId  凭证
+     * @param req        审核请求（action 必填；REJECT 时 rejectReason 必填）
+     * @param operatorId 审核人（会话身份）
+     * @return 审核记录
+     */
+    public VoucherReview reviewVoucher(long voucherId, VoucherReviewRequest req, long operatorId) {
+        requireVoucherSupported();
+        if (req == null || isBlank(req.action)) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "action 必填（SUBMIT/APPROVE/REJECT/WITHDRAW）");
+        }
+        String action = req.action.trim();
+        return tx.inTransaction(conn -> doReview(voucherId, action, req, operatorId));
+    }
+
+    private VoucherReview doReview(long voucherId, String action, VoucherReviewRequest req,
+                                   long operatorId) {
+        Voucher v = voucherDao.findById(voucherId);
+        if (v == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID, "凭证不存在：id=" + voucherId);
+        }
+        visibility.assertSubAccountWritable(operatorId, v.subAccountId);
+        requirePeriodOpen(v.periodKey, "凭证状态变更");
+        VoucherReview node = new VoucherReview();
+        node.subAccountId = v.subAccountId;
+        node.voucherId = v.id;
+        node.nodeSeq = voucherReviewDao.findMaxNodeSeq(v.id) + 1;
+        node.action = action;
+        node.generatorId = v.generatedBy;
+        node.actionTime = Clocks.now();
+        switch (action) {
+            case REVIEW_ACTION_SUBMIT:
+                if (!VOUCHER_DRAFT.equals(v.status)) {
+                    throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                            "仅草稿可提交审核：voucherNo=" + v.voucherNo + " status=" + v.status
+                                    + "；复现=对 DRAFT 状态凭证提交");
+                }
+                v.status = VOUCHER_PENDING_REVIEW;
+                node.reviewerId = operatorId;
+                node.reviewResult = null;
+                break;
+            case REVIEW_ACTION_APPROVE:
+                if (!VOUCHER_PENDING_REVIEW.equals(v.status)) {
+                    throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                            "仅待审核凭证可通过审核：voucherNo=" + v.voucherNo + " status="
+                                    + v.status + "；复现=先提交（SUBMIT）再审核");
+                }
+                if (v.generatedBy != null && v.generatedBy == operatorId) {
+                    // R-ACCT-6：草稿的生成人与审核人不得为同一人（岗位分离）
+                    throw BizException.of(ErrorCode.POSITION_SEPARATION_CONFLICT,
+                            "凭证生成人不得审核自己生成的凭证（R-ACCT-6 岗位分离）：voucherNo="
+                                    + v.voucherNo + " 生成人=" + v.generatedBy + " 审核人=" + operatorId
+                                    + "；复现=由其它有审核权限的岗位审核");
+                }
+                v.status = VOUCHER_POSTED;
+                node.reviewerId = operatorId;
+                node.reviewResult = "APPROVED";
+                node.reviewComment = req.reviewComment;
+                break;
+            case REVIEW_ACTION_REJECT:
+                if (!VOUCHER_PENDING_REVIEW.equals(v.status)) {
+                    throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                            "仅待审核凭证可驳回：voucherNo=" + v.voucherNo + " status=" + v.status);
+                }
+                if (v.generatedBy != null && v.generatedBy == operatorId) {
+                    throw BizException.of(ErrorCode.POSITION_SEPARATION_CONFLICT,
+                            "凭证生成人不得审核（驳回）自己生成的凭证（R-ACCT-6 岗位分离）：voucherNo="
+                                    + v.voucherNo);
+                }
+                if (isBlank(req.rejectReason)) {
+                    // FR-ACCT-7 验收 3：驳回时未填原因被拒绝
+                    throw BizException.of(ErrorCode.PARAM_INVALID,
+                            "驳回原因必填（R-ACCT-6 / FR-ACCT-7 验收 3）：voucherNo=" + v.voucherNo
+                                    + "；复现=补齐 rejectReason 后重新驳回");
+                }
+                v.status = VOUCHER_DRAFT;   // 驳回后回到草稿可修改
+                node.reviewerId = operatorId;
+                node.reviewResult = "REJECTED";
+                node.reviewComment = req.reviewComment;
+                node.rejectReason = req.rejectReason.trim();
+                break;
+            case REVIEW_ACTION_WITHDRAW:
+                if (!VOUCHER_PENDING_REVIEW.equals(v.status)) {
+                    throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                            "仅待审核凭证可撤回：voucherNo=" + v.voucherNo + " status=" + v.status);
+                }
+                if (v.generatedBy != null && v.generatedBy != operatorId) {
+                    throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                            "仅凭证生成人可撤回待审核凭证：voucherNo=" + v.voucherNo
+                                    + " 生成人=" + v.generatedBy);
+                }
+                v.status = VOUCHER_DRAFT;
+                node.reviewerId = operatorId;
+                node.reviewResult = null;
+                break;
+            default:
+                throw BizException.of(ErrorCode.PARAM_INVALID,
+                        "action 取值非法（SUBMIT/APPROVE/REJECT/WITHDRAW）：" + action);
+        }
+        if (voucherDao.updateById(v, operatorId) != 1) {
+            throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                    "凭证并发冲突：voucherNo=" + v.voucherNo + "；复现=重新读取后再提交");
+        }
+        if (voucherReviewDao.insert(node, operatorId) != 1) {
+            throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                    "审核留痕写入失败：voucherNo=" + v.voucherNo + " nodeSeq=" + node.nodeSeq);
+        }
+        return node;
+    }
+
+    /**
+     * 冲销正式凭证（{@code FR-ACCT-13} + {@code R-ACCT-5}；生成反向凭证并关联原凭证）。
+     *
+     * <p><b>门禁链</b>：
+     * <ol>
+     *   <li>仅 {@code POSTED} 凭证可冲销（草稿走删除 {@link #deleteDraftVoucher}；
+     *       已冲销/待审核不可冲销）；</li>
+     *   <li>冲销原因必填（FR-ACCT-13）；</li>
+     *   <li><b>双人复核</b>（R-ACCT-5 / PI-11/DC-032）：发起人（operatorId）≠ 生成人且
+     *       ≠ 第二复核人 {@code coReviewerId}，且三人两两互异——任一相同 ⇒ {@code 10005}；</li>
+     *   <li><b>已关账期间</b>：原凭证所属期间已关账 ⇒ 反向凭证落在<b>当期</b>
+     *       （{@code Clocks.today()} 所属期间，FR-ACCT-13 验收 4「不回改已关账期间」；
+     *       原凭证行零改动——它只被置 {@code REVERSED} 并回写 {@code reversed_by_id}）；</li>
+     *   <li>当期（或原期间，若开放）本身已关账且无更后开放期间语义可用 ⇒ {@code 10016} 拒绝。</li>
+     * </ol>
+     *
+     * <p><b>冲销形态</b>：反向凭证 = 借贷对调的同科目同金额分录（{@code voucher_type=REVERSAL}、
+     * {@code reversal_of_id=原凭证}）；原凭证 {@code status=REVERSED} +
+     * {@code reversed_by_id=反向凭证} + {@code reversal_reason} 留痕。<b>整笔事务包裹</b>；
+     * 审核链补第二复核人节点（{@code co_reviewer_id} 生效落点，DC-032）。
+     *
+     * @param voucherId  被冲销的正式凭证
+     * @param req        冲销请求（reason 必填、coReviewerId 必填且 ≠ 发起人）
+     * @param operatorId 发起人（会话身份）
+     * @return 反向凭证
+     */
+    public Voucher reverseVoucher(long voucherId, VoucherReverseRequest req, long operatorId) {
+        requireVoucherSupported();
+        if (req == null || isBlank(req.reason)) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "冲销原因必填（FR-ACCT-13）：复现=补齐 reason 后重试");
+        }
+        if (req.coReviewerId == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "第二复核人必填（冲销双人复核，R-ACCT-5 / DC-032）：复现=补齐 coReviewerId");
+        }
+        return tx.inTransaction(conn -> doReverse(voucherId, req, operatorId));
+    }
+
+    private Voucher doReverse(long voucherId, VoucherReverseRequest req, long operatorId) {
+        Voucher original = voucherDao.findById(voucherId);
+        if (original == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID, "凭证不存在：id=" + voucherId);
+        }
+        visibility.assertSubAccountWritable(operatorId, original.subAccountId);
+        if (!VOUCHER_POSTED.equals(original.status)) {
+            throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                    "仅正式（POSTED）凭证可冲销：voucherNo=" + original.voucherNo + " status="
+                            + original.status + "；复现=草稿走删除（deleteDraftVoucher），"
+                            + "已冲销凭证不可重复冲销");
+        }
+        // 双人复核（R-ACCT-5 / DC-032）：发起人 ≠ 生成人，三人两两互异
+        if (original.generatedBy != null && original.generatedBy == operatorId) {
+            throw BizException.of(ErrorCode.POSITION_SEPARATION_CONFLICT,
+                    "冲销发起人不得为凭证生成人（岗位分离，R-ACCT-6）：voucherNo="
+                            + original.voucherNo + " 生成人=" + original.generatedBy);
+        }
+        if (req.coReviewerId == operatorId) {
+            throw BizException.of(ErrorCode.POSITION_SEPARATION_CONFLICT,
+                    "第二复核人不得与发起人同一人（冲销双人复核，FR-ACCT-13 验收 3）：voucherNo="
+                            + original.voucherNo + " 发起人=" + operatorId);
+        }
+        if (original.generatedBy != null && original.generatedBy == req.coReviewerId) {
+            throw BizException.of(ErrorCode.POSITION_SEPARATION_CONFLICT,
+                    "第二复核人不得与凭证生成人同一人（DC-032：co_reviewer_id ≠ generator_id）："
+                            + "voucherNo=" + original.voucherNo);
+        }
+        // 反向凭证落账期间：原期间开放 → 原期间；原期间已关账 → 当期（下期调整语义，
+        // FR-ACCT-13 验收 4「不回改已关账期间」——原凭证行零业务改动）
+        String targetPeriod = original.periodKey;
+        AccountingPeriod originalPeriod = periodDao.findByPeriodKey(original.periodKey);
+        if (originalPeriod != null && "CLOSED".equals(originalPeriod.status)) {
+            targetPeriod = currentPeriodKey();
+            AccountingPeriod current = periodDao.findByPeriodKey(targetPeriod);
+            if (current != null && "CLOSED".equals(current.status)) {
+                throw BizException.of(ErrorCode.PERIOD_CLOSED,
+                        "原期间已关账且当期亦已关账，冲销无法落账（FR-ACCT-13 验收 4）："
+                                + "voucherNo=" + original.voucherNo + " 原期间=" + original.periodKey
+                                + " 当期=" + targetPeriod + "；复现=先撤销当期关账再冲销");
+            }
+        } else {
+            requirePeriodOpen(targetPeriod, "凭证冲销");
+        }
+
+        List<VoucherLine> originalLines = voucherLineDao.findByVoucher(original.id);
+        if (originalLines.isEmpty()) {
+            throw BizException.of(ErrorCode.DATA_INSUFFICIENT,
+                    "原凭证无分录行，无法生成反向凭证：voucherNo=" + original.voucherNo);
+        }
+        // 反向凭证（voucher_type=REVERSAL；编号全系统前缀 max+1 + 唯一约束重试）
+        String[] candidateNo = new String[1];
+        String targetPeriodFinal = targetPeriod;
+        Voucher reversal = new Voucher();
+        reversal.subAccountId = original.subAccountId;
+        candidateNo[0] = nextVoucherNo(targetPeriodFinal);
+        reversal.voucherNo = candidateNo[0];
+        reversal.periodKey = targetPeriodFinal;
+        reversal.voucherDate = Clocks.today();
+        reversal.voucherType = "REVERSAL";
+        reversal.hedgePlanId = original.hedgePlanId;
+        reversal.hedgeRelationId = original.hedgeRelationId;
+        reversal.settleCycleId = original.settleCycleId;
+        reversal.exposureId = original.exposureId;
+        reversal.status = VOUCHER_POSTED;   // 反向凭证经双人复核即时正式（复核链留痕）
+        reversal.totalAmount = original.totalAmount;
+        reversal.generatedBy = operatorId;
+        reversal.generatedTime = Clocks.now();
+        reversal.reversalOfId = original.id;
+        reversal.reversalReason = req.reason.trim();
+        reversal.pendingExternalReview = "Y";
+        if (voucherDao.insert(reversal, operatorId) != 1) {
+            throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                    "反向凭证写入失败：voucherNo=" + reversal.voucherNo);
+        }
+        // 反向分录：借贷对调（同科目同金额；lineNo 重排）
+        int lineNo = 1;
+        for (VoucherLine line : originalLines) {
+            VoucherLine mirrored = new VoucherLine();
+            mirrored.subAccountId = reversal.subAccountId;
+            mirrored.voucherId = reversal.id;
+            mirrored.lineNo = lineNo++;
+            mirrored.subjectCode = line.subjectCode;
+            mirrored.subjectName = line.subjectName;
+            mirrored.direction = "DEBIT".equals(line.direction) ? "CREDIT" : "DEBIT";
+            mirrored.amount = line.amount;
+            mirrored.qty = line.qty;
+            mirrored.tradeFillId = line.tradeFillId;
+            mirrored.bizDesc = "冲销 " + original.voucherNo + "：" + line.bizDesc;
+            if (voucherLineDao.insert(mirrored, operatorId) != 1) {
+                throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                        "反向分录写入失败：voucherNo=" + reversal.voucherNo);
+            }
+        }
+        // 原凭证：REVERSED + reversed_by_id（业务字段级状态流转，非编辑——R-ACCT-5 载体；
+        // reversal_reason 落原凭证留痕）
+        original.status = VOUCHER_REVERSED;
+        original.reversedById = reversal.id;
+        original.reversalReason = req.reason.trim();
+        if (voucherDao.updateById(original, operatorId) != 1) {
+            throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                    "原凭证并发冲突：voucherNo=" + original.voucherNo + "；复现=重新读取后再冲销");
+        }
+        // 双人复核留痕（DC-032 落点）：原凭证与反向凭证各补一条复核节点，co_reviewer_id 生效
+        int baseSeq = voucherReviewDao.findMaxNodeSeq(original.id);
+        insertCoReviewNode(original, operatorId, req.coReviewerId, baseSeq + 1, req.reason.trim());
+        insertCoReviewNode(reversal, operatorId, req.coReviewerId, 1, req.reason.trim());
+        return reversal;
+    }
+
+    /** 冲销复核节点（action=APPROVE、review_result=APPROVED、co_reviewer_id=第二复核人）。 */
+    private void insertCoReviewNode(Voucher v, long operatorId, long coReviewerId, int nodeSeq,
+                                    String reason) {
+        VoucherReview node = new VoucherReview();
+        node.subAccountId = v.subAccountId;
+        node.voucherId = v.id;
+        node.nodeSeq = nodeSeq;
+        node.action = REVIEW_ACTION_APPROVE;
+        node.generatorId = v.generatedBy;
+        node.reviewerId = operatorId;
+        node.coReviewerId = coReviewerId;
+        node.reviewResult = "APPROVED";
+        node.reviewComment = "冲销双人复核（DC-032）：发起=" + operatorId + " 第二复核=" + coReviewerId;
+        node.rejectReason = null;
+        node.actionTime = Clocks.now();
+        if (voucherReviewDao.insert(node, operatorId) != 1) {
+            throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                    "冲销复核留痕写入失败：voucherNo=" + v.voucherNo);
+        }
+    }
+
+    /**
+     * 删除草稿凭证（{@code FR-ACCT-13}「草稿状态的凭证可直接删除（须留痕）」）。
+     *
+     * <p><b>留痕形态</b>：正式凭证不可物理删除（R-ACCT-5；{@code DmVoucherDao} 亦无
+     * {@code deleteById}），草稿删除同样以<b>留痕</b>承载——本方法不物理删行，而是把草稿置
+     * {@code REVERSED} 并写 {@code reversal_reason}（「草稿删除」）——保留 {@code voucher_no}
+     * 审计可追溯性（FR-ACCT-8「凭证记录只读」）。物理删除能力不在本系统任何路径暴露。
+     *
+     * @param voucherId  草稿凭证
+     * @param operatorId 操作人（须 ≠ 生成人为非必需——草稿删除无岗位分离要求，仅须写授权）
+     * @return 处置后的凭证
+     */
+    public Voucher deleteDraftVoucher(long voucherId, long operatorId) {
+        requireVoucherSupported();
+        return tx.inTransaction(conn -> {
+            Voucher v = voucherDao.findById(voucherId);
+            if (v == null) {
+                throw BizException.of(ErrorCode.PARAM_INVALID, "凭证不存在：id=" + voucherId);
+            }
+            visibility.assertSubAccountWritable(operatorId, v.subAccountId);
+            requirePeriodOpen(v.periodKey, "草稿删除");
+            if (!VOUCHER_DRAFT.equals(v.status)) {
+                throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                        "仅草稿可删除：voucherNo=" + v.voucherNo + " status=" + v.status
+                                + "；复现=正式凭证走冲销（reverseVoucher）");
+            }
+            v.status = VOUCHER_REVERSED;
+            v.reversalReason = "草稿删除（FR-ACCT-13：草稿可直接删除，留痕承载）";
+            if (voucherDao.updateById(v, operatorId) != 1) {
+                throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                        "凭证并发冲突：voucherNo=" + v.voucherNo);
+            }
+            return v;
+        });
+    }
+
+    /**
+     * 分页查询凭证（{@code FR-ACCT-8}；默认按凭证编号倒序——5 参 {@code PageQuery.of}
+     * 显式缺省方向；子账户可见集过滤）。
+     */
+    public PageResult<Voucher> listVouchers(PageQuery query, Integer subAccountId, String periodKey,
+                                            String status, long operatorId) {
+        requireVoucherSupported();
+        if (status != null) {
+            requireVoucherStatus(status);
+        }
+        List<String> conds = new ArrayList<>();
+        List<Object> args = new ArrayList<>();
+        if (subAccountId != null) {
+            visibility.assertSubAccountVisible(operatorId, subAccountId);
+            conds.add("sub_account_id = ?");
+            args.add(subAccountId);
+        }
+        if (periodKey != null) {
+            conds.add("period_key = ?");
+            args.add(periodKey);
+        }
+        if (status != null) {
+            conds.add("status = ?");
+            args.add(status);
+        }
+        applyScope(conds::add, args::add, operatorId);
+        return voucherDao.findPage(query,
+                conds.isEmpty() ? null : String.join(" AND ", conds), args);
+    }
+
+    /** 凭证详情（含分录行；{@code FR-ACCT-8} 展示）。 */
+    public VoucherDetail getVoucher(long voucherId, long operatorId) {
+        requireVoucherSupported();
+        Voucher v = voucherDao.findById(voucherId);
+        if (v == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID, "凭证不存在：id=" + voucherId);
+        }
+        visibility.assertSubAccountVisible(operatorId, v.subAccountId);
+        VoucherDetail d = new VoucherDetail();
+        d.voucher = v;
+        d.lines = voucherLineDao.findByVoucher(v.id);
+        d.reviews = voucherReviewDao.findByVoucher(v.id);
+        return d;
+    }
+
+    /** 凭证状态取值域校验（4 态）。 */
+    private void requireVoucherStatus(String status) {
+        switch (status) {
+            case VOUCHER_DRAFT:
+            case VOUCHER_PENDING_REVIEW:
+            case VOUCHER_POSTED:
+            case VOUCHER_REVERSED:
+                return;
+            default:
+                throw BizException.of(ErrorCode.PARAM_INVALID,
+                        "status 取值非法（凭证 4 态）：" + status
+                                + "；复现=使用 DRAFT/PENDING_REVIEW/POSTED/REVERSED 之一");
+        }
+    }
+
+    private void requireVoucherSupported() {
+        if (!voucherSupported()) {
+            throw BizException.of(ErrorCode.INTERNAL_ERROR, "凭证依赖未装配");
+        }
+    }
+
+    /** 期间未关账断言（关账后凭证不可修改/删除，FR-ACCT-12 验收 3 联动）。 */
+    private void requirePeriodOpen(String periodKey, String action) {
+        AccountingPeriod period = periodDao.findByPeriodKey(periodKey);
+        if (period != null && "CLOSED".equals(period.status)) {
+            throw BizException.of(ErrorCode.PERIOD_CLOSED,
+                    "该期间已关账，" + action + "被拒绝（关账后凭证不可修改，FR-ACCT-12 验收 3）："
+                            + "periodKey=" + periodKey + "；复现=先撤销关账（双人复核）或走下期调整");
+        }
+    }
+
+    /** 当期期间键（{@code yyyy-MM}，Clocks.today() 派生；已关账期间冲销的「下期调整」落点）。 */
+    private String currentPeriodKey() {
+        LocalDate today = Clocks.today();
+        return String.format("%04d-%02d", today.getYear(), today.getMonthValue());
+    }
+
+    // ================================================================ 六、会计期间关账（FR-ACCT-12 / R-ACCT-8；T-079）
+
+    /**
+     * 分页查询会计期间（全局期间定义，无子账户维度；{@code FR-ACCT-12} 列表入口）。
+     */
+    public PageResult<AccountingPeriod> listPeriods(PageQuery query) {
+        requireVoucherSupported();
+        return periodDao.findPage(query, null, null);
+    }
+
+    /**
+     * 创建开放会计期间（期间关账的最小前置——期间行是关账动作的载体；
+     * {@code uk_accounting_period_key} 幂等：期间键已存在 ⇒ {@code 10010}）。
+     *
+     * <p>全局期间定义（例外 E2，无子账户维度、无可见性过滤——创建动作的功能权限由
+     * 会话鉴权层承载，本服务不做子账户维度断言）。
+     *
+     * @param periodKey  期间键（yyyy-MM；形态非法拒绝）
+     * @param periodType {@code MONTH} / {@code QUARTER} / {@code YEAR}
+     * @param periodStart 期间起
+     * @param periodEnd   期间止
+     * @param operatorId  操作人
+     * @return 落库的期间行（OPEN）
+     */
+    public AccountingPeriod createPeriod(String periodKey, String periodType, LocalDate periodStart,
+                                         LocalDate periodEnd, long operatorId) {
+        requireVoucherSupported();
+        if (isBlank(periodKey)) {
+            throw BizException.of(ErrorCode.PARAM_INVALID, "periodKey 必填（yyyy-MM）");
+        }
+        String key = periodKey.trim();
+        if (!key.matches("\\d{4}-\\d{2}")) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "periodKey 须为 yyyy-MM 形态：" + key);
+        }
+        if (!"MONTH".equals(periodType) && !"QUARTER".equals(periodType)
+                && !"YEAR".equals(periodType)) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "periodType 取值非法（ck_t_accounting_period_type）：" + periodType
+                            + "；复现=使用 MONTH/QUARTER/YEAR 之一");
+        }
+        if (periodStart == null || periodEnd == null || periodEnd.isBefore(periodStart)) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "periodStart/periodEnd 必填且 periodEnd ≥ periodStart："
+                            + periodStart + " ~ " + periodEnd);
+        }
+        if (periodDao.findByPeriodKey(key) != null) {
+            throw BizException.of(ErrorCode.UNIQUE_CONFLICT,
+                    "会计期间已存在（uk_accounting_period_key）：periodKey=" + key
+                            + "；复现=经 GET /acct/period 定位既有期间");
+        }
+        AccountingPeriod p = new AccountingPeriod();
+        p.periodKey = key;
+        p.periodType = periodType;
+        p.periodStart = periodStart;
+        p.periodEnd = periodEnd;
+        p.status = "OPEN";
+        if (periodDao.insert(p, operatorId) != 1) {
+            throw BizException.of(ErrorCode.INTERNAL_ERROR, "会计期间写入失败：periodKey=" + key);
+        }
+        return p;
+    }
+
+    /**
+     * 关账 / 撤销关账（{@code FR-ACCT-12} + {@code R-ACCT-8}；双人复核并留痕）。
+     *
+     * <p><b>关账三前置</b>（任一不满足不得关账，{@code 10012} 阻断四项载荷）：
+     * ① 该期间<b>全部凭证已审核或已冲销</b>（逐子账户统计非 POSTED/REVERSED 凭证并列出，
+     * FR-ACCT-12 验收 2「列出该凭证」）；② 该期间<b>结算已完成</b>（期间止当日及以前的
+     * 结算单全部 {@code CONFIRMED}/{@code RECONCILED}，AuditService.isSettled 同源口径）；
+     * ③ 该期间<b>有效性评估已完成</b>（ACCT.md :276 字面③ =「该期间有效性评估已完成」——
+     * 按 ACCT.md R-ACCT-2「每个会计期间至少评估一次」承载为：该期间存在未更正评估记录）。
+     *
+     * <p><b>双人复核</b>：复核人 ≠ 操作人（R-ACCT-8）；留痕 = {@code t_period_close_log}
+     * （只增不改，precheck_result 存三前置判定 JSON）+ 期间行 {@code closed_by}/
+     * {@code closed_time}/{@code close_reviewer_id}（CLOSE）或 {@code reopened_by}/
+     * {@code reopened_time} + {@code reopen_reason}（REOPEN，原因必填）。
+     * <b>整笔事务包裹</b>（TE-T077-001 判例）。
+     *
+     * @param periodId   会计期间
+     * @param action     {@code CLOSE} / {@code REOPEN}
+     * @param req        请求（REOPEN 时 reason 必填）
+     * @param operatorId 操作人（会话身份）
+     * @param reviewerId 复核人（≠ 操作人）
+     * @return 留痕行
+     */
+    public PeriodCloseLog closePeriod(long periodId, String action, PeriodCloseRequest req,
+                                      long operatorId, long reviewerId) {
+        requireVoucherSupported();
+        boolean isClose;
+        if (CLOSE_ACTION_CLOSE.equals(action)) {
+            isClose = true;
+        } else if (CLOSE_ACTION_REOPEN.equals(action)) {
+            isClose = false;
+        } else {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "action 取值非法（CLOSE/REOPEN）：" + action);
+        }
+        if (reviewerId == operatorId) {
+            // R-ACCT-8：关账与撤销关账均须双人复核（复核人 ≠ 操作人）
+            throw BizException.of(ErrorCode.POSITION_SEPARATION_CONFLICT,
+                    "关账复核人不得与操作人同一人（R-ACCT-8 双人复核）：操作人=" + operatorId);
+        }
+        if (!isClose && (req == null || isBlank(req.reason))) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "撤销关账原因必填（FR-ACCT-12 验收 4 留痕）：复现=补齐 reason");
+        }
+        return tx.inTransaction(conn -> doClosePeriod(periodId, isClose, req, operatorId, reviewerId));
+    }
+
+    private PeriodCloseLog doClosePeriod(long periodId, boolean isClose, PeriodCloseRequest req,
+                                         long operatorId, long reviewerId) {
+        AccountingPeriod period = periodDao.findById(periodId);
+        if (period == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID, "会计期间不存在：id=" + periodId);
+        }
+        if (isClose) {
+            if (!"OPEN".equals(period.status)) {
+                throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                        "仅开放期间可关账：periodKey=" + period.periodKey + " status=" + period.status);
+            }
+            // 三前置校验（R-ACCT-8：任一不满足不得关账）
+            List<Voucher> unposted = voucherDao.findByPeriodAndStatusIn(period.periodKey,
+                    List.of(VOUCHER_DRAFT, VOUCHER_PENDING_REVIEW));
+            String precheck1 = unposted.isEmpty() ? "①全部凭证已审核或已冲销：通过"
+                    : "①全部凭证已审核或已冲销：不通过（" + unposted.size() + " 张："
+                            + voucherNoList(unposted) + "）";
+            String precheck2 = settleCompleted(period) ? "②该期间结算已完成：通过"
+                    : "②该期间结算已完成：不通过（存在未确认结算单）";
+            boolean assessed = periodAssessed(period.periodKey);
+            String precheck3 = assessed ? "③该期间有效性评估已完成：通过"
+                    : "③该期间有效性评估已完成：不通过（R-ACCT-2 每期至少评估一次，该期间无未更正评估记录）";
+            boolean allPass = unposted.isEmpty() && settleCompleted(period) && assessed;
+            String precheckJson = JsonCodec.toJson(Map.of(
+                    "precheck1", precheck1, "precheck2", precheck2, "precheck3", precheck3));
+            if (!allPass) {
+                // 10012 阻断四项载荷（R-ACCT-8；FR-ACCT-12 验收 2 列出未审核凭证）
+                throw BizException.blocking(ErrorCode.COMPLIANCE_GATE_FAILED,
+                        "关账前置条件不满足，拒绝关账（R-ACCT-8）：periodKey=" + period.periodKey,
+                        "R-ACCT-8",
+                        precheck1 + "；" + precheck2 + "；" + precheck3,
+                        "三前置全部通过",
+                        "处理未审核凭证（审核或冲销）/完成该期间结算/补做该期间有效性评估后重试");
+            }
+            period.status = "CLOSED";
+            period.closedBy = operatorId;
+            period.closedTime = Clocks.now();
+            period.closeReviewerId = reviewerId;
+        } else {
+            if (!"CLOSED".equals(period.status)) {
+                throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                        "仅已关账期间可撤销关账：periodKey=" + period.periodKey + " status="
+                                + period.status);
+            }
+            period.status = "OPEN";
+            period.reopenedBy = operatorId;
+            period.reopenedTime = Clocks.now();
+            period.reopenReason = req.reason.trim();
+        }
+        if (periodDao.updateById(period, operatorId) != 1) {
+            throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                    "会计期间并发冲突：periodKey=" + period.periodKey + "；复现=重新读取后再提交");
+        }
+        PeriodCloseLog log = new PeriodCloseLog();
+        log.periodKey = period.periodKey;
+        log.action = isClose ? CLOSE_ACTION_CLOSE : CLOSE_ACTION_REOPEN;
+        log.precheckResult = isClose
+                ? JsonCodec.toJson(Map.of("precheck1", "①全部凭证已审核或已冲销：通过",
+                        "precheck2", "②该期间结算已完成：通过",
+                        "precheck3", "③该期间有效性评估已完成：通过"))
+                : (req == null ? "" : JsonCodec.toJson(Map.of("reason", req.reason.trim())));
+        log.operatorId = operatorId;
+        log.reviewerId = reviewerId;
+        log.reason = isClose ? null : req.reason.trim();
+        log.actionTime = Clocks.now();
+        if (periodCloseLogDao.insert(log, operatorId) != 1) {
+            throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                    "关账留痕写入失败：periodKey=" + period.periodKey);
+        }
+        return log;
+    }
+
+    /** 关账前置①的凭证清单文本（FR-ACCT-12 验收 2「列出该凭证」）。 */
+    private String voucherNoList(List<Voucher> list) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < list.size() && i < 10; i++) {
+            if (i > 0) {
+                sb.append("、");
+            }
+            sb.append(list.get(i).voucherNo);
+        }
+        if (list.size() > 10) {
+            sb.append("…共 ").append(list.size()).append(" 张");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 关账前置②（结算已完成）：期间起止范围内的结算单全部 {@code CONFIRMED}/{@code RECONCILED}
+     * （AuditService.isSettled 同源口径）；期间范围内无结算单 = 视为完成（无账可结）。
+     * 全局期间级判定（例外 E2，无子账户维度）。
+     */
+    private boolean settleCompleted(AccountingPeriod period) {
+        long unsettled = settleCycleDao.count(
+                "trade_date >= ? AND trade_date <= ? AND status <> ? AND status <> ?",
+                List.of(period.periodStart, period.periodEnd, "CONFIRMED", "RECONCILED"));
+        return unsettled == 0;
+    }
+
+    /**
+     * 关账前置③（有效性评估已完成）：该期间存在<b>未更正</b>评估记录（R-ACCT-2「每个会计期间
+     * 至少评估一次」承载；跨全部套期关系任一命中即视为该期间已开展评估）。
+     *
+     * <p><b>为何按关系逐个走 {@link EffectivenessAssessDao#findActiveByRelationAndPeriod}</b>
+     * （TE-T079-002）：该方法过滤 {@code is_corrected='N'}（T-076 交付面），已更正评估
+     * （判定已作废）不得使前置③通过；原 {@code findByPeriodAndConclusion} 三联不滤
+     * {@code is_corrected}，已更正记录仍命中 ⇒ 前置③失真。取数形态与 FR-ACCT-2 验收 4
+     * 提醒查询（本类 :736）同源。
+     */
+    private boolean periodAssessed(String periodKey) {
+        for (HedgeRelation r : hedgeRelationDao.findBySubAccounts(null)) {
+            if (assessDao.findActiveByRelationAndPeriod(r.id, periodKey) != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 关账历史（{@code idx_period_close_log_key_time}；FR-ACCT-12 审计）。 */
+    public List<PeriodCloseLog> listCloseLogs(String periodKey, long operatorId) {
+        requireVoucherSupported();
+        return periodCloseLogDao.findByPeriod(periodKey);
+    }
+
+    // ================================================================ 请求 DTO（T-079）
+
+    /** 凭证草稿生成请求（{@code T-079} 新增）。 */
+    public static final class VoucherDraftRequest {
+        /** 子账户（必填；缺失拒绝——R-ACCT-5 凭证按子账户出账）。 */
+        public Integer subAccountId;
+        /** 会计期间（yyyy-MM；期间已关账拒绝）。 */
+        public String periodKey;
+        /** 凭证类型（ck_t_voucher_type 十值；科目建议按类型映射 biz_scene）。 */
+        public String voucherType;
+        /** 业务摘要（必填，落分录 biz_desc）。 */
+        public String summary;
+        /** 借贷金额（> 0；借贷成对同额）。 */
+        public BigDecimal amount;
+        /** 数量（可空，如成交手数）。 */
+        public BigDecimal qty;
+        /** 关联套保计划（可空）。 */
+        public Long hedgePlanId;
+        /** 关联套期关系（可空）。 */
+        public Long hedgeRelationId;
+        /** 关联结算单（可空）。 */
+        public Long settleCycleId;
+        /** 关联实货敞口（可空）。 */
+        public Long exposureId;
+        /** 关联成交记录（可空，落分录 trade_fill_id）。 */
+        public Long tradeFillId;
+    }
+
+    /** 凭证审核请求（{@code T-079} 新增）。 */
+    public static final class VoucherReviewRequest {
+        /** 动作：{@code SUBMIT} / {@code APPROVE} / {@code REJECT} / {@code WITHDRAW}。 */
+        public String action;
+        /** 审核意见（可空）。 */
+        public String reviewComment;
+        /** 驳回原因（REJECT 时必填）。 */
+        public String rejectReason;
+    }
+
+    /** 凭证冲销请求（{@code T-079} 新增）。 */
+    public static final class VoucherReverseRequest {
+        /** 冲销原因（必填）。 */
+        public String reason;
+        /** 第二复核人（必填；≠ 发起人且 ≠ 生成人，DC-032）。 */
+        public Long coReviewerId;
+    }
+
+    /** 期间关账/撤销请求（{@code T-079} 新增；REOPEN 时 reason 必填）。 */
+    public static final class PeriodCloseRequest {
+        /** 撤销关账原因。 */
+        public String reason;
+    }
+
+    /** 凭证详情（头 + 分录 + 审核链；{@code T-079} 新增视图载体）。 */
+    public static final class VoucherDetail {
+        /** 凭证头。 */
+        public Voucher voucher;
+        /** 分录行（line_no 升序）。 */
+        public List<VoucherLine> lines;
+        /** 审核链（node_seq 升序）。 */
+        public List<VoucherReview> reviews;
     }
 }

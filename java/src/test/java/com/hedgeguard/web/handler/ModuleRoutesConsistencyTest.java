@@ -64,9 +64,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code TRADE}/{@code SETTLE}（含 {@code SettleCheckRoutes}）/{@code FUND}/
  * {@code AUDIT}（T-067 追溯留痕、T-068 违规筛查、T-069 报表/证据链导出/审计日志、
  * T-194 核对任务查询）+ {@code ACCT}（T-077 首批 4 对：hedge-relation/effectiveness 各 GET|POST；
- * T-078 再平衡 2 对：rebalance GET|POST）
- * 注册器 + {@code ping} 的 {@code GET}/{@code HEAD}。{@code ACCT} 其余 8 条已声明路径
- * （voucher/period/effect/dual-pnl/selfcheck/export）未交付，仍仅存在于
+ * T-078 再平衡 2 对：rebalance GET|POST；T-079 凭证/期间 7 对：voucher GET|POST、
+ * voucher/{id}/review POST、voucher/{id}/reverse POST、period GET|POST、
+ * period/{id}/close POST）
+ * 注册器 + {@code ping} 的 {@code GET}/{@code HEAD}。{@code ACCT} 其余 4 条已声明路径
+ * （effect/dual-pnl/selfcheck/export）未交付，仍仅存在于
  * {@link ApiRoutes#byModule()} 的路径级声明中、不参与对级等值比较。
  */
 class ModuleRoutesConsistencyTest {
@@ -107,7 +109,8 @@ class ModuleRoutesConsistencyTest {
         CheckTaskQueryRoutes.register(router, null);
         // T-077：ACCT 模块首批注册面（GET|POST /acct/hedge-relation、GET|POST /acct/effectiveness，
         // 4 对）同构重放；T-078：再平衡面（GET|POST /acct/rebalance，2 对）同构重放；
-        // ACCT 方法注册表键 4 → 6。
+        // T-079：凭证与期间面（voucher GET|POST、voucher/{id}/review|reverse POST、
+        // period GET|POST、period/{id}/close POST，7 对）同构重放；ACCT 方法注册表键 6 → 13。
         AcctRoutes.register(router, null);
         return router;
     }

@@ -111,4 +111,20 @@ public final class DmVoucherReviewDao extends AbstractDmDao<VoucherReview, Long>
                 + " WHERE reviewer_id = ? ORDER BY action_time ASC, id ASC";
         return queryList(sql, Arrays.asList(reviewerId), this::mapRow);
     }
+
+    /**
+     * {@inheritDoc}：直查专属 SQL（{@code idx_voucher_review_voucher_seq} 前列取数后
+     * 应用侧取最大，避免依赖行序）；下一审核节点序号 = max + 1 的取数入口。
+     */
+    @Override
+    public int findMaxNodeSeq(long voucherId) {
+        List<VoucherReview> chain = findByVoucher(voucherId);
+        int max = 0;
+        for (VoucherReview r : chain) {
+            if (r.nodeSeq != null && r.nodeSeq > max) {
+                max = r.nodeSeq;
+            }
+        }
+        return max;
+    }
 }

@@ -27,4 +27,13 @@ public interface VoucherReviewDao extends BaseDao<VoucherReview, Long> {
      * @return 列表（{@code action_time} 升序，{@code id} 升序收官）
      */
     List<VoucherReview> findByReviewer(long reviewerId);
+
+    /**
+     * 取凭证审核链的最大节点序号（{@code idx_voucher_review_voucher_seq}；下一节点
+     * {@code nodeSeq = max + 1} 的取数入口，首节点为 {@code 1}）。
+     *
+     * @param voucherId 凭证
+     * @return 最大 {@code node_seq}；无审核记录返回 {@code 0}
+     */
+    int findMaxNodeSeq(long voucherId);
 }

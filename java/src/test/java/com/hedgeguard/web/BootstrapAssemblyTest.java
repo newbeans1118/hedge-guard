@@ -238,9 +238,22 @@ class BootstrapAssemblyTest {
             //   业务路由 152（…/ACCT6）+ ping 2 = 154。算术分解：152（前值）+ 2 对 = 154；
             //   ACCT 其余 8 条已声明路径归 T-079/T-080。
             //   非为过测试而放宽断言。
-            assertEquals(154, assembly.routeCount(),
-                    "业务路由必须全部注册：152（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/"
-                            + "SETTLE15/FUND16/AUDIT24/ACCT6）+ ping 2");
+            // 【T-079 增注】断言值由 154 订正为 161：凭证与期间面（{@code FR-ACCT-6/7/13} +
+            //   {@code FR-ACCT-12}；CFG-09 DRAFT_ONLY 不做总账过账 + R-ACCT-5/6/8 +
+            //   DC-032 第二复核人）——
+            //   VoucherHandler 于已声明路径 /acct/voucher 注册 GET/POST（2 对）+
+            //   VoucherReviewActionHandler 于 /acct/voucher/{id}/review 注册 POST（1 对）+
+            //   VoucherReverseHandler 于 /acct/voucher/{id}/reverse 注册 POST（1 对）+
+            //   VoucherPeriodHandler 于 /acct/period 注册 GET/POST（2 对）+
+            //   PeriodCloseHandler 于 /acct/period/{id}/close 注册 POST（1 对）= 7 对
+            //   （ACCT 方法注册表键 6 → 13），
+            //   业务路由 159（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/SETTLE15/
+            //   FUND16/AUDIT24/ACCT13）+ ping 2 = 161。算术分解：154（前值）+ 7 对 = 161；
+            //   ACCT 其余 4 条已声明路径（effect/dual-pnl/selfcheck/export）归 T-080。
+            //   非为过测试而放宽断言。
+            assertEquals(161, assembly.routeCount(),
+                    "业务路由必须全部注册：159（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/"
+                            + "SETTLE15/FUND16/AUDIT24/ACCT13）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。
             // （不真发 HTTP：经 RequestDispatcher 进程内分发；handler 因无真实库而 4xx/5xx 皆可，

@@ -164,14 +164,20 @@ public final class ApiRoutes {
                 "POST /fund/reconcile", "GET /fund/export",
                 // T-195：出入金申请列表查询（FR-FUND-8 验收3；只读，仅 GET）
                 "GET /fund/apply-list"));
-        // T-077：ACCT 模块首批注册面（套期关系 + 有效性评估，各 GET/POST；ACCT 方法注册表从零建）。
+        // T-077：ACCT 模块首批注册面（套期关系 + 有效性评估，各 GET/POST）。
         // T-078：再平衡面（/acct/rebalance 各 GET/POST，2 对）。
-        // 路径逐字取自本类 ACCT 路径级声明；其余 8 条已声明路径归 T-079（voucher/period）/
-        // T-080（effect/dual-pnl/selfcheck/export）交付。
+        // T-079：凭证与期间面（voucher GET/POST、voucher/{id}/review POST、voucher/{id}/reverse
+        // POST、period GET/POST、period/{id}/close POST，7 对）。
+        // 路径逐字取自本类 ACCT 路径级声明；其余 4 条已声明路径归 T-080（effect/dual-pnl/
+        // selfcheck/export）交付。
         BY_MODULE_ROUTES.put("ACCT", Arrays.asList(
                 "GET /acct/hedge-relation", "POST /acct/hedge-relation",
                 "GET /acct/effectiveness", "POST /acct/effectiveness",
-                "GET /acct/rebalance", "POST /acct/rebalance"));
+                "GET /acct/rebalance", "POST /acct/rebalance",
+                "GET /acct/voucher", "POST /acct/voucher",
+                "POST /acct/voucher/{id}/review", "POST /acct/voucher/{id}/reverse",
+                "GET /acct/period", "POST /acct/period",
+                "POST /acct/period/{id}/close"));
         BY_MODULE_ROUTES.put("AUTH", Arrays.asList(
                 "POST /auth/login", "POST /auth/logout",
                 "GET /auth/user", "POST /auth/user", "PUT /auth/user",

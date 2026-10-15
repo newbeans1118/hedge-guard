@@ -88,6 +88,11 @@ import com.hedgeguard.dao.impl.DmSettlePnlDao;
 import com.hedgeguard.dao.impl.DmSettlePositionDao;
 import com.hedgeguard.dao.impl.DmSettleReconcileDifferenceDao;
 import com.hedgeguard.dao.impl.DmSettleReconcileRecordDao;
+import com.hedgeguard.dao.impl.DmVoucherDao;
+import com.hedgeguard.dao.impl.DmAccountingPeriodDao;
+import com.hedgeguard.dao.impl.DmPeriodCloseLogDao;
+import com.hedgeguard.dao.impl.DmVoucherLineDao;
+import com.hedgeguard.dao.impl.DmVoucherReviewDao;
 import com.hedgeguard.dao.impl.DmSettleReportDao;
 import com.hedgeguard.dao.impl.DmSettleStressTestDao;
 import com.hedgeguard.dao.impl.DmSpotChangeLogDao;
@@ -568,10 +573,12 @@ public final class Bootstrap {
                 new DmFundQuotaDao(tx), new DmFundQuotaAlertDao(tx), new DmFundReconcileDao(tx));
         FundRoutes.register(router, fundService);
 
-        // M4 套期会计服务（T-077 首批 + T-078 再平衡）：套期关系生成（CAS 24 三要素门禁 R-ACCT-1）+
-        // 有效性评估（三项定性观察点 R-ACCT-2/Q-7；量化监测 CFG-07b 仅提示不判定）+
-        // 再平衡（四类触发 Q-8；重新指定 R-ACCT-3，CFG-08 双阈值；data-init.sql:326/:330 已播种）。
-        // CFG-07/07b/08 经 ConfigService 惰性读取（缺种子容错缺省）。
+        // M4 套期会计服务（T-077 首批 + T-078 再平衡 + T-079 凭证/期间）：套期关系生成
+        // （CAS 24 三要素门禁 R-ACCT-1）+ 有效性评估（三项定性观察点 R-ACCT-2/Q-7；量化监测
+        // CFG-07b 仅提示不判定）+ 再平衡（四类触发 Q-8；重新指定 R-ACCT-3，CFG-08 双阈值）+
+        // 凭证草稿/审核/冲销（FR-ACCT-6/7/13；DRAFT_ONLY 不做总账过账 CFG-09）+ 期间关账
+        // （三前置 + 双人复核 R-ACCT-8；FR-ACCT-12）。
+        // CFG-07/07b/08/09 经 ConfigService 惰性读取（缺种子容错缺省）。
         AcctService acctService = new AcctService(tx, authService,
                 key -> {
                     com.hedgeguard.dao.entity.ConfigItem ci = configService.getConfig(key);
@@ -579,13 +586,21 @@ public final class Bootstrap {
                 },
                 new DmHedgePlanDao(tx), new DmHedgeDocDao(tx),
                 new DmHedgeRelationDao(tx), new DmEffectivenessAssessDao(tx),
-                new DmRebalanceRecordDao(tx), exposureDao);
+                new DmRebalanceRecordDao(tx), exposureDao,
+                new DmVoucherDao(tx), new DmVoucherLineDao(tx), new DmVoucherReviewDao(tx),
+                new DmAccountingPeriodDao(tx), new DmPeriodCloseLogDao(tx),
+                new DmSettleCycleDao(tx), new DmAccountSubjectDao(tx));
         AcctRoutes.register(router, acctService);
-        LOG.info("已装配套期会计面（T-077/T-078）：GET|POST /api/v1/acct/hedge-relation、"
-                + "GET|POST /api/v1/acct/effectiveness、GET|POST /api/v1/acct/rebalance；"
+        LOG.info("已装配套期会计面（T-077/T-078/T-079）：GET|POST /api/v1/acct/hedge-relation、"
+                + "GET|POST /api/v1/acct/effectiveness、GET|POST /api/v1/acct/rebalance、"
+                + "GET|POST /api/v1/acct/voucher、POST /api/v1/acct/voucher/{id}/review、"
+                + "POST /api/v1/acct/voucher/{id}/reverse、GET|POST /api/v1/acct/period、"
+                + "POST /api/v1/acct/period/{id}/close；"
                 + "三要素门禁=R-ACCT-1；有效性=三项定性观察点（CFG-07），量化监测（CFG-07b）"
                 + "仅提示不判定；再平衡=四类触发（CFG-08 敞口/工具侧双阈值），"
-                + "重新指定=R-ACCT-3（新文档+新关系+记录，整笔事务）");
+                + "重新指定=R-ACCT-3（新文档+新关系+记录，整笔事务）；"
+                + "凭证=DRAFT_ONLY 不做总账过账（CFG-09），审核岗位分离 R-ACCT-6，"
+                + "冲销双人复核 DC-032；期间关账=三前置+双人复核 R-ACCT-8");
 
         // M3 风控阈值配置与下发闭环（T-063）：t_risk_threshold 配置 + 合规下限 + CMD_UPDATE_RISK_THRESHOLD 下发。
         // 复用既有 ParamDispatchService 下发通道（T-011）与 t_config_change_log 留痕（双人复核）。
@@ -634,15 +649,15 @@ public final class Bootstrap {
         }
 
         // T-067 审计全链路追溯与操作留痕（AUDIT 模块首批接入）：正向/反向/完整性 + 在途时窗。
-        // 会计凭证 t_voucher 属 ACCT（T-076~T-080，TODO）⇒ VoucherLookup 接缝暂不装配（null），
-        // 该段判 UNKNOWN（诚实披露，R-AUDIT-2「数据缺失不得误标完整」）；T-079 落地后装入实现即闭合。
+        // 会计凭证 t_voucher 已随 T-079 落地 ⇒ VoucherLookup 接缝装入 AcctService 生产适配器
+        //（T-076 三遗留①承接：audit 追溯链凭证段由 UNKNOWN 转真数据；按可见子账户过滤）。
         // 在途时窗上限 audit.chain.inflight_max_cycles（CFG-17c，1–3，缺省 1）**惰性**读取：
         // 装配期不触库（生产装配在假驱动下亦须可完成），调用时经 ConfigService 读取并夹取。
         AuditService auditService = new AuditService(exposureDao, hedgePlanExposureDao,
                 new DmHedgePlanDao(tx), new DmPlanApprovalDao(tx), new DmTradePlanDao(tx),
                 new DmTradeOrderDao(tx), new DmTradeOrderReportDao(tx), new DmTradeFillDao(tx),
                 new DmTradeReasonDao(tx), new DmSettleCycleDao(tx), new DmOperationLogDao(tx),
-                authService, null,
+                authService, acctService.voucherLookup(),
                 () -> {
                     com.hedgeguard.dao.entity.ConfigItem ci =
                             configService.getConfig("audit.chain.inflight_max_cycles");
@@ -660,7 +675,7 @@ public final class Bootstrap {
                 AuditService.endOfTradeDay());
         AuditTraceRoutes.register(router, auditService);
         LOG.info("已装配审计追溯面：GET|POST /api/v1/audit/trace/{forward,backward,integrity} 与 "
-                + "/api/v1/audit/operation-log；会计凭证接缝=未装配（ACCT T-076~T-080 TODO）");
+                + "/api/v1/audit/operation-log；会计凭证接缝=已装配（AcctService.voucherLookup，T-079）");
 
         // T-068 违规事项筛查（FR-AUDIT-4/Q-13）：规则四维复用 RISK 规则编号（事前拒绝记录
         // t_pre_trade_reject）、频繁开平仓复用 Q-5 阈值；理由/关联两维由 t_trade_reason 并列派生。

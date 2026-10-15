@@ -139,4 +139,72 @@ public final class DmVoucherDao extends AbstractDmDao<Voucher, Long> implements 
                 + " ORDER BY voucher_no ASC, id ASC";
         return queryList(sql, Arrays.asList(subAccountId, periodKey, status), this::mapRow);
     }
+
+    /**
+     * {@inheritDoc}：直查专属 SQL（{@code idx_voucher_sub_period_status} 前两列 + 类型；
+     * FR-ACCT-6 验收 4 幂等判定入口）。
+     */
+    @Override
+    public List<Voucher> findBySubPeriodType(int subAccountId, String periodKey, String voucherType) {
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE sub_account_id = ? AND period_key = ? AND voucher_type = ?"
+                + " ORDER BY voucher_no ASC, id ASC";
+        return queryList(sql, Arrays.asList(subAccountId, periodKey, voucherType), this::mapRow);
+    }
+
+    /**
+     * {@inheritDoc}：直查专属 SQL：{@code idx_voucher_plan}（T-076 O-3 承接；
+     * AuditService.VoucherLookup.findByHedgePlan 数据承载）。
+     */
+    @Override
+    public List<Voucher> findByHedgePlan(long hedgePlanId) {
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE hedge_plan_id = ? ORDER BY voucher_no ASC, id ASC";
+        return queryList(sql, Arrays.asList(hedgePlanId), this::mapRow);
+    }
+
+    /**
+     * {@inheritDoc}：直查专属 SQL（{@code period_key = ? AND status IN (?,..)}；
+     * 关账前置校验①「列出未审核凭证」，R-ACCT-8 / FR-ACCT-12 验收 2）。
+     */
+    @Override
+    public List<Voucher> findByPeriodAndStatusIn(String periodKey, List<String> statuses) {
+        if (statuses == null || statuses.isEmpty()) {
+            return new java.util.ArrayList<>();
+        }
+        StringBuilder in = new StringBuilder();
+        List<Object> args = new java.util.ArrayList<>();
+        args.add(periodKey);
+        for (int i = 0; i < statuses.size(); i++) {
+            if (i > 0) {
+                in.append(", ");
+            }
+            in.append('?');
+            args.add(statuses.get(i));
+        }
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE period_key = ? AND status IN (" + in + ")"
+                + " ORDER BY voucher_no ASC, id ASC";
+        return queryList(sql, args, this::mapRow);
+    }
+
+    /**
+     * {@inheritDoc}：直查专属 SQL：{@code SELECT voucher_no FROM t_voucher
+     * WHERE voucher_no LIKE ?}（前缀区间，走 {@code uk_voucher_no} 唯一索引；T-079 取号
+     * 取数入口，O-4 教训：全系统前缀 max 非当日 max——T-078 RB 同法）。返回前在应用侧
+     * 取最大，避免依赖行序。
+     */
+    @Override
+    public String findMaxVoucherNoByPrefix(String voucherNoPrefix) {
+        String sql = "SELECT voucher_no FROM " + tableName() + " WHERE voucher_no LIKE ?";
+        List<String> nos = queryList(sql, Arrays.asList(voucherNoPrefix + "%"),
+                rs -> rs.getString("voucher_no"));
+        String max = null;
+        for (String no : nos) {
+            if (no != null && (max == null || no.compareTo(max) > 0)) {
+                max = no;
+            }
+        }
+        return max;
+    }
 }
