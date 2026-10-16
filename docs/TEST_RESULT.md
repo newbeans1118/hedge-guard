@@ -17136,3 +17136,111 @@ python3 /root/t059-ws/gcov_union.py --root /root/t059-ws/cpp/src \
 - 验收 2（额度校验+事前风控 ≥80%）：**达成**（88.18%，口径与聚合见 §T059-4；诚实披露低覆盖文件）
 - 验收 3（ctest 全过 + -Werror 零警告）：**达成**（54/54 + 50/50；干净构建 warning=0）
 - 待独立复核；本席不自评 DONE。缺口 G-1~G-6 处置（补测试件立号 or 裁定残留）由编排者裁定。
+
+---
+
+## T-085 执行 M4 会计文档包与 CAS 24 自检报告（te-t085，2026-10-16）
+
+> 执行判据：`TEST_PLAN/M4.md` §7 线 c（`TC-M4-17`~`TC-M4-20`）+ §4.2 生产形态播种纪律 + §4.3 变异验证要求。
+> 冻结点：commit `6bb5030`（第 252 轮派发基线）。执行形态：**服务装配级**（真实 AcctService 廿一参
+> 全参构造 + 真实 Dm*Dao + InMemoryDmEngine 等价引擎 + TransactionAwareInMemory 事务感知 +
+> Clocks.set 固定时钟——测试三件套；T-058/T-080 先例）。
+
+### §T085-1 交付物清单
+
+| 文件 | 行数 | md5 | 说明 |
+|------|------|-----|------|
+| `java/src/test/java/com/hedgeguard/service/M4DocPackageCas24SelfcheckTest.java` | 723 | `8713771eacf74934d4f5f2fde45f479a` | TC-M4-17~20 五用例（5 个 @Test） |
+| `java/src/test/java/com/hedgeguard/dao/testsupport/T085M4DocPackageSeed.java` | 60 | `5072a17d8201ed7031a1aba0701c9c85` | 用例级播种件（计划 13 文档 + 标注移除负证探针；SQL 落 dao.testsupport，E5 纪律） |
+| `docs/BUGS/BUG-004.md` | — | 见文件 | TC-M4-19 实测不通过 ⇒ P1 缺陷单（本章 §T085-4） |
+| `dev-team/inbox/backend-engineer#java2/BUG-004-bug.md` | — | 见文件 | 缺陷工单投递（ACCT 域责任席） |
+
+- 树锚（落笔后立即实测）：`cd java && find src -type f | LC_ALL=C sort | xargs md5sum | md5sum`
+  = **`26318c275765c87786c534ecf14bcc94`** / **760 文件**（758 + 新增 2）。
+- `src/main` 零改动（变异验证后 md5 复位核对：`AcctService.java` = `cbb8d2b38b898a3adf48dc6b2e602451`，
+  与冻结点一致；`git status java/src/main` 空）。
+
+### §T085-2 逐用例执行记录（5/5 绿）
+
+**播种形态（§4.2 强制项）**：基础链路复用 `T077AcctSeed`/`T080AcctEffectSeed` 生产形态夹具——
+`t_settle_pnl.hedge_plan_id` **恒 NULL**（`SettleService:923` 生产写入形态），归集走
+`(sub_account_id, product_id)` 层②；每用例含「明细衍生品非静默 0 + 汇总=Σ明细」负证
+（TE-T080-001 击杀器形态，`assertDetailsNonSilentZeroAndSum`）；金额均为夹具专设值
+（凭证 7777、衍生品盈亏 −8000/−250/−2000/−100），不与生产常量同源。链路夹具 `buildChain()`：
+期货腿（计划 11/敞口 21：关系生成→评估→再平衡[敞口 100→130，30%>20%]→凭证草稿）+ 期权腿
+（计划 13/敞口 23，OPTION：关系生成→评估[观察点①近相关⇒结论无效⇒状态机 NEED_REBALANCE，
+未再平衡]）+ 效果评估。
+
+| 用例 | @Test | 判定 | 关键实测 |
+|------|-------|------|---------|
+| `TC-M4-17` M2 交易 → 完整会计文档包端到端 | `tcM4_17_docPackageFourPiecesEndToEnd` | ✅ 通过 | 四件套各 ≥1 且逐件可追溯：①书面文档 v2（计划 11/敞口 21，历史 v1 保留 is_current='N'）②评估记录（关系回溯）③再平衡记录（EXPOSURE_DELTA，newHedgeDocId/newHedgeRelationId 链接）④凭证草稿（DRAFT，hedge_plan_id=11/hedge_relation_id/exposure_id=21 三关联键齐）；**断链数==0**；期权腿同链（OPTION 关系计划 13/敞口 23，FR-ACCT-11）；衍生品 −10350（期货 −8250 + 期权 −2100 两腿皆非 0） |
+| `TC-M4-18` CAS 24 五条自检逐条结论 + 证据位置 | `tcM4_18_cas24SelfcheckFiveItemsWithEvidence` | ✅ 通过 | 五条逐条 PASS/FAIL + 证据位置（表名+ID+说明）落 `t_cas24_selfcheck_item`（生产 DAO）；期货腿批次 `ALL_PASS` 5/0；期权腿批次 `HAS_FAIL` 4/1——**④ REBALANCE_RECORDS = FAIL**（状态机 NEED_REBALANCE=已触发但 `t_rebalance_record` 无记录，FR-ACCT-14 验收 2 实证）；`findByScope`/`findByCodeAndResult("REBALANCE_RECORDS","FAIL")` 读回命中 |
+| `TC-M4-19` 「待外部复核」标注存在且不可移除 | `tcM4_19_pendingExternalReviewMarkingProbe` | ❌ **不通过（缺陷 BUG-004）** | 标注承载实测 **2/4**（关系文档 ✓ + 自检报告 ✓；评估/再平衡记录**无承载列** ✗）——以「行为固定探针」固定现状（TC-M4-02 备注判例），修复后改写为 4/4 断言；移除入口负证：DB CHECK 拒 'N'（INSERT 路径有牙）+ AcctService 方法面无移除入口（反射扫描 == 0）；「自检不替代外部复核」声明在 |
+| `TC-M4-20①` 双侧盈亏上报两栏 + 留痕 | `tcM4_20_dualPnlReportBothPanelsAndTrace` | ✅ 通过 | 两栏恒在（spot_pnl_column_present='Y' + 衍生品栏）；实货 19800（=(130+50)×110，敞口 21 因再平衡触发改 130）、衍生品 −10350（已实现 −10000/未实现 −350，含期权腿 R-ACCT-7），上报口径与效果视图同源（FR-ACCT-10 验收 3）；留痕三件（submittedBy=7/submittedTime/reportPeriod）+ `DR202610130001` 取号 + 上报行落库直读核 |
+| `TC-M4-20②` 缺价 ⇒ 实货栏保留 + 缺失原因 | `tcM4_20_dualPnlReportMissingPriceKeepsSpotColumn` | ✅ 通过 | 连历史价也无（noPriceAtAll）⇒ 实货栏保留 'Y'、值 NULL（不以 0 冒充）、缺失原因必填；衍生品栏照常 −10350；留痕三件仍齐（R-ACCT-4/17 号文红线） |
+
+**CAS 24 五条自检逐条结论表**（`TC-M4-18` 判据；期货关系 HR0001 批次 `SC202610100001`）：
+
+| # | 条款 | 结论 | 证据位置 |
+|---|------|------|---------|
+| ① | 正式指定 | **通过** | `t_hedge_relation` id=1（HR0001，designated_time 留痕，指定文档 id=21） |
+| ② | 书面文件（三要素） | **通过** | `t_hedge_doc` 当前版本 v2（三要素列非空：正式指定/定性经济关系法/再平衡机制） |
+| ③ | 有效性评估记录 | **通过** | `t_effectiveness_assess`（期间 2026-10，EFFECTIVE，三观察点 Y/Y/Y） |
+| ④ | 再平衡记录（如触发） | **通过**（已触发且有记录：RB0001，EXPOSURE_DELTA，新文档/新关系链接） | `t_rebalance_record` |
+| ⑤ | 双侧盈亏同时呈现 | **通过** | `t_hedge_effect` 子账户 1/2026-10 汇总行（实货 19800 与衍生品 −10350 成对，层②归集） |
+
+期权关系（HR0003）批次 `SC202610100002`：④ = **不通过**（已触发[NEED_REBALANCE]但记录缺失，
+FR-ACCT-14 验收 2 实证）⇒ 批次 HAS_FAIL 4/1。
+
+### §T085-3 变异验证（§4.3：≥2 变异全杀，clean 重建；备份 .orig + md5 复位核对）
+
+| 变异 | 位置（AcctService.java） | 形态 | 结果 |
+|------|--------------------------|------|------|
+| M1 | :719 `REL_NEED_REBALANCE`→`REL_EFFECTIVE`（评估无效⇒状态机翻转） | 判据字段翻转 | 红 1（TC-M4-18：④ 转 NOT_APPLICABLE ⇒ 批次误 ALL_PASS）——杀 ✅ |
+| M2 | :1789 `v.hedgePlanId = req.hedgePlanId`→`= null`（凭证↔计划断链） | 关联断链 | 红 1（TC-M4-17：hedge_plan_id 读回 null ⇒ NPE 于件④追溯断言）——杀 ✅ |
+| M3 | :1800 `v.pendingExternalReview = "Y"`→`"N"`（标注移除） | 红线标注 | 红 5（全链：DB CHECK 拒凭证写入 ⇒ buildChain 失败）——杀 ✅ |
+
+每次变异均 `mvn -B -o clean test -Dtest=M4DocPackageCas24SelfcheckTest`（clean 重编译主源——
+surefire:test 不重编译判例）；结束后 `AcctService.java` md5 复位核对一致（`cbb8d2b3…`），
+随后全量 clean 重建 1213 绿收尾。
+
+### §T085-4 缺陷清单
+
+| 编号 | 优先级 | 状态 | 对应用例 | 摘要 |
+|------|--------|------|---------|------|
+| BUG-004 | P1 | NEW（工单已投 `backend-engineer#java2`） | TC-M4-19 | 有效性评估记录/再平衡记录缺「待外部复核」标注承载列（R-ACCT-10 四类文档实测 2/4）；缺口在 DATA_MODEL/DDL 设计层，实现与 DATA_MODEL 一致——修复方案（增列 vs 口径降级）待开发/权威席裁定 |
+
+### §T085-5 缺口与诚实披露（单列，不冒充）
+
+1. **端点级缺口（派单已知，非本单新发现）**：`/acct/selfcheck`、`/acct/export` REST 未注册
+   （`AcctRoutes.java:10` 注释明示归后续交付）；`AcctService` 无自检方法。本单 CAS 24 自检以
+   **装配级承载**：判定逻辑按 FR-ACCT-14 处理规则在测试内逐条执行（证据取自各真实表行），
+   经**生产 DAO**（DmCas24SelfcheckDao/DmCas24SelfcheckItemDao，T-076 交付面）落批次与条目，
+   并实证其查询面（findByScope/findByCodeAndResult）。**端点级证据未产出，不以进程内断言冒充**。
+2. **自检判定归属披露**：五条判定逻辑当前仅存在于测试装配级（生产侧无执行体）⇒ 端点交付时
+   须将判定逻辑产品化（本单条目可作为验收基线）。
+3. **M2 交易段边界**：TC-M4-17 前置「M2 冒烟数据」以生产形态 `t_settle_pnl` 行（期货品种 1 +
+   期权品种 2，经绑定敞口可追溯至子账户与计划）承载 ACCT 段输入；交易→结算段（下单→成交→
+   日终→结算单）由 `M2EndToEndAcceptanceTest` §10-1 覆盖，本单不重复。
+4. **引擎口径**：等价引擎 CHECK 求值在 **INSERT** 路径；UPDATE 路径不求值 CHECK（与
+   `M4AcctDaoMappingAndWriteTest` 同口径披露）——TC-M4-19 的 DB 级负证因此取 INSERT 形态；
+   真实 DM8 两路径均强制，非产品缺陷。
+5. **DM8 实机未验**：本机无可达 DM8 实例，全部为等价引擎执行（T-058 以来一贯披露）。
+
+### §T085-6 门禁与度量
+
+- 全量：`cd java && mvn -B -o clean test` ⇒ **Tests run: 1213, Failures: 0, Errors: 0, Skipped: 0**
+  （基线 1208 + 本单新增 5；@Test==surefire 对账：新增类 5 个 @Test == surefire 5）。
+- 算术分解：1208（第 252 轮基线）+ 5（M4DocPackageCas24SelfcheckTest）= **1213** ✓。
+- `bash tools/arch-check/arch-check.sh` ⇒ **rc=0**（E1~E8 全 0；E5 首跑命中本类 1 处 SQL 字面量
+  ⇒ SQL 移入 dao.testsupport 夹具后复跑 rc0）。
+- 变异 3/3 全杀（§T085-3）。
+
+### §T085-7 未决项（只报不改）
+
+1. **BUG-004 处置路径**：增列（DATA_MODEL/DDL/服务/前端四层同步）vs 口径降级申报——须开发/权威席裁定（工单已投 java2）。
+2. **自检/导出端点化**（FR-ACCT-14 验收 4「可导出」/FR-ACCT-9）：端点未注册，后续单交付时以本单装配级条目为验收基线。
+3. **`t_dual_pnl_report.pending_external_review` CHECK 为 `IN ('Y','N')`**（m4_acct.sql:517，非恒 'Y'）：与 t_voucher/t_cas24_selfcheck 的恒 'Y' 口径不一致；服务侧恒写 'Y'（TC-M4-20① 实测），DB 级无恒 'Y' 保证——是否收紧属设计裁定，仅披露。
+4. **TC-M4-19「4/4」预期值改写**：BUG-004 修复后由修复方或复检方将行为固定探针改写为 4/4 断言（探针内已注明）。
+
+—— T-085 执行席 te-t085；待独立复核（本席不自评 DONE）。
