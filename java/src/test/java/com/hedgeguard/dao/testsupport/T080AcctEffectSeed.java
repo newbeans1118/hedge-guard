@@ -173,6 +173,19 @@ public final class T080AcctEffectSeed {
         exec(engine, "UPDATE t_settle_pnl SET product_id = ? WHERE id = ?", 1L, 9L);
     }
 
+    /**
+     * T-196 联动探针助手：DB 级摘除全部历史 UNATTRIBUTED 残余行（{@code missing_desc}
+     * 以 {@code UNATTRIBUTED} 前缀标注者为残余行；汇总行标注以「品种 …」开头 ⇒ 不命中）。
+     * 返回 affected（=命中数，T-196 订正后引擎语义）。
+     *
+     * <p><b>口径边界</b>：仅机制自证——生产侧「残余 0 值行 DB 保留 vs 摘除」仍为
+     * T-080 未决项⑤ 待权威席裁定，本助手不改变任何生产行为。
+     */
+    public static int deleteUnattributedResidualRows(InMemoryDmEngine engine) {
+        return exec(engine, "DELETE FROM t_hedge_effect WHERE missing_desc LIKE ?",
+                "UNATTRIBUTED%");
+    }
+
     // ------------------------------------------------------------------ 行级播种辅助
 
     private static void binding(InMemoryDmEngine engine, long id, int subAccountId,
@@ -209,14 +222,14 @@ public final class T080AcctEffectSeed {
                 LocalDateTime.of(2026, 9, 1, 9, 0), "Y", "N", "TON", operatorId, 1);
     }
 
-    /** 通用执行（测试夹具专用）。 */
-    public static void exec(InMemoryDmEngine engine, String sql, Object... args) {
+    /** 通用执行（测试夹具专用）；返回受影响行数。 */
+    public static int exec(InMemoryDmEngine engine, String sql, Object... args) {
         try (Connection conn = engine.create();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             for (int i = 0; i < args.length; i++) {
                 ps.setObject(i + 1, args[i]);
             }
-            ps.executeUpdate();
+            return ps.executeUpdate();
         } catch (Exception e) {
             throw new IllegalStateException("播种失败：" + e.getMessage(), e);
         }

@@ -442,6 +442,9 @@ public final class InMemoryDmEngine implements ConnectionFactory {
             Pattern.compile("(?is)^UPDATE\\s+(\\w+)\\s+SET\\s+(.*?)\\s+WHERE\\s+(.*)$");
     private static final Pattern DELETE =
             Pattern.compile("(?is)^DELETE\\s+FROM\\s+(\\w+)\\s+WHERE\\s+(.*)$");
+    /** 无条件 DELETE（T-196 增补）：SQL 语义 = 全表删除。 */
+    private static final Pattern DELETE_ALL =
+            Pattern.compile("(?is)^DELETE\\s+FROM\\s+(\\w+)\\s*$");
 
     private int executeUpdate(String sql, List<Object> args) throws SQLException {
         String s = normalize(sql);
@@ -537,6 +540,14 @@ public final class InMemoryDmEngine implements ConnectionFactory {
     }
 
     private int doDelete(String sql, List<Object> args) throws SQLException {
+        Matcher all = DELETE_ALL.matcher(sql);
+        if (all.matches()) {
+            // T-196 增补：无条件 DELETE FROM t —— SQL 语义 = 删除全表行。
+            Table table = requireTable(all.group(1));
+            int before = table.rows.size();
+            table.rows.clear();
+            return before;
+        }
         Matcher m = DELETE.matcher(sql);
         if (!m.matches()) {
             throw new UnsupportedOperationException("无法解析 DELETE：" + firstLine(sql));
@@ -544,8 +555,11 @@ public final class InMemoryDmEngine implements ConnectionFactory {
         Table table = requireTable(m.group(1));
         int[] argIndex = {0};
         Predicate where = parseWhere(collapse(m.group(2)), args, argIndex);
+        // T-196 订正：原实现 removeIf(row -> !where.test(row)) 谓词取反 ——
+        // 保留命中行、删除其余，与 SQL「DELETE ... WHERE cond 删命中行」相反。
+        // 订正为删除命中行、保留其余，affected = 命中数。
         int before = table.rows.size();
-        table.rows.removeIf(row -> !where.test(row));
+        table.rows.removeIf(where::test);
         return before - table.rows.size();
     }
 

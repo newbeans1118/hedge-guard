@@ -390,6 +390,28 @@ class AcctEffectServiceTest {
     }
 
     @Test
+    @DisplayName("T-196 联动评估：DB 级摘除历史 UNATTRIBUTED 行机制自证（affected=1 精确命中；摘除口径待 O-⑤ 裁定）")
+    void dbLevelRemovalMechanismProbe() {
+        T080AcctEffectSeed.unattributableSettlePnl(engine);   // 品种 3 −500 ⇒ 残余 ≠ 0
+        svc.evaluateEffect(1, "2026-10", 7L);
+        assertEquals(4, effectDao.findBySubAccountAndPeriod(1, "2026-10").size(),
+                "2 绑定 + 1 汇总 + 1 未关联（前置）");
+
+        // 引擎 DELETE 订正（T-196）后：DB 级摘除 UNATTRIBUTED 残余行 = 删命中行、affected=命中数。
+        // 摘要行同键（计划号 NULL）但标注以「品种 …」开头 ⇒ LIKE 'UNATTRIBUTED%' 不命中——精确摘除。
+        int removed = T080AcctEffectSeed.deleteUnattributedResidualRows(engine);
+        assertEquals(1, removed, "精确摘除 1 条 UNATTRIBUTED 残余行（affected=命中数）");
+
+        List<HedgeEffect> rows = effectDao.findBySubAccountAndPeriod(1, "2026-10");
+        assertEquals(3, rows.size(), "2 绑定 + 1 汇总（残余行已 DB 级摘除）");
+        assertFalse(rows.stream().anyMatch(AcctEffectServiceTest::isUnattributedRow),
+                "UNATTRIBUTED 行不存在");
+        // 非残余行不受影响：汇总行（同键 NULL）仍在
+        assertTrue(rows.stream().anyMatch(r -> r.hedgePlanId == null && r.exposureId == null),
+                "同键 NULL 的汇总行保留");
+    }
+
+    @Test
     @DisplayName("R-ACCT-12 口径单一：重复计算幂等（同键覆盖更新，不产生重复行）")
     void evaluateIsIdempotent() {
         svc.evaluateEffect(1, "2026-10", 7L);
