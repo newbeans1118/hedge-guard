@@ -301,6 +301,12 @@ class BindExposureHandlerTest {
             }
             return out;
         }
+
+        @Override
+        public List<HedgePlanExposure> findBySubAccounts(List<Integer> subAccountIds) {
+            // T-080 新增接口方法（编译强制补桩）：非本用例驱动面
+            throw com.hedgeguard.testsupport.FakeDao.unsupported("findBySubAccounts");
+        }
     }
 
     private static final class FakeExposureDao extends UnsupportedBaseDao<Exposure, Long>

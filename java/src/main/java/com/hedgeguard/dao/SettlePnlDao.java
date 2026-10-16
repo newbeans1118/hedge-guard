@@ -23,4 +23,16 @@ public interface SettlePnlDao extends BaseDao<SettlePnl, Long> {
      * @return 行（可能为空）
      */
     List<SettlePnl> findByTradeDate(LocalDate tradeDate);
+
+    /**
+     * 按交易日区间取某子账户的盈亏行（{@code T-080}：FR-ACCT-5/10 衍生品盈亏聚合取数——
+     * {@code CLOSE_REALIZED}=已实现、{@code FLOAT_UNREALIZED}=未实现；口径单一 R-ACCT-12：
+     * 效果评估与上报共用本方法，不在各处自行计算）。
+     *
+     * @param subAccountId 子账户
+     * @param from         起始交易日（含）
+     * @param to           截止交易日（含）
+     * @return 行（{@code trade_date} 升序，{@code id} 升序收官；可能为空）
+     */
+    List<SettlePnl> findBySubAccountAndDateRange(int subAccountId, LocalDate from, LocalDate to);
 }

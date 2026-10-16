@@ -30,4 +30,15 @@ public interface HedgePlanExposureDao extends BaseDao<HedgePlanExposure, Long> {
      * @return 绑定行列表（{@code status} 升序、{@code id} 升序）；无则空列表
      */
     List<HedgePlanExposure> findByExposure(long exposureId);
+
+    /**
+     * 按子账户集合取绑定行（{@code T-080}：FR-ACCT-5 效果评估敞口归集取数——
+     * 效果计算已先经服务层 {@code assertSubAccountWritable} 写面断言 / 读面断言，
+     * 传入集合即调用者授权范围，DAO 不再叠加 scope，与 {@link HedgeRelationDao#findBySubAccounts}
+     * 同姿态；{@code null} = 不过滤〔哨兵语义，跨账户只读路径〕）。
+     *
+     * @param subAccountIds 子账户集合（{@code null} = 全部）
+     * @return 绑定行列表（{@code id} 升序）
+     */
+    List<HedgePlanExposure> findBySubAccounts(List<Integer> subAccountIds);
 }

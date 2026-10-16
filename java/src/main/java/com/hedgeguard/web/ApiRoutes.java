@@ -168,8 +168,10 @@ public final class ApiRoutes {
         // T-078：再平衡面（/acct/rebalance 各 GET/POST，2 对）。
         // T-079：凭证与期间面（voucher GET/POST、voucher/{id}/review POST、voucher/{id}/reverse
         // POST、period GET/POST、period/{id}/close POST，7 对）。
-        // 路径逐字取自本类 ACCT 路径级声明；其余 4 条已声明路径归 T-080（effect/dual-pnl/
-        // selfcheck/export）交付。
+        // T-080：效果评估与双侧盈亏上报面（/acct/effect GET/POST、/acct/report/dual-pnl
+        // GET/POST，4 对 → 共 17 对）。
+        // 路径逐字取自本类 ACCT 路径级声明；其余 2 条已声明路径（selfcheck/export）归后续
+        // FR-ACCT-14/FR-ACCT-9 单交付，本单不注册。
         BY_MODULE_ROUTES.put("ACCT", Arrays.asList(
                 "GET /acct/hedge-relation", "POST /acct/hedge-relation",
                 "GET /acct/effectiveness", "POST /acct/effectiveness",
@@ -177,7 +179,9 @@ public final class ApiRoutes {
                 "GET /acct/voucher", "POST /acct/voucher",
                 "POST /acct/voucher/{id}/review", "POST /acct/voucher/{id}/reverse",
                 "GET /acct/period", "POST /acct/period",
-                "POST /acct/period/{id}/close"));
+                "POST /acct/period/{id}/close",
+                "GET /acct/effect", "POST /acct/effect",
+                "GET /acct/report/dual-pnl", "POST /acct/report/dual-pnl"));
         BY_MODULE_ROUTES.put("AUTH", Arrays.asList(
                 "POST /auth/login", "POST /auth/logout",
                 "GET /auth/user", "POST /auth/user", "PUT /auth/user",

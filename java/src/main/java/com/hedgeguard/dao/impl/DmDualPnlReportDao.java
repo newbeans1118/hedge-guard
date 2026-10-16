@@ -121,4 +121,27 @@ public final class DmDualPnlReportDao extends AbstractDmDao<DualPnlReport, Long>
                 + " WHERE report_period = ? AND report_type = ? ORDER BY submitted_time ASC, id ASC";
         return queryList(sql, Arrays.asList(reportPeriod, reportType), this::mapRow);
     }
+
+    @Override
+    public List<DualPnlReport> findBySubAccountAndPeriod(int subAccountId, String reportPeriod) {
+        // idx_dual_pnl_sub_period 承载；汇总行（sub_account_id IS NULL）不在此列
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE sub_account_id = ? AND report_period = ?"
+                + " ORDER BY submitted_time ASC, id ASC";
+        return queryList(sql, Arrays.asList(subAccountId, reportPeriod), this::mapRow);
+    }
+
+    @Override
+    public String findMaxReportNoByPrefix(String reportNoPrefix) {
+        String sql = "SELECT report_no FROM " + tableName() + " WHERE report_no LIKE ?";
+        List<String> nos = queryList(sql, Arrays.asList(reportNoPrefix + "%"),
+                rs -> rs.getString("report_no"));
+        String max = null;
+        for (String no : nos) {
+            if (no != null && (max == null || no.compareTo(max) > 0)) {
+                max = no;
+            }
+        }
+        return max;
+    }
 }

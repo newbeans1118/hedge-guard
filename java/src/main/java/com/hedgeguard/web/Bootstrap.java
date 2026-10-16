@@ -45,7 +45,9 @@ import com.hedgeguard.dao.impl.DmExposureDao;
 import com.hedgeguard.dao.impl.DmRebalanceRecordDao;
 import com.hedgeguard.dao.impl.DmAuthorizationDao;
 import com.hedgeguard.dao.impl.DmExposureDetailDao;
+import com.hedgeguard.dao.impl.DmDualPnlReportDao;
 import com.hedgeguard.dao.impl.DmHedgeDocDao;
+import com.hedgeguard.dao.impl.DmHedgeEffectDao;
 import com.hedgeguard.dao.impl.DmHedgePlanDao;
 import com.hedgeguard.dao.impl.DmHedgeRelationDao;
 import com.hedgeguard.dao.impl.DmEffectivenessAssessDao;
@@ -573,11 +575,12 @@ public final class Bootstrap {
                 new DmFundQuotaDao(tx), new DmFundQuotaAlertDao(tx), new DmFundReconcileDao(tx));
         FundRoutes.register(router, fundService);
 
-        // M4 套期会计服务（T-077 首批 + T-078 再平衡 + T-079 凭证/期间）：套期关系生成
-        // （CAS 24 三要素门禁 R-ACCT-1）+ 有效性评估（三项定性观察点 R-ACCT-2/Q-7；量化监测
-        // CFG-07b 仅提示不判定）+ 再平衡（四类触发 Q-8；重新指定 R-ACCT-3，CFG-08 双阈值）+
+        // M4 套期会计服务（T-077 首批 + T-078 再平衡 + T-079 凭证/期间 + T-080 效果/上报）：
+        // 套期关系生成（CAS 24 三要素门禁 R-ACCT-1）+ 有效性评估（三项定性观察点 R-ACCT-2/Q-7；
+        // 量化监测 CFG-07b 仅提示不判定）+ 再平衡（四类触发 Q-8；重新指定 R-ACCT-3，CFG-08 双阈值）+
         // 凭证草稿/审核/冲销（FR-ACCT-6/7/13；DRAFT_ONLY 不做总账过账 CFG-09）+ 期间关账
-        // （三前置 + 双人复核 R-ACCT-8；FR-ACCT-12）。
+        // （三前置 + 双人复核 R-ACCT-8；FR-ACCT-12）+ 套保效果综合评估与双侧盈亏上报
+        // （FR-ACCT-5/10；R-ACCT-4 双侧同屏/同时上报，R-ACCT-9 Q-12 三态，R-ACCT-12 口径单一）。
         // CFG-07/07b/08/09 经 ConfigService 惰性读取（缺种子容错缺省）。
         AcctService acctService = new AcctService(tx, authService,
                 key -> {
@@ -589,18 +592,23 @@ public final class Bootstrap {
                 new DmRebalanceRecordDao(tx), exposureDao,
                 new DmVoucherDao(tx), new DmVoucherLineDao(tx), new DmVoucherReviewDao(tx),
                 new DmAccountingPeriodDao(tx), new DmPeriodCloseLogDao(tx),
-                new DmSettleCycleDao(tx), new DmAccountSubjectDao(tx));
+                new DmSettleCycleDao(tx), new DmAccountSubjectDao(tx),
+                new DmHedgeEffectDao(tx), new DmDualPnlReportDao(tx),
+                new DmHedgePlanExposureDao(tx), new DmSettlePnlDao(tx), new DmSpotPriceDao(tx));
         AcctRoutes.register(router, acctService);
-        LOG.info("已装配套期会计面（T-077/T-078/T-079）：GET|POST /api/v1/acct/hedge-relation、"
+        LOG.info("已装配套期会计面（T-077/T-078/T-079/T-080）：GET|POST /api/v1/acct/hedge-relation、"
                 + "GET|POST /api/v1/acct/effectiveness、GET|POST /api/v1/acct/rebalance、"
                 + "GET|POST /api/v1/acct/voucher、POST /api/v1/acct/voucher/{id}/review、"
                 + "POST /api/v1/acct/voucher/{id}/reverse、GET|POST /api/v1/acct/period、"
-                + "POST /api/v1/acct/period/{id}/close；"
+                + "POST /api/v1/acct/period/{id}/close、GET|POST /api/v1/acct/effect、"
+                + "GET|POST /api/v1/acct/report/dual-pnl；"
                 + "三要素门禁=R-ACCT-1；有效性=三项定性观察点（CFG-07），量化监测（CFG-07b）"
                 + "仅提示不判定；再平衡=四类触发（CFG-08 敞口/工具侧双阈值），"
                 + "重新指定=R-ACCT-3（新文档+新关系+记录，整笔事务）；"
                 + "凭证=DRAFT_ONLY 不做总账过账（CFG-09），审核岗位分离 R-ACCT-6，"
-                + "冲销双人复核 DC-032；期间关账=三前置+双人复核 R-ACCT-8");
+                + "冲销双人复核 DC-032；期间关账=三前置+双人复核 R-ACCT-8；"
+                + "效果/上报=双侧盈亏同屏（R-ACCT-4），缺价三态标注（R-ACCT-9 Q-12），"
+                + "口径单一（R-ACCT-12）");
 
         // M3 风控阈值配置与下发闭环（T-063）：t_risk_threshold 配置 + 合规下限 + CMD_UPDATE_RISK_THRESHOLD 下发。
         // 复用既有 ParamDispatchService 下发通道（T-011）与 t_config_change_log 留痕（双人复核）。

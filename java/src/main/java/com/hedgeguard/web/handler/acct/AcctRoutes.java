@@ -5,8 +5,9 @@ import com.hedgeguard.web.Router;
 
 /**
  * {@code ACCT} 模块路由注册（{@code T-077} 建键 4 对；{@code T-078} 增再平衡 2 对；
- * {@code T-079} 增凭证/期间 7 对；路径逐字取自 {@code ApiRoutes.byModule().get("ACCT")}，
- * 其余 4 条路径（effect/dual-pnl/selfcheck/export）归 T-080 交付）。
+ * {@code T-079} 增凭证/期间 7 对；{@code T-080} 增效果评估/双侧盈亏上报 4 对 ⇒ 共 17 对；
+ * 路径逐字取自 {@code ApiRoutes.byModule().get("ACCT")}，其余 2 条路径
+ * （selfcheck/export）归后续 FR-ACCT-14/FR-ACCT-9 单交付）。
  *
  * <pre>
  *   GET  /api/v1/acct/hedge-relation        套期关系分页查询（FR-ACCT-1）
@@ -22,6 +23,10 @@ import com.hedgeguard.web.Router;
  *   GET  /api/v1/acct/period                期间分页 / 关账历史（periodKey 参数）
  *   POST /api/v1/acct/period                创建开放期间（关账动作载体）
  *   POST /api/v1/acct/period/{id}/close     关账/撤销关账（三前置 + 双人复核 R-ACCT-8；FR-ACCT-12）
+ *   GET  /api/v1/acct/effect                套保效果视图（同屏双栏 + 汇总/明细；FR-ACCT-5）
+ *   POST /api/v1/acct/effect                计算套保效果（双侧盈亏 + Q-12 三态；FR-ACCT-5）
+ *   GET  /api/v1/acct/report/dual-pnl       双侧盈亏上报记录查询（留痕三件；FR-ACCT-10）
+ *   POST /api/v1/acct/report/dual-pnl       提交双侧盈亏上报（两栏恒在 R-ACCT-4；FR-ACCT-10）
  * </pre>
  *
  * <p><b>注册序约束（{@code BUG-004}）</b>：占位符路由（voucher/{id}/review 等）在
@@ -33,7 +38,8 @@ public final class AcctRoutes {
     }
 
     /**
-     * 注册 {@code ACCT} 模块路由（T-077 的 4 对 + T-078 再平衡 2 对 + T-079 凭证/期间 7 对）。
+     * 注册 {@code ACCT} 模块路由（T-077 的 4 对 + T-078 再平衡 2 对 + T-079 凭证/期间 7 对
+     * + T-080 效果/上报 4 对 = 17 对）。
      *
      * @param router      路由
      * @param acctService 套期会计服务
@@ -54,5 +60,10 @@ public final class AcctRoutes {
         router.register("GET", VoucherPeriodHandler.PATH, new VoucherPeriodHandler(acctService));
         router.register("POST", VoucherPeriodHandler.PATH, new VoucherPeriodHandler(acctService));
         router.register("POST", PeriodCloseHandler.PATH, new PeriodCloseHandler(acctService));
+        // T-080：效果评估与双侧盈亏上报面（4 对；GET|POST 各一路径，同一 handler 分流）。
+        router.register("GET", EffectHandler.PATH, new EffectHandler(acctService));
+        router.register("POST", EffectHandler.PATH, new EffectHandler(acctService));
+        router.register("GET", DualPnlReportHandler.PATH, new DualPnlReportHandler(acctService));
+        router.register("POST", DualPnlReportHandler.PATH, new DualPnlReportHandler(acctService));
     }
 }

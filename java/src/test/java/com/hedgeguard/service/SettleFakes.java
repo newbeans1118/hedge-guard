@@ -202,6 +202,13 @@ final class SettleFakes {
             }
             return out;
         }
+
+        @Override
+        public List<SettlePnl> findBySubAccountAndDateRange(int subAccountId, LocalDate from,
+                                                            LocalDate to) {
+            // T-080 新增接口方法（编译强制补桩）：非本用例驱动面
+            throw com.hedgeguard.testsupport.FakeDao.unsupported("findBySubAccountAndDateRange");
+        }
     }
 
     static final class CtpBatches extends Base<SettleCtpBatch> implements SettleCtpBatchDao {

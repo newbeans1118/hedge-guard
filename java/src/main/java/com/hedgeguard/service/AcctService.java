@@ -3,15 +3,20 @@ package com.hedgeguard.service;
 import com.hedgeguard.common.Clocks;
 import com.hedgeguard.dao.AccountSubjectDao;
 import com.hedgeguard.dao.BizNoGenerator;
+import com.hedgeguard.dao.DualPnlReportDao;
 import com.hedgeguard.dao.EffectivenessAssessDao;
 import com.hedgeguard.dao.ExposureDao;
 import com.hedgeguard.dao.HedgeDocDao;
+import com.hedgeguard.dao.HedgeEffectDao;
 import com.hedgeguard.dao.HedgePlanDao;
+import com.hedgeguard.dao.HedgePlanExposureDao;
 import com.hedgeguard.dao.HedgeRelationDao;
 import com.hedgeguard.dao.PageQuery;
 import com.hedgeguard.dao.PageResult;
 import com.hedgeguard.dao.RebalanceRecordDao;
 import com.hedgeguard.dao.SettleCycleDao;
+import com.hedgeguard.dao.SettlePnlDao;
+import com.hedgeguard.dao.SpotPriceDao;
 import com.hedgeguard.dao.SubAccountScope;
 import com.hedgeguard.dao.VoucherDao;
 import com.hedgeguard.dao.VoucherLineDao;
@@ -20,14 +25,19 @@ import com.hedgeguard.dao.AccountingPeriodDao;
 import com.hedgeguard.dao.PeriodCloseLogDao;
 import com.hedgeguard.dao.entity.AccountSubject;
 import com.hedgeguard.dao.entity.AccountingPeriod;
+import com.hedgeguard.dao.entity.DualPnlReport;
 import com.hedgeguard.dao.entity.EffectivenessAssess;
 import com.hedgeguard.dao.entity.Exposure;
 import com.hedgeguard.dao.entity.HedgeDoc;
+import com.hedgeguard.dao.entity.HedgeEffect;
 import com.hedgeguard.dao.entity.HedgePlan;
+import com.hedgeguard.dao.entity.HedgePlanExposure;
 import com.hedgeguard.dao.entity.HedgeRelation;
 import com.hedgeguard.dao.entity.PeriodCloseLog;
 import com.hedgeguard.dao.entity.RebalanceRecord;
 import com.hedgeguard.dao.entity.SettleCycle;
+import com.hedgeguard.dao.entity.SettlePnl;
+import com.hedgeguard.dao.entity.SpotPrice;
 import com.hedgeguard.dao.entity.Voucher;
 import com.hedgeguard.dao.entity.VoucherLine;
 import com.hedgeguard.dao.entity.VoucherReview;
@@ -39,11 +49,14 @@ import com.hedgeguard.web.JsonCodec;
 import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.logging.Logger;
@@ -214,6 +227,33 @@ public final class AcctService {
     /** 草稿标注（Q-9：凭证为草稿不做总账过账，须标注「待企业财务复核入账」；随视图透出）。 */
     public static final String DRAFT_PENDING_ENTRY_NOTE = "待企业财务复核入账";
 
+    // ---------------------------------------------------------------- 效果评估与上报（T-080；§3.5 形态同源）
+
+    /** 上报编号前缀（{@code report_no} 全系统唯一；DATA_MODEL §3.5 未列 ⇒ 本服务定义并在回执披露）。 */
+    public static final String DUAL_PNL_NO_PREFIX = "DR";
+
+    /** 上报编号序号定长（4 位；与 HR/RB 同形态，{@code VARCHAR(32)} 容量充足）。 */
+    public static final int DUAL_PNL_NO_SEQ_WIDTH = 4;
+
+    /** 上报类型：月度（ck_t_dual_pnl_report_type）。 */
+    public static final String REPORT_TYPE_MONTHLY = "MONTHLY";
+    /** 上报类型：季度。 */
+    public static final String REPORT_TYPE_QUARTERLY = "QUARTERLY";
+    /** 上报类型：年度。 */
+    public static final String REPORT_TYPE_ANNUAL = "ANNUAL";
+
+    /** 衍生品盈亏（已实现-平仓）数据源行类型（SettleService.PNL_TYPE_CLOSE_REALIZED 同值；口径单一）。 */
+    public static final String PNL_SOURCE_CLOSE_REALIZED = "CLOSE_REALIZED";
+    /** 衍生品盈亏（未实现-浮动）数据源行类型（SettleService.PNL_TYPE_FLOAT_UNREALIZED 同值；口径单一）。 */
+    public static final String PNL_SOURCE_FLOAT_UNREALIZED = "FLOAT_UNREALIZED";
+
+    /** 效果行价态：当日价（non_current_price_flag='N'；FR-ACCT-5 验收 3 三态①）。 */
+    public static final String PRICE_STATE_CURRENT = "CURRENT";
+    /** 效果行价态：最近一期价非当日（price_as_of 必带 + non_current_price_flag='Y'；三态②）。 */
+    public static final String PRICE_STATE_CARRY_FORWARD = "CARRY_FORWARD_LABELED";
+    /** 效果行价态：无任何历史价（spot_price_missing='Y' + missing_desc 必填；三态③，R-ACCT-4 不省略栏位）。 */
+    public static final String PRICE_STATE_MISSING = "MISSING";
+
     private final TxTemplate tx;
     private final SubAccountVisibility visibility;
     private final ConfigReader config;
@@ -230,6 +270,12 @@ public final class AcctService {
     private final PeriodCloseLogDao periodCloseLogDao;
     private final SettleCycleDao settleCycleDao;
     private final AccountSubjectDao subjectDao;
+    // T-080 效果评估与上报依赖（可空接缝：未装配时写路径拒绝，读取面可用）
+    private final HedgeEffectDao hedgeEffectDao;
+    private final DualPnlReportDao dualPnlReportDao;
+    private final HedgePlanExposureDao planExposureDao;
+    private final SettlePnlDao settlePnlDao;
+    private final SpotPriceDao spotPriceDao;
 
     /**
      * 构造（T-077 七参形态保留；再平衡依赖经 {@link #withRebalanceSupport} 注入——
@@ -261,7 +307,8 @@ public final class AcctService {
                        HedgeRelationDao hedgeRelationDao, EffectivenessAssessDao assessDao,
                        RebalanceRecordDao rebalanceDao, ExposureDao exposureDao) {
         this(tx, visibility, config, hedgePlanDao, hedgeDocDao, hedgeRelationDao, assessDao,
-                rebalanceDao, exposureDao, null, null, null, null, null, null, null);
+                rebalanceDao, exposureDao, null, null, null, null, null, null, null,
+                null, null, null, null, null);
     }
 
     /**
@@ -283,6 +330,34 @@ public final class AcctService {
                        VoucherReviewDao voucherReviewDao, AccountingPeriodDao periodDao,
                        PeriodCloseLogDao periodCloseLogDao, SettleCycleDao settleCycleDao,
                        AccountSubjectDao subjectDao) {
+        this(tx, visibility, config, hedgePlanDao, hedgeDocDao, hedgeRelationDao, assessDao,
+                rebalanceDao, exposureDao, voucherDao, voucherLineDao, voucherReviewDao,
+                periodDao, periodCloseLogDao, settleCycleDao, subjectDao,
+                null, null, null, null, null);
+    }
+
+    /**
+     * 全参构造（{@code T-080} 效果评估与上报写路径；效果依赖齐备才启用
+     * {@link #evaluateEffect} / {@link #submitDualPnlReport}）。
+     *
+     * @param hedgeEffectDao  套保效果 DAO（{@code t_hedge_effect} 写入；T-076 交付面承接）
+     * @param dualPnlReportDao 双侧盈亏上报 DAO（{@code t_dual_pnl_report} 写入——
+     *                        te-verify-t078 披露「生产零写入方」的本单激活点）
+     * @param planExposureDao 计划-敞口绑定 DAO（敞口归集取数：计划 ↔ 敞口关联）
+     * @param settlePnlDao    结算盈亏 DAO（衍生品盈亏聚合数据源；口径单一 R-ACCT-12）
+     * @param spotPriceDao    现货价 DAO（实货盈亏价格数据源；R-ACCT-9 估值用途沿最近一期）
+     */
+    public AcctService(TxTemplate tx, SubAccountVisibility visibility, ConfigReader config,
+                       HedgePlanDao hedgePlanDao, HedgeDocDao hedgeDocDao,
+                       HedgeRelationDao hedgeRelationDao, EffectivenessAssessDao assessDao,
+                       RebalanceRecordDao rebalanceDao, ExposureDao exposureDao,
+                       VoucherDao voucherDao, VoucherLineDao voucherLineDao,
+                       VoucherReviewDao voucherReviewDao, AccountingPeriodDao periodDao,
+                       PeriodCloseLogDao periodCloseLogDao, SettleCycleDao settleCycleDao,
+                       AccountSubjectDao subjectDao,
+                       HedgeEffectDao hedgeEffectDao, DualPnlReportDao dualPnlReportDao,
+                       HedgePlanExposureDao planExposureDao, SettlePnlDao settlePnlDao,
+                       SpotPriceDao spotPriceDao) {
         this.tx = tx;
         this.visibility = visibility;
         this.config = config;
@@ -299,6 +374,11 @@ public final class AcctService {
         this.periodCloseLogDao = periodCloseLogDao;
         this.settleCycleDao = settleCycleDao;
         this.subjectDao = subjectDao;
+        this.hedgeEffectDao = hedgeEffectDao;
+        this.dualPnlReportDao = dualPnlReportDao;
+        this.planExposureDao = planExposureDao;
+        this.settlePnlDao = settlePnlDao;
+        this.spotPriceDao = spotPriceDao;
     }
 
     /**
@@ -319,6 +399,16 @@ public final class AcctService {
         return voucherDao != null && voucherLineDao != null && voucherReviewDao != null
                 && periodDao != null && periodCloseLogDao != null
                 && settleCycleDao != null && subjectDao != null;
+    }
+
+    /**
+     * 效果评估依赖注解视图（回执披露用）：效果/上报写路径是否已装配齐（廿一参构造）。
+     *
+     * @return {@code true} = 效果五件依赖均已注入
+     */
+    public boolean effectSupported() {
+        return hedgeEffectDao != null && dualPnlReportDao != null && planExposureDao != null
+                && settlePnlDao != null && spotPriceDao != null;
     }
 
     /** 配置读取接缝（避免直接依赖 CONFIG 模块；FundService.ConfigReader 同形）。 */
@@ -2583,5 +2673,802 @@ public final class AcctService {
         public List<VoucherLine> lines;
         /** 审核链（node_seq 升序）。 */
         public List<VoucherReview> reviews;
+    }
+
+    // ================================================================ 六、套保效果综合评估与双侧盈亏上报（FR-ACCT-5/10；T-080）
+
+    /**
+     * 计算套保效果（双侧盈亏，{@code FR-ACCT-5}；{@code R-ACCT-4} 17 号文红线 + {@code R-ACCT-9}
+     * Q-12 三态 + {@code R-ACCT-12} 口径单一）。
+     *
+     * <p><b>计算口径（权威原文出处，回执披露）</b>：
+     * <ul>
+     *   <li><b>实货盈亏</b>（FR-ACCT-5 处理规则：「实货盈亏基于实货敞口 + 已录入现货价」）=
+     *       敞口数量 × 所用现货价（<b>敞口估值口径</b>，与 {@code SpotService} 的
+     *       {@code exposure_amount = exposure_qty × spot_price} 同源；本系统实货侧无独立
+     *       「建仓/基准价」台账 ⇒ 无法构造 {@code (计算日价 − 基准价)} 型差额，故以敞口
+     *       估值承载实货盈亏，回执列为请裁项）。价格取数 = {@link SpotPriceDao#findGlobalPrice}
+     *       （当日共享价）→ 缺当日价时 {@link SpotPriceDao#findLatestOnOrBefore}（沿最近一期，
+     *       {@code price_as_of} 必带 + {@code non_current_price_flag='Y'}「非当日价」标注，
+     *       CFG-12 {@code gap_valuation=CARRY_FORWARD_LABELED} 语义）→ 连历史价也无 ⇒
+     *       {@code spot_price_missing='Y'} + {@code missing_desc} 必填（实货列 NULL，
+     *       <b>栏位不省略</b>——R-ACCT-4「保留栏位并标注」）。衍生品盈亏行<b>照常计算</b>
+     *       （不因实货缺价而省略一侧，R-ACCT-4「禁止只报一侧」）。</li>
+     *   <li><b>衍生品盈亏（已实现/未实现）</b>（FR-ACCT-5 处理规则：「衍生品盈亏按已实现/未实现
+     *       分别展示」+ FR-ACCT-11 验收 3 期权浮动盈亏纳入综合评估 + R-ACCT-7 期权与期货共用）=
+     *       {@code t_settle_pnl} 期间内 {@code CLOSE_REALIZED}（已实现-平仓）与
+     *       {@code FLOAT_UNREALIZED}（未实现-浮动，<b>含期权</b>——结算转录不分工具类型，
+     *       R-ACCT-7 同链同口径）按子账户求和。数据源唯一（R-ACCT-12 口径单一：
+     *       效果评估与上报共用 {@link #aggregateDerivativePnl}，各处不自算）。</li>
+     *   <li><b>净效果</b>（FR-ACCT-5：「综合评判须给出净效果（两侧合计）」）=
+     *       spot_pnl_total + derivative_pnl_total（任一侧缺失按 0 参与——缺失侧语义见
+     *       spot_price_missing 标注，数值聚合以可计算侧承载）。</li>
+     *   <li><b>未对冲部分</b>（FR-ACCT-5：「明确展示未完全对冲的敞口部分」）=
+     *       敞口数量 − 该敞口被 BOUND 绑定的覆盖数量之和（{@code t_hedge_plan_exposure}），
+     *       下限 0；金额按所用现货价折算（无价时金额为 {@code null}）。</li>
+     * </ul>
+     *
+     * <p><b>幂等 + 口径单一</b>（R-ACCT-12）：同幂等键（{@code uk_hedge_effect_key}：期间 +
+     * 子账户 + 计划 + 敞口）重复计算 ⇒ 覆盖更新（重算落新值），不产生重复行——同一期间/子账户/
+     * 计划的盈亏只有一个口径来源。每敞口一行（{@code hedge_plan_id} 取其首条 BOUND 绑定的计划）；
+     * 另落一行子账户级汇总（{@code hedge_plan_id = NULL}，汇总 = 明细之和，FR-ACCT-5 验收 4）。
+     * <b>整笔 {@code tx.inTransaction} 包裹</b>（T-077-FIX TE-T077-001 判例）。
+     *
+     * @param subAccountId 子账户（必填；写面断言）
+     * @param periodKey    会计期间（yyyy-MM；期间止当日为实货盈亏计算日——期间未建行时按当月月末）
+     * @param operatorId   计算人（会话身份）
+     * @return 子账户级汇总行（含全部明细行经 DAO 落库；明细行数 = BOUND 敞口数）
+     */
+    public HedgeEffect evaluateEffect(int subAccountId, String periodKey, long operatorId) {
+        if (!effectSupported()) {
+            throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                    "效果评估依赖未装配（HedgeEffectDao/DualPnlReportDao/HedgePlanExposureDao"
+                            + "/SettlePnlDao/SpotPriceDao 缺失）；复现=以廿一参全参构造"
+                            + "装配 AcctService 后重试");
+        }
+        if (isBlank(periodKey)) {
+            throw BizException.of(ErrorCode.PARAM_INVALID, "periodKey 必填（会计期间，如 2026-09）");
+        }
+        String period = requirePeriodKey(periodKey);
+        visibility.assertSubAccountWritable(operatorId, subAccountId);
+        LocalDate calcDate = monthEnd(period);
+        return tx.inTransaction(conn -> doEvaluateEffect(subAccountId, period, calcDate, operatorId));
+    }
+
+    /** 效果计算主流程（事务内）。 */
+    private HedgeEffect doEvaluateEffect(int subAccountId, String period, LocalDate calcDate,
+                                         long operatorId) {
+        // 敞口归集：本子账户全部 BOUND 绑定行（计划↔敞口关联；无绑定 ⇒ 仅汇总行、双侧以数据面为准）
+        List<HedgePlanExposure> bindings = planExposureDao.findBySubAccounts(List.of(subAccountId));
+        List<HedgePlanExposure> bound = new ArrayList<>();
+        for (HedgePlanExposure b : bindings) {
+            if ("BOUND".equals(b.status)) {
+                bound.add(b);
+            }
+        }
+        List<HedgeEffect> details = new ArrayList<>();
+        for (HedgePlanExposure b : bound) {
+            HedgeEffect row = computeEffectRow(subAccountId, period, calcDate,
+                    b.hedgePlanId, b.exposureId, b.coveredQty, operatorId);
+            upsertEffect(row, operatorId);
+            details.add(row);
+        }
+        // 子账户级汇总行（hedge_plan_id=NULL；R-ACCT-4「两侧均须按子账户归集并可与汇总勾稽」）
+        HedgeEffect summary = computeEffectRow(subAccountId, period, calcDate, null, null,
+                null, operatorId);
+        upsertEffect(summary, operatorId);
+        return summary;
+    }
+
+    /** 单行效果计算（明细行：计划+敞口；汇总行：hedge_plan_id/exposureId/coveredQty 均为 null）。 */
+    private HedgeEffect computeEffectRow(int subAccountId, String period, LocalDate calcDate,
+                                         Long hedgePlanId, Long exposureId, BigDecimal coveredQty,
+                                         long operatorId) {
+        HedgeEffect e = new HedgeEffect();
+        e.subAccountId = subAccountId;
+        e.periodKey = period;
+        e.hedgePlanId = hedgePlanId;
+        e.exposureId = exposureId;
+
+        // —— 实货侧（明细行按敞口计；汇总行 = 本子账户各明细行之和）——
+        SpotPnlCalc spot = hedgePlanId == null
+                ? sumSpotPnl(subAccountId, period, calcDate)
+                : spotPnlForExposure(exposureId, calcDate, coveredQty);
+        e.spotPnlRealized = spot.realized;
+        e.spotPnlUnrealized = spot.unrealized;
+        e.spotPnlTotal = spot.total;
+        e.spotPriceMissing = spot.missing ? "Y" : "N";
+        e.missingDesc = spot.missingDesc;
+        e.priceAsOf = spot.priceAsOf;
+        e.nonCurrentPriceFlag = spot.nonCurrent ? "Y" : "N";
+
+        // —— 衍生品侧（明细行按计划归集取数；汇总行按子账户取数；R-ACCT-7 期权共用无分支）——
+        DerivativePnlCalc dp = hedgePlanId == null
+                ? aggregateDerivativePnl(subAccountId, monthStart(period), calcDate)
+                : aggregateDerivativePnlByPlan(hedgePlanId, subAccountId, monthStart(period), calcDate);
+        e.derivativePnlRealized = dp.realized;
+        e.derivativePnlUnrealized = dp.unrealized;
+        e.derivativePnlTotal = nz(dp.realized).add(nz(dp.unrealized));
+
+        // —— 净效果（两侧合计；缺失侧数值按 0 参与，缺失语义由 spot_price_missing 承载）——
+        e.netEffect = nz(e.spotPnlTotal).add(e.derivativePnlTotal);
+
+        // —— 未对冲部分（明细行=敞口量−BOUND 覆盖量之和；汇总行=各行之和）——
+        if (exposureId != null) {
+            BigDecimal unhedgedQty = unhedgedQtyOf(exposureId, coveredQty);
+            e.unhedgedQty = unhedgedQty;
+            e.unhedgedAmount = spot.priceUsed == null ? null
+                    : unhedgedQty.multiply(spot.priceUsed);
+            e.hedgedRatioActual = spot.exposureQty.signum() == 0 ? null
+                    : nz(coveredQty).divide(spot.exposureQty, 6, java.math.RoundingMode.HALF_UP);
+        } else {
+            BigDecimal qty = BigDecimal.ZERO;
+            BigDecimal amt = BigDecimal.ZERO;
+            boolean amountKnown = true;
+            for (HedgePlanExposure b : planExposureDao.findBySubAccounts(List.of(subAccountId))) {
+                if (!"BOUND".equals(b.status)) {
+                    continue;
+                }
+                BigDecimal u = unhedgedQtyOf(b.exposureId, b.coveredQty);
+                qty = qty.add(u);
+                SpotPrice p = latestPriceOfExposure(b.exposureId, calcDate);
+                if (p == null) {
+                    amountKnown = false;
+                } else {
+                    amt = amt.add(u.multiply(p.spotPrice));
+                }
+            }
+            e.unhedgedQty = qty;
+            e.unhedgedAmount = amountKnown ? amt : null;
+            e.hedgedRatioActual = null;
+        }
+
+        e.calcTime = Clocks.now();
+        e.spotPriceMissing = e.spotPriceMissing == null ? "N" : e.spotPriceMissing;
+        e.nonCurrentPriceFlag = e.nonCurrentPriceFlag == null ? "N" : e.nonCurrentPriceFlag;
+        return e;
+    }
+
+    /** 单敞口实货盈亏计算（Q-12/R-ACCT-9 三态：当日价 / 最近一期价+标注 / 无价+说明）。 */
+    private SpotPnlCalc spotPnlForExposure(long exposureId, LocalDate calcDate,
+                                           BigDecimal coveredQty) {
+        SpotPnlCalc c = new SpotPnlCalc();
+        Exposure ex = exposureDao.findById(exposureId);
+        if (ex == null) {
+            throw BizException.of(ErrorCode.REFERENCE_CONFLICT,
+                    "绑定敞口不存在：exposureId=" + exposureId
+                            + "；复现=核对 t_hedge_plan_exposure 绑定行");
+        }
+        c.exposureQty = ex.exposureQty;
+        SpotPrice current = spotPriceDao.findGlobalPrice(ex.productId, calcDate);
+        if (current != null) {
+            fillSpot(c, ex, current.spotPrice, calcDate, false, calcDate);
+            return c;
+        }
+        SpotPrice latest = spotPriceDao.findLatestOnOrBefore(ex.productId, calcDate);
+        if (latest != null) {
+            // 三态②：沿最近一期 + price_as_of 必带 + 非当日价标注（不得无标注静默替代）
+            fillSpot(c, ex, latest.spotPrice, latest.priceDate, true, latest.priceDate);
+            c.missingDesc = "品种 " + ex.productId + " " + calcDate
+                    + " 无当日价，沿用最近一期 " + latest.priceDate + "（非当日价标注，"
+                    + "gap_valuation=CARRY_FORWARD_LABELED）";
+            return c;
+        }
+        // 三态③：无任何历史价 ⇒ 实货列 NULL + 缺失说明（R-ACCT-4 栏位不省略）
+        c.missing = true;
+        c.missingDesc = "品种 " + ex.productId + " " + calcDate
+                + " 及此前均无已录入现货价（实货盈亏无法计算；缺失原因=无任何历史价格）";
+        return c;
+    }
+
+    /** 子账户级实货盈亏汇总（= 各 BOUND 敞口明细之和；FR-ACCT-5 验收 4 汇总恒等式）。 */
+    private SpotPnlCalc sumSpotPnl(int subAccountId, String period, LocalDate calcDate) {
+        SpotPnlCalc s = new SpotPnlCalc();
+        s.exposureQty = BigDecimal.ZERO;
+        BigDecimal realized = BigDecimal.ZERO;
+        BigDecimal unrealized = BigDecimal.ZERO;
+        boolean allMissing = true;
+        StringBuilder missingDescs = new StringBuilder();
+        LocalDate earliestAsOf = null;
+        boolean anyNonCurrent = false;
+        for (HedgePlanExposure b : planExposureDao.findBySubAccounts(List.of(subAccountId))) {
+            if (!"BOUND".equals(b.status)) {
+                continue;
+            }
+            SpotPnlCalc d = spotPnlForExposure(b.exposureId, calcDate, b.coveredQty);
+            s.exposureQty = s.exposureQty.add(nz(d.exposureQty));
+            if (d.missing) {
+                if (missingDescs.length() > 0) {
+                    missingDescs.append("；");
+                }
+                missingDescs.append(d.missingDesc);
+            } else {
+                allMissing = false;
+                realized = realized.add(nz(d.realized));
+                unrealized = unrealized.add(nz(d.unrealized));
+            }
+            if (d.priceAsOf != null
+                    && (earliestAsOf == null || d.priceAsOf.isBefore(earliestAsOf))) {
+                earliestAsOf = d.priceAsOf;
+            }
+            anyNonCurrent |= d.nonCurrent;
+        }
+        if (allMissing && missingDescs.length() > 0) {
+            s.missing = true;
+            s.missingDesc = missingDescs.toString();
+        } else {
+            s.realized = realized;
+            s.unrealized = unrealized;
+            s.total = realized.add(unrealized);
+            s.priceAsOf = anyNonCurrent ? earliestAsOf : null;
+            s.nonCurrent = anyNonCurrent;
+            if (anyNonCurrent) {
+                s.missingDesc = "汇总行任一敞口沿用最近一期价时按各明细 price_as_of 标注"
+                        + "（非当日价，Q-12）";
+            }
+        }
+        return s;
+    }
+
+    /** 衍生品盈亏聚合（按子账户 + 交易日区间；CLOSE_REALIZED=已实现 / FLOAT_UNREALIZED=未实现）。 */
+    private DerivativePnlCalc aggregateDerivativePnl(int subAccountId, LocalDate from, LocalDate to) {
+        DerivativePnlCalc c = new DerivativePnlCalc();
+        BigDecimal realized = BigDecimal.ZERO;
+        BigDecimal unrealized = BigDecimal.ZERO;
+        for (SettlePnl p : settlePnlDao.findBySubAccountAndDateRange(subAccountId, from, to)) {
+            if (PNL_SOURCE_CLOSE_REALIZED.equals(p.pnlType)) {
+                realized = realized.add(nz(p.amount));
+            } else if (PNL_SOURCE_FLOAT_UNREALIZED.equals(p.pnlType)) {
+                unrealized = unrealized.add(nz(p.amount));
+            }
+        }
+        c.realized = realized;
+        c.unrealized = unrealized;
+        return c;
+    }
+
+    /** 衍生品盈亏聚合（按套保计划：该计划名下结算盈亏行；t_settle_pnl.hedge_plan_id 归集）。 */
+    private DerivativePnlCalc aggregateDerivativePnlByPlan(long hedgePlanId, int subAccountId,
+                                                           LocalDate from, LocalDate to) {
+        DerivativePnlCalc c = new DerivativePnlCalc();
+        BigDecimal realized = BigDecimal.ZERO;
+        BigDecimal unrealized = BigDecimal.ZERO;
+        for (SettlePnl p : settlePnlDao.findBySubAccountAndDateRange(subAccountId, from, to)) {
+            if (!java.util.Objects.equals(hedgePlanId, p.hedgePlanId)) {
+                continue;
+            }
+            if (PNL_SOURCE_CLOSE_REALIZED.equals(p.pnlType)) {
+                realized = realized.add(nz(p.amount));
+            } else if (PNL_SOURCE_FLOAT_UNREALIZED.equals(p.pnlType)) {
+                unrealized = unrealized.add(nz(p.amount));
+            }
+        }
+        c.realized = realized;
+        c.unrealized = unrealized;
+        return c;
+    }
+
+    /** 未对冲数量 = 敞口数量 − BOUND 覆盖数量之和（下限 0；无敞口行 ⇒ 0）。 */
+    private BigDecimal unhedgedQtyOf(long exposureId, BigDecimal boundCoveredQty) {
+        Exposure ex = exposureDao.findById(exposureId);
+        if (ex == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal bound = BigDecimal.ZERO;
+        for (HedgePlanExposure b : planExposureDao.findByExposure(exposureId)) {
+            if ("BOUND".equals(b.status)) {
+                bound = bound.add(nz(b.coveredQty));
+            }
+        }
+        BigDecimal unhedged = nz(ex.exposureQty).subtract(bound);
+        return unhedged.max(BigDecimal.ZERO);
+    }
+
+    /** 敞口品种的最近一期价（无价 ⇒ null，金额侧标注不可计算）。 */
+    private SpotPrice latestPriceOfExposure(long exposureId, LocalDate calcDate) {
+        Exposure ex = exposureDao.findById(exposureId);
+        return ex == null ? null : spotPriceDao.findLatestOnOrBefore(ex.productId, calcDate);
+    }
+
+    /** 效果行幂等写入（uk_hedge_effect_key 命中 ⇒ 覆盖更新；否则插入——R-ACCT-12 口径单一）。 */
+    private void upsertEffect(HedgeEffect e, long operatorId) {
+        HedgeEffect existing = hedgeEffectDao.findByKey(e.subAccountId, e.periodKey,
+                e.hedgePlanId, e.exposureId);
+        if (existing == null) {
+            if (hedgeEffectDao.insert(e, operatorId) != 1) {
+                throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                        "套保效果行写入失败：periodKey=" + e.periodKey
+                                + " subAccountId=" + e.subAccountId);
+            }
+            return;
+        }
+        existing.spotPnlRealized = e.spotPnlRealized;
+        existing.spotPnlUnrealized = e.spotPnlUnrealized;
+        existing.spotPnlTotal = e.spotPnlTotal;
+        existing.derivativePnlRealized = e.derivativePnlRealized;
+        existing.derivativePnlUnrealized = e.derivativePnlUnrealized;
+        existing.derivativePnlTotal = e.derivativePnlTotal;
+        existing.netEffect = e.netEffect;
+        existing.unhedgedQty = e.unhedgedQty;
+        existing.unhedgedAmount = e.unhedgedAmount;
+        existing.hedgedRatioActual = e.hedgedRatioActual;
+        existing.spotPriceMissing = e.spotPriceMissing;
+        existing.missingDesc = e.missingDesc;
+        existing.priceAsOf = e.priceAsOf;
+        existing.nonCurrentPriceFlag = e.nonCurrentPriceFlag;
+        existing.calcTime = e.calcTime;
+        if (hedgeEffectDao.updateById(existing, operatorId) != 1) {
+            throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                    "套保效果行更新失败（乐观锁冲突或行消失）：id=" + existing.id
+                            + "；复现=重算后重试");
+        }
+    }
+
+    /**
+     * 套保效果查询（{@code GET /acct/effect}；{@code idx_hedge_effect_sub_period} 承载）。
+     *
+     * <p><b>同屏双栏结构</b>（FR-ACCT-5 验收 1 + R-ACCT-4）：返回项恒含
+     * {@code spotPnl*} 与 {@code derivativePnl*} 两组成对字段——实货侧缺失时实货值为
+     * {@code null} 并带 {@code spotPriceMissing='Y'} + {@code missingDesc}（栏位不省略），
+     * 衍生品侧照常返回。{@code summary}（子账户级汇总）与 {@code details}（逐敞口明细）
+     * 同响应返回，供「汇总 = 明细之和」勾稽（FR-ACCT-5 验收 4）。
+     *
+     * @param subAccountId 子账户（必填；读面断言）
+     * @param periodKey    会计期间（yyyy-MM）
+     * @param operatorId   调用者
+     * @return 汇总行 + 明细行（明细为空时为空列表——空态，非错误）
+     */
+    public Map<String, Object> getEffect(int subAccountId, String periodKey, long operatorId) {
+        if (!effectSupported()) {
+            throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                    "效果评估依赖未装配；复现=以廿一参全参构造装配 AcctService 后重试");
+        }
+        if (isBlank(periodKey)) {
+            throw BizException.of(ErrorCode.PARAM_INVALID, "periodKey 必填（会计期间，如 2026-09）");
+        }
+        String period = requirePeriodKey(periodKey);
+        visibility.assertSubAccountVisible(operatorId, subAccountId);
+        List<HedgeEffect> rows = hedgeEffectDao.findBySubAccountAndPeriod(subAccountId, period);
+        Map<String, Object> out = new LinkedHashMap<>();
+        HedgeEffect summary = null;
+        List<Map<String, Object>> details = new ArrayList<>();
+        for (HedgeEffect r : rows) {
+            if (r.hedgePlanId == null) {
+                summary = r;
+            } else {
+                details.add(effectView(r));
+            }
+        }
+        out.put("subAccountId", subAccountId);
+        out.put("periodKey", period);
+        out.put("summary", summary == null ? null : effectView(summary));
+        out.put("details", details);
+        out.put("pendingExternalReview", "Y"); // R-ACCT-10：效果数据亦属套期会计文档
+        return out;
+    }
+
+    /** 效果行视图（双侧成对字段 + 三态标注逐项透出，FR-ACCT-5 验收 2/3）。 */
+    public static Map<String, Object> effectView(HedgeEffect e) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", e.id);
+        m.put("subAccountId", e.subAccountId);
+        m.put("periodKey", e.periodKey);
+        m.put("hedgePlanId", e.hedgePlanId);
+        m.put("exposureId", e.exposureId);
+        // —— 实货栏（R-ACCT-4：栏位恒在；缺价时值为 null + 标注，不省略）——
+        m.put("spotPnlRealized", str(e.spotPnlRealized));
+        m.put("spotPnlUnrealized", str(e.spotPnlUnrealized));
+        m.put("spotPnlTotal", str(e.spotPnlTotal));
+        m.put("spotPriceMissing", e.spotPriceMissing);
+        m.put("missingDesc", e.missingDesc);
+        m.put("priceAsOf", e.priceAsOf == null ? null : e.priceAsOf.toString());
+        m.put("nonCurrentPriceFlag", e.nonCurrentPriceFlag);
+        // —— 衍生品栏（FR-ACCT-5 验收 2：已实现/未实现区分；R-ACCT-7 期权共用）——
+        m.put("derivativePnlRealized", str(e.derivativePnlRealized));
+        m.put("derivativePnlUnrealized", str(e.derivativePnlUnrealized));
+        m.put("derivativePnlTotal", str(e.derivativePnlTotal));
+        m.put("netEffect", str(e.netEffect));
+        m.put("unhedgedQty", str(e.unhedgedQty));
+        m.put("unhedgedAmount", str(e.unhedgedAmount));
+        m.put("hedgedRatioActual", e.hedgedRatioActual == null ? null
+                : e.hedgedRatioActual.toPlainString());
+        m.put("calcTime", e.calcTime == null ? null : e.calcTime.toString());
+        return m;
+    }
+
+    /**
+     * 提交双侧盈亏上报（{@code FR-ACCT-10}；{@code R-ACCT-4} 17 号文红线）。
+     *
+     * <p><b>口径与 FR-ACCT-5 一致</b>（验收 3 / R-ACCT-12 口径单一）：衍生品盈亏经
+     * {@link #aggregateDerivativePnl}（与效果评估同一聚合入口）；实货盈亏取该子账户当期
+     * 效果汇总行（{@code hedge_plan_id IS NULL}，须先经 {@link #evaluateEffect} 计算落库——
+     * 未计算 ⇒ {@code 10015} 提示先评估），效果汇总行缺失价标注（三态）随
+     * {@code dataCompletenessNote} 透出。<b>两栏恒在</b>：{@code spot_pnl_column_present}
+     * 恒 'Y'（DB CHECK 结构保证）；实货缺失时 {@code spot_pnl_value=NULL} +
+     * {@code spot_pnl_missing_reason} 必填（验收 2「不得省略栏位」）。
+     *
+     * <p><b>留痕</b>（验收 4）：{@code submitted_by}/{@code submitted_time}/{@code report_period}
+     * 三件齐落 {@code t_dual_pnl_report}（上报记录本体；te-verify-t078 披露「生产零写入方」
+     * 的本单激活点）。<b>取号</b>：{@code report_no} 全系统唯一（{@code uk_dual_pnl_report_no}），
+     * §3.5 未列形态 ⇒ 本服务定义 {@code DR<yyyyMMdd><seq(4)>}（编号含日期段、按业务日重置，
+     * 取「当日前缀内字典序最大 + 1」+ 3 次重试——T-137/T-141 判例前提此处成立）。
+     * <b>整笔事务包裹</b>（TE-T077-001 判例）。上报动作（推送监管）不在系统边界（工单边界④）。
+     *
+     * <p><b>汇总上报</b>（{@code subAccountId=null}）：按调用者<b>限写</b>子账户集（可见集剔除跨账户
+     * 只读哨兵 0）聚合各自当期汇总效果行——<b>写面门禁</b>要求至少一个限写子账户（跨账户只读
+     * 或空授权不得写，{@code T-115} / {@code NFR-SEC-7}）；无任何已评估子账户 ⇒ {@code 10015}。
+     *
+     * @param req        上报请求（子账户可空 = 汇总上报；期间与类型必填）
+     * @param operatorId 上报人
+     * @return 落库的上报记录
+     */
+    public DualPnlReport submitDualPnlReport(DualPnlReportRequest req, long operatorId) {
+        if (!effectSupported()) {
+            throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                    "效果评估依赖未装配；复现=以廿一参全参构造装配 AcctService 后重试");
+        }
+        if (req == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID, "上报请求不得为空");
+        }
+        if (isBlank(req.reportPeriod)) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "reportPeriod 必填（报告期间，如 2026-09）");
+        }
+        String period = requirePeriodKey(req.reportPeriod);
+        String type = requireReportType(req.reportType);
+        if (req.subAccountId != null) {
+            visibility.assertSubAccountWritable(operatorId, req.subAccountId);
+        } else if (writableSubAccounts(operatorId).isEmpty()) {
+            // 汇总上报写面门禁（T-115）：跨账户只读哨兵 0 / 空授权均不得写；且须至少一个
+            // 限写子账户作为归集范围（否则 "汇总" 无授权依据）。
+            throw BizException.of(ErrorCode.SUB_ACCOUNT_PERMISSION_DENIED,
+                    "汇总上报须至少一个限写子账户（跨账户只读或未授权不得写）：userId=" + operatorId
+                            + "；复现=由管理层授予限定（LIMITED）写授权"
+                            + "（NFR-SEC-7 / FR-AUTH-13 验收 3）");
+        }
+        return tx.inTransaction(conn -> doSubmitDualPnl(req, period, type, operatorId));
+    }
+
+    /** 调用者可限写的真实子账户集（可见集剔除跨账户只读哨兵 0；fail-closed）。 */
+    private List<Integer> writableSubAccounts(long operatorId) {
+        List<Integer> visible = visibility.visibleSubAccountIds(operatorId);
+        List<Integer> writable = new ArrayList<>();
+        if (visible != null) {
+            for (Integer id : visible) {
+                if (id != null && id != SubAccountScope.ALL_ACCOUNT_SENTINEL) {
+                    writable.add(id);
+                }
+            }
+        }
+        return writable;
+    }
+
+    /** 上报主流程（事务内）：两栏成对 + 留痕三件 + 取号重试。 */
+    private DualPnlReport doSubmitDualPnl(DualPnlReportRequest req, String period, String type,
+                                          long operatorId) {
+        DerivativePnlCalc dp;
+        final BigDecimal[] spotValueHolder = new BigDecimal[1];
+        final String[] spotMissingReasonHolder = new String[1];
+        StringBuilder completeness = new StringBuilder();
+        if (req.subAccountId == null) {
+            // 汇总上报（sub_account_id=NULL）：按调用者限写子账户集聚合各自的期间汇总效果行
+            // （R-ACCT-4「两侧均须按子账户归集并可与汇总勾稽」）。写面门禁已在
+            // submitDualPnlReport 以「至少一个限写子账户」强制（跨账户只读哨兵 0 不得写，T-115）。
+            dp = new DerivativePnlCalc();
+            dp.realized = BigDecimal.ZERO;
+            dp.unrealized = BigDecimal.ZERO;
+            BigDecimal spotSum = BigDecimal.ZERO;
+            StringBuilder missing = new StringBuilder();
+            boolean anySpot = false;
+            int covered = 0;
+            for (Integer sub : writableSubAccounts(operatorId)) {
+                HedgeEffect s = hedgeEffectDao.findByKey(sub, period, null, null);
+                if (s == null) {
+                    continue;
+                }
+                covered++;
+                dp.realized = dp.realized.add(nz(s.derivativePnlRealized));
+                dp.unrealized = dp.unrealized.add(nz(s.derivativePnlUnrealized));
+                if ("Y".equals(s.spotPriceMissing)) {
+                    if (missing.length() > 0) {
+                        missing.append("；");
+                    }
+                    missing.append("【子账户 ").append(sub).append("】")
+                            .append(s.missingDesc == null ? "实货盈亏无法计算" : s.missingDesc);
+                } else {
+                    anySpot = true;
+                    spotSum = spotSum.add(nz(s.spotPnlTotal));
+                }
+            }
+            if (covered == 0) {
+                throw BizException.of(ErrorCode.DATA_INSUFFICIENT,
+                        "无已计算套保效果的子账户可供汇总上报（FR-ACCT-10 验收 3 口径与 FR-ACCT-5 "
+                                + "一致，须先评估再上报）：periodKey=" + period
+                                + "；复现=先对相应子账户调用 POST /acct/effect 后重试");
+            }
+            if (missing.length() > 0) {
+                spotMissingReasonHolder[0] = missing.toString();
+            }
+            if (anySpot) {
+                spotValueHolder[0] = spotSum;
+                completeness.append("实货盈亏=各子账户当期汇总行之和（缺价子账户栏位不省略，"
+                        + "标注见 spotPnlMissingReason）；");
+            }
+            completeness.append("汇总上报（sub_account_id=NULL）：覆盖 ").append(covered)
+                    .append(" 个已评估子账户；");
+        } else {
+            dp = aggregateDerivativePnl(req.subAccountId, monthStart(period), monthEnd(period));
+            HedgeEffect summary = hedgeEffectDao.findByKey(req.subAccountId, period, null, null);
+            if (summary == null) {
+                throw BizException.of(ErrorCode.DATA_INSUFFICIENT,
+                        "该子账户该期间尚未计算套保效果（FR-ACCT-10 验收 3 口径与 FR-ACCT-5 一致，"
+                                + "须先评估再上报）：subAccountId=" + req.subAccountId
+                                + " periodKey=" + period
+                                + "；复现=先调用 POST /acct/effect 计算后重试");
+            }
+            if ("Y".equals(summary.spotPriceMissing)) {
+                spotMissingReasonHolder[0] = summary.missingDesc == null
+                        ? "实货盈亏无法计算（无任何已录入现货价，Q-12/R-ACCT-4）"
+                        : summary.missingDesc;
+            } else {
+                spotValueHolder[0] = summary.spotPnlTotal;
+                if ("Y".equals(summary.nonCurrentPriceFlag)) {
+                    completeness.append("实货盈亏使用非当日价（price_as_of=")
+                            .append(summary.priceAsOf).append("，Q-12 标注）；");
+                } else {
+                    completeness.append("实货盈亏使用当日价；");
+                }
+            }
+        }
+        final BigDecimal spotValue = spotValueHolder[0];
+        final String spotMissingReason = spotMissingReasonHolder[0];
+        completeness.append("衍生品盈亏数据源=t_settle_pnl（CLOSE_REALIZED=已实现/"
+                + "FLOAT_UNREALIZED=未实现，R-ACCT-12 口径单一）");
+        final String completenessNote = completeness.toString();
+
+        String[] candidateNo = new String[1];
+        java.util.concurrent.atomic.AtomicReference<DualPnlReport> holder =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        BizNoGenerator.retryOnUniqueConflict(RETRY_MAX_ATTEMPTS, () -> {
+            try {
+                DualPnlReport r = new DualPnlReport();
+                r.subAccountId = req.subAccountId;
+                candidateNo[0] = nextDualPnlNo();
+                r.reportNo = candidateNo[0];
+                r.reportPeriod = period;
+                r.reportType = type;
+                r.spotPnlColumnPresent = "Y";   // FR-ACCT-10 验收 2：栏位恒在（DB CHECK 承载）
+                r.spotPnlValue = spotValue;
+                r.spotPnlMissingReason = spotMissingReason;
+                r.derivativePnlValue = nz(dp.realized).add(nz(dp.unrealized));
+                r.derivativePnlRealized = dp.realized;
+                r.derivativePnlUnrealized = dp.unrealized;
+                r.netEffect = nz(spotValue).add(r.derivativePnlValue);
+                r.dataCompletenessNote = completenessNote;
+                r.submittedBy = operatorId;
+                r.submittedTime = Clocks.now();
+                r.pendingExternalReview = "Y"; // R-ACCT-10：恒 'Y'
+                if (dualPnlReportDao.insert(r, operatorId) != 1) {
+                    throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                            "上报记录写入失败：reportNo=" + r.reportNo);
+                }
+                holder.set(r);
+                return true;
+            } catch (IllegalStateException e) {
+                SQLException unique = uniqueViolationCause(e);
+                if (unique == null) {
+                    throw e;
+                }
+                String no = candidateNo[0];
+                if (no == null || dualPnlReportDao.findByReportNo(no) == null) {
+                    throw new IllegalStateException(
+                            "唯一约束冲突非上报编号（不重试）；复现=核对该事务其余唯一约束", e);
+                }
+                throw unique;
+            }
+        });
+        return holder.get();
+    }
+
+    /** 上报编号：{@code DR<yyyyMMdd><seq(4)>}（含日期段按业务日重置；当日前缀 max+1）。 */
+    private String nextDualPnlNo() {
+        String prefix = DUAL_PNL_NO_PREFIX
+                + Clocks.today().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
+        String max = dualPnlReportDao.findMaxReportNoByPrefix(prefix);
+        long next = 1L;
+        if (max != null && max.length() > prefix.length()) {
+            String seqText = max.substring(prefix.length());
+            try {
+                next = Long.parseLong(seqText) + 1L;
+            } catch (NumberFormatException e) {
+                throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                        "上报编号序号段非法（uk_dual_pnl_report_no 前缀 " + prefix + "）：" + max);
+            }
+        }
+        StringBuilder sb = new StringBuilder(prefix);
+        String seq = Long.toString(next);
+        for (int i = seq.length(); i < DUAL_PNL_NO_SEQ_WIDTH; i++) {
+            sb.append('0');
+        }
+        return sb.append(seq).toString();
+    }
+
+    /**
+     * 上报记录查询（{@code GET /acct/report/dual-pnl}；{@code idx_dual_pnl_period_type} /
+     * {@code idx_dual_pnl_sub_period} 承载）。
+     *
+     * <p>可见性：指定 {@code subAccountId} 时读面断言；未指定时按调用者可见集过滤
+     * （{@code applyScope} 同形态；汇总行 {@code sub_account_id IS NULL} 仅跨账户只读者可见）。
+     *
+     * @param reportPeriod 报告期间（可空）
+     * @param reportType   报告类型（可空；MONTHLY/QUARTERLY/ANNUAL）
+     * @param subAccountId 子账户（可空）
+     * @param operatorId   调用者
+     * @return 上报记录列表（submitted_time 升序）
+     */
+    public List<DualPnlReport> listDualPnlReports(String reportPeriod, String reportType,
+                                                  Integer subAccountId, long operatorId) {
+        if (!effectSupported()) {
+            throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                    "效果评估依赖未装配；复现=以廿一参全参构造装配 AcctService 后重试");
+        }
+        if (reportType != null) {
+            requireReportType(reportType);
+        }
+        List<Integer> visible = visibility.visibleSubAccountIds(operatorId);
+        boolean crossRead = visible != null
+                && visible.contains(SubAccountScope.ALL_ACCOUNT_SENTINEL);
+        List<DualPnlReport> out = new ArrayList<>();
+        if (subAccountId != null) {
+            visibility.assertSubAccountVisible(operatorId, subAccountId);
+            if (reportPeriod == null) {
+                // 期间未指定：findBySubAccountAndPeriod 须期间（idx_dual_pnl_sub_period 联合索引
+                // 语义），参数缺失明确报参数错误——先校验再取数，避免无谓查询。
+                throw BizException.of(ErrorCode.PARAM_INVALID,
+                        "subAccountId 与 reportPeriod 须同时指定（idx_dual_pnl_sub_period 联合索引"
+                                + "语义）；复现=补齐 reportPeriod 后重试");
+            }
+            out.addAll(dualPnlReportDao.findBySubAccountAndPeriod(subAccountId, reportPeriod));
+            return out;
+        }
+        if (isBlank(reportPeriod)) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "reportPeriod 必填（报告期间，如 2026-09；idx_dual_pnl_period_type 语义）");
+        }
+        if (reportType == null) {
+            // 期间必填、类型可空：类型为空时扫三类型（MO/QU/AN 三键查询，无全表扫）
+            for (String t : List.of(REPORT_TYPE_MONTHLY, REPORT_TYPE_QUARTERLY, REPORT_TYPE_ANNUAL)) {
+                for (DualPnlReport r : dualPnlReportDao.findByPeriodAndType(reportPeriod, t)) {
+                    if (crossRead || (r.subAccountId != null && visible.contains(r.subAccountId))) {
+                        out.add(r);
+                    }
+                }
+            }
+            return out;
+        }
+        for (DualPnlReport r : dualPnlReportDao.findByPeriodAndType(reportPeriod, reportType)) {
+            if (crossRead || (r.subAccountId != null && visible.contains(r.subAccountId))) {
+                out.add(r);
+            }
+        }
+        return out;
+    }
+
+    /** 上报记录视图（留痕三件 + 两栏成对 + 缺失原因；FR-ACCT-10 验收 1/2/4）。 */
+    public static Map<String, Object> dualPnlView(DualPnlReport r) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", r.id);
+        m.put("subAccountId", r.subAccountId);
+        m.put("reportNo", r.reportNo);
+        m.put("reportPeriod", r.reportPeriod);
+        m.put("reportType", r.reportType);
+        // —— 实货栏恒在（spot_pnl_column_present 恒 'Y'；DB CHECK 结构保证）——
+        m.put("spotPnlColumnPresent", r.spotPnlColumnPresent);
+        m.put("spotPnlValue", str(r.spotPnlValue));
+        m.put("spotPnlMissingReason", r.spotPnlMissingReason);
+        // —— 衍生品栏（已实现/未实现拆分随行）——
+        m.put("derivativePnlValue", str(r.derivativePnlValue));
+        m.put("derivativePnlRealized", str(r.derivativePnlRealized));
+        m.put("derivativePnlUnrealized", str(r.derivativePnlUnrealized));
+        m.put("netEffect", str(r.netEffect));
+        m.put("dataCompletenessNote", r.dataCompletenessNote);
+        // —— 留痕三件（FR-ACCT-10 验收 4：上报人/时间/期间）——
+        m.put("submittedBy", r.submittedBy);
+        m.put("submittedTime", r.submittedTime == null ? null : r.submittedTime.toString());
+        m.put("reportPeriodSubmitted", r.reportPeriod);
+        m.put("pendingExternalReview", r.pendingExternalReview);
+        return m;
+    }
+
+    /** 上报类型取值域校验（与 ck_t_dual_pnl_report_type 三值同源）。 */
+    private String requireReportType(String type) {
+        if (REPORT_TYPE_MONTHLY.equals(type) || REPORT_TYPE_QUARTERLY.equals(type)
+                || REPORT_TYPE_ANNUAL.equals(type)) {
+            return type.trim();
+        }
+        throw BizException.of(ErrorCode.PARAM_INVALID,
+                "reportType 取值非法（ck_t_dual_pnl_report_type 三值）：" + type
+                        + "；复现=使用 MONTHLY/QUARTERLY/ANNUAL 之一");
+    }
+
+    /** 期间键形态校验（yyyy-MM；与凭证/期间面同形态）。 */
+    private String requirePeriodKey(String periodKey) {
+        String key = periodKey.trim();
+        if (!key.matches("\\d{4}-\\d{2}")) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "periodKey 须为 yyyy-MM 形态：" + key);
+        }
+        return key;
+    }
+
+    /** 期间首日。 */
+    private static LocalDate monthStart(String period) {
+        return YearMonth.parse(period).atDay(1);
+    }
+
+    /** 期间末日（实货盈亏计算日 = 期间止当日）。 */
+    private static LocalDate monthEnd(String period) {
+        return YearMonth.parse(period).atEndOfMonth();
+    }
+
+    /** null 金额归零（聚合容错；缺失侧语义由标注列承载，数值聚合以可计算侧参与）。 */
+    private static String str(BigDecimal v) {
+        return v == null ? null : v.toPlainString();
+    }
+
+    /** 单敞口实货盈亏计算载体（内部）。 */
+    private static final class SpotPnlCalc {
+        /** 已实现部分（现货当期已交割口径；本系统实货侧以敞口估值承载 ⇒ 全额计入合计）。 */
+        BigDecimal realized = BigDecimal.ZERO;
+        /** 未实现部分（估值变动；与 realized 合计为 spot_pnl_total）。 */
+        BigDecimal unrealized = BigDecimal.ZERO;
+        /** 合计。 */
+        BigDecimal total;
+        /** 敞口数量（比率分母）。 */
+        BigDecimal exposureQty;
+        /** 所用现货价。 */
+        BigDecimal priceUsed;
+        /** 价格时点（三态②必带）。 */
+        LocalDate priceAsOf;
+        /** 是否非当日价。 */
+        boolean nonCurrent;
+        /** 三态③：无任何历史价。 */
+        boolean missing;
+        /** 缺失说明。 */
+        String missingDesc;
+
+        /** 以给定价格填充已实现/未实现（本系统实货侧无独立已交割台账 ⇒ 全额计未实现，回执披露）。 */
+        void fill(SpotPnlCalc target, Exposure ex, BigDecimal price, LocalDate asOf,
+                  boolean nonCurrent, LocalDate basis) {
+            target.priceUsed = price;
+            target.priceAsOf = nonCurrent ? asOf : null;
+            target.nonCurrent = nonCurrent;
+            target.unrealized = nz(ex.exposureQty).multiply(price);
+            target.total = target.unrealized;
+        }
+    }
+
+    /** 单敞口实货盈亏计算（重载入口，见 SpotPnlCalc.fill）。 */
+    private void fillSpot(SpotPnlCalc target, Exposure ex, BigDecimal price, LocalDate asOf,
+                          boolean nonCurrent, LocalDate basis) {
+        target.fill(target, ex, price, asOf, nonCurrent, basis);
+    }
+
+    /** 衍生品盈亏聚合载体（内部）。 */
+    private static final class DerivativePnlCalc {
+        /** 已实现-平仓（CLOSE_REALIZED 求和）。 */
+        BigDecimal realized;
+        /** 未实现-浮动（FLOAT_UNREALIZED 求和；含期权，R-ACCT-7）。 */
+        BigDecimal unrealized;
+    }
+
+    /** 双侧盈亏上报请求（{@code T-080} 新增）。 */
+    public static final class DualPnlReportRequest {
+        /** 子账户（可空 = 汇总上报；非空时写面断言）。 */
+        public Integer subAccountId;
+        /** 报告期间（yyyy-MM；必填）。 */
+        public String reportPeriod;
+        /** 报告类型（MONTHLY/QUARTERLY/ANNUAL；必填）。 */
+        public String reportType;
     }
 }

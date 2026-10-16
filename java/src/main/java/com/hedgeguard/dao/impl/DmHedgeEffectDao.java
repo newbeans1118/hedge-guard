@@ -121,13 +121,33 @@ public final class DmHedgeEffectDao extends AbstractDmDao<HedgeEffect, Long> imp
 
     @Override
     public HedgeEffect findByKey(int subAccountId, String periodKey, Long hedgePlanId, Long exposureId) {
-        String sql = "SELECT " + selectList() + " FROM " + tableName()
-                + " WHERE sub_account_id = ? AND period_key = ? AND hedge_plan_id = ?"
-                + (exposureId == null ? " AND exposure_id IS NULL" : " AND exposure_id = ?");
-        List<Object> args = new ArrayList<>(Arrays.asList(subAccountId, periodKey, hedgePlanId));
-        if (exposureId != null) {
+        // 两键均可为 NULL（子账户级汇总行 hedge_plan_id/exposure_id 均 NULL）——SQL 中
+        // `col = NULL` 恒 UNKNOWN，故 NULL 键必须走 `IS NULL`（否则汇总行查找恒不命中；
+        // TE-T079B-001 同族：查找键含哨兵/NULL 时投影侧形态须与生产写入形态同构）。
+        StringBuilder sql = new StringBuilder("SELECT ").append(selectList())
+                .append(" FROM ").append(tableName())
+                .append(" WHERE sub_account_id = ? AND period_key = ?");
+        List<Object> args = new ArrayList<>(Arrays.asList(subAccountId, periodKey));
+        if (hedgePlanId == null) {
+            sql.append(" AND hedge_plan_id IS NULL");
+        } else {
+            sql.append(" AND hedge_plan_id = ?");
+            args.add(hedgePlanId);
+        }
+        if (exposureId == null) {
+            sql.append(" AND exposure_id IS NULL");
+        } else {
+            sql.append(" AND exposure_id = ?");
             args.add(exposureId);
         }
-        return queryOne(sql, args, this::mapRow);
+        return queryOne(sql.toString(), args, this::mapRow);
+    }
+
+    @Override
+    public java.util.List<HedgeEffect> findBySubAccountAndPeriod(int subAccountId, String periodKey) {
+        // idx_hedge_effect_sub_period（sub_account_id, period_key）承载；T-076 O-3 承接
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE sub_account_id = ? AND period_key = ? ORDER BY calc_time ASC, id ASC";
+        return queryList(sql, Arrays.asList(subAccountId, periodKey), this::mapRow);
     }
 }

@@ -102,4 +102,26 @@ public final class DmHedgePlanExposureDao extends AbstractDmDao<HedgePlanExposur
                 + " WHERE exposure_id = ? ORDER BY status ASC, id ASC";
         return queryList(sql, java.util.Arrays.asList(exposureId), this::mapRow);
     }
+
+    @Override
+    public List<HedgePlanExposure> findBySubAccounts(java.util.List<Integer> subAccountIds) {
+        // T-080：效果评估敞口归集取数（可见性由服务层断言；null = 不过滤，同 findBySubAccounts 先例）
+        if (subAccountIds == null) {
+            String sql = "SELECT " + selectList() + " FROM " + tableName() + " ORDER BY id ASC";
+            return queryList(sql, java.util.Collections.emptyList(), this::mapRow);
+        }
+        if (subAccountIds.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+        StringBuilder in = new StringBuilder("sub_account_id IN (");
+        List<Object> args = new java.util.ArrayList<>();
+        for (int i = 0; i < subAccountIds.size(); i++) {
+            in.append(i == 0 ? "?" : ",?");
+            args.add(subAccountIds.get(i));
+        }
+        in.append(')');
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE " + in + " ORDER BY id ASC";
+        return queryList(sql, args, this::mapRow);
+    }
 }

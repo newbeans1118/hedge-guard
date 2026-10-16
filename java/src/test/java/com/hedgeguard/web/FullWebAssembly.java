@@ -137,8 +137,16 @@ final class FullWebAssembly {
      * （ACCT6 → ACCT13）；生产装配含平台级 {@code ping} 2 条后为 {@code 161}，
      * 与 {@code BootstrapAssemblyTest} 断言同锚。其余 4 条已声明路径
      * （effect/dual-pnl/selfcheck/export）归 T-080。
+     *
+     * <p>【{@code T-080}】效果评估与双侧盈亏上报面（FR-ACCT-5/10；R-ACCT-4 双侧同屏/同时上报
+     * + R-ACCT-9 Q-12 三态 + R-ACCT-12 口径单一）——已声明路径 {@code /acct/effect} GET/POST
+     * （2 对）、{@code /acct/report/dual-pnl} GET/POST（2 对）= 4 对 ⇒ {@code 159 → 163}
+     * （非为过测试而放宽：路径逐字取自 {@code ApiRoutes} 的 {@code ACCT} 清单；
+     * {@code ACCT} 方法注册表键 13 → 17）。算术分解：业务路由 159 → 163（ACCT13 → ACCT17）；
+     * 生产装配含平台级 {@code ping} 2 条后为 {@code 165}，与 {@code BootstrapAssemblyTest} 同锚。
+     * 其余 2 条已声明路径（selfcheck/export）归后续 FR-ACCT-14/FR-ACCT-9 单交付。
      */
-    static final int ROUTE_COUNT = 159;
+    static final int ROUTE_COUNT = 163;
 
     private FullWebAssembly() {
     }
@@ -190,7 +198,9 @@ final class FullWebAssembly {
         CheckTaskQueryRoutes.register(router, null);
         // T-077：ACCT 模块首批注册面（4 对：GET|POST /acct/hedge-relation、GET|POST
         // /acct/effectiveness；三要素门禁 R-ACCT-1 + 三项定性观察点 R-ACCT-2/Q-7）。
-        // 服务入参 null：装配期只调用 router.register(...)。注册序与生产装配（Bootstrap）一致。
+        // T-078 再平衡 2 对 + T-079 凭证/期间 7 对 + T-080 效果/上报 4 对经同一 AcctRoutes
+        // 注册（共 17 对）。服务入参 null：装配期只调用 router.register(...)。
+        // 注册序与生产装配（Bootstrap）一致。
         AcctRoutes.register(router, null);
         // T-065：风控告警查询与处置面（2 个 (方法,路径) 对：GET /risk/alert、
         // POST /risk/alert/{id}/dispose）。服务入参 null：装配期只调用 router.register(...)。

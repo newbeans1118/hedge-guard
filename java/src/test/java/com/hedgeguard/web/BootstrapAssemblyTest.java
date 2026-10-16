@@ -251,9 +251,18 @@ class BootstrapAssemblyTest {
             //   FUND16/AUDIT24/ACCT13）+ ping 2 = 161。算术分解：154（前值）+ 7 对 = 161；
             //   ACCT 其余 4 条已声明路径（effect/dual-pnl/selfcheck/export）归 T-080。
             //   非为过测试而放宽断言。
-            assertEquals(161, assembly.routeCount(),
-                    "业务路由必须全部注册：159（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/"
-                            + "SETTLE15/FUND16/AUDIT24/ACCT13）+ ping 2");
+            // 【T-080 增注】断言值由 161 订正为 165：效果评估与双侧盈亏上报面
+            //   （{@code FR-ACCT-5/10}；R-ACCT-4 双侧同屏/同时上报 + R-ACCT-9 Q-12 三态 +
+            //   R-ACCT-12 口径单一）——EffectHandler 于已声明路径 /acct/effect 注册 GET/POST
+            //   （2 对）+ DualPnlReportHandler 于已声明路径 /acct/report/dual-pnl 注册 GET/POST
+            //   （2 对）= 4 对（ACCT 方法注册表键 13 → 17），
+            //   业务路由 163（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/SETTLE15/
+            //   FUND16/AUDIT24/ACCT17）+ ping 2 = 165。算术分解：161（前值）+ 4 对 = 165；
+            //   ACCT 其余 2 条已声明路径（selfcheck/export）归后续 FR-ACCT-14/FR-ACCT-9 单交付。
+            //   非为过测试而放宽断言。
+            assertEquals(165, assembly.routeCount(),
+                    "业务路由必须全部注册：163（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/"
+                            + "SETTLE15/FUND16/AUDIT24/ACCT17）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。
             // （不真发 HTTP：经 RequestDispatcher 进程内分发；handler 因无真实库而 4xx/5xx 皆可，

@@ -417,6 +417,54 @@ public interface MajorEventDao extends BaseDao<MajorEvent, Long> {
 // —— TB-SETTLE-8 t_settle_pnl（T-188 追加；系统级触发评估取数，非用户读取面，无 scoped 方法）——
 public interface SettlePnlDao extends BaseDao<SettlePnl, Long> {
     List<SettlePnl> findByTradeDate(LocalDate tradeDate);                               // T-188：按交易日取全部盈亏行（CFG-26 亏损阈值按子账户求和）
+    // T-080 追加：按子账户 + 交易日区间取盈亏行（FR-ACCT-5/10 衍生品盈亏聚合取数；CLOSE_REALIZED/FLOAT_UNREALIZED）
+    List<SettlePnl> findBySubAccountAndDateRange(int subAccountId, LocalDate from, LocalDate to);
+}
+
+// —— TB-ACCT-8 t_hedge_effect（T-076 建表/DAO；T-080 追加只方法）——
+// ⚠️ 语义：本表两侧盈亏成对同行（R-ACCT-4 17 号文红线）；幂等键 uk_hedge_effect_key（含 hedge_plan_id/exposure_id 可 NULL）
+public interface HedgeEffectDao extends BaseDao<HedgeEffect, Long> {
+    HedgeEffect findByKey(int subAccountId, String periodKey, Long hedgePlanId, Long exposureId);  // T-076：幂等键命中（两键可 NULL ⇒ IS NULL 语义）
+    // T-080 追加：按子账户 + 期间取效果行（idx_hedge_effect_sub_period 承载；T-076 复核 O-3「有索引无 DAO 方法」承接）
+    List<HedgeEffect> findBySubAccountAndPeriod(int subAccountId, String periodKey);
+}
+
+// —— TB-ACCT-9 t_dual_pnl_report（T-076 建表/DAO；T-080 追加只方法）——
+public interface DualPnlReportDao extends BaseDao<DualPnlReport, Long> {
+    DualPnlReport findByReportNo(String reportNo);                                        // T-076：uk_dual_pnl_report_no
+    List<DualPnlReport> findByPeriodAndType(String reportPeriod, String reportType);      // T-076：idx_dual_pnl_period_type
+    // T-080 追加：按子账户 + 报告期间取上报记录（idx_dual_pnl_sub_period；汇总行 sub_account_id IS NULL 不在此列）
+    List<DualPnlReport> findBySubAccountAndPeriod(int subAccountId, String reportPeriod);
+    // T-080 追加：按编号前缀取当日字典序最大上报编号（§3.5「当日最大序号 + 1」取数；专用 SQL report_no LIKE ?，走 uk_dual_pnl_report_no 前缀区间）
+    String findMaxReportNoByPrefix(String reportNoPrefix);
+}
+
+// —— TB-ACCT-10 t_voucher_review（T-076 建表/DAO；T-079 追加只方法）——
+public interface VoucherReviewDao extends BaseDao<VoucherReview, Long> {
+    List<VoucherReview> findByVoucher(long voucherId);                                    // T-076
+    List<VoucherReview> findByReviewer(long reviewerId);                                  // T-076
+    int findMaxNodeSeq(long voucherId);                                                   // T-079：审核链 node_seq 取号（同凭证前缀当日 max+1）
+}
+
+// —— TB-ACCT-6 t_voucher（T-076 建表/DAO；T-079 追加只方法）——
+public interface VoucherDao extends BaseDao<Voucher, Long> {
+    Voucher findByVoucherNo(String voucherNo);                                            // T-076：uk_voucher_no
+    List<Voucher> findBySettleCycle(long settleCycleId);                                  // T-076
+    List<Voucher> findByExposure(long exposureId);                                        // T-076（T-076 O-3 承接）
+    List<Voucher> findBySubPeriodStatus(int subAccountId, String periodKey, String status);   // T-079：按子账户+期间+状态
+    List<Voucher> findBySubPeriodType(int subAccountId, String periodKey, String voucherType); // T-079：按子账户+期间+凭证类型
+    List<Voucher> findByHedgePlan(long hedgePlanId);                                      // T-079：按套保计划
+    List<Voucher> findByPeriodAndStatusIn(String periodKey, List<String> statuses);       // T-079：按期间 + 状态集合（关账门禁①）
+    // T-079 追加：按编号前缀取当日字典序最大凭证编号（§3.5「当日最大序号 + 1」取数；专用 SQL voucher_no LIKE ?）
+    String findMaxVoucherNoByPrefix(String voucherNoPrefix);
+}
+
+// —— TB-PLAN-2 t_hedge_plan_exposure（T-067 追加 + T-080 追加）——
+public interface HedgePlanExposureDao extends BaseDao<HedgePlanExposure, Long> {
+    List<HedgePlanExposure> findByPlan(long hedgePlanId);
+    List<HedgePlanExposure> findByExposure(long exposureId);                              // T-067：敞口→绑定反查（追溯链）
+    // T-080 追加：按子账户集合取绑定行（FR-ACCT-5 效果评估敞口归集；可见性由服务层断言，null=不过滤，跨账户只读路径）
+    List<HedgePlanExposure> findBySubAccounts(List<Integer> subAccountIds);
 }
 ```
 
@@ -431,6 +479,7 @@ public interface SettlePnlDao extends BaseDao<SettlePnl, Long> {
 - **AUDIT 表 DAO 组（`T-062` 交付，八接口纯增量）**：`OperationLogDao.findByObject` / `AuditLogDao.findBySeqInChain` / `AuditLogChecksumDao.findByBatchNo` / `ViolationScreenRunDao.findByScreenNo` / `ViolationScreenItemDao.findByScreenRunAndType` / `AuditReportDao.findByReportNo` / `EvidenceExportDao.findByExportNo` / `MajorEventDao.findByTypeAndStatus`——承载操作留痕/审计日志/审计日志校验值/违规筛查运行/筛查命中项/审计报表/证据链导出/重大事项（`t_operation_log` / `t_audit_log` / `t_audit_log_checksum` / `t_violation_screen_run` / `t_violation_screen_item` / `t_audit_report` / `t_evidence_export` / `t_major_event`，`DATA_MODEL.md` §2.9 TB-AUDIT-1~8）；实现 `dao/impl/DmOperationLogDao` / `DmAuditLogDao` / `DmAuditLogChecksumDao` / `DmViolationScreenRunDao` / `DmViolationScreenItemDao` / `DmAuditReportDao` / `DmEvidenceExportDao` / `DmMajorEventDao`。**本组无子账户 scoped 方法**（跨子账户查询隔离面属 `T-067`+ 查询任务）。**只增不改**：`t_operation_log` / `t_audit_log` / `t_audit_log_checksum` 按 `CONTRACTS.md` §2.3 覆写 `updateById` 显式抛 `UnsupportedOperationException`（`DATA_MODEL.md` §2.9/§5.3「不可改删」）；其余五表在 §2.9 未标注「不可改删」，按可更新处理。**未新增路径 / 未改字段 / 未改错误码** ⇒ **未升版**（`HGC-1.6` 不变）。
 - **亏损阈值自动触发 DAO 方法（`T-188` 交付，两接口各一只纯增量）**：`MajorEventDao.findByEventNo`（按 `uk_major_event_no` 唯一定位；触发器幂等「先查后插」前置换取）+ `SettlePnlDao.findByTradeDate`（按交易日取全部盈亏行；CFG-26 亏损阈值按子账户求和的取数面）。**本组无子账户 scoped 方法**：`findByEventNo` 为触发器幂等内部取数（非用户读取面）；`findByTradeDate` 为**系统级触发评估**（操作人 = 系统哨兵 0，非用户读取面，`NFR-SEC-7` 隔离口径不适用——用户可见性过滤会漏判不可见子账户的亏损事项）。**未新增路径 / 未改字段 / 未改错误码** ⇒ **未升版**（`HGC-1.6` 不变）。
 - **追溯链只读 DAO 方法组（`T-067` 交付，四接口纯增量）**：`HedgePlanExposureDao.findByExposure(long)` / `PlanApprovalDao.findByPlan(long)` / `TradeOrderDao.findByHedgePlan(long)` / `SettleCycleDao.findBySubAccountAndDate(int, LocalDate)`——承载 `FR-AUDIT-1/2` 正/反向追溯的链连接点取数（敞口→计划绑定反查、计划→审批链、计划→交易指令、子账户+交易日→结算单）；实现 `dao/impl/DmHedgePlanExposureDao` / `DmPlanApprovalDao` / `DmTradeOrderDao` / `DmSettleCycleDao`。**本组为跨账户只读路径**（`FR-AUDIT-1` 验收 4 的审计岗跨子账户查询）：子账户可见性由调用方 `AuditService` 经 `AuthService.visibleSubAccountIds` 统一校验，DAO 层**不再叠加 scope**（与既有 `TradePlanDao.findByHedgePlan(long)` 同姿态，先例见上）。**未新增路径 / 未改字段 / 未改错误码** ⇒ **未升版**（`HGC-1.6` 不变）。
+- **ACCT 域 DAO 方法组（`T-080` 交付 + `T-079`/`T-076` 遗留补登记）**：本单新增 —— `HedgeEffectDao.findBySubAccountAndPeriod(int, String)`（`idx_hedge_effect_sub_period` 承载；`T-076` 复核 `O-3`「有索引无 DAO 方法」承接）、`DualPnlReportDao.findBySubAccountAndPeriod(int, String)`（`idx_dual_pnl_sub_period`）、`DualPnlReportDao.findMaxReportNoByPrefix(String)`（`§3.5` 当日最大序号 + 1 取数；专用 SQL `report_no LIKE ?`）、`HedgePlanExposureDao.findBySubAccounts(List<Integer>)`（效果评估敞口归集；`null` = 不过滤，跨账户只读路径）、`SettlePnlDao.findBySubAccountAndDateRange(int, LocalDate, LocalDate)`（衍生品盈亏聚合取数）。**同批补登记**（此前已交付未入本冻结）：`T-079` 遗留 L-1 —— `VoucherDao.findBySubPeriodStatus/findBySubPeriodType/findByHedgePlan/findByPeriodAndStatusIn/findMaxVoucherNoByPrefix` + `VoucherReviewDao.findMaxNodeSeq`；`T-076` 建表同批 DAO —— `HedgeEffectDao.findByKey`（幂等键，**两键可 NULL ⇒ 须 `IS NULL` 语义**）、`DualPnlReportDao.findByReportNo/findByPeriodAndType`、`VoucherDao.findByVoucherNo/findBySettleCycle/findByExposure`。**本组无子账户 scoped 方法**：子账户可见性由服务层 `AuthService.visibleSubAccountIds` + `assertSubAccountVisible/Writable` 断言（`NFR-SEC-7`），DAO 层不叠加 scope（与 `HedgePlanExposureDao.findByExposure` 同姿态）。**未新增路径 / 未改字段 / 未改错误码** ⇒ **未升版**（`HGC-1.6` 不变）。⚠️ 测试侧同步（非契约）：`InMemoryDmEngine` 的 `DELETE ... WHERE` 对绑定参数不求值（实测 affected=0）⇒ 用例以 `UPDATE` 改写行代替删行；7 个既有假 DAO 补桩；新增 `T080AcctEffectSeed` 夹具。
 - 语义（各 scoped 方法一致，冻结；`ProductDao` 的子查询形态为经登记的载体差异）：由服务层构造 `SubAccountScope` 后传入；本层**不解析权限语义**，只把
   `scope.appendTo(...)` 的条件与既有条件合并（`ProductDao` 为包一层白名单子查询）；**空集合 ⇒ 恒假条件**（返回空），**绝不**退化为不过滤；
   **计数口径**（`findPageScoped`）：`total` 为**叠加 scope 与 `extraWhere` 过滤后**的总行数（分页实现独立执行 `COUNT`），**不得**取全表行数。
@@ -913,6 +962,7 @@ instantiated OK        # 同时打印 SLF4J: Defaulting to no-operation (NOP) lo
 | 2026-10-05（`T-094` 交付） | `backend-engineer#java`（实例 `be-t094`） | **兼容性增量登记（`T-094`；RISK 余 10 表 DDL 与 DAO 收口）**：§2.2.1 **追加七只纯增量 DAO 方法**（`RiskThresholdDao.findByKey` / `AnnualScaleDao.findByScopeAndProduct` / `MirrorWatermarkDao.findByComponentAndStream` / `RiskAlertDao.findBySubAccount` / `RiskDisposalDao.findActiveBySubAccount` / `AbnormalOrderStatDao.findByStatDate` / `RiskMetricSnapshotDao.findBySubAccount`，各 + `dao/impl` 实现）。**本组无子账户 scoped 方法**（`FR-RISK-19` 查询面隔离不属本单）。**未新增路径 / 未改字段类型 / 未改错误码** ⇒ **未升版**（`HGC-1.6` 不变）。⚠️ 同批收口 `t_post_risk_report`/`t_risk_violation`/`t_limit_usage_stat` 三表 DDL 入 `docs/DEPLOY/schema/m3_risk.sql`（T-180 遗留；DDL 非本文件冻结面）。 | **未升版**（`HGC-1.6` 不变） |
 | 2026-10-06（`T-062` 交付） | `backend-engineer#java2`（实例 `be-t062`） | **兼容性增量登记（`T-062`；AUDIT 8 表 DDL 与 DAO 交付）**：§2.2.1 **追加八只纯增量 DAO 方法**（`OperationLogDao.findByObject` / `AuditLogDao.findBySeqInChain` / `AuditLogChecksumDao.findByBatchNo` / `ViolationScreenRunDao.findByScreenNo` / `ViolationScreenItemDao.findByScreenRunAndType` / `AuditReportDao.findByReportNo` / `EvidenceExportDao.findByExportNo` / `MajorEventDao.findByTypeAndStatus`）+ 八只 DAO 接口与实现（`dao/impl/DmOperationLogDao` / `DmAuditLogDao` / `DmAuditLogChecksumDao` / `DmViolationScreenRunDao` / `DmViolationScreenItemDao` / `DmAuditReportDao` / `DmEvidenceExportDao` / `DmMajorEventDao`），承载 `DATA_MODEL.md` §2.9 TB-AUDIT-1~8。**本组无子账户 scoped 方法**（跨子账户查询隔离面属 `T-067`+ 查询任务）。`t_operation_log` / `t_audit_log` / `t_audit_log_checksum` 按 §2.3 覆写 `updateById` 显式拒绝（`DATA_MODEL.md` §2.9/§5.3「不可改删」）。**未新增路径 / 未改字段 / 未改错误码** ⇒ **未升版**（`HGC-1.6` 不变），**无需 `CH`**（同 `T-094`/`T-180` 口径）。 | **未升版**（`HGC-1.6` 不变） |
 | 2026-10-10（`T-188` 交付） | `backend-engineer`（实例 `be-t188-majorevent`） | **兼容性增量登记（`T-188`；重大事项按 CFG-26 亏损阈值自动触发，用户 2026-10-10「双轨」裁定）**：§2.2.1 **追加两只纯增量 DAO 方法** —— `MajorEventDao.findByEventNo(String)`（`uk_major_event_no` 唯一定位；触发器幂等「先查后插」前置换取）+ `SettlePnlDao.findByTradeDate(LocalDate)`（系统级触发评估取数，非用户读取面，无 scoped 方法）；新增服务 `service/MajorEventLossThresholdTrigger`（`implements RiskMetricSink`；轨 2 盘中镜像经 `AsyncRiskMetricSink` → 新增 `CompositeRiskMetricSink` 并联下游，事件消费线程零 SQL，`R-RISK-10`）+ 轨 1 EOD 挂 `SettleService.runSettlement` 结算落库事务提交后（可空 setter 接缝 `setLossThresholdTrigger`，触发失败不阻断结算）。**未新增路径 / 未改字段 / 未改错误码** ⇒ **未升版**（`HGC-1.6` 不变）。⚠️ 诚实披露：`SettleService` 注入 `pnlDao` 但生产从未 insert `t_settle_pnl`（既有缺口）⇒ 轨 1 在写入方落地前读空表、不触发；`t_major_event` 无 `content_json` 列，裁定记所称「content_json 标 source」落在语义同源的 `trigger_source` 列（载体适配，语义不变）。 | **未升版**（`HGC-1.6` 不变） |
+| 2026-10-16（`T-080` 交付） | `backend-engineer#java2`（实例 `be-t080-b`；承接失联重派 `be-t080`） | **兼容性增量登记（`T-080`；`FR-ACCT-5/10`、`R-ACCT-4/9/12`）**：§2.2.1 **追加 ACCT 域纯增量 DAO 方法** —— 本单：`HedgeEffectDao.findBySubAccountAndPeriod` / `DualPnlReportDao.findBySubAccountAndPeriod` / `findMaxReportNoByPrefix` / `HedgePlanExposureDao.findBySubAccounts` / `SettlePnlDao.findBySubAccountAndDateRange`；**同批补登记遗留**（此前已交付未入本冻结）：`T-079` 遗留 L-1 —— `VoucherDao.findBySubPeriodStatus/findBySubPeriodType/findByHedgePlan/findByPeriodAndStatusIn/findMaxVoucherNoByPrefix` + `VoucherReviewDao.findMaxNodeSeq`；`T-076` 建表同批 DAO —— `HedgeEffectDao.findByKey`、`DualPnlReportDao.findByReportNo/findByPeriodAndType`、`VoucherDao.findByVoucherNo/findBySettleCycle/findByExposure`。**路由**：ACCT 模块 2 条**已声明**路径（`/acct/effect`、`/acct/report/dual-pnl`，`ARCHITECTURE.md §4.1.1`）各注册 `GET|POST`（4 对）—— `ApiRoutes.BY_MODULE_ROUTES` ACCT 键 `13 → 17`，路径逐字取自 §4.1.1，**未新增路径**；路由计数 `159 → 163`（业务）/ `161 → 165`（含 ping 2）。**未改字段 / 未改错误码** ⇒ **未升版**（`HGC-1.6` 不变）。⚠️ 诚实披露：① `DmHedgeEffectDao.findByKey` 原 `hedge_plan_id = ?` 对 NULL 键恒不命中（子账户级汇总行 `hedge_plan_id`/`exposure_id` 均 NULL ⇒ 查找恒空）⇒ 本单修正为 `IS NULL` 语义（否则汇总行幂等失败 + 上报恒判「未评估」）；② 实货盈亏按「敞口估值（敞口量 × 当期价）」承载（`t_exposure` 无建仓/基准价列 ⇒ 无差额型 P&L 数据源），口径请裁；③ `report_no` 取号形态 `DR<yyyyMMdd><seq4>`（`DATA_MODEL.md §3.5` 未列，本服务定义）；L-2 科目模板播种维持「无权威清单不臆造」。测试侧同步（非契约）：`InMemoryDmEngine` 的 `DELETE ... WHERE` 对绑定参数不求值（实测 affected=0）⇒ 用例以 `UPDATE` 改写行代替删行；7 个既有假 DAO 补桩；新增 `T080AcctEffectSeed` 夹具。 | **未升版**（`HGC-1.6` 不变） |
 
 ---
 

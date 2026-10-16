@@ -98,4 +98,14 @@ public final class DmSettlePnlDao extends AbstractDmDao<SettlePnl, Long> impleme
                 + " WHERE trade_date = ? ORDER BY id ASC";
         return queryList(sql, java.util.Collections.singletonList(tradeDate), this::mapRow);
     }
+
+    @Override
+    public java.util.List<SettlePnl> findBySubAccountAndDateRange(int subAccountId,
+                                                                 LocalDate from, LocalDate to) {
+        // T-080：FR-ACCT-5/10 衍生品盈亏聚合取数（idx_settle_pnl_* 语义：按子账户+交易日区间）
+        String sql = "SELECT " + selectList() + " FROM " + tableName()
+                + " WHERE sub_account_id = ? AND trade_date >= ? AND trade_date <= ?"
+                + " ORDER BY trade_date ASC, id ASC";
+        return queryList(sql, java.util.Arrays.asList(subAccountId, from, to), this::mapRow);
+    }
 }
