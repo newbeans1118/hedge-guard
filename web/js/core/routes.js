@@ -167,20 +167,33 @@ export const ROUTES = {
     RISK_FORCE_CLOSE_HINT: '/risk/force-close-hint',
     RISK_VIOLATION: '/risk/violation',
     RISK_POST_REPORT: '/risk/post-report',
-    TRADE_ORDER: '/trade/order'
+    TRADE_ORDER: '/trade/order',
+    // T-083 补登记：ACCT 路径表 12 路径中未注册方法对的 2 个（FR-ACCT-14 自检清单 /
+    // FR-ACCT-9 凭证导出载点；handler/acct/ 下无对应 Handler——acct.js 保留 Tab 框架 +
+    // 「未注册」诚实提示、零 API 调用，T-070 risk.js 同形态）。
+    ACCT_SELFCHECK: '/acct/selfcheck',
+    ACCT_EXPORT: '/acct/export'
   },
-  // T-077：套期会计（FR-ACCT-1/2/4）。**键先行**（fund.js 同形态：本单后端交付 4 对方法注册面，
-  // acct.js 页面归 T-083 未建——键先落，页面随后真接，勿臆造调用）。路径逐字取自
-  // ApiRoutes.byModule().get("ACCT")；方法对取自 handler/acct/AcctRoutes.java。其余 8 条
-  // 已声明路径（voucher/period/effect/dual-pnl/selfcheck/export）未注册，
-  // 留在 ApiRoutes 路径级声明中、本键不收录。
-  // T-078：再平衡（FR-ACCT-3，Q-8 四类触发；R-ACCT-3 重新指定）——REBALANCE 键追加
-  // （后端已注册 GET|POST /acct/rebalance；GET=hedgeRelationId 按关系取再平衡史，
-  // POST=执行再平衡，触发条件不满足 10012 给出当前偏离值）。
+  // T-077/T-078：套期会计首批键（hedge-relation / effectiveness / rebalance 各 GET|POST）。
+  // T-079/T-080/T-083：凭证与期间面 + 效果与上报面全量接齐——ACCT 键现覆盖 **10 路径 /
+  // 17 (方法,路径) 对**（= BY_MODULE_ROUTES ACCT 全量）：静态 7（HEDGE_RELATION /
+  // EFFECTIVENESS / REBALANCE / VOUCHER / PERIOD / EFFECT / DUAL_PNL_REPORT）
+  // + 参数化函数 3（voucherReview / voucherReverse / periodClose）。
+  // ⚠️ 订正（T-083，闭环 T-079 O-2）：旧注称「其余 8 条已声明路径未注册」系 T-079
+  // 键先行时点的陈旧表述——voucher/period/effect/dual-pnl 均已随 T-079/T-080 注册，
+  // 实际未注册的仅 **2 条**：selfcheck/export（FR-ACCT-14/FR-ACCT-9 载点，见 NOT_REGISTERED）。
+  // 路径逐字取自 ApiRoutes.byModule().get("ACCT")；方法对取自 handler/acct/AcctRoutes.java。
   ACCT: {
     HEDGE_RELATION: '/acct/hedge-relation',   // GET 分页；POST 生成（三要素门禁 R-ACCT-1，缺任一要素 10012 阻断并列缺失项）
     EFFECTIVENESS: '/acct/effectiveness',     // GET 分页/监测复核清单(monitorOnly=true)/未评估提醒(unassessedPeriod=…)；POST 提交评估（三项定性观察点，Q-7）
-    REBALANCE: '/acct/rebalance'              // GET 再平衡史(?hedgeRelationId=)；POST 执行再平衡（四类触发，Q-8；偏离值系统复核不采信客户端）
+    REBALANCE: '/acct/rebalance',             // GET 再平衡史(?hedgeRelationId=)；POST 执行再平衡（四类触发，Q-8；偏离值系统复核不采信客户端）
+    VOUCHER: '/acct/voucher',                 // GET 分页列表 / 详情(?id=)；POST 草稿生成 / 草稿删除(action=DELETE_DRAFT)（R-ACCT-5；FR-ACCT-6/8/13）
+    PERIOD: '/acct/period',                   // GET 期间分页 / 关账历史(?periodKey=)；POST 创建开放期间（FR-ACCT-12）
+    EFFECT: '/acct/effect',                   // GET 套保效果视图(summary+details 同屏双栏)；POST 计算（FR-ACCT-5；R-ACCT-12 口径单一）
+    DUAL_PNL_REPORT: '/acct/report/dual-pnl', // GET 上报记录查询(reportPeriod 必填)；POST 提交上报（两栏恒在 R-ACCT-4；FR-ACCT-10）
+    voucherReview: (id) => '/acct/voucher/' + enc(id) + '/review',     // POST 凭证审核（R-ACCT-6 岗位分离；FR-ACCT-7）
+    voucherReverse: (id) => '/acct/voucher/' + enc(id) + '/reverse',   // POST 凭证冲销（反向凭证 + 双人复核 DC-032；FR-ACCT-13）
+    periodClose: (id) => '/acct/period/' + enc(id) + '/close'          // POST 关账/撤销关账（三前置 + 双人复核 R-ACCT-8；FR-ACCT-12）
   }
 };
 
