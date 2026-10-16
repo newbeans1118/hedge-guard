@@ -10,10 +10,15 @@
  *   · 上报页两栏恒在 + 缺价保留栏位 + 留痕三件（上报人/时间/期间）；
  *   · 三要素门禁 / 再平衡触发 / 关账三前置 10012 原文展示（data-gate-10012 锚标）；
  *   · 凭证 DRAFT_ONLY「不做总账过账」+「待企业财务复核入账」+ 岗位分离 + 冲销双人复核（DC-032）；
+ *   · 凭证关联单据四键展示 + 套保计划深链（FR-ACCT-8 验收 2 / TE-T083-001 修复）：
+ *     列表「关联单据」列 + 详情「关联单据」块（data-voucher-related 锚标）；
+ *     hedgePlanId ⇒ navigate('/plan/{id}') 行为断言；无路由键（hedgeRelationId/settleCycleId/
+ *     exposureId）展示为可选中文本；空值键不渲染、四键皆空显「—」；
  *   · 关账双人复核 + REOPEN 必填原因预检；
  *   · 评估近相关必填 linkageNote 预检 + 量化监测「不参与有效性判定」文案；
  *   · 写操作 idempotencyKey 全覆盖（10 类写操作）；
- *   · 负例有牙（变异子进程）：摘除双栏之一（data-spot-column）/ 摘除 UNATTRIBUTED 锚标
+ *   · 负例有牙（变异子进程）：摘除双栏之一（data-spot-column）/ 摘除 UNATTRIBUTED 锚标 /
+ *     摘除凭证关联单据四键展示（data-voucher-related）
  *     ⇒ 子进程同断言必红（退出码 7），父进程验证「有牙」。
  *
  * 用法：node tools/probes/t083_acct_probe.mjs → 全过打印 PASS 计数，退出码 0；任一失败退出码 1。
@@ -207,7 +212,24 @@ if (MUT) {
   const btn = findBtnByText(root, '查询效果');
   await btn.click(); await tick();
   let killed = false; const names = [];
-  if (MUT === 'spot') {
+  if (MUT === 'reldocs') {
+    // 摘除关联单据四键 ⇒ 列表字符串锚标与详情节点锚标双双缺失（TE-T083-001 靶向）
+    while (root.firstChild) root.removeChild(root.firstChild);
+    HG.pages.acct.renderAcct(root, { query: { tab: 'voucher' } });
+    HG.api._stub('GET /acct/voucher', (q) => (q.id !== undefined ? {
+      id: q.id, subAccountId: 8, voucherNo: 'AV202609-00001', periodKey: '2026-09', voucherType: 'CLOSE_PNL', status: 'POSTED',
+      hedgePlanId: 12, hedgeRelationId: 15, settleCycleId: null, exposureId: 34, totalAmount: '5000.00',
+      generatedBy: 1, generatedTime: '2026-10-16T13:00:00', pendingExternalReview: 'Y', draftPendingEntryNote: '待企业财务复核入账', lines: [], reviews: []
+    } : { items: [{ id: 20, subAccountId: 8, voucherNo: 'AV202609-00001', periodKey: '2026-09', voucherType: 'CLOSE_PNL', status: 'POSTED', hedgePlanId: 12, hedgeRelationId: 15, settleCycleId: null, exposureId: 34, totalAmount: '5000.00', pendingExternalReview: 'Y' }], total: 1, page: 1, size: 20 }));
+    const lvBtn = findBtnByText(root, '查询凭证');
+    await lvBtn.click(); await tick();
+    const dvBtn = findBtnByText(root, '查询详情');
+    findInput(root, 'ac-vd-id').value = '20';
+    await dvBtn.click(); await tick();
+    const listOk = htmlAll(root).indexOf('data-voucher-related=') !== -1;
+    const detOk = hasAttr(root, 'data-voucher-related');
+    if (!listOk || !detOk) { killed = true; names.push('关联单据四键展示缺失（list=' + listOk + ' detail=' + detOk + '）'); }
+  } else if (MUT === 'spot') {
     const spotGone = !findByAttr(root, 'data-spot-column', '1');
     const derivThere = findByAttr(root, 'data-derivative-column', '1') !== null;
     if (spotGone && derivThere) { killed = true; names.push('data-spot-column 缺失（衍生品栏仍在——击杀归因于 spot 变异本身）'); }
@@ -658,11 +680,12 @@ switchTab('voucher');
   // 列表：状态徽标 + 详情
   HG.api._stub('GET /acct/voucher', (q) => (q.id !== undefined ? {
     id: q.id, subAccountId: 8, voucherNo: 'AV202609-00001', periodKey: '2026-09', voucherType: 'CLOSE_PNL', status: 'POSTED',
+    hedgePlanId: 12, hedgeRelationId: 15, settleCycleId: null, exposureId: 34,
     totalAmount: '5000.00', generatedBy: 1, generatedTime: '2026-10-16T13:00:00', pendingExternalReview: 'Y', draftPendingEntryNote: '待企业财务复核入账',
     lines: [{ id: 1, lineNo: 1, subjectCode: '6001', subjectName: '主营业务收入', direction: 'DEBIT', amount: '5000.00', qty: null, tradeFillId: null, bizDesc: '平仓盈亏结转' },
       { id: 2, lineNo: 2, subjectCode: '6102', subjectName: '其他业务成本', direction: 'CREDIT', amount: '5000.00', qty: null, tradeFillId: null, bizDesc: '平仓盈亏结转' }],
     reviews: [{ id: 3, nodeSeq: 1, action: 'SUBMIT', generatorId: 1, reviewerId: null, coReviewerId: null, reviewResult: 'SUBMITTED', reviewComment: null, rejectReason: null, actionTime: '2026-10-16T13:05:00' }]
-  } : { items: [{ id: 20, subAccountId: 8, voucherNo: 'AV202609-00001', periodKey: '2026-09', voucherType: 'CLOSE_PNL', status: 'POSTED', totalAmount: '5000.00', pendingExternalReview: 'Y' }], total: 1, page: 1, size: 20 }));
+  } : { items: [{ id: 20, subAccountId: 8, voucherNo: 'AV202609-00001', periodKey: '2026-09', voucherType: 'CLOSE_PNL', status: 'POSTED', hedgePlanId: 12, hedgeRelationId: 15, settleCycleId: null, exposureId: 34, totalAmount: '5000.00', pendingExternalReview: 'Y' }], total: 1, page: 1, size: 20 }));
   const lBtn = findBtnByText(root, '查询凭证');
   HG.api._calls.length = 0;
   await lBtn.click(); await tick();
@@ -675,6 +698,33 @@ switchTab('voucher');
   ok(textOf(dCard).includes('6001') && textOf(dCard).includes('借') && textOf(dCard).includes('贷'), 'voucher：详情分录行渲染（借贷成对）');
   ok(textOf(dCard).includes('审核链'), 'voucher：详情审核链渲染（留痕）');
   ok(textOf(dCard).includes('待企业财务复核入账'), 'voucher：详情复核标注透出');
+  // ---- TE-T083-001：关联单据四键展示 + 套保计划深链（FR-ACCT-8 验收 2） ----
+  ok(htmlAll(root).indexOf('data-voucher-related="hedgePlanId"') !== -1, 'voucher：列表「关联单据」列——套保计划键展示（TE-T083-001）');
+  ok(htmlAll(root).indexOf('data-voucher-related="hedgeRelationId"') !== -1 && htmlAll(root).indexOf('data-voucher-related="exposureId"') !== -1, 'voucher：列表「关联单据」列——套期关系/实货敞口键展示');
+  ok(htmlAll(root).indexOf('data-voucher-jump="/plan/12"') !== -1, 'voucher：列表套保计划锚标带深链目标 /plan/{id}');
+  ok(htmlAll(root).indexOf('data-voucher-related="settleCycleId"') === -1, 'voucher：空值关联键不渲染（settleCycleId=null 不出空壳）');
+  ok(findByAttr(root, 'data-voucher-related', 'hedgePlanId') !== null, 'voucher：详情「关联单据」块——套保计划键节点');
+  ok(textOf(dCard).includes('套期关系 #15') && textOf(dCard).includes('实货敞口 #34'), 'voucher：详情关联单据——无路由键展示为可选中文本（勿臆造路由）');
+  ok(textOf(dCard).indexOf('结算周期') === -1, 'voucher：详情空值键不渲染（结算周期）');
+  {
+    const navTo = [];
+    const realNav = HG.router.navigate;
+    HG.router.navigate = (to) => navTo.push(to);
+    const planJump = findBtnByText(root, '套保计划 #12');
+    ok(!!planJump, 'voucher：详情套保计划跳转入口在');
+    planJump.click();
+    HG.router.navigate = realNav;
+    ok(navTo.indexOf('/plan/12') !== -1, 'voucher：点击套保计划 ⇒ navigate(/plan/12)（FR-ACCT-8 验收 2 行为断言）');
+  }
+  // 全空值负例：四键皆 null ⇒ 列表/详情显「—」且无跳转入口
+  HG.api._stub('GET /acct/voucher', (q) => (q.id !== undefined
+    ? { id: q.id, voucherNo: 'AV202609-00001', status: 'POSTED', lines: [], reviews: [] }
+    : { items: [{ id: 20, voucherNo: 'AV202609-00001', status: 'POSTED' }], total: 1, page: 1, size: 20 }));
+  await lBtn.click(); await tick();
+  await detBtn.click(); await tick();
+  ok(htmlAll(root).indexOf('data-voucher-related=') === -1, 'voucher：四键皆空——列表无关联单据锚标');
+  ok(!hasAttr(root, 'data-voucher-related'), 'voucher：四键皆空——详情无关联键节点');
+  ok(findBtnByText(root, '套保计划 #') === null && textOf(cardOf(detBtn)).includes('—'), 'voucher：四键皆空——详情无跳转入口、显「—」');
   // 空态 + 错误态
   HG.api._stub('GET /acct/voucher', (q) => { if (q.id === undefined) return { items: [], total: 0, page: 1, size: 20 }; throw { code: 10001, message: '凭证不存在' }; });
   await lBtn.click(); await tick();
@@ -790,7 +840,8 @@ switchTab('period');
   const srcAcct = fs.readFileSync(path.join(webJs, 'pages', 'acct.js'), 'utf8');
   const MUTATIONS = [
     { name: 'spot', find: "'data-spot-column'", repl: "'data-spot-column-x'", desc: '摘除实货栏锚标（双栏之一）' },
-    { name: 'unattr', find: "'data-unattributed'", repl: "'data-unattributed-x'", desc: '摘除 UNATTRIBUTED 残余行锚标' }
+    { name: 'unattr', find: "'data-unattributed'", repl: "'data-unattributed-x'", desc: '摘除 UNATTRIBUTED 残余行锚标' },
+    { name: 'reldocs', find: "'data-voucher-related'", repl: "'data-voucher-related-x'", desc: '摘除凭证关联单据四键展示（TE-T083-001）' }
   ];
   for (const m of MUTATIONS) {
     ok(srcAcct.indexOf(m.find) !== -1, '变异前置——源含锚标（' + m.name + '）');

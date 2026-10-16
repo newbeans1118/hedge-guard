@@ -33,6 +33,10 @@
  *     偏离值在页面仅只读展示（无输入项），触发条件不满足 10012 时展示服务端返回的当前偏离值；
  *   · R-ACCT-5：凭证不可修改只能冲销；凭证必须按子账户出账（子账户缺失前端预检拦截）；
  *     正式凭证无编辑/删除入口（删除仅草稿走 POST action=DELETE_DRAFT 显式通道）；
+ *   · FR-ACCT-8 验收 2：凭证列表/详情展示关联单据四键（hedgePlanId/hedgeRelationId/
+ *     settleCycleId/exposureId，VoucherHandler.view 同源）；套保计划深链 /plan/{id}
+ *     （plan.js:1283 已注册路由）；实货敞口/套期关系/结算周期无详情路由 ⇒ 仅展示编号
+ *     （TE-T083-001 修复，FR-AUDIT-2 反向追溯入口）；
  *   · R-ACCT-6：岗位分离——凭证**生成人与审核人不得为同一人**（后端强制，页面显式提示）；
  *     驳回原因必填（前端预检 + 后端强制）；
  *   · R-ACCT-8：关账三前置（①凭证全部已审核/已冲销 ②结算已完成 ③评估已完成）任一不满足
@@ -109,6 +113,34 @@ const VOUCHER_TYPES = {
 };
 /** 凭证审核动作（AcctService.VoucherReviewRequest.action）。 */
 const REVIEW_ACTIONS = { SUBMIT: '提交审核', APPROVE: '审核通过', REJECT: '驳回', WITHDRAW: '撤回' };
+/** 凭证关联单据四键（VoucherHandler.view 恒带：hedgePlanId/hedgeRelationId/settleCycleId/exposureId；
+ *  FR-ACCT-8 验收 2 追溯入口，TE-T083-001 修复）。
+ *  路由承载实测（routes.js / 各页 HG.router.register 实况）：套保计划 /plan/:id 已注册（plan.js）
+ *  ⇒ 深链跳转；实货敞口（spot.js 仅注册 /spot、/spot/exposure，无 /spot/exposure/{id} 详情路由）、
+ *  套期关系、结算周期无详情路由 ⇒ 仅展示编号（可选中复制；套期关系可经「再平衡史」按编号查询）。 */
+const RELATED_DOC_DEFS = [
+  { key: 'hedgePlanId', label: '套保计划' },
+  { key: 'hedgeRelationId', label: '套期关系' },
+  { key: 'settleCycleId', label: '结算周期' },
+  { key: 'exposureId', label: '实货敞口' }
+];
+/** 关联键跳转目标：仅存在已注册详情路由的键返回路径，其余 null（勿臆造路由）。 */
+function relatedDocTarget(key, id) {
+  return key === 'hedgePlanId' ? '/plan/' + encodeURIComponent(id) : null;
+}
+/** 关联单据单元格 HTML：有值键逐个展示（跳转键为锚标 data-voucher-jump），全空显「—」。 */
+function relatedDocHTML(v) {
+  const parts = RELATED_DOC_DEFS.map((d) => {
+    const id = v[d.key];
+    if (id == null) return '';
+    const to = relatedDocTarget(d.key, id);
+    return to
+      ? '<a class="hg-doclink" data-voucher-related="' + d.key + '" data-voucher-jump="' + F.esc(to) + '">'
+        + F.esc(d.label) + ' #' + F.esc(String(id)) + '</a>'
+      : '<span data-voucher-related="' + d.key + '">' + F.esc(d.label) + ' #' + F.esc(String(id)) + '</span>';
+  }).filter(Boolean).join(' ');
+  return parts || '—';
+}
 /** 再平衡四类触发（Q-8；AcctService.TRIGGER_*）。 */
 const TRIGGERS = {
   EXPOSURE_DELTA: '实货敞口变动 > 20%（敞口侧）',
@@ -948,6 +980,12 @@ function voucherTab(container) {
   ]));
   const lBody = ui.el('div');
   const lPager = ui.el('div', { class: 'hg-pager' });
+  // 关联单据跳转（事件委托——tableHTML 为字符串形态；点击 data-voucher-jump 锚标即深链）。
+  lBody.addEventListener('click', (ev) => {
+    const t = ev && ev.target;
+    const to = t && t.getAttribute ? t.getAttribute('data-voucher-jump') : null;
+    if (to) HG.router.navigate(to);
+  });
   listCard.appendChild(lBody);
   listCard.appendChild(lPager);
   container.appendChild(listCard);
@@ -975,6 +1013,7 @@ function voucherTab(container) {
           { title: '金额', num: true, render: (r) => showAmt(r.totalAmount) },
           { title: '冲销关联', num: true, render: (r) => F.esc((r.reversalOfId ? '冲销原凭证 #' + r.reversalOfId : '')
             + (r.reversedById ? '（被 #' + r.reversedById + ' 冲销）' : '') || '—') },
+          { title: '关联单据', render: (r) => relatedDocHTML(r) },
           { title: '外部复核', render: (r) => extReviewHTML(r.pendingExternalReview) || '—' }
         ],
         data.items
@@ -1018,6 +1057,21 @@ function voucherTab(container) {
           ['复核标注', d.draftPendingEntryNote || '待企业财务复核入账']
         ]
       ) }));
+      // 关联单据（FR-ACCT-8 验收 2 追溯入口，TE-T083-001）：真实节点形态——跳转键为按钮，
+      // 无路由键展示为可选中文本；空值键不渲染，四键皆空显「—」。
+      detBody.appendChild(ui.el('h4', { text: '关联单据（套保计划 / 实货敞口追溯）' }));
+      const relRow = ui.el('div');
+      RELATED_DOC_DEFS.forEach((def) => {
+        const relId = d[def.key];
+        if (relId == null) return;
+        const to = relatedDocTarget(def.key, relId);
+        relRow.appendChild(to
+          ? ui.el('button', { class: 'hg-btn hg-btn--ghost', type: 'button', 'data-voucher-related': def.key,
+              text: def.label + ' #' + relId, onclick: () => HG.router.navigate(to) })
+          : ui.el('span', { 'data-voucher-related': def.key, text: def.label + ' #' + relId }));
+      });
+      if (!relRow.children.length) relRow.appendChild(ui.el('span', { text: '—' }));
+      detBody.appendChild(relRow);
       detBody.appendChild(ui.el('h4', { text: '分录行（借贷成对）' }));
       detBody.appendChild(ui.el('div', { html: ui.tableHTML(
         [
