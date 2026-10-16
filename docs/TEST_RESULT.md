@@ -17152,8 +17152,8 @@ python3 /root/t059-ws/gcov_union.py --root /root/t059-ws/cpp/src \
 |------|------|-----|------|
 | `java/src/test/java/com/hedgeguard/service/M4DocPackageCas24SelfcheckTest.java` | 723 | `8713771eacf74934d4f5f2fde45f479a` | TC-M4-17~20 五用例（5 个 @Test） |
 | `java/src/test/java/com/hedgeguard/dao/testsupport/T085M4DocPackageSeed.java` | 60 | `5072a17d8201ed7031a1aba0701c9c85` | 用例级播种件（计划 13 文档 + 标注移除负证探针；SQL 落 dao.testsupport，E5 纪律） |
-| `docs/BUGS/BUG-004.md` | — | 见文件 | TC-M4-19 实测不通过 ⇒ P1 缺陷单（本章 §T085-4） |
-| `dev-team/inbox/backend-engineer#java2/BUG-004-bug.md` | — | 见文件 | 缺陷工单投递（ACCT 域责任席） |
+| `docs/BUGS/BUG-005.md` | — | 见文件 | TC-M4-19 实测不通过 ⇒ P1 缺陷单（本章 §T085-4） |
+| `dev-team/inbox/backend-engineer#java2/BUG-005-bug.md` | — | 见文件 | 缺陷工单投递（ACCT 域责任席） |
 
 - 树锚（落笔后立即实测）：`cd java && find src -type f | LC_ALL=C sort | xargs md5sum | md5sum`
   = **`26318c275765c87786c534ecf14bcc94`** / **760 文件**（758 + 新增 2）。
@@ -17175,7 +17175,7 @@ python3 /root/t059-ws/gcov_union.py --root /root/t059-ws/cpp/src \
 |------|-------|------|---------|
 | `TC-M4-17` M2 交易 → 完整会计文档包端到端 | `tcM4_17_docPackageFourPiecesEndToEnd` | ✅ 通过 | 四件套各 ≥1 且逐件可追溯：①书面文档 v2（计划 11/敞口 21，历史 v1 保留 is_current='N'）②评估记录（关系回溯）③再平衡记录（EXPOSURE_DELTA，newHedgeDocId/newHedgeRelationId 链接）④凭证草稿（DRAFT，hedge_plan_id=11/hedge_relation_id/exposure_id=21 三关联键齐）；**断链数==0**；期权腿同链（OPTION 关系计划 13/敞口 23，FR-ACCT-11）；衍生品 −10350（期货 −8250 + 期权 −2100 两腿皆非 0） |
 | `TC-M4-18` CAS 24 五条自检逐条结论 + 证据位置 | `tcM4_18_cas24SelfcheckFiveItemsWithEvidence` | ✅ 通过 | 五条逐条 PASS/FAIL + 证据位置（表名+ID+说明）落 `t_cas24_selfcheck_item`（生产 DAO）；期货腿批次 `ALL_PASS` 5/0；期权腿批次 `HAS_FAIL` 4/1——**④ REBALANCE_RECORDS = FAIL**（状态机 NEED_REBALANCE=已触发但 `t_rebalance_record` 无记录，FR-ACCT-14 验收 2 实证）；`findByScope`/`findByCodeAndResult("REBALANCE_RECORDS","FAIL")` 读回命中 |
-| `TC-M4-19` 「待外部复核」标注存在且不可移除 | `tcM4_19_pendingExternalReviewMarkingProbe` | ❌ **不通过（缺陷 BUG-004）** | 标注承载实测 **2/4**（关系文档 ✓ + 自检报告 ✓；评估/再平衡记录**无承载列** ✗）——以「行为固定探针」固定现状（TC-M4-02 备注判例），修复后改写为 4/4 断言；移除入口负证：DB CHECK 拒 'N'（INSERT 路径有牙）+ AcctService 方法面无移除入口（反射扫描 == 0）；「自检不替代外部复核」声明在 |
+| `TC-M4-19` 「待外部复核」标注存在且不可移除 | `tcM4_19_pendingExternalReviewMarkingProbe` | ❌ **不通过（缺陷 BUG-005）** | 标注承载实测 **2/4**（关系文档 ✓ + 自检报告 ✓；评估/再平衡记录**无承载列** ✗）——以「行为固定探针」固定现状（TC-M4-02 备注判例），修复后改写为 4/4 断言；移除入口负证：DB CHECK 拒 'N'（INSERT 路径有牙）+ AcctService 方法面无移除入口（反射扫描 == 0）；「自检不替代外部复核」声明在 |
 | `TC-M4-20①` 双侧盈亏上报两栏 + 留痕 | `tcM4_20_dualPnlReportBothPanelsAndTrace` | ✅ 通过 | 两栏恒在（spot_pnl_column_present='Y' + 衍生品栏）；实货 19800（=(130+50)×110，敞口 21 因再平衡触发改 130）、衍生品 −10350（已实现 −10000/未实现 −350，含期权腿 R-ACCT-7），上报口径与效果视图同源（FR-ACCT-10 验收 3）；留痕三件（submittedBy=7/submittedTime/reportPeriod）+ `DR202610130001` 取号 + 上报行落库直读核 |
 | `TC-M4-20②` 缺价 ⇒ 实货栏保留 + 缺失原因 | `tcM4_20_dualPnlReportMissingPriceKeepsSpotColumn` | ✅ 通过 | 连历史价也无（noPriceAtAll）⇒ 实货栏保留 'Y'、值 NULL（不以 0 冒充）、缺失原因必填；衍生品栏照常 −10350；留痕三件仍齐（R-ACCT-4/17 号文红线） |
 
@@ -17208,7 +17208,7 @@ surefire:test 不重编译判例）；结束后 `AcctService.java` md5 复位核
 
 | 编号 | 优先级 | 状态 | 对应用例 | 摘要 |
 |------|--------|------|---------|------|
-| BUG-004 | P1 | NEW（工单已投 `backend-engineer#java2`） | TC-M4-19 | 有效性评估记录/再平衡记录缺「待外部复核」标注承载列（R-ACCT-10 四类文档实测 2/4）；缺口在 DATA_MODEL/DDL 设计层，实现与 DATA_MODEL 一致——修复方案（增列 vs 口径降级）待开发/权威席裁定 |
+| BUG-005 | P1 | NEW（工单已投 `backend-engineer#java2`） | TC-M4-19 | 有效性评估记录/再平衡记录缺「待外部复核」标注承载列（R-ACCT-10 四类文档实测 2/4）；缺口在 DATA_MODEL/DDL 设计层，实现与 DATA_MODEL 一致——修复方案（增列 vs 口径降级）待开发/权威席裁定 |
 
 ### §T085-5 缺口与诚实披露（单列，不冒充）
 
@@ -17238,9 +17238,9 @@ surefire:test 不重编译判例）；结束后 `AcctService.java` md5 复位核
 
 ### §T085-7 未决项（只报不改）
 
-1. **BUG-004 处置路径**：增列（DATA_MODEL/DDL/服务/前端四层同步）vs 口径降级申报——须开发/权威席裁定（工单已投 java2）。
+1. **BUG-005 处置路径**：增列（DATA_MODEL/DDL/服务/前端四层同步）vs 口径降级申报——须开发/权威席裁定（工单已投 java2）。
 2. **自检/导出端点化**（FR-ACCT-14 验收 4「可导出」/FR-ACCT-9）：端点未注册，后续单交付时以本单装配级条目为验收基线。
 3. **`t_dual_pnl_report.pending_external_review` CHECK 为 `IN ('Y','N')`**（m4_acct.sql:517，非恒 'Y'）：与 t_voucher/t_cas24_selfcheck 的恒 'Y' 口径不一致；服务侧恒写 'Y'（TC-M4-20① 实测），DB 级无恒 'Y' 保证——是否收紧属设计裁定，仅披露。
-4. **TC-M4-19「4/4」预期值改写**：BUG-004 修复后由修复方或复检方将行为固定探针改写为 4/4 断言（探针内已注明）。
+4. **TC-M4-19「4/4」预期值改写**：BUG-005 修复后由修复方或复检方将行为固定探针改写为 4/4 断言（探针内已注明）。
 
 —— T-085 执行席 te-t085；待独立复核（本席不自评 DONE）。
