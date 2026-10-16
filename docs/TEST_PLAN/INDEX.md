@@ -712,6 +712,9 @@ NEW → ASSIGNED → FIXED → VERIFYING → CLOSED
 | `docs/TEST_PLAN/CONFIG.md` | 系统配置用例（18） | ☑ |
 | `docs/TEST_PLAN/BOUNDARY.md` | 边界与异常用例（28） | ☑ |
 | `docs/TEST_PLAN/NONFUNCTIONAL.md` | 非功能用例（50） | ☑ |
+| `docs/TEST_PLAN/M2.md` | M2 联调测试策略与 HGCP 协议专项（37 用例；**TE-T084 O-4 补登**） | ☑ |
+| `docs/TEST_PLAN/M3.md` | M3 测试策略——6 类风险逐类触发（36 用例；同上补登） | ☑ |
+| `docs/TEST_PLAN/M4.md` | M4 测试策略与实盘验证方案（30 用例；te-verify-t084 有条件通过→订正闭环） | ☑ |
 | `docs/TEST_PLAN/cases/TC-*.md` | 复杂用例独立成文 | **不适用**（无单条复杂到需独立成文的用例；各模块内联已含完整字段） |
 
 ---
