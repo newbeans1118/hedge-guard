@@ -247,6 +247,15 @@ public final class AcctService {
     /** 衍生品盈亏（未实现-浮动）数据源行类型（SettleService.PNL_TYPE_FLOAT_UNREALIZED 同值；口径单一）。 */
     public static final String PNL_SOURCE_FLOAT_UNREALIZED = "FLOAT_UNREALIZED";
 
+    /**
+     * 未关联计划行标注（TE-T080-001）：结算盈亏无法归集到任一 BOUND 计划/敞口时的残余承载行
+     * （{@code hedge_plan_id}/{@code exposure_id} 均 NULL）。该行与子账户级汇总行同键（NULL 键，
+     * {@code uk_hedge_effect_key} 对含 NULL 的行不强制），二者以本标注区分
+     * （汇总行无此标注）。承载列取 {@code missing_desc}（表内唯一可承载标签的文本列；
+     * 该行实货侧为 0/无敞口，不存在「缺价说明」语义冲突）。
+     */
+    public static final String UNATTRIBUTED_MARKER = "UNATTRIBUTED";
+
     /** 效果行价态：当日价（non_current_price_flag='N'；FR-ACCT-5 验收 3 三态①）。 */
     public static final String PRICE_STATE_CURRENT = "CURRENT";
     /** 效果行价态：最近一期价非当日（price_as_of 必带 + non_current_price_flag='Y'；三态②）。 */
@@ -2698,8 +2707,12 @@ public final class AcctService {
      *       分别展示」+ FR-ACCT-11 验收 3 期权浮动盈亏纳入综合评估 + R-ACCT-7 期权与期货共用）=
      *       {@code t_settle_pnl} 期间内 {@code CLOSE_REALIZED}（已实现-平仓）与
      *       {@code FLOAT_UNREALIZED}（未实现-浮动，<b>含期权</b>——结算转录不分工具类型，
-     *       R-ACCT-7 同链同口径）按子账户求和。数据源唯一（R-ACCT-12 口径单一：
-     *       效果评估与上报共用 {@link #aggregateDerivativePnl}，各处不自算）。</li>
+     *       R-ACCT-7 同链同口径）。<b>明细三层归集</b>（TE-T080-001）：①{@code hedge_plan_id}
+     *       非空 ⇒ 计划号直配；②NULL ⇒ 按 {@code (sub_account_id, product_id)} 经
+     *       {@code t_hedge_plan_exposure} 绑定敞口归集；③皆不中（无候选 / 候选歧义）⇒ 计入
+     *       「未关联计划」残余行（{@link #UNATTRIBUTED_MARKER}）。<b>汇总 = Σ全部明细行</b>
+     *       （含未关联残余行）——恒等式由构造保证；{@link #aggregateDerivativePnl} 仅用于求
+     *       全量与残余（残余 = 全量 − Σ计划归集明细），不再独立充当汇总值。</li>
      *   <li><b>净效果</b>（FR-ACCT-5：「综合评判须给出净效果（两侧合计）」）=
      *       spot_pnl_total + derivative_pnl_total（任一侧缺失按 0 参与——缺失侧语义见
      *       spot_price_missing 标注，数值聚合以可计算侧承载）。</li>
@@ -2710,14 +2723,16 @@ public final class AcctService {
      *
      * <p><b>幂等 + 口径单一</b>（R-ACCT-12）：同幂等键（{@code uk_hedge_effect_key}：期间 +
      * 子账户 + 计划 + 敞口）重复计算 ⇒ 覆盖更新（重算落新值），不产生重复行——同一期间/子账户/
-     * 计划的盈亏只有一个口径来源。每敞口一行（{@code hedge_plan_id} 取其首条 BOUND 绑定的计划）；
-     * 另落一行子账户级汇总（{@code hedge_plan_id = NULL}，汇总 = 明细之和，FR-ACCT-5 验收 4）。
+     * 计划的盈亏只有一个口径来源。每 BOUND 绑定一行（计划+敞口）；另落一行子账户级汇总
+     * （{@code hedge_plan_id = NULL}，汇总 = Σ全部明细行，FR-ACCT-5 验收 4）；残余 ≠ 0 时另落
+     * 一行未关联计划残余行（{@code UNATTRIBUTED} 标注，与汇总行同 NULL 键、以标注区分），
+     * 残余 = 0 时不出行（历史残余行置零后视图不呈现——任何结算盈亏不得静默消失）。
      * <b>整笔 {@code tx.inTransaction} 包裹</b>（T-077-FIX TE-T077-001 判例）。
      *
      * @param subAccountId 子账户（必填；写面断言）
      * @param periodKey    会计期间（yyyy-MM；期间止当日为实货盈亏计算日——期间未建行时按当月月末）
      * @param operatorId   计算人（会话身份）
-     * @return 子账户级汇总行（含全部明细行经 DAO 落库；明细行数 = BOUND 敞口数）
+     * @return 子账户级汇总行（含全部明细行经 DAO 落库；明细行数 = BOUND 绑定数 [+1 未关联残余行]）
      */
     public HedgeEffect evaluateEffect(int subAccountId, String periodKey, long operatorId) {
         if (!effectSupported()) {
@@ -2746,34 +2761,95 @@ public final class AcctService {
                 bound.add(b);
             }
         }
-        List<HedgeEffect> details = new ArrayList<>();
+        LocalDate from = monthStart(period);
+
+        // —— 明细衍生品盈亏三层归集（TE-T080-001）——
+        //   层① hedge_plan_id 非空 ⇒ 计划号直配；
+        //   层② NULL（或层①未命中）⇒ 按 (sub_account_id, product_id) 经 t_hedge_plan_exposure
+        //        绑定敞口归集（product_id 为 t_settle_pnl NOT NULL 列；instrument_id 随行但绑定实体
+        //        为敞口维度，schema 无 instrument→敞口映射，故不作连接键）；
+        //   层③ 皆不中（候选为空，或候选 > 1 致歧义）⇒ 计入「未关联计划」残余。
+        Map<Long, Long> bindingProduct = new LinkedHashMap<>();
+        for (HedgePlanExposure b : bound) {
+            Exposure ex = exposureDao.findById(b.exposureId);
+            bindingProduct.put(b.id, ex == null ? null : ex.productId);
+        }
+        Map<Long, DerivativePnlCalc> byBinding = new LinkedHashMap<>();
+        DerivativePnlCalc attributed = newDerivativeCalc();
+        for (SettlePnl p : settlePnlDao.findBySubAccountAndDateRange(subAccountId, from, calcDate)) {
+            if (!isDerivativePnlType(p.pnlType)) {
+                continue;
+            }
+            List<HedgePlanExposure> cand = new ArrayList<>();
+            if (p.hedgePlanId != null) {            // 层① 计划号直配
+                for (HedgePlanExposure b : bound) {
+                    if (p.hedgePlanId.equals(b.hedgePlanId)) {
+                        cand.add(b);
+                    }
+                }
+            }
+            if (cand.isEmpty()) {                   // 层② 按品种经绑定敞口归集
+                for (HedgePlanExposure b : bound) {
+                    Long bp = bindingProduct.get(b.id);
+                    if (bp != null && p.productId != null && bp.equals(p.productId)) {
+                        cand.add(b);
+                    }
+                }
+            }
+            if (cand.size() == 1) {                 // 唯一归集
+                DerivativePnlCalc c = byBinding.get(cand.get(0).id);
+                if (c == null) {
+                    c = newDerivativeCalc();
+                    byBinding.put(cand.get(0).id, c);
+                }
+                addDerivative(c, p);
+                addDerivative(attributed, p);
+            }
+            // 层③：cand 空 / >1（歧义）⇒ 不归集，落残余
+        }
+        // 汇总口径 = 子账户全量（aggregateDerivativePnl 仅此与求残余；不再独立作为汇总值）
+        DerivativePnlCalc total = aggregateDerivativePnl(subAccountId, from, calcDate);
+        DerivativePnlCalc residual = newDerivativeCalc();
+        residual.realized = nz(total.realized).subtract(nz(attributed.realized));
+        residual.unrealized = nz(total.unrealized).subtract(nz(attributed.unrealized));
+        boolean hasResidual = residual.realized.signum() != 0 || residual.unrealized.signum() != 0;
+
+        // 明细行（每条 BOUND 绑定一行；衍生品 = 该绑定归集值）
         for (HedgePlanExposure b : bound) {
             HedgeEffect row = computeEffectRow(subAccountId, period, calcDate,
-                    b.hedgePlanId, b.exposureId, b.coveredQty, operatorId);
+                    b.hedgePlanId, b.exposureId, b.coveredQty, operatorId, byBinding.get(b.id));
             upsertEffect(row, operatorId);
-            details.add(row);
         }
-        // 子账户级汇总行（hedge_plan_id=NULL；R-ACCT-4「两侧均须按子账户归集并可与汇总勾稽」）
-        HedgeEffect summary = computeEffectRow(subAccountId, period, calcDate, null, null,
-                null, operatorId);
+        // 未关联计划残余行：残余≠0 ⇒ 出行（显式未关联）；=0 ⇒ 不出行——历史残余行以「置零 + 视图
+        // 不出行」收口（不摘除：等价引擎 DELETE 语义与 SQL 相反〔doDelete 保留命中行〕，
+        // 摘除不可在测试面自证；置零后视图侧按零值过滤，DB 残留零行不参与 Σ，恒等式不受影响）。
+        if (hasResidual) {
+            upsertEffect(computeUnattributedRow(subAccountId, period, residual, operatorId), operatorId);
+        } else if (findUnattributedEffect(subAccountId, period) != null) {
+            upsertEffect(computeUnattributedRow(subAccountId, period, newDerivativeCalc(), operatorId),
+                    operatorId);
+        }
+        // 子账户级汇总行：衍生品 = 全量 = Σ全部明细行（含未关联行）——恒等式由构造保证
+        HedgeEffect summary = computeSummaryRow(subAccountId, period, calcDate, total, operatorId);
         upsertEffect(summary, operatorId);
         return summary;
     }
 
-    /** 单行效果计算（明细行：计划+敞口；汇总行：hedge_plan_id/exposureId/coveredQty 均为 null）。 */
+    /**
+     * 明细行效果计算（计划+敞口；衍生品盈亏由调用方按三层归集传入——R-ACCT-12 口径单一，
+     * 明细不再各处自算）。
+     */
     private HedgeEffect computeEffectRow(int subAccountId, String period, LocalDate calcDate,
                                          Long hedgePlanId, Long exposureId, BigDecimal coveredQty,
-                                         long operatorId) {
+                                         long operatorId, DerivativePnlCalc deriv) {
         HedgeEffect e = new HedgeEffect();
         e.subAccountId = subAccountId;
         e.periodKey = period;
         e.hedgePlanId = hedgePlanId;
         e.exposureId = exposureId;
 
-        // —— 实货侧（明细行按敞口计；汇总行 = 本子账户各明细行之和）——
-        SpotPnlCalc spot = hedgePlanId == null
-                ? sumSpotPnl(subAccountId, period, calcDate)
-                : spotPnlForExposure(exposureId, calcDate, coveredQty);
+        // —— 实货侧（明细行按敞口计）——
+        SpotPnlCalc spot = spotPnlForExposure(exposureId, calcDate, coveredQty);
         e.spotPnlRealized = spot.realized;
         e.spotPnlUnrealized = spot.unrealized;
         e.spotPnlTotal = spot.total;
@@ -2782,10 +2858,8 @@ public final class AcctService {
         e.priceAsOf = spot.priceAsOf;
         e.nonCurrentPriceFlag = spot.nonCurrent ? "Y" : "N";
 
-        // —— 衍生品侧（明细行按计划归集取数；汇总行按子账户取数；R-ACCT-7 期权共用无分支）——
-        DerivativePnlCalc dp = hedgePlanId == null
-                ? aggregateDerivativePnl(subAccountId, monthStart(period), calcDate)
-                : aggregateDerivativePnlByPlan(hedgePlanId, subAccountId, monthStart(period), calcDate);
+        // —— 衍生品侧（归集值；R-ACCT-7 期权共用无分支）——
+        DerivativePnlCalc dp = deriv == null ? newDerivativeCalc() : deriv;
         e.derivativePnlRealized = dp.realized;
         e.derivativePnlUnrealized = dp.unrealized;
         e.derivativePnlTotal = nz(dp.realized).add(nz(dp.unrealized));
@@ -2793,40 +2867,141 @@ public final class AcctService {
         // —— 净效果（两侧合计；缺失侧数值按 0 参与，缺失语义由 spot_price_missing 承载）——
         e.netEffect = nz(e.spotPnlTotal).add(e.derivativePnlTotal);
 
-        // —— 未对冲部分（明细行=敞口量−BOUND 覆盖量之和；汇总行=各行之和）——
-        if (exposureId != null) {
-            BigDecimal unhedgedQty = unhedgedQtyOf(exposureId, coveredQty);
-            e.unhedgedQty = unhedgedQty;
-            e.unhedgedAmount = spot.priceUsed == null ? null
-                    : unhedgedQty.multiply(spot.priceUsed);
-            e.hedgedRatioActual = spot.exposureQty.signum() == 0 ? null
-                    : nz(coveredQty).divide(spot.exposureQty, 6, java.math.RoundingMode.HALF_UP);
-        } else {
-            BigDecimal qty = BigDecimal.ZERO;
-            BigDecimal amt = BigDecimal.ZERO;
-            boolean amountKnown = true;
-            for (HedgePlanExposure b : planExposureDao.findBySubAccounts(List.of(subAccountId))) {
-                if (!"BOUND".equals(b.status)) {
-                    continue;
-                }
-                BigDecimal u = unhedgedQtyOf(b.exposureId, b.coveredQty);
-                qty = qty.add(u);
-                SpotPrice p = latestPriceOfExposure(b.exposureId, calcDate);
-                if (p == null) {
-                    amountKnown = false;
-                } else {
-                    amt = amt.add(u.multiply(p.spotPrice));
-                }
-            }
-            e.unhedgedQty = qty;
-            e.unhedgedAmount = amountKnown ? amt : null;
-            e.hedgedRatioActual = null;
-        }
+        // —— 未对冲部分（按绑定行逐行上报；O-4：同敞口多计划绑定时各绑定行各报一份 ⇒ 边界披露）——
+        BigDecimal unhedgedQty = unhedgedQtyOf(exposureId, coveredQty);
+        e.unhedgedQty = unhedgedQty;
+        e.unhedgedAmount = spot.priceUsed == null ? null
+                : unhedgedQty.multiply(spot.priceUsed);
+        e.hedgedRatioActual = spot.exposureQty.signum() == 0 ? null
+                : nz(coveredQty).divide(spot.exposureQty, 6, java.math.RoundingMode.HALF_UP);
 
         e.calcTime = Clocks.now();
         e.spotPriceMissing = e.spotPriceMissing == null ? "N" : e.spotPriceMissing;
         e.nonCurrentPriceFlag = e.nonCurrentPriceFlag == null ? "N" : e.nonCurrentPriceFlag;
         return e;
+    }
+
+    /** 子账户级汇总行（计划/敞口均 NULL；衍生品 = 全量 = Σ全部明细行，实货 = Σ明细）。 */
+    private HedgeEffect computeSummaryRow(int subAccountId, String period, LocalDate calcDate,
+                                          DerivativePnlCalc total, long operatorId) {
+        HedgeEffect e = new HedgeEffect();
+        e.subAccountId = subAccountId;
+        e.periodKey = period;
+        e.hedgePlanId = null;
+        e.exposureId = null;
+
+        SpotPnlCalc spot = sumSpotPnl(subAccountId, period, calcDate);
+        e.spotPnlRealized = spot.realized;
+        e.spotPnlUnrealized = spot.unrealized;
+        e.spotPnlTotal = spot.total;
+        e.spotPriceMissing = spot.missing ? "Y" : "N";
+        e.missingDesc = spot.missingDesc;
+        e.priceAsOf = spot.priceAsOf;
+        e.nonCurrentPriceFlag = spot.nonCurrent ? "Y" : "N";
+
+        e.derivativePnlRealized = total.realized;
+        e.derivativePnlUnrealized = total.unrealized;
+        e.derivativePnlTotal = nz(total.realized).add(nz(total.unrealized));
+        e.netEffect = nz(e.spotPnlTotal).add(e.derivativePnlTotal);
+
+        BigDecimal qty = BigDecimal.ZERO;
+        BigDecimal amt = BigDecimal.ZERO;
+        boolean amountKnown = true;
+        for (HedgePlanExposure b : planExposureDao.findBySubAccounts(List.of(subAccountId))) {
+            if (!"BOUND".equals(b.status)) {
+                continue;
+            }
+            BigDecimal u = unhedgedQtyOf(b.exposureId, b.coveredQty);
+            qty = qty.add(u);
+            SpotPrice p = latestPriceOfExposure(b.exposureId, calcDate);
+            if (p == null) {
+                amountKnown = false;
+            } else {
+                amt = amt.add(u.multiply(p.spotPrice));
+            }
+        }
+        e.unhedgedQty = qty;
+        e.unhedgedAmount = amountKnown ? amt : null;
+        e.hedgedRatioActual = null;
+
+        e.calcTime = Clocks.now();
+        e.spotPriceMissing = e.spotPriceMissing == null ? "N" : e.spotPriceMissing;
+        e.nonCurrentPriceFlag = e.nonCurrentPriceFlag == null ? "N" : e.nonCurrentPriceFlag;
+        return e;
+    }
+
+    /**
+     * 未关联计划残余行（层③；TE-T080-001）：实货侧无敞口 ⇒ 0；衍生品 = 残余；标注
+     * {@link #UNATTRIBUTED_MARKER}。与子账户级汇总行同键（NULL），以标注区分（见常量 javadoc）。
+     */
+    private HedgeEffect computeUnattributedRow(int subAccountId, String period,
+                                               DerivativePnlCalc residual, long operatorId) {
+        HedgeEffect e = new HedgeEffect();
+        e.subAccountId = subAccountId;
+        e.periodKey = period;
+        e.hedgePlanId = null;
+        e.exposureId = null;
+        e.spotPnlRealized = BigDecimal.ZERO;
+        e.spotPnlUnrealized = BigDecimal.ZERO;
+        e.spotPnlTotal = BigDecimal.ZERO;
+        e.derivativePnlRealized = residual.realized;
+        e.derivativePnlUnrealized = residual.unrealized;
+        e.derivativePnlTotal = nz(residual.realized).add(nz(residual.unrealized));
+        e.netEffect = e.derivativePnlTotal;
+        e.unhedgedQty = BigDecimal.ZERO;
+        e.unhedgedAmount = BigDecimal.ZERO;
+        e.hedgedRatioActual = null;
+        e.spotPriceMissing = "N";
+        e.missingDesc = UNATTRIBUTED_MARKER;
+        e.priceAsOf = null;
+        e.nonCurrentPriceFlag = "N";
+        e.calcTime = Clocks.now();
+        return e;
+    }
+
+    /** 衍生品盈亏载体（零值初始化）。 */
+    private static DerivativePnlCalc newDerivativeCalc() {
+        DerivativePnlCalc c = new DerivativePnlCalc();
+        c.realized = BigDecimal.ZERO;
+        c.unrealized = BigDecimal.ZERO;
+        return c;
+    }
+
+    /** 累加单条结算盈亏到载体（CLOSE_REALIZED=已实现 / FLOAT_UNREALIZED=未实现）。 */
+    private static void addDerivative(DerivativePnlCalc c, SettlePnl p) {
+        if (PNL_SOURCE_CLOSE_REALIZED.equals(p.pnlType)) {
+            c.realized = nz(c.realized).add(nz(p.amount));
+        } else if (PNL_SOURCE_FLOAT_UNREALIZED.equals(p.pnlType)) {
+            c.unrealized = nz(c.unrealized).add(nz(p.amount));
+        }
+    }
+
+    /** 是否衍生品盈亏行类型（已实现/未实现；COMMISSION/MARGIN_CHANGE 不参与，FR-ACCT-5）。 */
+    private static boolean isDerivativePnlType(String pnlType) {
+        return PNL_SOURCE_CLOSE_REALIZED.equals(pnlType)
+                || PNL_SOURCE_FLOAT_UNREALIZED.equals(pnlType);
+    }
+
+    /** 残余行识别（与子账户级汇总行同键 NULL，以 UNATTRIBUTED 标注区分）。 */
+    private static boolean isUnattributed(HedgeEffect e) {
+        return e.hedgePlanId == null && e.exposureId == null
+                && e.missingDesc != null && e.missingDesc.startsWith(UNATTRIBUTED_MARKER);
+    }
+
+    /** 未关联残余行是否应「出行」（残余 ≠ 0；=0 的历史置零行视图不呈现——「=0 不出行」）。 */
+    private static boolean isVisibleUnattributed(HedgeEffect e) {
+        return isUnattributed(e)
+                && (nz(e.derivativePnlRealized).signum() != 0 || nz(e.derivativePnlUnrealized).signum() != 0);
+    }
+
+    /** 取当期未关联残余行（无 ⇒ null）。 */
+    private HedgeEffect findUnattributedEffect(int subAccountId, String period) {
+        for (HedgeEffect r : hedgeEffectDao.findBySubAccountAndPeriod(subAccountId, period)) {
+            if (isUnattributed(r)) {
+                return r;
+            }
+        }
+        return null;
     }
 
     /** 单敞口实货盈亏计算（Q-12/R-ACCT-9 三态：当日价 / 最近一期价+标注 / 无价+说明）。 */
@@ -2927,27 +3102,6 @@ public final class AcctService {
         return c;
     }
 
-    /** 衍生品盈亏聚合（按套保计划：该计划名下结算盈亏行；t_settle_pnl.hedge_plan_id 归集）。 */
-    private DerivativePnlCalc aggregateDerivativePnlByPlan(long hedgePlanId, int subAccountId,
-                                                           LocalDate from, LocalDate to) {
-        DerivativePnlCalc c = new DerivativePnlCalc();
-        BigDecimal realized = BigDecimal.ZERO;
-        BigDecimal unrealized = BigDecimal.ZERO;
-        for (SettlePnl p : settlePnlDao.findBySubAccountAndDateRange(subAccountId, from, to)) {
-            if (!java.util.Objects.equals(hedgePlanId, p.hedgePlanId)) {
-                continue;
-            }
-            if (PNL_SOURCE_CLOSE_REALIZED.equals(p.pnlType)) {
-                realized = realized.add(nz(p.amount));
-            } else if (PNL_SOURCE_FLOAT_UNREALIZED.equals(p.pnlType)) {
-                unrealized = unrealized.add(nz(p.amount));
-            }
-        }
-        c.realized = realized;
-        c.unrealized = unrealized;
-        return c;
-    }
-
     /** 未对冲数量 = 敞口数量 − BOUND 覆盖数量之和（下限 0；无敞口行 ⇒ 0）。 */
     private BigDecimal unhedgedQtyOf(long exposureId, BigDecimal boundCoveredQty) {
         Exposure ex = exposureDao.findById(exposureId);
@@ -2972,8 +3126,7 @@ public final class AcctService {
 
     /** 效果行幂等写入（uk_hedge_effect_key 命中 ⇒ 覆盖更新；否则插入——R-ACCT-12 口径单一）。 */
     private void upsertEffect(HedgeEffect e, long operatorId) {
-        HedgeEffect existing = hedgeEffectDao.findByKey(e.subAccountId, e.periodKey,
-                e.hedgePlanId, e.exposureId);
+        HedgeEffect existing = locateExistingEffect(e);
         if (existing == null) {
             if (hedgeEffectDao.insert(e, operatorId) != 1) {
                 throw BizException.of(ErrorCode.INTERNAL_ERROR,
@@ -3005,6 +3158,35 @@ public final class AcctService {
     }
 
     /**
+     * 定位幂等键命中的既有行。{@code hedge_plan_id}/{@code exposure_id} 任一非空 ⇒ 直配
+     * （{@code findByKey}）；两键均 NULL ⇒ 汇总行与未关联残余行同键（{@code uk_hedge_effect_key}
+     * 对含 NULL 的行不强制），以 {@link #UNATTRIBUTED_MARKER} 标注区分二者。
+     */
+    private HedgeEffect locateExistingEffect(HedgeEffect e) {
+        if (e.hedgePlanId != null || e.exposureId != null) {
+            return hedgeEffectDao.findByKey(e.subAccountId, e.periodKey, e.hedgePlanId, e.exposureId);
+        }
+        boolean wantUnattributed = isUnattributed(e);
+        for (HedgeEffect r : hedgeEffectDao.findBySubAccountAndPeriod(e.subAccountId, e.periodKey)) {
+            if (r.hedgePlanId == null && r.exposureId == null
+                    && isUnattributed(r) == wantUnattributed) {
+                return r;
+            }
+        }
+        return null;
+    }
+
+    /** 取子账户当期汇总行（计划/敞口 NULL 且非未关联残余行；上报与勾稽取数面，TE-T080-001 O-2 统一点）。 */
+    private HedgeEffect findSummaryEffect(int subAccountId, String period) {
+        for (HedgeEffect r : hedgeEffectDao.findBySubAccountAndPeriod(subAccountId, period)) {
+            if (r.hedgePlanId == null && r.exposureId == null && !isUnattributed(r)) {
+                return r;
+            }
+        }
+        return null;
+    }
+
+    /**
      * 套保效果查询（{@code GET /acct/effect}；{@code idx_hedge_effect_sub_period} 承载）。
      *
      * <p><b>同屏双栏结构</b>（FR-ACCT-5 验收 1 + R-ACCT-4）：返回项恒含
@@ -3033,7 +3215,12 @@ public final class AcctService {
         HedgeEffect summary = null;
         List<Map<String, Object>> details = new ArrayList<>();
         for (HedgeEffect r : rows) {
-            if (r.hedgePlanId == null) {
+            if (isUnattributed(r)) {
+                // 未关联计划残余行属「明细」（参与 Σ明细 = 汇总）；残余归零的历史置零行不出行
+                if (isVisibleUnattributed(r)) {
+                    details.add(effectView(r));
+                }
+            } else if (r.hedgePlanId == null) {
                 summary = r;
             } else {
                 details.add(effectView(r));
@@ -3055,6 +3242,8 @@ public final class AcctService {
         m.put("periodKey", e.periodKey);
         m.put("hedgePlanId", e.hedgePlanId);
         m.put("exposureId", e.exposureId);
+        // —— 行类型（TE-T080-001）：未关联计划残余行标注（plan/exposure 均空 + UNATTRIBUTED）——
+        m.put("unattributed", isUnattributed(e));
         // —— 实货栏（R-ACCT-4：栏位恒在；缺价时值为 null + 标注，不省略）——
         m.put("spotPnlRealized", str(e.spotPnlRealized));
         m.put("spotPnlUnrealized", str(e.spotPnlUnrealized));
@@ -3079,9 +3268,11 @@ public final class AcctService {
     /**
      * 提交双侧盈亏上报（{@code FR-ACCT-10}；{@code R-ACCT-4} 17 号文红线）。
      *
-     * <p><b>口径与 FR-ACCT-5 一致</b>（验收 3 / R-ACCT-12 口径单一）：衍生品盈亏经
-     * {@link #aggregateDerivativePnl}（与效果评估同一聚合入口）；实货盈亏取该子账户当期
-     * 效果汇总行（{@code hedge_plan_id IS NULL}，须先经 {@link #evaluateEffect} 计算落库——
+     * <p><b>口径与 FR-ACCT-5 一致</b>（验收 3 / R-ACCT-12 口径单一）：衍生品盈亏取该子账户当期
+     * 效果<b>汇总行</b>快照（该值即效果页三层归集的产物，汇总 = Σ明细，含未关联残余行；
+     * TE-T080-001 O-2 数据源统一：单账户与汇总上报两路径共用 {@link #findSummaryEffect}，
+     * 不再一处取全量聚合、一处取快照）；实货盈亏同取效果汇总行（{@code hedge_plan_id IS NULL}，
+     * 须先经 {@link #evaluateEffect} 计算落库——
      * 未计算 ⇒ {@code 10015} 提示先评估），效果汇总行缺失价标注（三态）随
      * {@code dataCompletenessNote} 透出。<b>两栏恒在</b>：{@code spot_pnl_column_present}
      * 恒 'Y'（DB CHECK 结构保证）；实货缺失时 {@code spot_pnl_value=NULL} +
@@ -3162,7 +3353,7 @@ public final class AcctService {
             boolean anySpot = false;
             int covered = 0;
             for (Integer sub : writableSubAccounts(operatorId)) {
-                HedgeEffect s = hedgeEffectDao.findByKey(sub, period, null, null);
+                HedgeEffect s = findSummaryEffect(sub, period);
                 if (s == null) {
                     continue;
                 }
@@ -3197,8 +3388,7 @@ public final class AcctService {
             completeness.append("汇总上报（sub_account_id=NULL）：覆盖 ").append(covered)
                     .append(" 个已评估子账户；");
         } else {
-            dp = aggregateDerivativePnl(req.subAccountId, monthStart(period), monthEnd(period));
-            HedgeEffect summary = hedgeEffectDao.findByKey(req.subAccountId, period, null, null);
+            HedgeEffect summary = findSummaryEffect(req.subAccountId, period);
             if (summary == null) {
                 throw BizException.of(ErrorCode.DATA_INSUFFICIENT,
                         "该子账户该期间尚未计算套保效果（FR-ACCT-10 验收 3 口径与 FR-ACCT-5 一致，"
@@ -3206,6 +3396,11 @@ public final class AcctService {
                                 + " periodKey=" + period
                                 + "；复现=先调用 POST /acct/effect 计算后重试");
             }
+            // 上报衍生品取数 = 效果汇总行快照（与效果页同一三层归集结果；TE-T080-001 O-2
+            // 数据源统一：单账户与汇总上报两条路径共用 findSummaryEffect，不再各取一处）
+            dp = newDerivativeCalc();
+            dp.realized = nz(summary.derivativePnlRealized);
+            dp.unrealized = nz(summary.derivativePnlUnrealized);
             if ("Y".equals(summary.spotPriceMissing)) {
                 spotMissingReasonHolder[0] = summary.missingDesc == null
                         ? "实货盈亏无法计算（无任何已录入现货价，Q-12/R-ACCT-4）"
@@ -3315,9 +3510,11 @@ public final class AcctService {
         if (reportType != null) {
             requireReportType(reportType);
         }
-        List<Integer> visible = visibility.visibleSubAccountIds(operatorId);
-        boolean crossRead = visible != null
-                && visible.contains(SubAccountScope.ALL_ACCOUNT_SENTINEL);
+        // O-3（TE-T080-001 观察）：visibleSubAccountIds 返回 null 时下方 visible.contains 会 NPE
+        // ⇒ 兜底为空集（fail-closed：无可见授权则不返回任何上报记录）。
+        List<Integer> visibleRaw = visibility.visibleSubAccountIds(operatorId);
+        List<Integer> visible = visibleRaw == null ? List.of() : visibleRaw;
+        boolean crossRead = visible.contains(SubAccountScope.ALL_ACCOUNT_SENTINEL);
         List<DualPnlReport> out = new ArrayList<>();
         if (subAccountId != null) {
             visibility.assertSubAccountVisible(operatorId, subAccountId);

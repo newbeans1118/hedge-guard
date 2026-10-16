@@ -206,28 +206,187 @@ class AcctEffectServiceTest {
     @Test
     @DisplayName("FR-ACCT-5④：汇总 = 明细之和（两条明细行的实货/衍生品/净效果分别求和）")
     void summaryEqualsSumOfDetails() {
-        svc.evaluateEffect(1, "2026-10", 7L);
+        HedgeEffect summary = svc.evaluateEffect(1, "2026-10", 7L);
 
         List<HedgeEffect> rows = effectDao.findBySubAccountAndPeriod(1, "2026-10");
-        HedgeEffect summary = null;
+        HedgeEffect found = null;
         BigDecimal spot = BigDecimal.ZERO;
         BigDecimal deriv = BigDecimal.ZERO;
         int detailCount = 0;
         for (HedgeEffect r : rows) {
             if (r.hedgePlanId == null) {
-                summary = r;
+                found = r;
             } else {
                 detailCount++;
                 spot = spot.add(r.spotPnlTotal);
                 deriv = deriv.add(r.derivativePnlTotal);
+                // TE-T080-001 负证：生产装载形态（settle_pnl.hedge_plan_id=NULL）下明细衍生品
+                // 不得静默 0——明细按品种经绑定敞口归集，须为非零（旧缺陷：明细恒 0 而汇总非零）
+                assertNotNull(r.derivativePnlTotal, "明细衍生品合计随行");
+                assertFalse(r.derivativePnlTotal.signum() == 0,
+                        "明细衍生品非静默 0（TE-T080-001）：planId=" + r.hedgePlanId);
             }
         }
         assertEquals(2, detailCount, "两条明细");
-        assertNotNull(summary, "汇总行 hedge_plan_id=NULL");
+        assertNotNull(found, "汇总行 hedge_plan_id=NULL");
         assertEquals(0, summary.spotPnlTotal.compareTo(spot), "汇总实货 = Σ明细实货");
         assertEquals(0, summary.derivativePnlTotal.compareTo(deriv), "汇总衍生品 = Σ明细衍生品");
         assertEquals(0, summary.netEffect.compareTo(summary.spotPnlTotal.add(summary.derivativePnlTotal)),
                 "净效果 = 两侧合计");
+    }
+
+    @Test
+    @DisplayName("TE-T080-001 层②：生产装载形态下按品种经绑定敞口归集（明细非静默 0）")
+    void layerTwoProductAttribution() {
+        svc.evaluateEffect(1, "2026-10", 7L);
+
+        List<HedgeEffect> rows = effectDao.findBySubAccountAndPeriod(1, "2026-10");
+        BigDecimal plan11 = null;
+        BigDecimal plan13 = null;
+        for (HedgeEffect r : rows) {
+            if (Long.valueOf(11L).equals(r.hedgePlanId)) {
+                plan11 = r.derivativePnlTotal;
+            } else if (Long.valueOf(13L).equals(r.hedgePlanId)) {
+                plan13 = r.derivativePnlTotal;
+            }
+        }
+        assertNotNull(plan11, "计划 11 明细行（品种 1）");
+        assertNotNull(plan13, "计划 13 明细行（品种 2）");
+        assertEquals(0, new BigDecimal("-8250.0000").compareTo(plan11),
+                "计划 11 明细衍生品 = 品种 1 结算行（-8000/-250；层② 归集）");
+        assertEquals(0, new BigDecimal("-2100.0000").compareTo(plan13),
+                "计划 13 明细衍生品 = 品种 2 结算行（-2000/-100；层② 归集）");
+    }
+
+    @Test
+    @DisplayName("TE-T080-001 层①：结算行 hedge_plan_id 非空 ⇒ 计划号直配明细；无残余行")
+    void layerOnePlanLinkedAttribution() {
+        T080AcctEffectSeed.planLinkedSettlePnl(engine);   // 计划 11 追加已实现 −300
+        HedgeEffect summary = svc.evaluateEffect(1, "2026-10", 7L);
+
+        List<HedgeEffect> rows = effectDao.findBySubAccountAndPeriod(1, "2026-10");
+        BigDecimal plan11 = null;
+        boolean hasUnattributed = false;
+        for (HedgeEffect r : rows) {
+            if (isUnattributedRow(r)) {
+                hasUnattributed = true;
+            } else if (Long.valueOf(11L).equals(r.hedgePlanId)) {
+                plan11 = r.derivativePnlTotal;
+            }
+        }
+        assertNotNull(plan11, "计划 11 明细行");
+        assertEquals(0, new BigDecimal("-8550.0000").compareTo(plan11),
+                "计划 11 = 品种 1 行(−8250) + 计划号直配行(−300)（层①）");
+        assertFalse(hasUnattributed, "全部可归集 ⇒ 无未关联残余行");
+        assertEquals(0, new BigDecimal("-10650.0000").compareTo(summary.derivativePnlTotal),
+                "汇总 = 全量 −10000/−350 −300");
+    }
+
+    @Test
+    @DisplayName("TE-T080-001 层③：不可归集残余出显式未关联行；汇总 = Σ全部明细（含未关联）")
+    void unattributedResidualRow() {
+        T080AcctEffectSeed.unattributableSettlePnl(engine);   // 品种 3（无绑定）已实现 −500
+        HedgeEffect summary = svc.evaluateEffect(1, "2026-10", 7L);
+        // 幂等：重复计算不重复残余行
+        svc.evaluateEffect(1, "2026-10", 7L);
+
+        List<HedgeEffect> rows = effectDao.findBySubAccountAndPeriod(1, "2026-10");
+        HedgeEffect unattr = null;
+        BigDecimal detailSum = BigDecimal.ZERO;
+        int bindingCount = 0;
+        for (HedgeEffect r : rows) {
+            if (isUnattributedRow(r)) {
+                unattr = r;
+            } else if (r.hedgePlanId != null) {
+                bindingCount++;
+                detailSum = detailSum.add(r.derivativePnlTotal);
+            }
+        }
+        assertEquals(2, bindingCount, "两条绑定明细");
+        assertEquals(4, rows.size(), "2 绑定 + 1 汇总 + 1 未关联（幂等不重复）");
+        assertNotNull(unattr, "残余 ≠ 0 ⇒ 出未关联计划行");
+        assertEquals(0, new BigDecimal("-500.0000").compareTo(unattr.derivativePnlTotal),
+                "未关联行衍生品 = 全量 − Σ计划归集明细");
+        assertTrue(unattr.missingDesc != null
+                        && unattr.missingDesc.startsWith(AcctService.UNATTRIBUTED_MARKER),
+                "未关联行 UNATTRIBUTED 标注");
+        // 恒等式：汇总 = Σ全部明细（含未关联残余行）——不得静默消失
+        BigDecimal allDetails = detailSum.add(unattr.derivativePnlTotal);
+        assertEquals(0, summary.derivativePnlTotal.compareTo(allDetails),
+                "汇总衍生品 = Σ全部明细（含未关联行）");
+        assertEquals(0, new BigDecimal("-10850.0000").compareTo(summary.derivativePnlTotal),
+                "汇总衍生品 = 全量 −10850");
+
+        // 视图：未关联行归入 details（可勾稽）
+        Map<String, Object> view = svc.getEffect(1, "2026-10", 7L);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> viewDetails = (List<Map<String, Object>>) view.get("details");
+        assertEquals(3, viewDetails.size(), "视图明细 = 2 绑定 + 1 未关联；汇总单列");
+        assertTrue(viewDetails.stream().anyMatch(d -> Boolean.TRUE.equals(d.get("unattributed"))),
+                "未关联行以 unattributed=true 透出");
+    }
+
+    private static boolean isUnattributedRow(HedgeEffect r) {
+        return r.hedgePlanId == null && r.exposureId == null
+                && r.missingDesc != null && r.missingDesc.startsWith(AcctService.UNATTRIBUTED_MARKER);
+    }
+
+    /** 未关联行且残余非零（视图会呈现；置零的历史行不呈现）。 */
+    private static boolean isVisibleUnattributedRow(HedgeEffect r) {
+        return isUnattributedRow(r)
+                && (nz(r.derivativePnlRealized).signum() != 0
+                        || nz(r.derivativePnlUnrealized).signum() != 0);
+    }
+
+    private static BigDecimal nz(BigDecimal v) {
+        return v == null ? BigDecimal.ZERO : v;
+    }
+
+    @Test
+    @DisplayName("TE-T080-001：残余归零 ⇒ 未关联行置零且视图不出行（Σ明细 = 汇总仍成立）")
+    void residualRowRetiredWhenBackToZero() {
+        T080AcctEffectSeed.unattributableSettlePnl(engine);   // 品种 3 −500 ⇒ 残余 ≠ 0
+        svc.evaluateEffect(1, "2026-10", 7L);
+        assertTrue(effectDao.findBySubAccountAndPeriod(1, "2026-10").stream()
+                .anyMatch(AcctEffectServiceTest::isVisibleUnattributedRow), "残余 ≠ 0 ⇒ 未关联行存在");
+
+        // 改归品种 1 ⇒ 可归集到计划 11 ⇒ 残余归零（历史未关联行置零，视图不出行）
+        T080AcctEffectSeed.reattributeResidualToProduct1(engine);
+        HedgeEffect summary = svc.evaluateEffect(1, "2026-10", 7L);
+
+        List<HedgeEffect> rows = effectDao.findBySubAccountAndPeriod(1, "2026-10");
+        assertFalse(rows.stream().anyMatch(AcctEffectServiceTest::isVisibleUnattributedRow),
+                "残余归零 ⇒ 未关联行（非零）不再存在");
+        assertEquals(4, rows.size(),
+                "2 绑定 + 1 汇总 + 1 置零未关联行（等价引擎 DELETE 语义与 SQL 相反 ⇒ 以置零收口）");
+        BigDecimal plan11 = null;
+        BigDecimal detailSum = BigDecimal.ZERO;
+        int bindingCount = 0;
+        for (HedgeEffect r : rows) {
+            if (r.hedgePlanId != null) {
+                bindingCount++;
+                detailSum = detailSum.add(r.derivativePnlTotal);
+                if (Long.valueOf(11L).equals(r.hedgePlanId)) {
+                    plan11 = r.derivativePnlTotal;
+                }
+            }
+        }
+        assertEquals(2, bindingCount, "两条绑定明细");
+        assertEquals(0, new BigDecimal("-8750.0000").compareTo(plan11),
+                "计划 11 吸收改归行（-8250 −500）");
+        assertEquals(0, summary.derivativePnlTotal.compareTo(detailSum),
+                "汇总 = Σ绑定明细（置零未关联行贡献 0，恒等式不受影响）");
+        assertEquals(0, new BigDecimal("-10850.0000").compareTo(summary.derivativePnlTotal),
+                "汇总 = 全量（−10000/−350 −500）");
+
+        // 视图：残余归零 ⇒ 未关联行不出行
+        @SuppressWarnings("unchecked")
+        Map<String, Object> view = svc.getEffect(1, "2026-10", 7L);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> viewDetails = (List<Map<String, Object>>) view.get("details");
+        assertEquals(2, viewDetails.size(), "视图明细 = 2 绑定（未关联行残余归零 ⇒ 不出行）");
+        assertFalse(viewDetails.stream().anyMatch(d -> Boolean.TRUE.equals(d.get("unattributed"))),
+                "无未关联行透出（=0 不出行）");
     }
 
     @Test
