@@ -547,10 +547,10 @@ class M4DocPackageCas24SelfcheckTest {
      * 具备「待外部复核」标注承载列（且 t_cas24_selfcheck 有恒 'Y' CHECK 有牙）；<b>有效性评估
      * 记录（t_effectiveness_assess）与再平衡记录（t_rebalance_record）无该列</b>（DATA_MODEL
      * TB-ACCT-2/TB-ACCT-3 与 m4_acct.sql 同缺）⇒ 按 R-ACCT-10 字面（四类全部必须带标注）
-     * 实测 <b>2/4，TC-M4-19 唯一预期值（==4/4）不通过</b> ⇒ 缺陷登记（BUG-004）。
+     * 实测 <b>2/4，TC-M4-19 唯一预期值（==4/4）不通过</b> ⇒ 缺陷登记（BUG-005）。
      */
     @Test
-    @DisplayName("TC-M4-19：「待外部复核」标注存在性实测 2/4（预期 4/4 ⇒ 不通过，BUG-004）+ 移除入口负证")
+    @DisplayName("TC-M4-19：「待外部复核」标注存在性实测 2/4（预期 4/4 ⇒ 不通过，BUG-005）+ 移除入口负证")
     void tcM4_19_pendingExternalReviewMarkingProbe() {
         Chain c = buildChain();
         Cas24Selfcheck batch = runSelfcheck(c.futuresRelation, c, "SC202610190001");
@@ -565,12 +565,12 @@ class M4DocPackageCas24SelfcheckTest {
         //    本链两条评估行逐一核）
         for (Map<String, Object> assessRow : rows("t_effectiveness_assess", "评估记录")) {
             assertFalse(assessRow.containsKey("pending_external_review"),
-                    "现状固定：t_effectiveness_assess 无标注列（缺陷 BUG-004 证据）");
+                    "现状固定：t_effectiveness_assess 无标注列（缺陷 BUG-005 证据）");
         }
         // ③ 再平衡记录：无承载列 ✗
         for (Map<String, Object> rbRow : rows("t_rebalance_record", "再平衡记录")) {
             assertFalse(rbRow.containsKey("pending_external_review"),
-                    "现状固定：t_rebalance_record 无标注列（缺陷 BUG-004 证据）");
+                    "现状固定：t_rebalance_record 无标注列（缺陷 BUG-005 证据）");
         }
         // ④ 自检报告：列存在且 = 'Y' ✓，且「自检不替代外部复核」显式说明在
         assertEquals("Y", batch.pendingExternalReview, "自检报告标注 'Y'");
@@ -579,7 +579,7 @@ class M4DocPackageCas24SelfcheckTest {
         marked++;
 
         assertEquals(2, marked, "标注承载实测 2/4（关系文档+自检报告）；TC-M4-19 预期 4/4 ⇒ 不通过"
-                + "（评估/再平衡两类记录无承载列——BUG-004 登记，修复后本探针改写为 4/4 断言）");
+                + "（评估/再平衡两类记录无承载列——BUG-005 登记，修复后本探针改写为 4/4 断言）");
 
         // 移除入口负证（两向）：
         // (a) DB 级：t_cas24_selfcheck 恒 'Y' CHECK 有牙——构造标注 'N' 的批次行 INSERT 被拒
@@ -684,6 +684,62 @@ class M4DocPackageCas24SelfcheckTest {
         assertEquals(OP, r.submittedBy);
         assertNotNull(r.submittedTime);
         assertEquals("2026-10", r.reportPeriod);
+    }
+
+    /**
+     * <b>三态②「仅历史价」的上报报表 face 探针</b>（te-verify-t085 条件 TE-T085-V-001 闭环）：
+     * 既有覆盖三态②仅在<b>效果视图 face</b>（{@code AcctEffectServiceTest} FR-ACCT-5③
+     * {@code priceStateCarryForwardLabeled}），本用例补齐<b>上报报表 face</b>——与
+     * {@code TC-M4-20①/②} 同一取报路径（{@code submitDualPnlReport}，读
+     * {@code t_hedge_effect} 汇总行快照），断言 {@code data_completeness_note} 含
+     * {@code price_as_of} 时点与非当日价标记（生产承载 {@code AcctService}
+     * 「实货盈亏使用非当日价（price_as_of=…，Q-12 标注）」分支）。
+     *
+     * <p>断言纪律：锚定<b>标注字面量语义与字段存在性</b>，不以生产常量做同源比对；
+     * 实货金额与 {@code price_as_of} 时点均由测试夹具（{@code T080AcctEffectSeed}
+     * 播种量价）独立推导，与生产零同源。
+     */
+    @Test
+    @DisplayName("TC-M4-20③（三态②）：仅历史价 ⇒ 报表 face 实货栏有值 + price_as_of + 非当日价标注")
+    void tcM4_20_dualPnlReportHistoricalPriceOnlyMarksPriceAsOf() {
+        buildChain();
+        // ⚠️ 上报读取的是 t_hedge_effect 已存汇总行（findSummaryEffect）——改价后必须
+        // 重跑效果评估（幂等不增行，T-080 判例），否则上报反映改价前的旧快照
+        //（TC-M4-20② 同判例）。
+        T080AcctEffectSeed.onlyHistoricalPrice(engine);
+        svc.evaluateEffect(1, "2026-10", OP);
+
+        AcctService.DualPnlReportRequest req = new AcctService.DualPnlReportRequest();
+        req.subAccountId = 1;
+        req.reportPeriod = "2026-10";
+        req.reportType = "MONTHLY";
+        DualPnlReport r = svc.submitDualPnlReport(req, OP);
+
+        // 三态②（Q-12/R-ACCT-4）：有历史价 ⇒ 非缺失，实货栏不省略且有值（按最近一期计算）
+        assertEquals("Y", r.spotPnlColumnPresent, "实货栏保留（不得省略）");
+        assertNotNull(r.spotPnlValue, "有历史价 ⇒ 实货可计算（非 NULL）");
+        assertNull(r.spotPnlMissingReason, "有历史价 ⇒ 非缺失，无缺失原因");
+        // 实货值 = 敞口量 × 历史价 105（夹具专设：敞口 21 再平衡后 130 + 敞口 23 = 50
+        // ⇒ (130+50)×105 = 18900；与生产常量零同源）
+        assertEquals(0, new BigDecimal("18900.0000").compareTo(r.spotPnlValue),
+                "实货栏值（按最近一期历史价计算）");
+        // 衍生品栏照常（缺价状态不影响衍生品一侧；R-ACCT-4 两栏同报）
+        assertNotNull(r.derivativePnlValue, "衍生品栏照常");
+        assertEquals(0, new BigDecimal("-10350.0000").compareTo(r.derivativePnlValue),
+                "衍生品栏不受历史价场景影响");
+
+        // 报表 face 非当日价标注：data_completeness_note 含 price_as_of 时点 + 非当日价语义
+        // （生产承载 AcctService「实货盈亏使用非当日价（price_as_of=…，Q-12 标注）」；效果
+        //  视图 face 同语义既有覆盖 = AcctEffectServiceTest 三态②，两 face 各自断言）
+        String note = r.dataCompletenessNote;
+        assertNotNull(note, "数据完整性标注（data_completeness_note）须存在");
+        assertTrue(note.contains("price_as_of"), "报表 face 须带 price_as_of 标注：" + note);
+        assertTrue(note.contains("非当日价"), "报表 face 须带非当日价标记：" + note);
+        // price_as_of 时点 = 夹具历史价日（T080AcctEffectSeed.onlyHistoricalPrice 设 2026-10-20）
+        assertTrue(note.contains("2026-10-20"), "price_as_of 时点 = 夹具历史价日：" + note);
+        // 上报落库可查：data_completeness_note 随行持久化（t_dual_pnl_report 直读）
+        assertEquals(note, singleRow("t_dual_pnl_report", "上报行").get("data_completeness_note"),
+                "非当日价标注随上报行落库");
     }
 
     // ================================================================ 工具

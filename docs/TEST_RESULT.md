@@ -17244,3 +17244,35 @@ surefire:test 不重编译判例）；结束后 `AcctService.java` md5 复位核
 4. **TC-M4-19「4/4」预期值改写**：BUG-005 修复后由修复方或复检方将行为固定探针改写为 4/4 断言（探针内已注明）。
 
 —— T-085 执行席 te-t085；待独立复核（本席不自评 DONE）。
+
+### §T085-8 覆盖表述订正（te-t085b delta，2026-10-16，HEAD=2eba6e5）
+
+> **纯追加**（不改 §T085-1~§T085-7 任何既有行）。追加前前缀核对：`head -17246 docs/TEST_RESULT.md | md5sum`
+> = `4a0d954aafe05fddebd7b172ff530789`（落笔前实测两次一致；te-verify-t085 回执所称
+> `0752e1c2…` 误记已由 BUG-005 编号勘误注记在案）。
+
+**订正对象**：§T085-2 执行表中 `TC-M4-20` 两行 ✅ 的覆盖表述——其口径只覆盖三态①（当日价，
+`TC-M4-20①`）与三态③（连历史价也无，`TC-M4-20②`）的**上报报表 face**；**三态②（仅历史价
+⇒ `price_as_of` + 非当日价标记）此前仅在效果视图 face 有覆盖**（`AcctEffectServiceTest`
+FR-ACCT-5③ `priceStateCarryForwardLabeled`，`AcctEffectServiceTest:177-185` 段），
+**上报报表 face 未执行且未在 §T085-2 披露**（te-verify-t085 条件 `TE-T085-V-001`）。
+
+**本轮补齐**：新增探针 `tcM4_20_dualPnlReportHistoricalPriceOnlyMarksPriceAsOf`
+（`M4DocPackageCas24SelfcheckTest`，用例名 `TC-M4-20③（三态②）`）——与 `TC-M4-20①/②`
+同一取报路径（`submitDualPnlReport`，读 `t_hedge_effect` 汇总行快照），断言：
+①实货栏保留且有值（夹具专设 (130+50)×105=18900，非 NULL 非缺失）；②
+`data_completeness_note` 含 `price_as_of` 与「非当日价」字面量语义及时点 `2026-10-20`
+（夹具历史价日，锚字面量不做生产常量同源比对）；③标注随上报行落库直读核。
+
+**生产承载**：`AcctService` `submitDualPnlReport` 内 `nonCurrentPriceFlag='Y'` 分支
+（`AcctService.java:3411-3414`，经 `data_completeness_note` 落非当日价标注）——本探针
+即对该分支的报表 face 断言；变异有牙证据见本轮报告 `/root/t085b-delta.md`（标注分支
+短路 ⇒ 新用例红；clean 重建复跑全绿）。
+
+**门禁**：`cd java && mvn -B -o clean test`（隔离副本 /root/iso-t085b）=
+**Tests run: 1214, Failures: 0, Errors: 0, Skipped: 0**（基线 1213 + 本 delta 新增 1）；
+`bash tools/arch-check/arch-check.sh` rc=0；树锚（共享树，改动后实测）
+`cd java && find src -type f | LC_ALL=C sort | xargs md5sum | md5sum` = `dbde4bd9f6c795ecbfe4887641dae3d7`/760
+（基线 760 文件数不变——本 delta 仅改既有测试文件与本文档追加，`java/src` 零新增文件）。
+
+—— T-085 delta 席 te-t085b；执行记录以本节为补充，原 §T085 各节判定不变。
