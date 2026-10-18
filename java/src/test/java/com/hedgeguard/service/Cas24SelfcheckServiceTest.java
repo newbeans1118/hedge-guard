@@ -417,6 +417,44 @@ class Cas24SelfcheckServiceTest {
         Cas24Selfcheck p2 = scSvc.runSelfcheck(periodReq("2026-10"), OP);
         assertEquals(p1.id, p2.id, "期间批次幂等");
         assertEquals(3, engine.table("t_cas24_selfcheck").rows.size());
+
+        // T-197 复核 O-2 收口：幂等键含期间——同日同关系换期间 ⇒ 各自成批（不错误命中他期间快照）
+        Cas24Selfcheck otherPeriod = scSvc.runSelfcheck(
+                relationReq(c.futuresRelation.id, "2026-11"), OP);
+        assertEquals("SC202610130004", otherPeriod.selfcheckNo, "换期间 ⇒ 新批次顺延");
+        assertEquals(c.futuresRelation.relationNo + "|2026-11", otherPeriod.scopeKey,
+                "scope_key=关系编号|期间键（O-2 收口形态；32+1+7=40 ≤ 64）");
+        Cas24Selfcheck hit = scSvc.runSelfcheck(
+                relationReq(c.futuresRelation.id, "2026-11"), OP);
+        assertEquals(otherPeriod.id, hit.id, "同 (关系,期间) 仍幂等命中");
+        assertEquals(4, engine.table("t_cas24_selfcheck").rows.size());
+    }
+
+    // ================================================================ fail-closed 空可见集（TE-T197-001 条件闭环）
+
+    @Test
+    @DisplayName("TE-T197-001：零授权 operator ⇒ 圈定 0 关系走「无法自检」+ listBatches 走 IS NOT NULL 恒假形态，不抛")
+    void emptyVisibleSetFailsClosedWithoutThrowing() {
+        // 事先以正常授权落 1 批（子账户 1），再切零授权
+        visible = List.of(1);
+        Chain c0 = buildChain();
+        Cas24Selfcheck batch = scSvc.runSelfcheck(
+                relationReq(c0.futuresRelation.id, "2026-10"), OP);
+        assertEquals(1, engine.table("t_cas24_selfcheck").rows.size());
+        // 零授权：可见集空 ⇒ ① listBatches 命中引擎 IS NOT NULL + IN (-1) 恒假形态（M-NOTNULL 判别面）
+        visible = List.of();
+        com.hedgeguard.dao.PageQuery q = com.hedgeguard.dao.PageQuery.of("1", "20", null,
+                "selfcheck_time", "desc");
+        assertEquals(0, scSvc.listBatches(q, null, null, null, OP).total(),
+                "空可见集 ⇒ 分页恒空（fail-closed，不抛 UnsupportedOperationException）");
+        // ② 期间自检：圈定 0 关系 ⇒ CANNOT_SELFCHECK 落批（FR-ACCT-14「无法自检」输出列）
+        Cas24Selfcheck cannot = scSvc.runSelfcheck(periodReq("2026-10"), OP);
+        assertEquals("CANNOT_SELFCHECK", cannot.conclusion, "零授权圈定 0 关系 ⇒ 无法自检");
+        assertNotNull(cannot.cannotSelfcheckReason);
+        // ③ 单关系自检：读面断言对不可见关系拒绝（语义不变，回归确认）
+        assertThrows(BizException.class,
+                () -> scSvc.runSelfcheck(relationReq(batch.id, "2026-10"), OP),
+                "零授权单关系自检 ⇒ 可见性拒绝");
     }
 
     // ================================================================ 端点级（POST/GET selfcheck + GET export）

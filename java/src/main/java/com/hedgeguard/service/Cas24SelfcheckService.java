@@ -72,7 +72,9 @@ import java.util.function.Supplier;
  *
  * <p><b>幂等</b>：同一 {@code (scope_type, scope_key)} 同一业务日重复发起 ⇒ 返回既有批次、
  * 不重复落批（FR-ACCT-14 验收重复执行不留重复账；跨业务日重跑 = 新批次，属合规复检留痕）。
- * 已知边界（据实披露）：{@code scope_key} 不含期间键 ⇒ 同日对同一关系换期间重查返回既有批次。
+ * {@code HEDGE_RELATION} 的 {@code scope_key} = {@code 关系编号|期间键}
+ * （T-197 复核 O-2 收口：自检结论随期间评估记录变化，幂等键不含期间会同日跨期间错误命中；
+ * {@code relation_no} 32 + 分隔符 1 + {@code yyyy-MM} 7 = 40 ≤ {@code scope_key} 64，无截断）。
  *
  * <p><b>取号</b>：{@code selfcheck_no} 全系统唯一（{@code uk_cas24_selfcheck_no}），
  * {@code DATA_MODEL.md} §3.5 未列形态 ⇒ 本服务定义 {@code SC<yyyyMMdd><seq(4)>}——编号含日期段、
@@ -210,8 +212,11 @@ public final class Cas24SelfcheckService {
         }
         // 读面可见性（NFR-SEC-7；FR-ACCT-14 使用者含审计/合规岗——见类注披露）
         visibility.assertSubAccountVisible(operatorId, requireSubOf(relation));
-        // 幂等：同 scope 同业务日重复发起 ⇒ 返回既有批次，不重复落批
-        Cas24Selfcheck existing = findTodayBatch(SCOPE_HEDGE_RELATION, relation.relationNo);
+        // 幂等：同 scope 同业务日重复发起 ⇒ 返回既有批次，不重复落批。
+        // scope_key 含期间键（T-197 复核 O-2 收口：同日同关系换期间须各自成批——
+        // 自检结论随期间评估记录变化，幂等键不含期间会错误返回他期间快照）。
+        Cas24Selfcheck existing = findTodayBatch(SCOPE_HEDGE_RELATION,
+                relationScopeKey(relation.relationNo, period));
         if (existing != null) {
             return existing;
         }
@@ -227,7 +232,8 @@ public final class Cas24SelfcheckService {
                 fail++;
             }
         }
-        Cas24Selfcheck sc = newBatch(SCOPE_HEDGE_RELATION, relation.relationNo,
+        Cas24Selfcheck sc = newBatch(SCOPE_HEDGE_RELATION,
+                relationScopeKey(relation.relationNo, period),
                 relation.subAccountId, pass, fail, null);
         return insertBatch(sc, items, operatorId);
     }
@@ -669,6 +675,14 @@ public final class Cas24SelfcheckService {
             sb.append('0');
         }
         return sb.append(seq).toString();
+    }
+
+    /**
+     * HEDGE_RELATION 范围键 = {@code 关系编号|期间键}（T-197 复核 O-2 收口：
+     * 幂等键含期间——同日同关系换期间须各自成批；长度 32+1+7=40 ≤ scope_key 64）。
+     */
+    private static String relationScopeKey(String relationNo, String period) {
+        return relationNo + "|" + period;
     }
 
     /** 幂等查找：同 {@code (scope_type, scope_key)} 且自检时间为今日的既有批次。 */

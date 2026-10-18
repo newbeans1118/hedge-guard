@@ -17287,3 +17287,13 @@ FR-ACCT-5③ `priceStateCarryForwardLabeled`，`AcctEffectServiceTest:177-185` �
 - **O-1**：`acct.js:1441-1442` 两 Tab 仍 `unregisteredTab` 渲染（`NR.ACCT_SELFCHECK`/`NR.ACCT_EXPORT` 已随 routes.js 删除 ⇒ 运行时 undefined、`F.esc` 渲染 "undefined" 字符串、诚实提示失真）；`t083_acct_probe` **179 PASS/6 FAIL**（均系 T-083 时点合法形态在 T-197 后失配：NOT_REGISTERED 键迁正键/负控反向/注释 10-17→12-20/两 Tab 锚标消失）⇒ 建议立前端微单（acct.js 两 Tab 接真端点+探针订正，frontend 席，T-083 深链先例）。本单写域未授权触碰前端页文件，据实登记不处置。
 - **O-2**：幂等键 scope_key 不含期间键（产出方 CONTRACTS 已披露）——同日同关系换期间返回既有批次；建议下轮收口（一行级，随 delta 或 T-198 同批）。
 - **追加前锚**：`head -17278 docs/TEST_RESULT.md | md5sum` = `c1265376cfbf66088e36a60d16670787`（纯追加，删=0）。
+
+## T197 delta 复检（编排者亲核；2026-10-18 第 253 轮）
+
+- **对象**：`TE-T197-001` 条件闭环 + `O-2` 幂等键收口（两文件：`Cas24SelfcheckService` / `Cas24SelfcheckServiceTest`）。
+- **O-2 收口**：`scope_key` = `关系编号|期间键`（`relationScopeKey` 辅助 + 幂等查找与落批同键；类注「已知边界」段同步订正为收口后口径；32+1+7=40 ≤ 64 无截断）；新增断言 `scope_key=relationNo|2026-11` + 同日同关系换期间 ⇒ 新批次 `SC202610130004` 顺延 + 同 (关系,期间) 仍幂等命中。
+- **TE-T197-001 闭环**：新增 `emptyVisibleSetFailsClosedWithoutThrowing`——零授权（visible=∅）⇒ ① `listBatches` 走 `IS NOT NULL AND IN (-1)` 恒假形态 **不抛** 且 total=0（`UnsupportedOperationException` 回归负证）②期间自检圈定 0 关系 ⇒ `CANNOT_SELFCHECK` 落批 + 原因非空 ③单关系自检读面拒绝回归。
+- **门禁**：隔离副本（iso-t197d）`mvn -B -o clean test` = **1223/0/0/0**（基线 1222+1）BUILD SUCCESS；arch rc0（E1–E8 全 0）；树锚 `cd java && find src …|md5sum` = `52a46c747cfa83af8721d771a20f6278`/764（文件数持平）。
+- **M-NOTNULL 复测判定修正**：变异（`IS NOT NULL` 谓词反演）下仍 1223 全绿——**非覆盖缺口**，系**变异目标无效**：生产中 `IS NOT NULL` 唯一消费点恒与恒假 `IN (-1)` 以 AND 连接，谓词被恒假合取中和（`恒假 AND 任意 = 恒假`），反演语义在生产不可观察 ⇒ 无任何测试可杀；新用例已覆盖其**可观测面**（不抛 + 恒空 + CANNOT 落批）。若将来出现 `IS NOT NULL` 与非常假条件连用的生产形态，须重新立变异。
+- **过程披露**：首跑 1 错（新用例内 `buildChain` 双调 ⇒ `uk_t077_doc_no` 撞号），删残留调用后绿；变异后副本引擎 md5 复位核验一致（`60d4b01c…`）。
+- **追加前锚**：`head -17289 docs/TEST_RESULT.md | md5sum` = `9ca4770e2015a01b029734c00e0330a5`（纯追加，删=0）。
