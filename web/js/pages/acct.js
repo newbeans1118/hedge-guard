@@ -1,7 +1,7 @@
 /*
- * 套保会计页面（ACCT）—— 管理界面（FR-ACCT-1~14；T-083）。
+ * 套保会计页面（ACCT）—— 管理界面（FR-ACCT-1~14；T-083 + T-197 自检面）。
  *
- * ## 端点（10 路径 / 17 (方法,路径) 对，逐字对齐 ApiRoutes.byModule().get("ACCT")；
+ * ## 端点（12 路径 / 20 (方法,路径) 对，逐字对齐 ApiRoutes.byModule().get("ACCT")；
  *    方法对取自 handler/acct/AcctRoutes.java；wire 字段名以各 Handler 请求/视图类为准）
  *   GET|POST /acct/hedge-relation            套期关系分页 / 生成（三要素门禁 R-ACCT-1；FR-ACCT-1）
  *   GET|POST /acct/effectiveness             评估分页 / 监测复核清单 / 未评估提醒 / 提交评估（FR-ACCT-2/4）
@@ -13,11 +13,10 @@
  *   POST     /acct/period/{id}/close         关账/撤销关账（三前置 + 双人复核 R-ACCT-8；FR-ACCT-12）
  *   GET|POST /acct/effect                    套保效果视图（同屏双栏）/ 计算（FR-ACCT-5）
  *   GET|POST /acct/report/dual-pnl           上报记录查询 / 提交上报（两栏恒在 R-ACCT-4；FR-ACCT-10）
- *
- * ## 未注册 2 路径（ApiRoutes 路径表已登记、handler/ 无对应 Handler ⇒ 调用即 404）
- *   /acct/selfcheck（FR-ACCT-14 自检清单）、/acct/export（FR-ACCT-9 凭证导出）
- *   —— 登记于 routes.js NOT_REGISTERED；本页保留 Tab 框架 + 「未注册」诚实提示，
- *   **不发起调用**（risk.js T-070 同形态）；缺口只报不改。
+ *   GET|POST /acct/selfcheck                 自检批次清单/详情 / 发起自检（T-197；FR-ACCT-14）
+ *   GET      /acct/export                    自检报告 CSV 导出（T-197；FR-ACCT-14 验收 3/4）
+ *   —— 12 条已声明路径全部注册（T-197 收口）；FR-ACCT-9 凭证导出交付时须扩展
+ *   /acct/export 参数或另立路径（CONTRACTS §5.1 T-197 登记行「请裁」项）。
  *
  * ## 业务红线（写进页面逻辑）
  *   · R-ACCT-4（17 号文）：实货盈亏与衍生品盈亏**同屏双栏、成对恒在**——实货侧缺价时
@@ -62,7 +61,6 @@ import '../core/ui.js';
 const ui = HG.ui;
 const F = HG.format;
 const A = HG.routes.ACCT;
-const NR = HG.routes.NOT_REGISTERED;
 
 /* ------------------------------------------------------------------ *
  * 取值域（以 AcctService 常量 / 实体 CHECK 约束实测为准）
@@ -1400,31 +1398,207 @@ function periodTab(container) {
 }
 
 /* ------------------------------------------------------------------ *
- * Tab 8~9：未注册端点（selfcheck / export——页面框架保留 + 「未注册」诚实提示）
- *   /acct/selfcheck（FR-ACCT-14 自检清单）、/acct/export（FR-ACCT-9 凭证导出）
- *   —— ApiRoutes 路径表已登记但 handler/ 无对应 Handler ⇒ 调用即 404。
- *   处置对齐 routes.js NOT_REGISTERED 语义 + risk.js T-070 先例；缺口只报不改。
+ * Tab 8：CAS 24 自检（真端点，T-197；FR-ACCT-14）
+ *   GET  /acct/selfcheck            分页清单（?selfcheckNo= 单批次详情）
+ *   POST /acct/selfcheck            发起自检 {scopeType, hedgeRelationId?, periodKey}
+ *   wire 字段以 SelfcheckHandler/selfcheckView 为准（camelCase）：
+ *   批次 selfcheckNo/subAccountId/scopeType/scopeKey/passCount/failCount/conclusion/
+ *        cannotSelfcheckReason/pendingExternalReview/notSubstituteNote/executorId/selfcheckTime/items
+ *   条目 itemSeq/itemCode/itemName/result/evidenceType/evidenceId/evidenceDesc/failReason
  * ------------------------------------------------------------------ */
-function unregisteredTab(title, pathConst, plannedDesc, frRef) {
-  return function build(container) {
-    const card = ui.el('section', { class: 'hg-card' });
-    card.appendChild(ui.el('h3', { class: 'hg-card__title', text: title }));
-    card.appendChild(ui.banner(
-      '<strong>端点未注册（NOT_REGISTERED）</strong>：<code>' + F.esc(pathConst) + '</code> 已在 ApiRoutes 路径表登记，'
-        + '但<strong>未注册任何 (方法, 路径) 对（handler/ 下无对应 Handler）——调用即 404</strong>。'
-        + '本页保留框架、<strong>不发起调用</strong>（routes.js NOT_REGISTERED 语义：未注册路径禁止调用）；'
-        + '后端缺口只报不改。',
-      'warn'
-    ));
-    card.appendChild(ui.el('p', { class: 'hg-page__desc', text: '规划功能：' + plannedDesc + '（' + frRef + '）。后端端点注册后本页将按同款三态形态接入。' }));
-    const placeholder = ui.el('div');
-    placeholder.appendChild(ui.el('div', { class: 'hg-state', 'data-not-registered': pathConst }, [
-      ui.el('div', { class: 'hg-state__title', text: '端点未注册——暂无可展示数据' }),
-      ui.el('div', { text: '该功能的后端 REST 端点尚未实现（无 Handler），前端不做臆造调用；请关注后端缺口清单。' })
-    ]));
-    card.appendChild(placeholder);
-    container.appendChild(card);
+function selfcheckTab(container) {
+  const listCard = ui.el('section', { class: 'hg-card' });
+  listCard.appendChild(ui.el('h3', { class: 'hg-card__title', text: '自检批次清单（FR-ACCT-14；T-197）' }));
+  const state = { page: 1, size: HG.api.DEFAULT_PAGE_SIZE };
+  const qScope = ui.el('select', { id: 'ac-sc-scope', name: 'scopeType' });
+  qScope.appendChild(ui.el('option', { value: '', text: '（全部范围）' }));
+  qScope.appendChild(ui.el('option', { value: 'HEDGE_RELATION', text: 'HEDGE_RELATION（单关系）' }));
+  qScope.appendChild(ui.el('option', { value: 'PERIOD', text: 'PERIOD（期间聚合）' }));
+  const qConclusion = ui.el('select', { id: 'ac-sc-conclusion', name: 'conclusion' });
+  qConclusion.appendChild(ui.el('option', { value: '', text: '（全部结论）' }));
+  qConclusion.appendChild(ui.el('option', { value: 'ALL_PASS', text: 'ALL_PASS' }));
+  qConclusion.appendChild(ui.el('option', { value: 'HAS_FAIL', text: 'HAS_FAIL' }));
+  qConclusion.appendChild(ui.el('option', { value: 'CANNOT_SELFCHECK', text: 'CANNOT_SELFCHECK' }));
+  const qBtn = ui.el('button', { class: 'hg-btn', type: 'button', text: '查询批次' });
+  listCard.appendChild(ui.el('div', { class: 'hg-form-actions' }, [
+    ui.field({ id: 'ac-sc-scope', label: '自检范围', control: qScope }),
+    ui.field({ id: 'ac-sc-conclusion', label: '结论筛选', control: qConclusion }),
+    qBtn
+  ]));
+  const qBody = ui.el('div');
+  const qPager = ui.el('div', { class: 'hg-pager' });
+  listCard.appendChild(qBody);
+  listCard.appendChild(qPager);
+  container.appendChild(listCard);
+
+  const CONCLUSION_HTML = {
+    ALL_PASS: '<span class="hg-badge hg-badge--ok">ALL_PASS</span>',
+    HAS_FAIL: '<span class="hg-badge hg-badge--err">HAS_FAIL</span>',
+    CANNOT_SELFCHECK: '<span class="hg-badge">CANNOT_SELFCHECK</span>'
   };
+  async function loadList(page) {
+    state.page = page || 1;
+    ui.clear(qBody); ui.renderLoading(qBody, '正在查询自检批次…');
+    try {
+      const q = { page: state.page, size: state.size };
+      if (qScope.value) q.scopeType = qScope.value;
+      if (qConclusion.value) q.conclusion = qConclusion.value;
+      const data = await HG.api.get(A.SELFCHECK, q);
+      attachPager(qPager, { total: data.total, page: data.page, size: data.size }, loadList);
+      ui.clear(qBody);
+      if (!data.items || !data.items.length) { ui.renderEmpty(qBody, '暂无自检批次（可在下方发起首次自检）。'); return; }
+      qBody.appendChild(ui.el('div', { html: ui.tableHTML(
+        [
+          { key: 'selfcheckNo', title: '批次号' },
+          { title: '范围', render: (r) => F.esc(r.scopeType === 'HEDGE_RELATION'
+              ? '单关系 ' + (r.scopeKey || '—') : '期间聚合 ' + (r.scopeKey || '—')) },
+          { title: '子账户', num: true, render: (r) => dash(r.subAccountId) },
+          { title: '通过/不通过', render: (r) => F.esc((r.passCount ?? '—') + ' / ' + (r.failCount ?? '—')) },
+          { title: '结论', render: (r) => CONCLUSION_HTML[r.conclusion] || F.esc(r.conclusion || '—') },
+          { title: '外部复核', render: (r) => extReviewHTML(r.pendingExternalReview) || '—' },
+          { title: '自检时间', render: (r) => F.esc(F.dateTime(r.selfcheckTime)) },
+          { title: '执行人', num: true, render: (r) => dash(r.executorId) }
+        ],
+        data.items
+      ) }));
+    } catch (err) { ui.renderError(qBody, err, () => loadList(state.page)); }
+  }
+  qBtn.addEventListener('click', () => loadList(1));
+
+  const detailCard = ui.el('section', { class: 'hg-card' });
+  detailCard.appendChild(ui.el('h3', { class: 'hg-card__title', text: '批次详情（逐条结论 + 证据位置）' }));
+  const dNo = ui.el('input', { id: 'ac-sc-no', type: 'text', placeholder: 'SC202610130001', inputmode: 'numeric' });
+  const dBtn = ui.el('button', { class: 'hg-btn hg-btn--ghost', type: 'button', text: '查询详情' });
+  detailCard.appendChild(ui.el('div', { class: 'hg-form-actions' }, [
+    ui.field({ id: 'ac-sc-no', label: '批次号（必填）', required: true, control: dNo }),
+    dBtn
+  ]));
+  const dBody = ui.el('div');
+  detailCard.appendChild(dBody);
+  container.appendChild(detailCard);
+
+  function renderDetail(d) {
+    ui.clear(dBody);
+    dBody.appendChild(ui.banner(
+      '<strong>' + F.esc(d.selfcheckNo) + '</strong>（' + F.esc(d.scopeType) + '）结论 '
+        + F.esc(d.conclusion || '—') + '　通过 ' + F.esc(String(d.passCount ?? '—'))
+        + ' / 不通过 ' + F.esc(String(d.failCount ?? '—'))
+        + '　' + extReviewHTML(d.pendingExternalReview)
+        + '<br>' + F.esc(d.notSubstituteNote || '自检不替代外部复核')
+        + '　自检时间 ' + F.esc(F.dateTime(d.selfcheckTime)) + '　执行人 ' + dash(d.executorId),
+      d.conclusion === 'ALL_PASS' ? 'ok' : 'warn'
+    ));
+    if (d.cannotSelfcheckReason) {
+      dBody.appendChild(ui.banner('<strong>无法自检</strong>：' + F.esc(d.cannotSelfcheckReason), 'warn'));
+    }
+    const rows = d.items || [];
+    if (!rows.length) { ui.renderEmpty(dBody, '该批次无逐条条目（CANNOT_SELFCHECK / 期间聚合 0 关系）。'); return; }
+    dBody.appendChild(ui.el('div', { html: ui.tableHTML(
+      [
+        { key: 'itemSeq', title: '#' },
+        { title: '条款', render: (r) => F.esc(r.itemCode || '—') },
+        { title: '名称', render: (r) => F.esc(r.itemName || '—') },
+        { title: '结论', render: (r) => F.esc(r.result || '—') },
+        { title: '证据位置', render: (r) => F.esc((r.evidenceType || '—')
+            + (r.evidenceId != null ? ' #' + r.evidenceId : '')) },
+        { title: '证据说明', render: (r) => F.esc(r.evidenceDesc || '—') },
+        { title: '失败原因', render: (r) => F.esc(r.failReason || '—') }
+      ],
+      rows
+    ) }));
+  }
+  dBtn.addEventListener('click', async () => {
+    const no = dNo.value.trim();
+    if (!no) { ui.toast('批次号必填（如 SC202610130001）', 'error'); return; }
+    ui.clear(dBody); ui.renderLoading(dBody, '正在查询批次详情…');
+    try {
+      const d = await HG.api.get(A.SELFCHECK, { selfcheckNo: no });
+      renderDetail(d);
+    } catch (err) { ui.renderError(dBody, err, () => dBtn.click()); }
+  });
+
+  const runCard = ui.el('section', { class: 'hg-card' });
+  runCard.appendChild(ui.el('h3', { class: 'hg-card__title', text: '发起自检（POST；幂等=同 scope 同业务日返回既有批次）' }));
+  const rScope = ui.el('select', { id: 'ac-sc-run-scope', name: 'scopeType' });
+  rScope.appendChild(ui.el('option', { value: 'HEDGE_RELATION', text: 'HEDGE_RELATION（单关系，填关系 ID）' }));
+  rScope.appendChild(ui.el('option', { value: 'PERIOD', text: 'PERIOD（期间聚合，全账户）' }));
+  const rRelation = ui.el('input', { id: 'ac-sc-run-rel', type: 'text', inputmode: 'numeric', placeholder: '如 1' });
+  const rPeriod = periodInput('ac-sc-run-period');
+  const rBtn = ui.el('button', { class: 'hg-btn hg-btn--primary', type: 'button', text: '发起自检' });
+  runCard.appendChild(ui.el('div', { class: 'hg-form-actions' }, [
+    ui.field({ id: 'ac-sc-run-scope', label: '自检范围（必填）', required: true, control: rScope }),
+    ui.field({ id: 'ac-sc-run-rel', label: '套期关系 ID（scopeType=HEDGE_RELATION 时必填）', control: rRelation }),
+    ui.field({ id: 'ac-sc-run-period', label: '会计期间（必填，yyyy-MM）', required: true, control: rPeriod }),
+    rBtn
+  ]));
+  const rBody = ui.el('div');
+  runCard.appendChild(rBody);
+  runCard.appendChild(ui.banner('自检范围与关系归属由服务端裁决（可见性读面断言，审计/合规岗可发起）；'
+    + '批次恒带' + extReviewHTML('Y') + '——' + '自检不替代外部复核（R-ACCT-10）。', 'warn'));
+  container.appendChild(runCard);
+
+  rBtn.addEventListener('click', async () => {
+    const period = rPeriod.value.trim();
+    if (!validPeriodKey(period)) { ui.toast('会计期间须为 yyyy-MM 形态（如 2026-10）', 'error'); return; }
+    const body = { scopeType: rScope.value, periodKey: period };
+    if (rScope.value === 'HEDGE_RELATION') {
+      if (!rRelation.value.trim()) { ui.toast('scopeType=HEDGE_RELATION 时关系 ID 必填', 'error'); return; }
+      body.hedgeRelationId = Number(rRelation.value.trim());
+    }
+    ui.clear(rBody); ui.renderLoading(rBody, '正在发起自检（逐条判定五条目）…');
+    try {
+      const d = await HG.api.post(A.SELFCHECK, body);
+      rBody.appendChild(ui.banner('自检完成：批次 <strong>' + F.esc(d.selfcheckNo) + '</strong>（'
+        + F.esc(d.conclusion || '—') + '），已在上方详情区展示。', d.conclusion === 'ALL_PASS' ? 'ok' : 'warn'));
+      dNo.value = d.selfcheckNo;
+      dBtn.click();
+      loadList(1);
+    } catch (err) { ui.renderError(rBody, err, () => rBtn.click()); }
+  });
+
+  loadList(1);
+}
+
+/* ------------------------------------------------------------------ *
+ * Tab 9：自检报告导出（真端点，T-197；FR-ACCT-14 验收 3/4）
+ *   GET /acct/export?selfcheckNo=… ⇒ CSV 直返（含自检时间与执行人 + 待外部复核标注）。
+ *   注意：本 Tab 是 T-197 自检报告导出载点；FR-ACCT-9 凭证导出（原注释归此路径）
+ *   交付时须扩展参数或另立路径（CONTRACTS §5.1 T-197 登记行「请裁」项）。
+ * ------------------------------------------------------------------ */
+function selfcheckExportTab(container) {
+  const card = ui.el('section', { class: 'hg-card' });
+  card.appendChild(ui.el('h3', { class: 'hg-card__title', text: '自检报告导出（CSV；FR-ACCT-14 验收 3/4；T-197）' }));
+  const eNo = ui.el('input', { id: 'ac-sce-no', type: 'text', placeholder: 'SC202610130001', inputmode: 'numeric' });
+  const eBtn = ui.el('button', { class: 'hg-btn hg-btn--primary', type: 'button', text: '导出自检报告' });
+  card.appendChild(ui.el('div', { class: 'hg-form-actions' }, [
+    ui.field({ id: 'ac-sce-no', label: '批次号（必填）', required: true, control: eNo }),
+    eBtn
+  ]));
+  const eBody = ui.el('div');
+  card.appendChild(eBody);
+  card.appendChild(ui.banner('报告恒带' + extReviewHTML('Y') + '并显式说明「自检不替代外部复核」（R-ACCT-10）；'
+    + '含自检时间与执行人（验收 3/4）。文件名由服务端生成（cas24-selfcheck-<批次号>.csv）。', 'warn'));
+  container.appendChild(card);
+
+  eBtn.addEventListener('click', async () => {
+    const no = eNo.value.trim();
+    if (!no) { ui.toast('批次号必填（如 SC202610130001）', 'error'); return; }
+    ui.clear(eBody); ui.renderLoading(eBody, '正在生成自检报告…');
+    try {
+      const res = await HG.api.download(A.EXPORT, { selfcheckNo: no });
+      const text = await res.blob.text();
+      const lines = text.replace(/^\uFEFF/, '').split(/\r\n|\n/).filter((l) => l !== '');
+      if (lines.length <= 1) {
+        ui.clear(eBody);
+        ui.renderEmpty(eBody, '无数据——不生成导出文件。');
+        return;
+      }
+      eBody.appendChild(ui.el('p', { class: 'hg-muted', text: 'CSV 已生成：' + lines.length
+        + ' 行，正在触发下载…' }));
+      triggerCsvDownload(res.blob, res.filename || 'cas24-selfcheck-' + no + '.csv');
+      ui.toast('自检报告已导出（CSV）', 'ok');
+    } catch (err) { ui.renderError(eBody, err, () => eBtn.click()); }
+  });
 }
 
 /* ------------------------------------------------------------------ *
@@ -1438,8 +1612,8 @@ const TABS = [
   { key: 'rebalance', label: '再平衡', build: rebalanceTab },
   { key: 'voucher', label: '会计凭证', build: voucherTab },
   { key: 'period', label: '会计期间', build: periodTab },
-  { key: 'selfcheck', label: 'CAS 24 自检（未注册）', build: unregisteredTab('CAS 24 条款自检清单', NR.ACCT_SELFCHECK, '逐条对照 CAS 24 条款自检（正式指定 / 书面文件三要素 / 评估记录 / 再平衡记录 / 双侧盈亏），含自检报告导出（标注待外部复核，自检不替代外部复核）', 'FR-ACCT-14 规划') },
-  { key: 'export', label: '凭证导出（未注册）', build: unregisteredTab('会计凭证导出', NR.ACCT_EXPORT, '按期间 / 子账户 / 状态导出凭证（含凭证编号、分录行、套保计划编号与实货敞口编号，可追溯；无数据不生成空文件）', 'FR-ACCT-9 规划') }
+  { key: 'selfcheck', label: 'CAS 24 自检', build: selfcheckTab },
+  { key: 'export', label: '自检报告导出', build: selfcheckExportTab }
 ];
 
 function renderAcct(root, ctx) {
@@ -1452,7 +1626,7 @@ function renderAcct(root, ctx) {
       + '<strong>期权与期货同等对待（R-ACCT-7）</strong>：期权浮动盈亏纳入效果评估，凭证类型含期权三值。'
       + extReviewHTML('Y') + ' 全部套期会计文档（关系文档 / 评估记录 / 再平衡记录 / 自检报告）一律标注'
       + '「待外部复核」，标注不得移除（R-ACCT-10）；自检不替代外部复核。'
-      + '未注册端点（/acct/selfcheck、/acct/export）保留框架并诚实提示，不发起调用。',
+      + '自检面（/acct/selfcheck、/acct/export）已随 T-197 端点化接入真端点。',
     'warn'
   ));
 

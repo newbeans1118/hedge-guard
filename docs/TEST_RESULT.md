@@ -17297,3 +17297,12 @@ FR-ACCT-5③ `priceStateCarryForwardLabeled`，`AcctEffectServiceTest:177-185` �
 - **M-NOTNULL 复测判定修正**：变异（`IS NOT NULL` 谓词反演）下仍 1223 全绿——**非覆盖缺口**，系**变异目标无效**：生产中 `IS NOT NULL` 唯一消费点恒与恒假 `IN (-1)` 以 AND 连接，谓词被恒假合取中和（`恒假 AND 任意 = 恒假`），反演语义在生产不可观察 ⇒ 无任何测试可杀；新用例已覆盖其**可观测面**（不抛 + 恒空 + CANNOT 落批）。若将来出现 `IS NOT NULL` 与非常假条件连用的生产形态，须重新立变异。
 - **过程披露**：首跑 1 错（新用例内 `buildChain` 双调 ⇒ `uk_t077_doc_no` 撞号），删残留调用后绿；变异后副本引擎 md5 复位核验一致（`60d4b01c…`）。
 - **追加前锚**：`head -17289 docs/TEST_RESULT.md | md5sum` = `9ca4770e2015a01b029734c00e0330a5`（纯追加，删=0）。
+
+## FE 前端微单：acct.js 自检面接真端点（O-1 处置；编排者亲核；2026-10-18 第 253 轮）
+
+- **对象**：`web/js/pages/acct.js` + `tools/probes/t083_acct_probe.mjs`（T-197 复核 O-1：两 Tab 仍 `unregisteredTab` 渲染、`NR.ACCT_SELFCHECK/ACCT_EXPORT` 悬空 ⇒ 运行时 undefined；探针 6 FAIL）。
+- **acct.js 改动**：① 头注端点口径 10 路径/17 对 → **12 路径/20 对**（T-197 收口；FR-ACCT-9 载点「请裁」项随注迁移）；② 删 `unregisteredTab` 函数与 `NR` 声明（两 Tab 迁真端点）；③ 新 `selfcheckTab`（批次清单分页/筛选 + 批次详情逐条渲染（itemCode/result/证据三元/failReason）+ 发起自检（scopeType select + 条件必填关系 ID + 期间预检）+ R-ACCT-10 标注与不替代说明恒披露 + wire 字段以 `selfcheckView` camelCase 为准）；④ 新 `selfcheckExportTab`（`HG.api.download(A.EXPORT, {selfcheckNo})` + 行数裁决 + `triggerCsvDownload` fund.js 范式同构 + 文件名服务端优先）；⑤ 页头横幅「未注册端点…不发起调用」句改为「自检面已随 T-197 端点化接入真端点」。
+- **探针 t083 订正**：断言 0 键集对账 10→**12 路径 / 17→20 方法对**（TWENTY 镜像数组含 selfcheck 2 对 + export 1 对）；NOT_REGISTERED 两键改判「已删除」；routes.js 注释口径断言改 12/20 且旧 10/17 断言反转；Tab 走查段改「真端点接入」——清单自动载入 GET ×1、详情渲染（批次号/itemCode/证据类型/不替代说明）、NOT_REGISTERED 锚标消失、export 卡片渲染；头注同步。**结果 193 PASS / 0 FAIL**（改前 179/6）。
+- **探针回归**：t055 fund 100/0、t070 risk ALL PASS(104)、t071 audit 71/0——既有探针零波及。
+- **边界**：`web/js/core/routes.js`（T-197 已同步）零改动；Java 侧零改动；门禁/树锚不受影响（前端零构建域，t083 探针为本域门禁）。
+- **追加前锚**：`head -17299 docs/TEST_RESULT.md | md5sum` = `3e736dc123594df6b50d5ebeffb2a26d`（纯追加，删=0）。

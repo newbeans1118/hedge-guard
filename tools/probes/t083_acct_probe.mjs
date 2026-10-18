@@ -3,8 +3,7 @@
  *
  * 形态对齐 t055_fund_probe.mjs 先例（T-021/T-071/T-055/T-070 形态）：node 级、mock DOM +
  * mock HG.api，逐功能点断言渲染结果。覆盖：
- *   · ACCT 键集与 ApiRoutes.java ACCT 模块 10 路径逐字对账（静态 7 + 参数化函数 3 = 17 方法对口径）；
- *   · NOT_REGISTERED 锚标（/acct/selfcheck、/acct/export）+ 全程零调用负证；
+ *   · ACCT 键集与 ApiRoutes.java ACCT 模块 12 路径逐字对账（静态 9 + 参数化函数 3 = 20 方法对口径；T-197）；
  *   · 效果页同屏双栏（data-spot-column / data-derivative-column 成对恒在）+ price_as_of 三态
  *     （CURRENT/NON_CURRENT/MISSING）+ UNATTRIBUTED 残余行显式 + 汇总=Σ明细同屏 + 三态；
  *   · 上报页两栏恒在 + 缺价保留栏位 + 留痕三件（上报人/时间/期间）；
@@ -255,7 +254,7 @@ HG.router.register = function (p, fn) { registeredPaths.push(p); return realRegi
 await import('../../web/js/pages/acct.js');
 HG.router.register = realRegister;
 
-/* ================= 断言 0：ACCT 键集逐字对账（== ApiRoutes ACCT 10 路径 / 17 方法对） ================= */
+/* ================= 断言 0：ACCT 键集逐字对账（== ApiRoutes ACCT 12 路径 / 20 方法对；T-197 后口径） ================= */
 const A = HG.routes.ACCT;
 const NR = HG.routes.NOT_REGISTERED;
 ok(A.HEDGE_RELATION === '/acct/hedge-relation', 'ACCT.HEDGE_RELATION 逐字一致');
@@ -269,24 +268,29 @@ ok(typeof A.voucherReview === 'function' && A.voucherReview(5) === '/acct/vouche
 ok(typeof A.voucherReverse === 'function' && A.voucherReverse(6) === '/acct/voucher/6/reverse', 'ACCT.voucherReverse 函数键 → /acct/voucher/{id}/reverse');
 ok(typeof A.periodClose === 'function' && A.periodClose(3) === '/acct/period/3/close', 'ACCT.periodClose 函数键 → /acct/period/{id}/close');
 ok(A.voucherReview('a/b') === '/acct/voucher/a%2Fb/review', 'ACCT.voucherReview 走 encodeURIComponent（enc 先例）');
-// 覆盖：10 路径全接（静态 7 + 参数化 3）
+// T-197：自检面两键迁正键（原 NOT_REGISTERED.ACCT_SELFCHECK/ACCT_EXPORT 已删）
+ok(A.SELFCHECK === '/acct/selfcheck', 'ACCT.SELFCHECK 逐字一致（T-197 迁正键）');
+ok(A.EXPORT === '/acct/export', 'ACCT.EXPORT 逐字一致（T-197 迁正键）');
+ok(NR.ACCT_SELFCHECK === undefined && NR.ACCT_EXPORT === undefined, 'NOT_REGISTERED 的 ACCT 两键已删除（T-197 迁出）');
+// 覆盖：12 路径全接（静态 9 + 参数化 3）
 const pathSet = new Set([A.HEDGE_RELATION, A.EFFECTIVENESS, A.REBALANCE, A.VOUCHER, A.PERIOD, A.EFFECT, A.DUAL_PNL_REPORT,
+  A.SELFCHECK, A.EXPORT,
   A.voucherReview('X').replace('X', '{id}'), A.voucherReverse('X').replace('X', '{id}'), A.periodClose('X').replace('X', '{id}')]);
-ok(pathSet.size === 10, 'ACCT 键集覆盖 10 路径（静态 7 + 参数化 3）');
-// 17 方法对口径（= ApiRoutes BY_MODULE_ROUTES ACCT 全量；静态逐字镜像断言）
-const SEVENTEEN = ['GET /acct/hedge-relation', 'POST /acct/hedge-relation', 'GET /acct/effectiveness', 'POST /acct/effectiveness',
+ok(pathSet.size === 12, 'ACCT 键集覆盖 12 路径（静态 9 + 参数化 3；T-197）');
+// 20 方法对口径（= ApiRoutes BY_MODULE_ROUTES ACCT 全量；静态逐字镜像断言）
+const TWENTY = ['GET /acct/hedge-relation', 'POST /acct/hedge-relation', 'GET /acct/effectiveness', 'POST /acct/effectiveness',
   'GET /acct/rebalance', 'POST /acct/rebalance', 'GET /acct/voucher', 'POST /acct/voucher',
   'POST /acct/voucher/{id}/review', 'POST /acct/voucher/{id}/reverse', 'GET /acct/period', 'POST /acct/period',
-  'POST /acct/period/{id}/close', 'GET /acct/effect', 'POST /acct/effect', 'GET /acct/report/dual-pnl', 'POST /acct/report/dual-pnl'];
-ok(SEVENTEEN.length === 17, 'ACCT 方法对口径 = 17（与 ApiRoutes BY_MODULE_ROUTES ACCT 一致）');
-ok(NR.ACCT_SELFCHECK === '/acct/selfcheck' && NR.ACCT_EXPORT === '/acct/export', 'NOT_REGISTERED 登记 selfcheck/export（未注册路径禁止调用）');
-ok(A.SELFCHECK === undefined && A.EXPORT === undefined, '负控——ACCT 键不含未注册 selfcheck/export（不加键）');
+  'POST /acct/period/{id}/close', 'GET /acct/effect', 'POST /acct/effect', 'GET /acct/report/dual-pnl', 'POST /acct/report/dual-pnl',
+  'GET /acct/selfcheck', 'POST /acct/selfcheck', 'GET /acct/export'];
+ok(TWENTY.length === 20, 'ACCT 方法对口径 = 20（与 ApiRoutes BY_MODULE_ROUTES ACCT 一致；T-197）');
 ok(registeredPaths.includes('/acct'), '/acct 路由已注册');
 // T-079 O-2 闭环：陈旧注释订正（旧称「其余 8 条已声明路径未注册」已消亡）
 const routesSrc = (await import('node:fs')).readFileSync(new URL('../../web/js/core/routes.js', import.meta.url), 'utf8');
 ok(routesSrc.indexOf('voucher/period/effect/dual-pnl/selfcheck/export）未注册') === -1, 'routes.js 陈旧注释（8 条未注册旧口径原文）已消亡（T-079 O-2 闭环）');
-ok(routesSrc.indexOf('实际未注册的仅 **2 条**') !== -1, 'routes.js 注释含现行订正（实际未注册仅 2 条）');
-ok(routesSrc.indexOf('10 路径') !== -1 && routesSrc.indexOf('17 (方法,路径) 对') !== -1, 'routes.js 注释含现行 10 路径 / 17 对口径');
+ok(routesSrc.indexOf('实际未注册的仅 **2 条**') === -1, 'routes.js 陈旧注释（实际未注册仅 2 条）已消亡（T-197 迁正键）');
+ok(routesSrc.indexOf('10 路径') === -1 || routesSrc.indexOf('12 路径') !== -1, 'routes.js 注释含现行 12 路径口径（T-197）');
+ok(routesSrc.indexOf('17 (方法,路径) 对') === -1 && routesSrc.indexOf('20 (方法,路径) 对') !== -1, 'routes.js 注释含现行 20 对口径（T-197）');
 
 /* ---------------- 页面渲染与 Tab 走查辅助 ---------------- */
 const root = document.createElement('div');
@@ -304,7 +308,7 @@ ok(textOf(root).includes('FR-ACCT-1~14'), '页面描述含 FR 区间');
 ok(textOf(root).includes('待外部复核'), '页头横幅含 R-ACCT-10 待外部复核');
 ok(textOf(root).includes('口径单一'), '页头横幅含 R-ACCT-12 口径单一');
 ok(textOf(root).includes('期权与期货同等对待'), '页头横幅含 R-ACCT-7 期权同等对待');
-ok(textOf(root).includes('/acct/selfcheck') && textOf(root).includes('/acct/export'), '页头横幅诚实披露未注册端点');
+ok(textOf(root).includes('/acct/selfcheck') && textOf(root).includes('/acct/export'), '页头横幅披露自检面端点（T-197 已接入）');
 
 /* ================= Tab effect：同屏双栏 + 三态 + UNATTRIBUTED + 汇总勾稽 + 三态齐全 ================= */
 switchTab('effect');
@@ -806,19 +810,42 @@ switchTab('period');
   stubConfirm(false);
 }
 
-/* ================= Tab selfcheck/export：NOT_REGISTERED 锚标 + 零调用负证 ================= */
+/* ================= Tab selfcheck/export：真端点接入（T-197）+ 载入面断言 ================= */
 {
   switchTab('selfcheck');
-  ok(findByAttr(root, 'data-not-registered', '/acct/selfcheck') !== null, 'selfcheck：NOT_REGISTERED 锚标（data-not-registered）');
-  ok(textOf(root).includes('不发起调用'), 'selfcheck：诚实提示不发起调用');
+  ok(findByAttr(root, 'data-not-registered', '/acct/selfcheck') === null, 'selfcheck：NOT_REGISTERED 锚标已消失（T-197 迁真端点）');
+  ok(textOf(root).includes('自检批次清单'), 'selfcheck：批次清单卡片渲染（T-197）');
+  ok(textOf(root).includes('发起自检'), 'selfcheck：发起自检卡片渲染');
+  ok(textOf(root).includes('自检不替代外部复核'), 'selfcheck：R-ACCT-10 不替代说明披露');
   ok(textOf(root).includes('FR-ACCT-14'), 'selfcheck：FR 归属披露（FR-ACCT-14）');
+  // 载入面：初始 loadList(1) 自动发起 GET /acct/selfcheck（PageData 信封）
+  const scListCall = HG.api._calls.filter((c) => c.m === 'GET' && c.p === '/acct/selfcheck');
+  ok(scListCall.length === 1, 'selfcheck：清单自动载入（GET /acct/selfcheck ×1）');
+  // 批次详情：stub 后走查询 → 表格渲染 + 标注横幅
+  HG.api._stub('GET /acct/selfcheck', (q) => {
+    if (q.selfcheckNo) {
+      return { id: 1, selfcheckNo: q.selfcheckNo, scopeType: 'HEDGE_RELATION', scopeKey: 'HR202609010001|2026-10',
+        passCount: 4, failCount: 1, conclusion: 'HAS_FAIL', cannotSelfcheckReason: null,
+        pendingExternalReview: 'Y', notSubstituteNote: '自检不替代外部复核（R-ACCT-10）',
+        executorId: 100, selfcheckTime: '2026-10-13T09:00:00',
+        items: [{ itemSeq: 1, itemCode: 'FORMAL_DESIGNATION', itemName: '①正式指定', result: 'PASS',
+          evidenceType: 't_hedge_relation', evidenceId: 1, evidenceDesc: '指定留痕在案', failReason: null }] };
+    }
+    return { total: 1, page: 1, size: 20, items: [{ selfcheckNo: 'SC202610130001', scopeType: 'HEDGE_RELATION',
+      scopeKey: 'HR202609010001|2026-10', subAccountId: 1, passCount: 4, failCount: 1, conclusion: 'HAS_FAIL',
+      pendingExternalReview: 'Y', selfcheckTime: '2026-10-13T09:00:00', executorId: 100 }] };
+  });
+  findInput(root, 'ac-sc-no').value = 'SC202610130001';
+  findBtnByText(root, '查询详情').click();
+  await new Promise((r) => setTimeout(r, 0)); await new Promise((r) => setTimeout(r, 0));
+  ok(textOf(root).includes('SC202610130001'), 'selfcheck：详情渲染批次号');
+  ok(textOf(root).includes('FORMAL_DESIGNATION'), 'selfcheck：逐条条目渲染（itemCode）');
+  ok(textOf(root).includes('t_hedge_relation'), 'selfcheck：证据位置渲染（evidenceType）');
+  ok(textOf(root).includes('自检不替代外部复核'), 'selfcheck：详情横幅含不替代说明（验收 3）');
   switchTab('export');
-  ok(findByAttr(root, 'data-not-registered', '/acct/export') !== null, 'export：NOT_REGISTERED 锚标');
-  ok(textOf(root).includes('FR-ACCT-9'), 'export：FR 归属披露（FR-ACCT-9）');
-  ok(textOf(root).includes('无数据不生成空文件') || textOf(root).includes('无数据不生成'), 'export：规划功能描述披露');
-  // 全程零调用负证（两个 Tab 均未发起任何 API 调用）
-  const nrCalls = HG.api._calls.filter((c) => c.p === '/acct/selfcheck' || c.p === '/acct/export');
-  ok(nrCalls.length === 0, '负证——selfcheck/export 全程零 API 调用（NOT_REGISTERED 语义）');
+  ok(findByAttr(root, 'data-not-registered', '/acct/export') === null, 'export：NOT_REGISTERED 锚标已消失（T-197 迁真端点）');
+  ok(textOf(root).includes('自检报告导出'), 'export：导出卡片渲染（T-197 自检报告载点）');
+  ok(textOf(root).includes('自检不替代外部复核') || textOf(root).includes('待外部复核'), 'export：R-ACCT-10 标注披露');
 }
 
 /* ================= 写操作幂等汇总负证（_allPosts：全程 POST 台账，不受分段清空影响） ================= */
