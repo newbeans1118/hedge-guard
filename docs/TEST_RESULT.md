@@ -17276,3 +17276,14 @@ FR-ACCT-5③ `priceStateCarryForwardLabeled`，`AcctEffectServiceTest:177-185` �
 （基线 760 文件数不变——本 delta 仅改既有测试文件与本文档追加，`java/src` 零新增文件）。
 
 —— T-085 delta 席 te-t085b；执行记录以本节为补充，原 §T085 各节判定不变。
+
+## T197 独立复核（te-verify-t197 形态，编排者亲核；2026-10-18 第 253 轮）
+
+- **冻结点**：`1929c9c`（交付 `a318f31`）；**结论**：**有条件通过 / 0 阻断 / 1×P2 缺陷（测试面）/ 2 观察**；报告 `/root/t197-verify.md` `7f4e16bd…`/58。
+- **A 产出方声明逐项实测全吻合**：门禁隔离副本复跑 `mvn -B -o clean test` = **1222/0/0/0** BUILD SUCCESS（surefire 实数；类内 `@Test` 8==用例 8）、arch `mvn validate` rc0（E1–E8 全 0）、树锚 `cd java && find src -type f | LC_ALL=C sort | xargs md5sum | md5sum` = `3223d6722d1fac333ca036b4c26c68ad`/**764** 复现成立；路由面 ACCT 17→**20 对**、12 条已声明路径全注册、未新增路径；`routes.js` ACCT SELFCHECK/EXPORT 键逐字同步（Node eval 实测）；验收 1~4 端点级用例逐条（五条目+证据三元+④FAIL+标注 Y+不替代说明+CSV 含时间/执行人+`SC\d{12}` 白名单+CRLF 负例 5 组）+ 幂等 + 越权 fail-closed 三入口；`CONTRACTS.md` §5.1 纯增量登记行（含 **4 项诚实披露**：取号形态/FR-ACCT-9 载点请裁/读面断言理由/⑤判据与 T-085 基线不同源）。
+- **B 编排者续作三修独立证实**：① service `listBatches` 拼装少闭括号（IN 列表与 OR 组外层，报错原子文本吻合）；② 引擎 `parseWhere` 无条件 `stripOuterParens` 剥掉整条 WHERE 唯一括号组 ⇒ OR 组分支永不可达（count 包裹路径堆栈 `parseWhere:801` 直证），修为先 `hasTopLevelOr` 判定；③ handler 直调不经 `RequestDispatcher.dispatch` 的 BizException→状态码映射 ⇒ `SelfcheckHandler` 级 `PARAM_INVALID`→400（ExportHandler 范式同构）。
+- **C 变异 3 例（隔离副本 clean 重建取数）**：**M-OR**（`parseOrGroup` OR→AND 反演）⇒ **红 2**（unauthorizedAccessRejected/endpointLevelPostGetAndExport 分页路径）有牙；**M-NOTNULL**（`IS NOT NULL` 谓词反演）⇒ **存活**（全绿，见 TE-T197-001）；**M-HANDLER400**（handler 400 映射摘除）⇒ **红 1**（endpointLevel 400 断言）有牙。复位核验：副本两文件 md5 与共享树逐字节一致（`91857e92…`/`60d4b01c…`），复位后 clean 全量 **1222/0/0/0** 绿证。
+- **TE-T197-001（P2，测试面）**：`Cas24SelfcheckService:327` fail-closed 分支（`sub_account_id IS NOT NULL AND sub_account_id IN (-1)`，触发前提=调用者可见集空）**零覆盖**——测试 visible 恒非空 ⇒ M-NOTNULL 存活；缓和=分支语义正确、缺用例非基建缺陷。**条件**：补 1 例"零授权 operator ⇒ listBatches total=0 且不抛"（同时覆盖引擎 `IS NOT NULL` 原子与 service 空集分支），或 delta 披露登记。
+- **O-1**：`acct.js:1441-1442` 两 Tab 仍 `unregisteredTab` 渲染（`NR.ACCT_SELFCHECK`/`NR.ACCT_EXPORT` 已随 routes.js 删除 ⇒ 运行时 undefined、`F.esc` 渲染 "undefined" 字符串、诚实提示失真）；`t083_acct_probe` **179 PASS/6 FAIL**（均系 T-083 时点合法形态在 T-197 后失配：NOT_REGISTERED 键迁正键/负控反向/注释 10-17→12-20/两 Tab 锚标消失）⇒ 建议立前端微单（acct.js 两 Tab 接真端点+探针订正，frontend 席，T-083 深链先例）。本单写域未授权触碰前端页文件，据实登记不处置。
+- **O-2**：幂等键 scope_key 不含期间键（产出方 CONTRACTS 已披露）——同日同关系换期间返回既有批次；建议下轮收口（一行级，随 delta 或 T-198 同批）。
+- **追加前锚**：`head -17278 docs/TEST_RESULT.md | md5sum` = `c1265376cfbf66088e36a60d16670787`（纯追加，删=0）。
