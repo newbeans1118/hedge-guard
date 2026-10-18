@@ -169,9 +169,9 @@ public final class ApiRoutes {
         // T-079：凭证与期间面（voucher GET/POST、voucher/{id}/review POST、voucher/{id}/reverse
         // POST、period GET/POST、period/{id}/close POST，7 对）。
         // T-080：效果评估与双侧盈亏上报面（/acct/effect GET/POST、/acct/report/dual-pnl
-        // GET/POST，4 对 → 共 17 对）。
-        // 路径逐字取自本类 ACCT 路径级声明；其余 2 条已声明路径（selfcheck/export）归后续
-        // FR-ACCT-14/FR-ACCT-9 单交付，本单不注册。
+        // GET/POST，4 对）。
+        // T-197：CAS 24 自检面（/acct/selfcheck GET/POST、/acct/export GET，3 对 ⇒ 共 20 对）。
+        // 路径逐字取自本类 ACCT 路径级声明；至此 ACCT 12 条已声明路径全部注册完毕。
         BY_MODULE_ROUTES.put("ACCT", Arrays.asList(
                 "GET /acct/hedge-relation", "POST /acct/hedge-relation",
                 "GET /acct/effectiveness", "POST /acct/effectiveness",
@@ -181,7 +181,10 @@ public final class ApiRoutes {
                 "GET /acct/period", "POST /acct/period",
                 "POST /acct/period/{id}/close",
                 "GET /acct/effect", "POST /acct/effect",
-                "GET /acct/report/dual-pnl", "POST /acct/report/dual-pnl"));
+                "GET /acct/report/dual-pnl", "POST /acct/report/dual-pnl",
+                // T-197：CAS 24 自检清单/详情 + 发起自检 + 报告导出（FR-ACCT-14）
+                "GET /acct/selfcheck", "POST /acct/selfcheck",
+                "GET /acct/export"));
         BY_MODULE_ROUTES.put("AUTH", Arrays.asList(
                 "POST /auth/login", "POST /auth/logout",
                 "GET /auth/user", "POST /auth/user", "PUT /auth/user",
@@ -226,8 +229,9 @@ public final class ApiRoutes {
      *
      * <p>仅含<b>当前已注册</b>的模块（{@code AUTH}/{@code CONFIG}/{@code PRODUCT}/{@code SPOT}/
      * {@code PLAN}/{@code TRADE}/{@code SETTLE}/{@code RISK}/{@code FUND}，以及 {@code T-067} 接入、
-     * {@code T-069} 补齐、{@code T-194} 追加核对任务查询 2 对的 {@code AUDIT} 已声明路径，
-     * 与 {@code T-077} 首批注册 4 对的 {@code ACCT}）；
+     * {@code T-069} 补齐、{@code T-194} 追加核对任务查询 2 对的 {@code AUDIT}，
+     * 与 {@code T-077} 首批 4 对、经 {@code T-078}/{@code T-079}/{@code T-080}/{@code T-197}
+     * 增至 20 对的 {@code ACCT}）；
      *
      * @return 模块 → {@code "METHOD /module-relative-path"} 清单
      */

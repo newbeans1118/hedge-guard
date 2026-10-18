@@ -167,21 +167,15 @@ export const ROUTES = {
     RISK_FORCE_CLOSE_HINT: '/risk/force-close-hint',
     RISK_VIOLATION: '/risk/violation',
     RISK_POST_REPORT: '/risk/post-report',
-    TRADE_ORDER: '/trade/order',
-    // T-083 补登记：ACCT 路径表 12 路径中未注册方法对的 2 个（FR-ACCT-14 自检清单 /
-    // FR-ACCT-9 凭证导出载点；handler/acct/ 下无对应 Handler——acct.js 保留 Tab 框架 +
-    // 「未注册」诚实提示、零 API 调用，T-070 risk.js 同形态）。
-    ACCT_SELFCHECK: '/acct/selfcheck',
-    ACCT_EXPORT: '/acct/export'
+    TRADE_ORDER: '/trade/order'
   },
   // T-077/T-078：套期会计首批键（hedge-relation / effectiveness / rebalance 各 GET|POST）。
-  // T-079/T-080/T-083：凭证与期间面 + 效果与上报面全量接齐——ACCT 键现覆盖 **10 路径 /
-  // 17 (方法,路径) 对**（= BY_MODULE_ROUTES ACCT 全量）：静态 7（HEDGE_RELATION /
-  // EFFECTIVENESS / REBALANCE / VOUCHER / PERIOD / EFFECT / DUAL_PNL_REPORT）
+  // T-079/T-080/T-083：凭证与期间面 + 效果与上报面全量接齐。
+  // T-197：CAS 24 自检面接齐（FR-ACCT-14 端点化）——ACCT 键现覆盖 **12 路径 /
+  // 20 (方法,路径) 对**（= BY_MODULE_ROUTES ACCT 全量，12 条已声明路径全部注册）：
+  // 静态 9（HEDGE_RELATION / EFFECTIVENESS / REBALANCE / VOUCHER / PERIOD / EFFECT /
+  // DUAL_PNL_REPORT / SELFCHECK / EXPORT）
   // + 参数化函数 3（voucherReview / voucherReverse / periodClose）。
-  // ⚠️ 订正（T-083，闭环 T-079 O-2）：旧注称「其余 8 条已声明路径未注册」系 T-079
-  // 键先行时点的陈旧表述——voucher/period/effect/dual-pnl 均已随 T-079/T-080 注册，
-  // 实际未注册的仅 **2 条**：selfcheck/export（FR-ACCT-14/FR-ACCT-9 载点，见 NOT_REGISTERED）。
   // 路径逐字取自 ApiRoutes.byModule().get("ACCT")；方法对取自 handler/acct/AcctRoutes.java。
   ACCT: {
     HEDGE_RELATION: '/acct/hedge-relation',   // GET 分页；POST 生成（三要素门禁 R-ACCT-1，缺任一要素 10012 阻断并列缺失项）
@@ -191,6 +185,12 @@ export const ROUTES = {
     PERIOD: '/acct/period',                   // GET 期间分页 / 关账历史(?periodKey=)；POST 创建开放期间（FR-ACCT-12）
     EFFECT: '/acct/effect',                   // GET 套保效果视图(summary+details 同屏双栏)；POST 计算（FR-ACCT-5；R-ACCT-12 口径单一）
     DUAL_PNL_REPORT: '/acct/report/dual-pnl', // GET 上报记录查询(reportPeriod 必填)；POST 提交上报（两栏恒在 R-ACCT-4；FR-ACCT-10）
+    // T-197：CAS 24 自检面（FR-ACCT-14；GET ?selfcheckNo= 单批次详情，否则分页清单；
+    // POST 发起自检 {scopeType: HEDGE_RELATION|PERIOD, hedgeRelationId?, periodKey}——
+    // 逐条结论+证据位置；缺再平衡记录 ⇒ 该项「不通过」；批次恒带 pendingExternalReview='Y'
+    // + notSubstituteNote「自检不替代外部复核」；幂等=同 scope 同业务日返回既有批次）
+    SELFCHECK: '/acct/selfcheck',
+    EXPORT: '/acct/export',                   // GET ?selfcheckNo=… ⇒ 自检报告 CSV 直返（含自检时间与执行人；FR-ACCT-14 验收 3/4）
     voucherReview: (id) => '/acct/voucher/' + enc(id) + '/review',     // POST 凭证审核（R-ACCT-6 岗位分离；FR-ACCT-7）
     voucherReverse: (id) => '/acct/voucher/' + enc(id) + '/reverse',   // POST 凭证冲销（反向凭证 + 双人复核 DC-032；FR-ACCT-13）
     periodClose: (id) => '/acct/period/' + enc(id) + '/close'          // POST 关账/撤销关账（三前置 + 双人复核 R-ACCT-8；FR-ACCT-12）

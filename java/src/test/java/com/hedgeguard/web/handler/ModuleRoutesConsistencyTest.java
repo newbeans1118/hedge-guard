@@ -111,7 +111,9 @@ class ModuleRoutesConsistencyTest {
         // 4 对）同构重放；T-078：再平衡面（GET|POST /acct/rebalance，2 对）同构重放；
         // T-079：凭证与期间面（voucher GET|POST、voucher/{id}/review|reverse POST、
         // period GET|POST、period/{id}/close POST，7 对）同构重放；ACCT 方法注册表键 6 → 13。
-        AcctRoutes.register(router, null);
+        // T-080：效果/上报面 4 对；T-197：CAS 24 自检面 3 对（GET|POST /acct/selfcheck、
+        // GET /acct/export）⇒ ACCT 键 17 → 20（12 条已声明路径全量）。
+        AcctRoutes.register(router, null, null);
         return router;
     }
 

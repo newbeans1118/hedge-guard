@@ -48,7 +48,8 @@ import java.util.regex.Pattern;
  *       <b>单列 {@code IN (...)} / {@code = '字面量'} 形态的 CHECK</b>；其余复杂 {@code CHECK}
  *       仅登记不求值（见 {@link #uncheckedCheckCount()}，测试显式披露）。</li>
  *   <li>查询：{@code SELECT <cols|*> FROM <t> [WHERE <col = ? | col IN (?,..) | col IS NULL |
- *       col LIKE ?>] [ORDER BY ...] [LIMIT ? OFFSET ?]}，以及
+ *       col IS NOT NULL | col LIKE ?>]，以及 AND 连接 / 括号包裹 OR 组
+ *       {@code (a IS NULL OR b IN (...))}〔T-197 增补〕] [ORDER BY ...] [LIMIT ? OFFSET ?]}，以及
  *       {@code SELECT COUNT(*) AS cnt FROM (<inner>) hg_cnt}（{@code DmDialect.countSql} 形态）。</li>
  *   <li>{@code LIKE ?}：绑定值为模式串，支持 {@code %}（任意长度）与 {@code _}（单字符）通配；
  *       仅支持**整原子**形态 {@code <col> LIKE ?}（不解析 {@code OR}/{@code NOT} 组合）——
@@ -726,7 +727,14 @@ public final class InMemoryDmEngine implements ConnectionFactory {
     }
 
     private static Predicate parseWhere(String clause, List<Object> args, int[] argIndex) {
-        String text = stripOuterParens(collapse(clause));
+        String collapsed = collapse(clause);
+        // T-197 增补：整条 WHERE 恰为一个括号 OR 组（如 count 包裹路径的
+        // "(a IS NULL OR b IN (?))"）——须**先判 OR 再剥壳**：无条件 stripOuterParens
+        // 会把顶层 OR 组的括号剥掉，使其在原子分支里因无括号而绕过 OR 组处理。
+        if (hasTopLevelOr(stripOuterParens(collapsed))) {
+            return parseOrGroup(collapsed, args, argIndex);
+        }
+        String text = stripOuterParens(collapsed);
         List<String> atoms = new ArrayList<>();
         int depth = 0;
         boolean quote = false;
@@ -755,6 +763,16 @@ public final class InMemoryDmEngine implements ConnectionFactory {
         List<Predicate> predicates = new ArrayList<>();
         for (String atomRaw : atoms) {
             String atom = stripOuterParens(collapse(atomRaw));
+            // T-197 增补：括号包裹的 OR 组（形如 (a IS NULL OR b IN (...))）——AND 连接的分组原子，
+            // 括号内递归 parseWhere（OR 语义：组内任一原子命中即命中）；生产 DAO 以括号包裹
+            // OR 子句避免 AND 优先级漂移（Cas24SelfcheckService.listBatches 先例）。
+            // 仅当剥壳后仍含**顶层 OR**（≥2 原子）才走 OR 组——单原子括号（findPageScoped
+            // 的 "(extra) AND scope" 形态）剥壳后按普通原子求值，勿误入本分支。
+            if (atomRaw.trim().startsWith("(") && atomRaw.trim().endsWith(")")
+                    && hasTopLevelOr(stripOuterParens(collapse(atomRaw)))) {
+                predicates.add(parseOrGroup(atomRaw.trim(), args, argIndex));
+                continue;
+            }
             Matcher in = Pattern.compile("(?is)^(\\w+)\\s+IN\\s*\\((.*)\\)$").matcher(atom);
             // 等值 / 比较符（'>=' '>' '<=' '<' '=' '<>' '!='）；T-065 增补 > 与 >=（since 补拉等区间谓词）
             Matcher cmp = Pattern.compile("(?is)^(\\w+)\\s*(>=|<=|<>|!=|>|<|=)\\s*\\?$").matcher(atom);
@@ -782,6 +800,10 @@ public final class InMemoryDmEngine implements ConnectionFactory {
                 Object value = args.get(argIndex[0]++);
                 String pattern = value == null ? null : String.valueOf(value);
                 predicates.add(row -> matchesLike(row.get(col), pattern));
+            } else if (atom.matches("(?is)^\\w+\\s+IS\\s+NOT\\s+NULL$")) {
+                // T-197 增补：IS NOT NULL（fail-closed 分支「sub_account_id IS NOT NULL AND …」形态）
+                String col = atom.split("(?is)\\s+IS\\s+NOT\\s+NULL\\s*$")[0].trim();
+                predicates.add(row -> row.get(col) != null);
             } else {
                 throw new UnsupportedOperationException("无法求值的 WHERE 原子：" + atom);
             }
@@ -794,6 +816,78 @@ public final class InMemoryDmEngine implements ConnectionFactory {
             }
             return true;
         };
+    }
+
+    /**
+     * T-197 增补：求值括号包裹的 OR 组（形如 {@code (a IS NULL OR b IN (...))}）。
+     * 按<strong>顶层</strong>（引号外、括号深度 0）{@code OR} 拆分，组内任一原子命中即命中；
+     * 各原子递归 {@link #parseWhere}（支持 AND 复合与再嵌套括号）。
+     */
+    private static Predicate parseOrGroup(String groupText, List<Object> args, int[] argIndex) {
+        String text = stripOuterParens(collapse(groupText));
+        List<String> atoms = new ArrayList<>();
+        int depth = 0;
+        boolean quote = false;
+        StringBuilder cur = new StringBuilder();
+        String upper = text.toUpperCase(Locale.ROOT);
+        for (int i = 0; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            if (ch == '\'') {
+                quote = !quote;
+            } else if (!quote && ch == '(') {
+                depth++;
+            } else if (!quote && ch == ')') {
+                depth--;
+            }
+            if (!quote && depth == 0 && upper.startsWith(" OR ", i)) {
+                atoms.add(cur.toString().trim());
+                cur.setLength(0);
+                i += 3;
+                continue;
+            }
+            cur.append(ch);
+        }
+        if (cur.length() > 0) {
+            atoms.add(cur.toString().trim());
+        }
+        if (atoms.size() < 2) {
+            throw new UnsupportedOperationException("无法求值的 WHERE 原子：" + groupText);
+        }
+        List<Predicate> alternatives = new ArrayList<>();
+        for (String atomText : atoms) {
+            alternatives.add(parseWhere(atomText, args, argIndex));
+        }
+        return row -> {
+            for (Predicate p : alternatives) {
+                if (p.test(row)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+    }
+
+    /**
+     * T-197 增补：判定括号剥壳后是否含**顶层**（引号外、括号深度 0）{@code OR} 记号。
+     * 用于区分「真 OR 组」与「单原子括号」（后者交回 {@link #parseWhere} 常规原子分支）。
+     */
+    private static boolean hasTopLevelOr(String text) {
+        int depth = 0;
+        boolean quote = false;
+        String upper = text.toUpperCase(Locale.ROOT);
+        for (int i = 0; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            if (ch == '\'') {
+                quote = !quote;
+            } else if (!quote && ch == '(') {
+                depth++;
+            } else if (!quote && ch == ')') {
+                depth--;
+            } else if (!quote && depth == 0 && upper.startsWith(" OR ", i)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})

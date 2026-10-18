@@ -9,6 +9,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -113,5 +114,22 @@ public final class DmCas24SelfcheckDao extends AbstractDmDao<Cas24Selfcheck, Lon
         String sql = "SELECT " + selectList() + " FROM " + tableName()
                 + " WHERE scope_type = ? AND scope_key = ? ORDER BY selfcheck_time ASC, id ASC";
         return queryList(sql, Arrays.asList(scopeType, scopeKey), this::mapRow);
+    }
+
+    /**
+     * {@inheritDoc}：前缀内字典序最大（序号零填充定长 ⇒ 字典序最大即序号最大）。
+     */
+    @Override
+    public String findMaxSelfcheckNoByPrefix(String selfcheckNoPrefix) {
+        String sql = "SELECT selfcheck_no FROM " + tableName() + " WHERE selfcheck_no LIKE ?";
+        List<String> nos = queryList(sql, Collections.singletonList(selfcheckNoPrefix + "%"),
+                rs -> rs.getString("selfcheck_no"));
+        String max = null;
+        for (String no : nos) {
+            if (no != null && (max == null || no.compareTo(max) > 0)) {
+                max = no;
+            }
+        }
+        return max;
     }
 }

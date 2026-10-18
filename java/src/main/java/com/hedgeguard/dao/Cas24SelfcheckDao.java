@@ -25,5 +25,19 @@ public interface Cas24SelfcheckDao extends BaseDao<Cas24Selfcheck, Long> {
      * @param scopeKey  范围键（关系编号 / 期间键）
      * @return 列表（{@code selfcheck_time} 升序，{@code id} 升序收官）
      */
-    java.util.List<Cas24Selfcheck> findByScope(String scopeType, String scopeKey);
+    java.util.    List<Cas24Selfcheck> findByScope(String scopeType, String scopeKey);
+
+    /**
+     * 取指定编号前缀下<b>字典序最大</b>的自检批次号（{@code T-197} 取号）。
+     *
+     * <p>{@code selfcheck_no} 为<b>全系统唯一</b>（{@code uk_cas24_selfcheck_no}），形态
+     * {@code SC<yyyyMMdd><seq(4)>}（{@code DATA_MODEL.md} §3.5 未列，{@code Cas24SelfcheckService}
+     * 定义）——编号含日期段、按业务日重置 ⇒ 服务层按「当日前缀内字典序最大 + 1」取号
+     * （T-137/T-141 判例前提成立）；并发兜底靠唯一约束 + 服务层最多 3 次重试。
+     *
+     * @param selfcheckNoPrefix 编号前缀（须为 {@code SC<yyyyMMdd>}，由服务层常量拼装；
+     *                          本层按占位符绑定，禁止拼接取值）
+     * @return 命中的最大编号；无任何自检批次返回 {@code null}
+     */
+    String findMaxSelfcheckNoByPrefix(String selfcheckNoPrefix);
 }

@@ -46,6 +46,8 @@ import com.hedgeguard.dao.impl.DmRebalanceRecordDao;
 import com.hedgeguard.dao.impl.DmAuthorizationDao;
 import com.hedgeguard.dao.impl.DmExposureDetailDao;
 import com.hedgeguard.dao.impl.DmDualPnlReportDao;
+import com.hedgeguard.dao.impl.DmCas24SelfcheckDao;
+import com.hedgeguard.dao.impl.DmCas24SelfcheckItemDao;
 import com.hedgeguard.dao.impl.DmHedgeDocDao;
 import com.hedgeguard.dao.impl.DmHedgeEffectDao;
 import com.hedgeguard.dao.impl.DmHedgePlanDao;
@@ -136,6 +138,7 @@ import com.hedgeguard.service.AuditReportService;
 import com.hedgeguard.service.AuditService;
 import com.hedgeguard.service.AuthService;
 import com.hedgeguard.service.AcctService;
+import com.hedgeguard.service.Cas24SelfcheckService;
 import com.hedgeguard.service.CheckTaskQueryService;
 import com.hedgeguard.service.ConfigService;
 import com.hedgeguard.service.EvidenceExportService;
@@ -595,13 +598,20 @@ public final class Bootstrap {
                 new DmSettleCycleDao(tx), new DmAccountSubjectDao(tx),
                 new DmHedgeEffectDao(tx), new DmDualPnlReportDao(tx),
                 new DmHedgePlanExposureDao(tx), new DmSettlePnlDao(tx), new DmSpotPriceDao(tx));
-        AcctRoutes.register(router, acctService);
-        LOG.info("已装配套期会计面（T-077/T-078/T-079/T-080）：GET|POST /api/v1/acct/hedge-relation、"
+        // T-197 CAS 24 自检服务（FR-ACCT-14 端点化）：五条判定产品化 + 批次落库（T-076 DAO 面）
+        // + 报告导出（R-ACCT-10 标注随行）。⑤经 AcctService.getEffect 同源取数（R-ACCT-12）。
+        Cas24SelfcheckService cas24SelfcheckService = new Cas24SelfcheckService(tx, authService,
+                acctService, new DmHedgeRelationDao(tx), new DmHedgeDocDao(tx),
+                new DmEffectivenessAssessDao(tx), new DmRebalanceRecordDao(tx),
+                new DmCas24SelfcheckDao(tx), new DmCas24SelfcheckItemDao(tx));
+        AcctRoutes.register(router, acctService, cas24SelfcheckService);
+        LOG.info("已装配套期会计面（T-077/T-078/T-079/T-080/T-197）：GET|POST /api/v1/acct/hedge-relation、"
                 + "GET|POST /api/v1/acct/effectiveness、GET|POST /api/v1/acct/rebalance、"
                 + "GET|POST /api/v1/acct/voucher、POST /api/v1/acct/voucher/{id}/review、"
                 + "POST /api/v1/acct/voucher/{id}/reverse、GET|POST /api/v1/acct/period、"
                 + "POST /api/v1/acct/period/{id}/close、GET|POST /api/v1/acct/effect、"
-                + "GET|POST /api/v1/acct/report/dual-pnl；"
+                + "GET|POST /api/v1/acct/report/dual-pnl、GET|POST /api/v1/acct/selfcheck、"
+                + "GET /api/v1/acct/export；"
                 + "三要素门禁=R-ACCT-1；有效性=三项定性观察点（CFG-07），量化监测（CFG-07b）"
                 + "仅提示不判定；再平衡=四类触发（CFG-08 敞口/工具侧双阈值），"
                 + "重新指定=R-ACCT-3（新文档+新关系+记录，整笔事务）；"

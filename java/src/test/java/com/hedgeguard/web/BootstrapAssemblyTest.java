@@ -260,9 +260,16 @@ class BootstrapAssemblyTest {
             //   FUND16/AUDIT24/ACCT17）+ ping 2 = 165。算术分解：161（前值）+ 4 对 = 165；
             //   ACCT 其余 2 条已声明路径（selfcheck/export）归后续 FR-ACCT-14/FR-ACCT-9 单交付。
             //   非为过测试而放宽断言。
-            assertEquals(165, assembly.routeCount(),
-                    "业务路由必须全部注册：163（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/"
-                            + "SETTLE15/FUND16/AUDIT24/ACCT17）+ ping 2");
+            // 【T-197 增注】断言值由 165 订正为 168：CAS 24 自检面（{@code FR-ACCT-14} 端点化；
+            //   R-ACCT-1/R-ACCT-10）——SelfcheckHandler 于已声明路径 /acct/selfcheck 注册 GET/POST
+            //   （2 对）+ SelfcheckExportHandler 于已声明路径 /acct/export 注册 GET（1 对）= 3 对
+            //   （ACCT 方法注册表键 17 → 20，至此 ACCT 12 条已声明路径全部注册），
+            //   业务路由 166（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/SETTLE15/
+            //   FUND16/AUDIT24/ACCT20）+ ping 2 = 168。算术分解：165（前值）+ 3 对 = 168。
+            //   非为过测试而放宽断言。
+            assertEquals(168, assembly.routeCount(),
+                    "业务路由必须全部注册：166（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/"
+                            + "SETTLE15/FUND16/AUDIT24/ACCT20）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。
             // （不真发 HTTP：经 RequestDispatcher 进程内分发；handler 因无真实库而 4xx/5xx 皆可，
