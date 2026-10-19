@@ -1386,5 +1386,13 @@ HG.pages.spot = {
 
 HG.router.register('/spot', renderEntry);
 HG.router.register('/spot/exposure', renderExposure);
+// T-200：凭证关联单据「实货敞口」深链（FR-ACCT-8 验收 2，acct.js relatedDocTarget 产出本路径）。
+// 零新逻辑：委托 renderExposure 并把 :id 注入其 ctx.query.id，复用其尾部既有深链通道
+// （ctx.query.id ⇒ load().then(() => loadDetail(initialId))，FR-PLAN-5 验收 2 同路径）。
+// 注册序：:id 在 /spot/exposure 之后（router.match 顺序遍历，须避免更早注册拦截静态段——
+// 前端 hash 面无 /spot/exposure/recalc、/spot/exposure/export 静态键，二者为 API 路径非 hash 路由）。
+HG.router.register('/spot/exposure/:id', function (root, ctx) {
+  return renderExposure(root, Object.assign({}, ctx, { query: Object.assign({}, ctx.query, { id: ctx.params.id }) }));
+});
 
 export default HG.pages.spot;

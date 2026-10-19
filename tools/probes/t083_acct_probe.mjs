@@ -9,10 +9,12 @@
  *   · 上报页两栏恒在 + 缺价保留栏位 + 留痕三件（上报人/时间/期间）；
  *   · 三要素门禁 / 再平衡触发 / 关账三前置 10012 原文展示（data-gate-10012 锚标）；
  *   · 凭证 DRAFT_ONLY「不做总账过账」+「待企业财务复核入账」+ 岗位分离 + 冲销双人复核（DC-032）；
- *   · 凭证关联单据四键展示 + 套保计划深链（FR-ACCT-8 验收 2 / TE-T083-001 修复）：
+ *   · 凭证关联单据四键展示 + 套保计划/实货敞口深链（FR-ACCT-8 验收 2 / TE-T083-001 修复 / T-200 补路由）：
  *     列表「关联单据」列 + 详情「关联单据」块（data-voucher-related 锚标）；
- *     hedgePlanId ⇒ navigate('/plan/{id}') 行为断言；无路由键（hedgeRelationId/settleCycleId/
- *     exposureId）展示为可选中文本；空值键不渲染、四键皆空显「—」；
+ *     hedgePlanId ⇒ navigate('/plan/{id}')、exposureId ⇒ navigate('/spot/exposure/{id}')（T-200）行为断言；
+ *     无路由键（hedgeRelationId/settleCycleId）展示为可选中文本；空值键不渲染、四键皆空显「—」；
+ *   · T-200 spot.js 注册面自测：/spot/exposure/:id 已注册、注册序位于 /spot/exposure 之后、
+ *     全仓 hash 注册面无 /spot/exposure/<静态段>（EXPOSURE_RECALC/EXPORT 为 API 路径非 hash 路由）；
  *   · 关账双人复核 + REOPEN 必填原因预检；
  *   · 评估近相关必填 linkageNote 预检 + 量化监测「不参与有效性判定」文案；
  *   · 写操作 idempotencyKey 全覆盖（10 类写操作）；
@@ -708,7 +710,15 @@ switchTab('voucher');
   ok(htmlAll(root).indexOf('data-voucher-jump="/plan/12"') !== -1, 'voucher：列表套保计划锚标带深链目标 /plan/{id}');
   ok(htmlAll(root).indexOf('data-voucher-related="settleCycleId"') === -1, 'voucher：空值关联键不渲染（settleCycleId=null 不出空壳）');
   ok(findByAttr(root, 'data-voucher-related', 'hedgePlanId') !== null, 'voucher：详情「关联单据」块——套保计划键节点');
-  ok(textOf(dCard).includes('套期关系 #15') && textOf(dCard).includes('实货敞口 #34'), 'voucher：详情关联单据——无路由键展示为可选中文本（勿臆造路由）');
+  // T-200 订正（原断言）：旧形状「实货敞口为无路由键可选中文本」→ 新形状「按钮 + /spot/exposure/{id} 深链」。
+  // 前值：textOf(dCard).includes('套期关系 #15') && textOf(dCard).includes('实货敞口 #34')（断言名：详情关联单据——无路由键展示为可选中文本）
+  // 后值：套期关系仍为可选中 span（无路由键不变）；实货敞口为按钮节点且文本同形
+  ok(textOf(dCard).includes('套期关系 #15'), 'voucher：详情关联单据——无路由键（套期关系）展示为可选中文本（勿臆造路由）');
+  ok(findByAttr(root, 'data-voucher-related', 'exposureId') !== null, 'voucher：详情「关联单据」块——实货敞口键节点（T-200 深链按钮）');
+  ok((findByAttr(root, 'data-voucher-related', 'exposureId') || {}).attrs
+    && (findByAttr(root, 'data-voucher-related', 'exposureId') || {}).attrs.type === 'button'
+    && textOf(findByAttr(root, 'data-voucher-related', 'exposureId')).includes('实货敞口 #34'),
+    'voucher：详情实货敞口为跳转按钮且带编号（T-200 新形状，替换旧「可选中文本」断言）');
   ok(textOf(dCard).indexOf('结算周期') === -1, 'voucher：详情空值键不渲染（结算周期）');
   {
     const navTo = [];
@@ -719,6 +729,18 @@ switchTab('voucher');
     planJump.click();
     HG.router.navigate = realNav;
     ok(navTo.indexOf('/plan/12') !== -1, 'voucher：点击套保计划 ⇒ navigate(/plan/12)（FR-ACCT-8 验收 2 行为断言）');
+  }
+  // T-200：实货敞口深链——列表锚标形态 + 详情按钮 navigate 行为断言
+  ok(htmlAll(root).indexOf('data-voucher-jump="/spot/exposure/34"') !== -1, 'voucher：列表实货敞口锚标带深链目标 /spot/exposure/{id}（T-200）');
+  {
+    const navTo = [];
+    const realNav = HG.router.navigate;
+    HG.router.navigate = (to) => navTo.push(to);
+    const expJump = findBtnByText(root, '实货敞口 #34');
+    ok(!!expJump, 'voucher：详情实货敞口跳转入口在（T-200）');
+    expJump.click();
+    HG.router.navigate = realNav;
+    ok(navTo.indexOf('/spot/exposure/34') !== -1, 'voucher：点击实货敞口 ⇒ navigate(/spot/exposure/34)（T-200 行为断言）');
   }
   // 全空值负例：四键皆 null ⇒ 列表/详情显「—」且无跳转入口
   HG.api._stub('GET /acct/voucher', (q) => (q.id !== undefined
@@ -853,6 +875,39 @@ switchTab('period');
   const writes = HG.api._allPosts || [];
   ok(writes.length >= 12, '写操作覆盖充分（全程 POST >=12 笔，实测 ' + writes.length + '）');
   ok(writes.every((c) => c.opts && c.opts.idempotencyKey === 'probe-uuid'), '负证——全部写操作携带 Idempotency-Key（无一遗漏）');
+}
+
+/* ================= T-200：spot.js 注册面自测（/spot/exposure/:id 深链承接） ================= */
+{
+  const spotPaths = [];
+  const realReg = HG.router.register;
+  HG.router.register = function (p, fn) { spotPaths.push(p); return realReg.call(this, p, fn); };
+  await import('../../web/js/pages/spot.js');
+  HG.router.register = realReg;
+  ok(spotPaths.indexOf('/spot/exposure/:id') !== -1, 'T-200：spot.js 已注册 /spot/exposure/:id（凭证关联单据深链承接）');
+  ok(spotPaths.indexOf('/spot/exposure') !== -1
+    && spotPaths.indexOf('/spot/exposure/:id') > spotPaths.indexOf('/spot/exposure'),
+    'T-200：/spot/exposure/:id 注册序位于 /spot/exposure 之后（router.match 顺序遍历，静态键优先）；实测序 [' + spotPaths.join(', ') + ']');
+  // 静态段负证：EXPOSURE_RECALC(/spot/exposure/recalc)、EXPOSURE_EXPORT(/spot/exposure/export)
+  // 是 API 路径（POST/GET 后端端点）非 hash 路由 ⇒ 全仓 hash 注册面不存在 /spot/exposure/<静态段>。
+  const fsMod = await import('node:fs');
+  const pathMod = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const pagesDir = pathMod.resolve(pathMod.dirname(fileURLToPath(import.meta.url)), '..', '..', 'web', 'js', 'pages');
+  const registeredLiterals = [];
+  for (const f of fsMod.readdirSync(pagesDir).filter((x) => x.endsWith('.js')).sort()) {
+    const src = fsMod.readFileSync(pathMod.join(pagesDir, f), 'utf8');
+    const re = /HG\.router\.register\(\s*'([^']+)'/g;
+    let m;
+    while ((m = re.exec(src)) !== null) registeredLiterals.push(f + '#' + m[1]);
+  }
+  ok(registeredLiterals.filter((p) => p.indexOf('/spot/exposure/') !== -1).every((p) => p.endsWith('/spot/exposure/:id')),
+    'T-200：全仓 hash 注册面无 /spot/exposure/<静态段>（recalc/export 为 API 路径非 hash 路由）；实测 ' + registeredLiterals.filter((p) => p.indexOf('/spot/exposure/') !== -1).join(', '));
+  // 注册序静态复核：spot.js 源内 :id 注册行位于 /spot/exposure 注册行之后（机械证据，与运行时互证）
+  const spotSrc = fsMod.readFileSync(pathMod.join(pagesDir, 'spot.js'), 'utf8');
+  const idxStatic = spotSrc.indexOf("HG.router.register('/spot/exposure', renderExposure);");
+  const idxParam = spotSrc.indexOf("HG.router.register('/spot/exposure/:id'");
+  ok(idxStatic !== -1 && idxParam !== -1 && idxParam > idxStatic, 'T-200：spot.js 源内注册序机械证据（:id 行位次 > /spot/exposure 行位次）');
 }
 
 /* ================= 变异负例（负例有牙）：子进程重跑变异副本 ⇒ 必红 ================= */

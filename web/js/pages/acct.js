@@ -112,9 +112,9 @@ const VOUCHER_TYPES = {
 /** 凭证审核动作（AcctService.VoucherReviewRequest.action）。 */
 const REVIEW_ACTIONS = { SUBMIT: '提交审核', APPROVE: '审核通过', REJECT: '驳回', WITHDRAW: '撤回' };
 /** 凭证关联单据四键（VoucherHandler.view 恒带：hedgePlanId/hedgeRelationId/settleCycleId/exposureId；
- *  FR-ACCT-8 验收 2 追溯入口，TE-T083-001 修复）。
- *  路由承载实测（routes.js / 各页 HG.router.register 实况）：套保计划 /plan/:id 已注册（plan.js）
- *  ⇒ 深链跳转；实货敞口（spot.js 仅注册 /spot、/spot/exposure，无 /spot/exposure/{id} 详情路由）、
+ *  FR-ACCT-8 验收 2 追溯入口，TE-T083-001 修复；T-200 补实货敞口深链路由）。
+ *  路由承载实测（routes.js / 各页 HG.router.register 实况）：套保计划 /plan/:id 已注册（plan.js）⇒ 深链跳转；
+ *  实货敞口 /spot/exposure/:id 已注册（spot.js，T-200）⇒ 深链跳转；
  *  套期关系、结算周期无详情路由 ⇒ 仅展示编号（可选中复制；套期关系可经「再平衡史」按编号查询）。 */
 const RELATED_DOC_DEFS = [
   { key: 'hedgePlanId', label: '套保计划' },
@@ -124,7 +124,9 @@ const RELATED_DOC_DEFS = [
 ];
 /** 关联键跳转目标：仅存在已注册详情路由的键返回路径，其余 null（勿臆造路由）。 */
 function relatedDocTarget(key, id) {
-  return key === 'hedgePlanId' ? '/plan/' + encodeURIComponent(id) : null;
+  if (key === 'hedgePlanId') return '/plan/' + encodeURIComponent(id);
+  if (key === 'exposureId') return '/spot/exposure/' + encodeURIComponent(id);
+  return null;
 }
 /** 关联单据单元格 HTML：有值键逐个展示（跳转键为锚标 data-voucher-jump），全空显「—」。 */
 function relatedDocHTML(v) {
