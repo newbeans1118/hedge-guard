@@ -17328,3 +17328,13 @@ FR-ACCT-5③ `priceStateCarryForwardLabeled`，`AcctEffectServiceTest:177-185` �
   - **③ 编排者自纠 1 处**：`TEST_RESULT.md:17318`（§T200 证据章，本席本会话所写）「BUG-004 同族判据」——语义指路由遮蔽同族、字面正确，但**为防与 T-085 改号事件混淆**，补一注「（指路由遮蔽缺陷本体，非 T-085 初记号）」。
 - **结论**：`te-verify-t085` O-1（改号残留）**全仓穷举终核 = 清零**（合法留痕域引用语义全部正确归属路由遮蔽缺陷本体；T-085 域零残留）。BUG-005 缺陷本体（m4_acct.sql 两表缺列，P1）仍 **OPEN** 待 T-198 承接（工单箱 BUG-005-bug.md 处理记录仅建单一行——**非遗漏**：本单落 BUG-005.md 时 T-198 未立号，TASKS 亦无 T-198 行，**TEST_RESULT:17288 O-2 披露句「随 delta 或 T-198 同批」系笔误超前**——T-198 尚未立项，该引用待 BUG-005 承接单立项时对齐；本轮不代立）。
 - **追加前锚**：`head -<追加前行数> docs/TEST_RESULT.md | md5sum` = `c95cfb5a2fa95ac92b3511c839896d8f`（纯追加，删=0）。
+
+
+## T201 独立复核（编排者亲核；2026-10-20 第 253 轮收官后）
+
+- **冻结点**：`1e4f062`（be-t201 交付，13 文件 +105/−35）；**结论**：**通过 / 0 缺陷**——BUG-005 缺陷本体闭环（`R-ACCT-10` 四类文档标注承载 4/4）。
+- **逐 hunk 判读**：① DDL（m4_acct.sql）：两表增列 `pending_external_review CHAR(1) DEFAULT 'Y' NOT NULL` + 具名 CHECK 恒 'Y'（:128 `ck_t_effectiveness_assess_pending_review` / :198 `ck_t_rebalance_record_pending_review`）+ COMMENT，沿 t_voucher 先例形态；文件头依据行同步 v1.3.8。② DATA_MODEL v1.3.8 三落点（`:13` 版本链追加 / §7.1`:5057` 纯追加变更行〔含 DBA ALTER 迁移注记与回滚路径〕/ §7.2 `DC-045` 字段级登记 + §6.1 区间同步）；numstat 11/2——2 删除行均原位替换且内容零丢失（row16 `DC-001~044→045` diff 逐字核对）。③ 服务写入侧：`AcctService` doAssess/doRebalance 恒置 `'Y'` + rebalanceView 透出 + `EffectivenessHandler` 改取行值（原硬编码系缺口期过渡，改行正当）。④ 实体/DAO COLUMNS/bind/read 同步扩列（2 实体 + 2 DAO）。⑤ `tcM4_19` 授权改写实证：`:581` `assertEquals(4, marked)` 4/4 断言 + ②③ 逐行 `assertEquals("Y", …)`；类内 BUG-004 残留 = **0**（终核延伸确认）。⑥ `M4AcctSchemaTest` 增 2 条恒 'Y' CHECK 静态判据；`:50` 表名清单系 §4.6.3 三层划分维度 ⇒ 列级同步不适用（理由成立）。
+- **门禁独立复跑**（编排者亲跑）：`mvn -B -o clean test` = **1223/0/0/0** BUILD SUCCESS（基线 1223 + 净增 0，改写未增 @Test）；`bash tools/arch-check/arch-check.sh` = **rc0**；树锚 `069f373ab2997bc9429f4747636d131d`/**764** 复现成立（基线 52a46c74…/764 → 本锚，文件数不变）。
+- **变异 M1 采信**：摘除两处写入赋值 ⇒ 探针类 6/6 红（NOT NULL 约束违反，引擎与真实 DM8 同语义）；备份/复位 md5 流程完备、复位后 clean 全量绿证自述吻合。写入赋值有牙实证。
+- **工单纪律**：`--only` 13 路径精确提交、TEST_RESULT/TASKS/BOARD 零触碰、不置 DONE——全部遵守。
+- **追加前锚**：`head -<追加前行数> docs/TEST_RESULT.md | md5sum` = `83746f74f423f8100ddaada7b22be935`（纯追加，删=0）。
