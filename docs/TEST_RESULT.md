@@ -17306,3 +17306,14 @@ FR-ACCT-5③ `priceStateCarryForwardLabeled`，`AcctEffectServiceTest:177-185` �
 - **探针回归**：t055 fund 100/0、t070 risk ALL PASS(104)、t071 audit 71/0——既有探针零波及。
 - **边界**：`web/js/core/routes.js`（T-197 已同步）零改动；Java 侧零改动；门禁/树锚不受影响（前端零构建域，t083 探针为本域门禁）。
 - **追加前锚**：`head -17299 docs/TEST_RESULT.md | md5sum` = `3e736dc123594df6b50d5ebeffb2a26d`（纯追加，删=0）。
+
+
+## T200 独立复核（编排者亲核；2026-10-19 第 253 轮）
+
+- **冻结点**：`1c6563b`（fe-t200b 重派交付；前实例 fe-t200 交付失踪零落痕——共享树/分支/reflog/悬空提交四路排查无踪，工单留痕，重派判例沉淀）；**结论**：**通过 / 0 缺陷**。
+- **逐 hunk 判读**：恰 3 文件（+73/−8）——`acct.js` relatedDocTarget 增 exposureId 键（:128）+ 注释三键收窄两键（套期关系/结算周期维持可选中文本，勿臆造先例遵守）；`spot.js` `/spot/exposure/:id` 注册于 `/spot/exposure` 之后，handler 克隆 ctx 注入 params.id⇒query.id 委托 renderExposure（零新逻辑，复用 :1363-1365 既有深链通道）；探针 +9。`java/**` 零改动、`routes.js` 未触（SPOT.exposureDetail :102 原样）。
+- **门禁独立复跑**：t083 **202/0**（193→+9）、t055 **100/0**、t070 **104/0**、t071 **71/0**——全过；`tools/arch-check/arch-check.sh` 聚合 **rc0**（E1–E8）。
+- **树锚复算**：`find web tools/probes -type f -name '*.js' | LC_ALL=C sort | xargs md5sum | md5sum` = `158f18b558d122d571f4ac7cc3ef9633`/**24**（编排者复现成立，取样 2026-10-19T23:44 时点声明）。
+- **:711 断言订正核**：前值「无路由键展示为可选中文本」⇒ 后值拆两条（套期关系仍文本 + 实货敞口改按钮+深链）——前后值与 diff 吻合，套期关系半边语义保留。
+- **注册面机械证据**：运行时序断言 + 源内行位次互证 + hash 注册面静态段负证（recalc/export 系 API 路径）——BUG-004 同族判据「不适用」以三重证据落证非口头披露。
+- **追加前锚**：`head -<追加前行数> docs/TEST_RESULT.md | md5sum` = `62bd2fbf2be785b1b8d45e288fdc0757`（纯追加，删=0）。
