@@ -119,7 +119,8 @@ public final class EffectivenessHandler implements RouteHandler {
         m.put("assessTime", ea.assessTime == null ? null : ea.assessTime.toString());
         m.put("correctedFromId", ea.correctedFromId);
         m.put("isCorrected", ea.isCorrected);
-        m.put("pendingExternalReview", "Y"); // R-ACCT-10：评估记录亦属套期会计文档
+        // v1.3.8/BUG-005/T-201：标注随持久化行承载（DB CHECK 恒 'Y'）——取行值不再硬编码
+        m.put("pendingExternalReview", ea.pendingExternalReview);
         return m;
     }
 

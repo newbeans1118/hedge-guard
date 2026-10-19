@@ -1,7 +1,8 @@
 -- =============================================================================
 --  HedgeGuard 建表脚本 —— 模块 ACCT（套期会计）（TB-ACCT-1~12，共 12 张）
 --  制品编号：docs/DEPLOY/schema/m4_acct.sql
---  依据：docs/DATA_MODEL.md v1.3.7（md5 5c468b3701426b4baf230f3889f27ab8）
+--  依据：docs/DATA_MODEL.md v1.3.8（md5 以实时为准；v1.3.8 系 BUG-005/T-201 两表增列
+--        pending_external_review——变更记录见 DATA_MODEL §7.1）
 --        §2.10 模块 ACCT（TB-ACCT-1~12）/ §0.2 字段类型 / §0.3 通用审计字段
 --        / §0.4 外键与级联 / §0.5 DM8 建表模板 / §3.1 枚举字段 / §4.3 约束目录
 --  目标库：达梦 DM8；执行者：DBA（应用账号仅 SELECT/INSERT/UPDATE，禁 DDL — NFR-SEC-8）
@@ -105,6 +106,8 @@ CREATE TABLE t_effectiveness_assess (
     assess_time                TIMESTAMP                                  NOT NULL,
     corrected_from_id          BIGINT                                     NULL,
     is_corrected               CHAR(1)                   DEFAULT 'N'      NOT NULL,
+    -- R-ACCT-10（v1.3.8/BUG-005/T-201）：全部套期会计文档必须标注待外部复核，标注不得移除
+    pending_external_review    CHAR(1)                   DEFAULT 'Y'      NOT NULL,
     created_by                 BIGINT                                     NOT NULL,
     -- DM-SPECIFIC: CURRENT_TIMESTAMP 默认值；DM 特有写法
     created_time               TIMESTAMP                 DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -121,6 +124,8 @@ CREATE TABLE t_effectiveness_assess (
     CONSTRAINT ck_t_effectiveness_assess_conclusion CHECK (conclusion IN ('EFFECTIVE', 'INEFFECTIVE', 'NEED_REBALANCE')),
     CONSTRAINT ck_t_effectiveness_assess_need_action CHECK (need_action_flag IN ('Y', 'N')),
     CONSTRAINT ck_t_effectiveness_assess_is_corrected CHECK (is_corrected IN ('Y', 'N')),
+    -- R-ACCT-10：全部套期会计文档必须标注待外部复核，标注不得被移除
+    CONSTRAINT ck_t_effectiveness_assess_pending_review CHECK (pending_external_review = 'Y'),
     CONSTRAINT fk_t_effectiveness_assess_sub FOREIGN KEY (sub_account_id)
         REFERENCES t_sub_account (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_t_effectiveness_assess_relation FOREIGN KEY (hedge_relation_id)
@@ -149,6 +154,7 @@ COMMENT ON COLUMN t_effectiveness_assess.assessor_id           IS '评估人';
 COMMENT ON COLUMN t_effectiveness_assess.assess_time           IS '评估时间';
 COMMENT ON COLUMN t_effectiveness_assess.corrected_from_id     IS '更正来源（更正须新增记录并引用原记录）';
 COMMENT ON COLUMN t_effectiveness_assess.is_corrected          IS '是否已被更正';
+COMMENT ON COLUMN t_effectiveness_assess.pending_external_review IS '待外部复核标注（恒为 Y，R-ACCT-10，数据库级保证不可移除）';
 CREATE INDEX idx_eff_assess_sub_period ON t_effectiveness_assess (sub_account_id, period_key);
 CREATE INDEX idx_eff_assess_conclusion ON t_effectiveness_assess (conclusion, period_key);
 CREATE INDEX idx_eff_assess_monitor ON t_effectiveness_assess (monitor_review_flag, period_key);
@@ -175,6 +181,8 @@ CREATE TABLE t_rebalance_record (
     executor_id                BIGINT                                     NOT NULL,
     rebalance_time             TIMESTAMP                                  NOT NULL,
     plan_feedback_flag         CHAR(1)                   DEFAULT 'N'      NOT NULL,
+    -- R-ACCT-10（v1.3.8/BUG-005/T-201）：全部套期会计文档必须标注待外部复核，标注不得移除
+    pending_external_review    CHAR(1)                   DEFAULT 'Y'      NOT NULL,
     created_by                 BIGINT                                     NOT NULL,
     -- DM-SPECIFIC: CURRENT_TIMESTAMP 默认值；DM 特有写法
     created_time               TIMESTAMP                 DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -186,6 +194,8 @@ CREATE TABLE t_rebalance_record (
     CONSTRAINT ck_t_rebalance_record_trigger_type CHECK (trigger_type IN ('EXPOSURE_DELTA', 'RATIO_DEVIATION', 'PLAN_REVISED', 'EXPOSURE_GONE')),
     CONSTRAINT ck_t_rebalance_record_trigger_side CHECK (trigger_side IN ('EXPOSURE_SIDE', 'INSTRUMENT_SIDE')),
     CONSTRAINT ck_t_rebalance_record_plan_feedback CHECK (plan_feedback_flag IN ('Y', 'N')),
+    -- R-ACCT-10：全部套期会计文档必须标注待外部复核，标注不得被移除
+    CONSTRAINT ck_t_rebalance_record_pending_review CHECK (pending_external_review = 'Y'),
     CONSTRAINT fk_t_rebalance_record_sub FOREIGN KEY (sub_account_id)
         REFERENCES t_sub_account (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_t_rebalance_record_relation FOREIGN KEY (hedge_relation_id)
@@ -214,6 +224,7 @@ COMMENT ON COLUMN t_rebalance_record.new_hedge_relation_id   IS '重新指定后
 COMMENT ON COLUMN t_rebalance_record.executor_id             IS '执行人';
 COMMENT ON COLUMN t_rebalance_record.rebalance_time          IS '执行时间';
 COMMENT ON COLUMN t_rebalance_record.plan_feedback_flag      IS '是否已反馈至 PLAN（如需调整计划，R-ACCT-3）';
+COMMENT ON COLUMN t_rebalance_record.pending_external_review IS '待外部复核标注（恒为 Y，R-ACCT-10，数据库级保证不可移除）';
 CREATE INDEX idx_rebalance_relation_time ON t_rebalance_record (hedge_relation_id, rebalance_time);
 CREATE INDEX idx_rebalance_sub_time ON t_rebalance_record (sub_account_id, rebalance_time);
 CREATE INDEX idx_rebalance_trigger ON t_rebalance_record (trigger_type, trigger_side, rebalance_time);
@@ -682,6 +693,9 @@ CREATE INDEX idx_cas24_item_code_result ON t_cas24_selfcheck_item (item_code, re
 --      t_cas24_selfcheck，§4.6.1 #49/#51）；③ 无该列 3 张（t_accounting_period /
 --      t_period_close_log = 例外 E2；t_cas24_selfcheck_item 条目级随头）。
 --    voucher_type 含 EXERCISE / EXPIRED_WORTHLESS（v1.2 DC-031，验收 3）。
+--    R-ACCT-10 待外部复核标注（v1.3.8/BUG-005/T-201）：四类套期会计文档承载齐备——
+--      t_hedge_doc（m1_plan.sql）/ t_effectiveness_assess / t_rebalance_record /
+--      t_voucher / t_cas24_selfcheck 均 CHECK 恒 'Y'；t_dual_pnl_report IN('Y','N')。
 --    凭证编号规则：AV<期间><seq(5)>（§3.5，应用层生成）。
 --    借贷平衡：跨行聚合约束未下沉（§4.4 唯一例外）→ 服务层同事务校验 + total_amount 冗余。
 --    执行顺序：本文件全部 FK 父表均在 README §7.1 顺序中先于本文件建表，单遍可执行

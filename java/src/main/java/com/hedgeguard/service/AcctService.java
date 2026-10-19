@@ -710,6 +710,7 @@ public final class AcctService {
         ea.assessTime = Clocks.now();
         ea.correctedFromId = correctedFromId;
         ea.isCorrected = "N";
+        ea.pendingExternalReview = "Y";   // R-ACCT-10：恒 'Y'（DB CHECK 承载；v1.3.8/BUG-005/T-201）
         if (assessDao.insert(ea, operatorId) != 1) {
             throw BizException.of(ErrorCode.INTERNAL_ERROR,
                     "评估记录写入失败：relationId=" + req.hedgeRelationId);
@@ -1010,6 +1011,7 @@ public final class AcctService {
         record.executorId = operatorId;
         record.rebalanceTime = Clocks.now();
         record.planFeedbackFlag = "Y".equalsIgnoreCase(req.planFeedbackRequired) ? "Y" : "N";
+        record.pendingExternalReview = "Y";   // R-ACCT-10：恒 'Y'（DB CHECK 承载；v1.3.8/BUG-005/T-201）
         if (rebalanceDao.insert(record, operatorId) != 1) {
             throw BizException.of(ErrorCode.INTERNAL_ERROR,
                     "再平衡记录写入失败：relationNo=" + relation.relationNo);
@@ -1405,6 +1407,7 @@ public final class AcctService {
         m.put("executorId", r.executorId);
         m.put("rebalanceTime", r.rebalanceTime == null ? null : r.rebalanceTime.toString());
         m.put("planFeedbackFlag", r.planFeedbackFlag);
+        m.put("pendingExternalReview", r.pendingExternalReview); // R-ACCT-10：恒 'Y'（v1.3.8/T-201）
         return m;
     }
 

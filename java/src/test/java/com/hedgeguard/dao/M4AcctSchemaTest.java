@@ -176,6 +176,11 @@ class M4AcctSchemaTest {
                 "t_voucher.pending_external_review 应恒 'Y'（R-ACCT-10）");
         assertTrue(sql.contains("CONSTRAINT ck_t_cas24_selfcheck_pending_review CHECK (pending_external_review = 'Y')"),
                 "t_cas24_selfcheck.pending_external_review 应恒 'Y'（R-ACCT-10）");
+        // v1.3.8/BUG-005/T-201：评估记录与再平衡记录亦带标注（四类套期会计文档承载齐备）
+        assertTrue(sql.contains("CONSTRAINT ck_t_effectiveness_assess_pending_review CHECK (pending_external_review = 'Y')"),
+                "t_effectiveness_assess.pending_external_review 应恒 'Y'（R-ACCT-10，v1.3.8 增列）");
+        assertTrue(sql.contains("CONSTRAINT ck_t_rebalance_record_pending_review CHECK (pending_external_review = 'Y')"),
+                "t_rebalance_record.pending_external_review 应恒 'Y'（R-ACCT-10，v1.3.8 增列）");
         assertTrue(sql.contains("CONSTRAINT ck_t_dual_pnl_report_spot_column CHECK (spot_pnl_column_present = 'Y')"),
                 "t_dual_pnl_report.spot_pnl_column_present 应恒 'Y'（FR-ACCT-10 验收 2 不省略栏位的结构保证）");
         // CAS24 自检五条款齐备（TB-ACCT-12 / §3.1）

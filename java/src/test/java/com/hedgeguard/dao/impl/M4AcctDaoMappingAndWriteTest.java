@@ -307,6 +307,7 @@ class M4AcctDaoMappingAndWriteTest {
         ea.assessorId = 7L;
         ea.assessTime = LocalDateTime.of(2026, 9, 30, 15, 0);
         ea.isCorrected = "N";
+        ea.pendingExternalReview = "Y";   // R-ACCT-10（引擎 DDL DEFAULT 不生效，须显式）
         DmEffectivenessAssessDao assessDao = new DmEffectivenessAssessDao(tx);
         assertEquals(1, assessDao.insert(ea, 9L));
         UnsupportedOperationException ex1 = assertThrows(UnsupportedOperationException.class,
@@ -329,6 +330,7 @@ class M4AcctDaoMappingAndWriteTest {
         rr.executorId = 7L;
         rr.rebalanceTime = LocalDateTime.of(2026, 9, 30, 16, 30);
         rr.planFeedbackFlag = "N";
+        rr.pendingExternalReview = "Y";   // R-ACCT-10（引擎 DDL DEFAULT 不生效，须显式）
         DmRebalanceRecordDao rebalanceDao = new DmRebalanceRecordDao(tx);
         assertEquals(1, rebalanceDao.insert(rr, 9L));
         UnsupportedOperationException ex2 = assertThrows(UnsupportedOperationException.class,
@@ -560,6 +562,7 @@ class M4AcctDaoMappingAndWriteTest {
         ea.assessorId = 7L;
         ea.assessTime = LocalDateTime.of(2026, 9, 30, 15, 0);
         ea.isCorrected = "N";
+        ea.pendingExternalReview = "Y";   // R-ACCT-10（引擎 DDL DEFAULT 不生效，须显式）
         return ea;
     }
 

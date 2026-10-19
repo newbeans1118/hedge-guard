@@ -74,4 +74,10 @@ public final class EffectivenessAssess extends AuditedEntity {
 
     /** 是否已被更正。 */
     public String isCorrected;
+
+    /**
+     * 待外部复核标注（恒 {@code 'Y'}，R-ACCT-10；v1.3.8/BUG-005/T-201 增列，
+     * DB CHECK {@code ck_t_effectiveness_assess_pending_review} 结构保证不可移除）。
+     */
+    public String pendingExternalReview;
 }

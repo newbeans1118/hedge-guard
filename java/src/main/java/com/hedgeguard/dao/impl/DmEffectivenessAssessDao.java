@@ -31,7 +31,8 @@ public final class DmEffectivenessAssessDao extends AbstractDmDao<EffectivenessA
             "observer_linkage", "linkage_note", "observer_direction", "observer_term",
             "exposure_expected_date", "term_deviation_days", "monitor_deviation_ratio",
             "monitor_review_flag", "observer_detail", "conclusion", "need_action_flag",
-            "action_note", "assessor_id", "assess_time", "corrected_from_id", "is_corrected"
+            "action_note", "assessor_id", "assess_time", "corrected_from_id", "is_corrected",
+            "pending_external_review"
     };
 
     /**
@@ -80,7 +81,8 @@ public final class DmEffectivenessAssessDao extends AbstractDmDao<EffectivenessA
         bind(ps, i++, e.assessorId);
         bind(ps, i++, e.assessTime);
         bind(ps, i++, e.correctedFromId);
-        bind(ps, i, e.isCorrected);
+        bind(ps, i++, e.isCorrected);
+        bind(ps, i, e.pendingExternalReview);
     }
 
     @Override
@@ -106,6 +108,7 @@ public final class DmEffectivenessAssessDao extends AbstractDmDao<EffectivenessA
         e.assessTime = localDateTime(rs, "assess_time");
         e.correctedFromId = nullableLong(rs, "corrected_from_id");
         e.isCorrected = string(rs, "is_corrected");
+        e.pendingExternalReview = string(rs, "pending_external_review");
     }
 
     @Override

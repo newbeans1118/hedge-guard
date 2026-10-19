@@ -67,4 +67,10 @@ public final class RebalanceRecord extends AuditedEntity {
 
     /** 是否已反馈至 PLAN（如需调整计划，R-ACCT-3）。 */
     public String planFeedbackFlag;
+
+    /**
+     * 待外部复核标注（恒 {@code 'Y'}，R-ACCT-10；v1.3.8/BUG-005/T-201 增列，
+     * DB CHECK {@code ck_t_rebalance_record_pending_review} 结构保证不可移除）。
+     */
+    public String pendingExternalReview;
 }

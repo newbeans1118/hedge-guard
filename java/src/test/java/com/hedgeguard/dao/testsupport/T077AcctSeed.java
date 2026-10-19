@@ -240,12 +240,13 @@ public final class T077AcctSeed {
                         + " rebalance_no, trigger_type, trigger_side, trigger_reason,"
                         + " trigger_threshold, ratio_before, ratio_after, qty_before, qty_after,"
                         + " new_hedge_doc_id, executor_id, rebalance_time, plan_feedback_flag,"
-                        + " created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        + " pending_external_review, created_by)"
+                        + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 90L, 1, 1L, "RB0009", "EXPOSURE_DELTA", "EXPOSURE_SIDE", "旧记录",
                 new BigDecimal("0.200000"), new BigDecimal("0.800000"),
                 new BigDecimal("0.800000"), new BigDecimal("100.0000"),
                 new BigDecimal("100.0000"), 21L, 7L,
-                LocalDateTime.of(2026, 9, 1, 9, 0), "N", 7L);
+                LocalDateTime.of(2026, 9, 1, 9, 0), "N", "Y", 7L);
     }
 
     /** 通用执行（测试夹具专用）。 */

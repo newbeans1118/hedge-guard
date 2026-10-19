@@ -29,7 +29,8 @@ public final class DmRebalanceRecordDao extends AbstractDmDao<RebalanceRecord, L
             "sub_account_id", "hedge_relation_id", "rebalance_no", "trigger_type", "trigger_side",
             "trigger_reason", "trigger_exposure_delta", "trigger_ratio_deviation", "trigger_threshold",
             "ratio_before", "ratio_after", "qty_before", "qty_after", "new_hedge_doc_id",
-            "new_hedge_relation_id", "executor_id", "rebalance_time", "plan_feedback_flag"
+            "new_hedge_relation_id", "executor_id", "rebalance_time", "plan_feedback_flag",
+            "pending_external_review"
     };
 
     /**
@@ -76,7 +77,8 @@ public final class DmRebalanceRecordDao extends AbstractDmDao<RebalanceRecord, L
         bind(ps, i++, e.newHedgeRelationId);
         bind(ps, i++, e.executorId);
         bind(ps, i++, e.rebalanceTime);
-        bind(ps, i, e.planFeedbackFlag);
+        bind(ps, i++, e.planFeedbackFlag);
+        bind(ps, i, e.pendingExternalReview);
     }
 
     @Override
@@ -100,6 +102,7 @@ public final class DmRebalanceRecordDao extends AbstractDmDao<RebalanceRecord, L
         e.executorId = nullableLong(rs, "executor_id");
         e.rebalanceTime = localDateTime(rs, "rebalance_time");
         e.planFeedbackFlag = string(rs, "plan_feedback_flag");
+        e.pendingExternalReview = string(rs, "pending_external_review");
     }
 
     @Override

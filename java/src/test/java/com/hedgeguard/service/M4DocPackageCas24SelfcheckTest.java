@@ -540,17 +540,16 @@ class M4DocPackageCas24SelfcheckTest {
     // ================================================================ TC-M4-19
 
     /**
-     * <b>行为固定探针 + 缺陷登记</b>（TC-M4-02 备注判例：本条记录现状、不是验收断言；
-     * 缺陷修复后按裁定改写预期值）。
+     * <b>TC-M4-19 验收断言</b>（v1.3.8/BUG-005/T-201 修复后改写：原「行为固定探针」按裁定
+     * 转为 4/4 预期断言——缺陷修复后预期值随修复合法变化）。
      *
-     * <p>实测现状：四类文档中<b>仅关系文档（t_hedge_doc）与自检报告（t_cas24_selfcheck）</b>
-     * 具备「待外部复核」标注承载列（且 t_cas24_selfcheck 有恒 'Y' CHECK 有牙）；<b>有效性评估
-     * 记录（t_effectiveness_assess）与再平衡记录（t_rebalance_record）无该列</b>（DATA_MODEL
-     * TB-ACCT-2/TB-ACCT-3 与 m4_acct.sql 同缺）⇒ 按 R-ACCT-10 字面（四类全部必须带标注）
-     * 实测 <b>2/4，TC-M4-19 唯一预期值（==4/4）不通过</b> ⇒ 缺陷登记（BUG-005）。
+     * <p>四类套期会计文档「待外部复核」标注承载（R-ACCT-10：全部必须带标注且不可移除）：
+     * ① 关系文档（t_hedge_doc，m1_plan.sql）；② 有效性评估记录（t_effectiveness_assess，
+     * v1.3.8 增列）；③ 再平衡记录（t_rebalance_record，v1.3.8 增列）；④ 自检报告
+     * （t_cas24_selfcheck）——<b>逐类断言标注列存在且恒 'Y'，实测 4/4</b>。
      */
     @Test
-    @DisplayName("TC-M4-19：「待外部复核」标注存在性实测 2/4（预期 4/4 ⇒ 不通过，BUG-005）+ 移除入口负证")
+    @DisplayName("TC-M4-19：「待外部复核」标注存在性 4/4（v1.3.8/T-201 增列承载）+ 移除入口负证")
     void tcM4_19_pendingExternalReviewMarkingProbe() {
         Chain c = buildChain();
         Cas24Selfcheck batch = runSelfcheck(c.futuresRelation, c, "SC202610190001");
@@ -561,30 +560,32 @@ class M4DocPackageCas24SelfcheckTest {
         assertEquals("Y", cur.pendingExternalReview, "关系文档标注 'Y'");
         assertEquals("Y", docDao.findById(21L).pendingExternalReview, "历史版本文档标注 'Y'");
         marked++;
-        // ② 有效性评估记录：无 pending_external_review 承载列 ✗（R-ACCT-10 字面不满足；
-        //    本链两条评估行逐一核）
+        // ② 有效性评估记录：标注列存在且 = 'Y'（本链两条评估行逐一核；v1.3.8/T-201 增列）✓
         for (Map<String, Object> assessRow : rows("t_effectiveness_assess", "评估记录")) {
-            assertFalse(assessRow.containsKey("pending_external_review"),
-                    "现状固定：t_effectiveness_assess 无标注列（缺陷 BUG-005 证据）");
+            assertEquals("Y", assessRow.get("pending_external_review"),
+                    "t_effectiveness_assess 评估行标注恒 'Y'（R-ACCT-10，v1.3.8/T-201 增列承载）");
         }
-        // ③ 再平衡记录：无承载列 ✗
+        marked++;
+        // ③ 再平衡记录：标注列存在且 = 'Y'（v1.3.8/T-201 增列；含服务生产写入路径产物）✓
         for (Map<String, Object> rbRow : rows("t_rebalance_record", "再平衡记录")) {
-            assertFalse(rbRow.containsKey("pending_external_review"),
-                    "现状固定：t_rebalance_record 无标注列（缺陷 BUG-005 证据）");
+            assertEquals("Y", rbRow.get("pending_external_review"),
+                    "t_rebalance_record 再平衡行标注恒 'Y'（R-ACCT-10，v1.3.8/T-201 增列承载）");
         }
+        marked++;
         // ④ 自检报告：列存在且 = 'Y' ✓，且「自检不替代外部复核」显式说明在
         assertEquals("Y", batch.pendingExternalReview, "自检报告标注 'Y'");
         assertTrue(batch.notSubstituteNote != null && batch.notSubstituteNote.contains("自检不替代外部复核"),
                 "自检报告含「自检不替代外部复核」声明（R-ACCT-10）");
         marked++;
 
-        assertEquals(2, marked, "标注承载实测 2/4（关系文档+自检报告）；TC-M4-19 预期 4/4 ⇒ 不通过"
-                + "（评估/再平衡两类记录无承载列——BUG-005 登记，修复后本探针改写为 4/4 断言）");
+        assertEquals(4, marked, "标注承载实测 4/4；TC-M4-19 预期 4/4 ⇒ 通过（T-201 增列承载）");
 
         // 移除入口负证（两向）：
         // (a) DB 级：t_cas24_selfcheck 恒 'Y' CHECK 有牙——构造标注 'N' 的批次行 INSERT 被拒
         //     （口径披露：等价引擎 CHECK 求值在 INSERT 路径，M4AcctDaoMappingAndWriteTest 同口径；
-        //     UPDATE 路径不求值 CHECK 系夹具引擎局限，真实 DM8 两路径均强制）
+        //     UPDATE 路径不求值 CHECK 系夹具引擎局限，真实 DM8 两路径均强制。v1.3.8 后
+        //     t_effectiveness_assess / t_rebalance_record 两表恒 'Y' CHECK 同形态，有牙性由
+        //     M4AcctSchemaTest 静态判据 + M4AcctDaoMappingAndWriteTest 引擎写入路径承载）
         RuntimeException ex = assertThrows(RuntimeException.class,
                 () -> T085M4DocPackageSeed.insertSelfcheckWithMarkRemoved(engine));
         assertTrue(String.valueOf(ex.getMessage()).contains("CHECK")
