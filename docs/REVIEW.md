@@ -509,3 +509,108 @@ approval(plan, plan.applicantId, plan.applicantId, "SUBMIT", null, null, prechec
 2. **R3-003** 汇总披露落点（DEPLOY/运维面）归编排者指定承接任务。
 3. 层③链（T-108/T-118/T-119）、R2-001~006 处置：维持 T-060 §M2.6/M2.9 口径，无恶化，不重复立。
 4. `.verify/` 未跟踪目录：同 T-060 §M2.8 口径，非本席创建，列披露不处置。
+
+---
+
+# M1 审查章（T-025，2026-10-20）
+
+> **审查席**：`cr-t025`（code-reviewer 席实例）。**工单**：`dev-team/inbox/code-reviewer/T-025-task.md`（P0/16 人时）。
+> **前锚**：追加前 `docs/REVIEW.md` md5 = `5a1cafcee3f72e0158bf8773c29dd3e5` / **511 行**（2026-10-20 09:25+08:00 实测，追加即测）。
+> **审查时点**：2026-10-20 08:40–09:30+08:00；HEAD `fafab89`（工作树 clean，`git status --porcelain` = 0 行；在飞 T-111 于独立 worktree `bg-01a0bd8e`，主树零在飞改动）。
+> **编号**：R1-xxx 系（M1 域），与 S7 CR-xxx、M2 R2-xxx、M3 R3-xxx 不冲突（实测 R1 前缀 0 占用）。
+> **形态**：沿 T-060/T-075 先例；只读审查——源码/TEST_RESULT/TASKS/BOARD 零触碰，写域仅本章 + 工单处理记录。
+
+## M1.1 审查结论
+
+**有条件通过（0 阻断 / 0 严重 / 1 缺陷（中）+ 3 建议 / 2 观察）**。
+
+M1 交付域（AUTH/CONFIG/PRODUCT/SPOT/PLAN 五模块）六轴全部实扫：门禁独立复现 1223/0/0/0 + arch rc0；路由遮蔽回归（BUG-004 家族）独立复跑 5 类 20 用例全绿；「已声明未注册/注册未声明」双向差集自建脚本扫描——**M1 五模块 0 差集**（TRADE/RISK 差集均为既有登记域，见 R1-004）；契约一致性抽验（CONTRACTS §1.2/§2.2/§4.1.1 路由计数 168）全吻合；可见性强制读/写/导出三面逐模块核过 + 变异抽验 2 例均证实有牙；敏感面（口令零落盘/导出脱敏/XSS 转义）抽验通过。唯一缺陷 R1-003（中）为**幂等契约三落点不一致**（ARCH §4.1.1 声明划拨必需 `Idempotency-Key`，实现与 FR-FUND-10 均未承载），不阻断 M1 放行（划拨属 M2 域），但须在 M2 收官前闭环。
+
+## M1.2 已执行的验证（全部真实执行，2026-10-20 08:40–09:30+08:00）
+
+| # | 验证 | 命令 | 结果 |
+|---|------|------|------|
+| 1 | Java 全量门禁（第 1 轮） | `cd java && mvn -B -o clean test` | **1223/0/0/0**，BUILD SUCCESS（4m54s，rc=0） |
+| 2 | Java 全量门禁（变异复位后复绿） | 同上（`-q` 模式，surefire 151 文件聚合） | **total=1223 fail=0 err=0 skip=0**，rc=0 |
+| 3 | arch-check 聚合 | `bash tools/arch-check/arch-check.sh` | **rc=0**（E1~E8 全 0；E1 实扫 218 link.txt + 2 binary；E2 142 文件；E5 336 文件） |
+| 4 | E5 非空转负控 | 种子探针 `--root /tmp/e5root`（植入 `String s = "SELECT a FROM t_x"`） | **rc=1 命中并正确报文件/行**（判据有牙，非恒绿空转）；探针在 /tmp，主树零污染 |
+| 5 | E6 独立复跑 | `bash tools/arch-check/check_frontend.sh` | rc=0（构建链残留 0、直连字样 0） |
+| 6 | 路由遮蔽回归（BUG-004 家族，**独立复跑非引用**） | `mvn -B -o test -Dtest='RouteReachabilityExhaustiveTest,RouteReachabilityBug004Test,RouteReachabilityProductionParityTest,ModuleRoutesConsistencyTest,BootstrapAssemblyTest'` | Exhaustive **6/6**、Bug004 **2/2**、ProductionParity **2/2**、ModuleRoutesConsistency **3/3**、BootstrapAssembly **7/7**，全绿（surefire 报告逐类核实） |
+| 7 | 树锚 | `cd java && find src -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum` | **`069f373ab2997bc9429f4747636d131d` / 764 文件**（与 T-201 贴标口径复现一致）；变异复位后**复测同值** |
+| 8 | 变异抽验 M1（可见性写面） | 摘除 `SpotService.java:1230` `requireSubAccountVisible(...)`（备份 `.orig` md5 `26d25085…`） | `SpotT109FixTest` **2/22 红**（TE-T109-002 越权导出负例 + fail-closed 负例同时变红）⇒ **守卫有牙**；复位逐字节（diff 空 + md5 同值） |
+| 9 | 变异抽验 M2（敏感导出脱敏） | `ConfigService.exportConfigItemsCsv` 内 `boolean sensitive = isSensitiveKey(...) ‖ "Y".equals(...)` 改 `false`（备份 md5 `b6164422…`） | `ConfigServiceAdminTest` **1/10 红**（导出脱敏断言）⇒ **有牙**；复位逐字节同值 |
+| 10 | 前端语法 | `node --check` × auth/config/product/spot/plan.js | rc=0 ×5 |
+| 11 | 前端探针复跑 | `node tools/probes/t083_acct_probe.mjs` | **PASS=202 FAIL=0**（rc=0，与 T-083 交付口径吻合） |
+| 12 | 幂等头覆盖复算（M1 五页） | 逐页 `api.(post\|put)` 调用点 × `newIdempotencyKey` 8 行窗口配对（python 脚本） | auth 9/9、config 8/8、product 6/6、spot 9/9、plan 6/6——**写调用全带幂等头，0 遗漏** |
+| 13 | 双向路由差集（自建脚本） | python 解析 `ApiRoutes.java` `BY_MODULE` vs `BY_MODULE_ROUTES` 双向差集 | 路径→对方向：**M1 五模块（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18）0 差集**；对→路径方向 0 越界；TRADE 缺 9 / RISK 缺 5（既有登记域，见 M1.5/R1-004） |
+| 14 | DATA_MODEL ↔ 实体抽验 | `t_exposure`（TB-SPOT-8）列清单 vs `Exposure.java` 字段集 python 差集 | **0 差异**（文档 21 列 ⊂→= 实体 23 字段含 `sub_account_id`/三分量，`row_version` 由 `AuditedEntity` 继承承载） |
+
+## M1.3 六轴逐轴结论
+
+| 轴 | 结论 | 要点 |
+|----|------|------|
+| ①E1–E6 实扫 + 非空转抽验 | ✅ 通过 | rc0 全过（§M1.2 #3）；E5 种子负控证实判据有牙（#4）——非「复述 rc0」 |
+| ②分层红线 | ✅ 通过 | handler/service 层 SQL/连接形态 0 命中（E5 承载 + 独立 grep）；handler 不 import DAO 实现类（仅 entity/PageQuery 值对象，`grep -rEn 'import com\.hedgeguard\.dao\.(dao\|impl)\.'` 0 命中）；前端零构建链（E6） |
+| ③契约一致性 | ✅ 通过（1 项跨域张力除外） | §1.2 公开白名单三对逐字吻合 `SessionAuthFilter.PUBLIC_EXACT:38`；§2.2 `TradingBridge` 七签名逐字吻合（含 HGC-1.6 形态 `confirmToken`）；§4.1.1 路由计数：`BootstrapAssemblyTest:270` 断言 168 = 166 业务 + ping 2，与 `BY_MODULE_ROUTES` 实数 166 吻合；`PageQuery` 缺省 ASC 冻结口径未漂移；CROSS_READONLY 哨兵写面放行系 CH-003/T-102 既定口径不报 |
+| ④安全面 | ✅ 通过 | 见 M1.4 专项 |
+| ⑤测试质量（变异 ≥2 例） | ✅ 通过 | 两例注入反演均红（§M1.2 #8/#9），断言非同源（负例断言锚 `ErrorCode.SUB_ACCOUNT_PERMISSION_DENIED`/CSV 脱敏列，非生产常量回写）；复位后 clean 全量复绿 1223（#2）+ 树锚复测同值（#7） |
+| ⑥文档↔实现漂移 | ⚠️ 2 项 | DATA_MODEL v1.3.8 `t_exposure` 抽验 0 差异；漂移项见 R1-003/R1-004 |
+
+## M1.4 安全面专项（可见性 / 口令 / 审计留痕）
+
+| 子项 | 结论 | 证据 |
+|------|------|------|
+| 读面可见性逐模块 | ✅ | PRODUCT：`exportProducts`（VarietyService:922）走 `visibleSubAccountIds` + `findAllScoped`；SPOT 导出：`exportExposuresCsv:1230` `requireSubAccountVisible`；PLAN 读面隔离由 `M1EndToEndAcceptanceTest` 验收 2a/2b/2c 三态守卫（11 用例在册全绿） |
+| 写面可见性逐模块 | ✅ | 五服务强制点计数：AUTH 6 / CONFIG 0（见下）/ PRODUCT 15 / SPOT 21 / PLAN 9；SPOT 写面 `requireSubAccountWritable`（T-115 家族）；CONFIG 子账户写面走**账户级**授权（v1.5.11 两阶段口径 M1 角色近似），层③断言器 `assertCanConfigureAccountLevel` 实测 `java/src` 0 命中——**与 T-119/T-118/T-108（均 TODO）登记完全一致，维持 T-060 §M2.6① 口径，不重复开单** |
+| 导出面 | ✅ | SPOT 敏感导出 fail-closed（可见性入口缺位 ⇒ 10004，SpotT109FixTest 三态负例守卫）；CONFIG 导出敏感键取值列恒空（`exportConfigItemsCsv` 脱敏 + SENSITIVE_KEY_MARKERS=4 词形）且变异有牙 |
+| 口令零落盘/零日志 | ✅ | `PasswordHasher` PBKDF2 形态未回归；LoginHandler 明文仅内存持有、错误消息不含取值；前端 `login.js` `type=password` + `autocomplete=current-password`、`auth.js:514` 提交后 `pwd.value=''` 不驻留；session.js 仅落非敏感摘要（S7/M2 结论零回归抽验） |
+| 审计留痕 | ✅ | 越权写统一经 `AuthService.assertSubAccountWritable:709` 覆写 → `recordAttempt` → `t_unauthorized_attempt`（R-AUTH-8 单点留痕）；`SettleCheckService:701` 第二写入点属 M3 域既有形态；M1 域无绕过单点的第二写入口 |
+| XSS 转义抽验 | ✅ | 五页 `F.esc` 206 处；`innerHTML` 直接赋值 8 处逐一目视：5 处为 `sel.innerHTML=''` 清空、3 处 `importProblemsHTML`/`ui.tableHTML` 产物内部已全量 `F.esc`（config.js:1063-1073 逐行核过） |
+
+## M1.5 M1 专属重点核过结果
+
+1. **路由遮蔽回归（BUG-004 家族）**：独立复跑 5 类 20 用例全绿（§M1.2 #6）。`RouteReachabilityExhaustiveTest` 的「实例路径回查 + 哨兵碰撞机械断言」双层判据形态复核成立；`ModuleRoutesConsistencyTest` 等值判据（声明=运行时）在 M1 五模块面成立。
+2. **凭证/自检链四键深链（T-200 域，从边核）**：后端 `GET /spot/exposure/{id}` 实存（SpotRoutes:71）；前端 `relatedDocTarget:128` `exposureId` → `/spot/exposure/` 深链 + `spot.js:1394` 路由注册；**前端注册序**：spot.js 静态键 `/spot`、`/spot/exposure` 均先于 `:id`（:1387/:1388/:1394），plan.js `/plan/new` 先于 `/plan`、`/plan` 先于 `:id`（:1281-1283）——前端 hash 路由（router.js 顺序遍历 regex）无遮蔽面；spot.js:1393 注释显式披露「recalc/export 为 API 路径非 hash 路由」。t083 探针 202/0 复现（含跳转断言）。
+3. **双向差集**：TRADE 9 条 / RISK 5 条「已声明未注册」——RISK 5 条既有完整登记链（routes.js `NOT_REGISTERED` 键 + risk.js 头注「可接 5 + 未注册 5」+ T-070 披露 + M3.7 一致性表核对一致）；TRADE 9 条中 `TRADE_ORDER` 有 NOT_REGISTERED 键，**其余 8 条路径（order-report/fill/position/reason/reject-record/flow/quote/strategy）在 routes.js 无键、依赖 T-053（BLOCKED）承接**——处置见 R1-004（建议级，既有域非新缺陷）。**「注册未声明」方向：0**（等值判据承载）。
+
+## M1.6 问题清单（R1 系；只报不改）
+
+| 编号 | 级别 | 类型 | 位置 | 问题摘要 |
+|------|------|------|------|---------|
+| R1-001 | 建议 | 一致性 | `java/src/main/java/com/hedgeguard/service/ConfigService.java:1055`（`exportConfigItemsCsv`） | CONFIG 导出与 SPOT/PRODUCT 导出的**可见性口径不对称**：SPOT 导出强制 `requireSubAccountVisible`、PRODUCT 导出走可见集过滤，CONFIG 导出（配置项，全局资源、无 `sub_account_id` 维度）无任何调用者身份校验——**非缺陷**（配置项无子账户归属，`t_config_item` 无该列），但三导出面审查口径不一，建议在 ARCH §8.2 或 CONTRACTS §1 显式登记「全局资源导出豁免可见性」判定，防后续审计轮重复争议 |
+| R1-002 | 建议 | 可维护性 | `java/src/main/java/com/hedgeguard/web/SessionAuthFilter.java:38` vs `java/CONTRACTS.md` §1.2 | 公开白名单以**字符串字面量**落 `PUBLIC_EXACT`（`"POST /api/v1/auth/login"` 等 3 对），未引用 `ApiRoutes.full(...)`（对比同文件 `:47` FORCE_CHANGE_ALLOWED 已用 `ApiRoutes.full` 拼装）——两形态并存，ApiRoutes 改基路径时 `PUBLIC_EXACT` 会静默脱钩（E 系判据与测试均拦不住：白名单脱钩方向是「未认证即 10006」，属 fail-closed 不产生越权，故仅建议级）。建议统一为 `ApiRoutes.full` 形态 |
+| R1-003 | **中** | 一致性/契约 | `docs/ARCHITECTURE.md` §4.1.1 幂等行（:625）vs `docs/REQUIREMENTS/FUND.md` FR-FUND-10 输入列 vs `FundService.initiateTransfer:771` | **幂等契约三落点不一致（跨域，M2 域）**：ARCH §4.1.1 声明「写类接口要求头 `Idempotency-Key`（出入金/**划拨**/下单/参数下发必需）」，但 ① `TransferRequest`（FundService:1842）**无 `idempotencyKey` 字段**、`initiateTransfer` 全程不读该头（`grep idempotencyKey` 于 initiateTransfer 0 命中）；② FR-FUND-10 输入列亦未列幂等标识（仅 §2.0 术语表通用行声明「每次提交须携带」）；③ 下单（TradeService）与参数下发（ParamDispatchServiceImpl）分别以服务端生成 `clientOrderRef`/`param_version` 单调号承载幂等，非经 `Idempotency-Key` 头。失效场景：划拨请求网络重试 ⇒ 同一笔划拨重复创建（无 `findByIdem` 拦截，对照出入金 `:501` `requireText(req.idempotencyKey)` + `findByIdempotencyKey` no-op 形态）——重复划拨在审批前可被驳回拦截，且属 M2/T-049 已 DONE 域，故**不阻断 M1 放行**；但 ARCH 声明与实现二选一必须收口：要么补划拨幂等键承载（对齐出入金形态），要么订正 §4.1.1 幂等行与 FR-FUND-10 并走 CH。建议归口 T-049 域立 delta 单或转权威席裁定 |
+| R1-004 | 建议 | 披露面 | `web/js/core/routes.js:162`（NOT_REGISTERED 键） | TRADE 模块 12 条路径级声明中 9 条无方法对（差集脚本实测），其中仅 `TRADE_ORDER` 有 NOT_REGISTERED 登记键，其余 8 条（order-report/fill/position/reason/reject-record/flow/quote/strategy）无前端镜像登记——TRADE 域属 M2（T-046 DONE 后端 3 对 + T-053 前端 BLOCKED），属既有登记域非新缺陷；但 RISK 侧 T-070 已建立「未注册路径逐条进 NOT_REGISTERED」的先例，TRADE 侧未对齐。建议 T-053 解锁时或 routes.js 下次触碰时补齐 8 键，防「前端臆造路径」防线在 TRADE 域留缝 |
+
+**观察（不开单）**：
+- O1：`ConfigService` 五服务中唯一可见性强制点计数为 0（CONFIG 资源为全局/账户级，子账户维度不适用），与 v1.5.11 §8.2「层③账户级不适用子账户维度哨兵」口径自洽——留观 T-119 落地时 CONFIG 写面须挂 `assertCanConfigureAccountLevel`，届时本观察自动闭。
+- O2：`M1EndToEndAcceptanceTest` 11 用例聚焦 PLAN 隔离/取号域；AUTH/CONFIG/PRODUCT/SPOT 四模块无同等装配级 e2e 类（各模块覆盖靠 service/handler 分层用例 1223 全量），非缺口（M2 e2e T-058 已覆盖装配级面），列观察防「M1 e2e = 全模块」误读。
+
+## M1.7 一致性核对（文档 vs 实现，抽验）
+
+| 项 | 文档说法 | 实现情况 | 判定 |
+|----|----------|----------|------|
+| 路由计数 | `BootstrapAssemblyTest:270` 断言 168（166 业务 + ping 2）；routes.js 头注 AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18 | `BY_MODULE_ROUTES` 实数：AUTH 17 / CONFIG 18 / PRODUCT 13 / SPOT 15 / PLAN 18（合计 166 全模块） | 一致 |
+| ARCH §4.1.1 资源表 | M1 五模块路径清单 | `ApiRoutes.BY_MODULE` 五模块逐路径字面比对（差集脚本） | 一致（0 差异） |
+| CONTRACTS §1.2 公开白名单 | login POST / ping GET+HEAD | `SessionAuthFilter.PUBLIC_EXACT:38` 三对逐字一致 | 一致（形态分裂见 R1-002） |
+| CONTRACTS §2.2 TradingBridge | 七签名（HGC-1.6 形态） | `TradingBridge.java:29-85` 逐签名一致（含 `confirmOrder(long,long,String)`） | 一致 |
+| CONTRACTS §2.2 `SubAccountScope` | `ALL_ACCOUNT_SENTINEL=0` + 空集恒假 | `SubAccountScope.java:19` 哨兵 0 + `IN (-1)` 恒假形态实存 | 一致 |
+| PageQuery 缺省 ASC | §4.1.1 v1.5.7 约定 | `PageQuery.java:43,63` ASC 缺省 + 5 参方向重载 | 一致 |
+| DATA_MODEL v1.3.8 `t_exposure` | TB-SPOT-8 全列清单 | `Exposure.java` 字段集差集 0（`row_version` 继承承载） | 一致 |
+| 幂等（§4.1.1） | 划拨/下单/参数下发 `Idempotency-Key` 必需 | 三者均未按该头承载（详见 R1-003） | **不一致 → R1-003** |
+
+## M1.8 采信 / 新扫分列
+
+- **采信**（有独立证据链、不复算）：T-200/T-201 的 te-verify 与编排者贴标结论；BUG-005 闭环（tcM4_19 4/4 断言形态目视复核成立，M4DocPackageCas24SelfcheckTest:553-585）；T-102/T-115/T-112 可见性裁定链。
+- **新扫**（本单独立执行）：E1~E8 聚合 + E5 负控；Java 1223 全量两轮（首扫 + 变异复位复绿）；路由 5 类判据独立复跑；双向差集自建脚本；幂等头五页配对复算；DATA_MODEL↔实体差集；变异抽验 2 例（注入→复位→逐字节核→clean 复绿全链）；t083 探针复跑 202/0。
+
+## M1.9 遗留风险与未决项
+
+1. **R1-003（中）**闭环前，ARCH §4.1.1 幂等行的「划拨必需」声明处于不实状态——M2 资金域验收或外部审计引用该行时会形成假依赖；建议随 T-049 域下次触碰时收口（修复或订正二选一，须权威席裁方向）。
+2. **层③功能权限链（T-108/T-118/T-119 均 TODO）**：维持 T-060 §M2.6① 口径——CONFIG/PRODUCT 全局写面（createProduct/putUnit/config PUT 等）现依赖「会话存在 + 子账户维度哨兵」之外**无功能权限断言**，M2 功能权限接线前属已知登记缺口，非本单新发现，无恶化。
+3. R2-001（首个管理员无创建路径）、R3-003（生产推送 sink 未接线汇总披露）：维持原编号处置，无恶化不复述。
+4. 在飞 T-111（敞口推导引擎）位于独立 worktree，主树零改动；本报告全部结论对 HEAD `fafab89` 主树成立，T-111 合入后 SPOT 写面相关结论须随其 delta 复核自然更新。
+
+## M1.10 结论
+
+**有条件通过**：门禁三件（1223/0/0/0、arch rc0、树锚 069f373a…/764）独立复现；六轴无阻断/严重项；R1-003（中，跨域幂等契约不一致）与 R1-001/002/004（建议）按 §M1.6 处置建议归口，不构成 M1 收官放行障碍。
