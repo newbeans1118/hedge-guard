@@ -115,9 +115,10 @@
 | T-145 | 前端 `spot.js` 分页**硬上限 5000 行 ⇒ 静默截断**（须提示「已达上限」或改显式截断语义） | frontend-engineer | P2 |
 | T-147 | 错误类型边界收口：口令强度拒绝在**服务边界**转显式 `BizException` + `ErrorMapper` 宽映射处置评估 | backend-engineer#java2 | P2 |
 | T-150 | AUTH **`resetPassword` 无独立审计留痕**（`FR-AUTH-16`「重置须留痕」；目标无在线会话时无任何持久化操作人记录） | backend-engineer#java2 | P2 |
+| T-202 | 划拨幂等承载补齐（R1-003 收口·方案 A：t_transfer_apply 增列+UNIQUE / initiateTransfer 先查后插幂等 / FR-FUND-10 输入列 / DATA_MODEL v1.3.9）——**待 T-111 落树后派发**（同席 backend#java2） | backend-engineer#java2 | P1 |
 
 
-> 📌 本区共 **58** 条（**第 149 轮 −1** —— `T-042`（P0，M2 主链解锁钥匙）派发实施 ⇒ 移入 `IN_PROGRESS`；前值 59 = 第 147 轮补24 后） —— **执行实例 `be-t042`**、**唯一写者** `java/bridge/**` + `java/CONTRACTS.md`（与在飞 `T-163` 写域 `docs/TEST_PLAN/**` 无交集）
+> 📌 本区共 **59** 条（**第 254 轮 +1** —— 新立 `T-202`（R1-003 收口·方案 A，P1/6h）；**用户裁定采 A**（拒 B 修 ARCH / 拒 C 软幂等），**前置 = T-111 落树后派发**（同席 backend#java2 防写冲突）；前值 58 = 第 149 轮 −1 —— `T-042`（P0，M2 主链解锁钥匙）派发实施 ⇒ 移入 `IN_PROGRESS`；前值 59 = 第 147 轮补24 后） —— **执行实例 `be-t042`**、**唯一写者** `java/bridge/**` + `java/CONTRACTS.md`（与在飞 `T-163` 写域 `docs/TEST_PLAN/**` 无交集）
 
 > 📌 本区共 **59** 条（**第 147 轮补24 −1** —— `T-163`（P2，`test-manager` 席）**派发实施**（**执行实例 `tm-t163`**、**唯一写者** `docs/TEST_PLAN/**`）⇒ 移入 `IN_PROGRESS` 区（`60 → 59`）；**范围** = `docs/TEST_PLAN/INDEX.md:138` 纪律行（「写数字必标口径」）**保留纪律、只更新数字**，并把「**`(方法, 路径)` 对**」与「**路径**」两口径**分别给真值**（业务 81 / 含 `ping` 83；路径数运行期实测）；**并**扫 `docs/TEST_PLAN/**` 全域叙述性计数给「同类残留 = 0」；**边界**：命中 `docs/TASKS.md`/`docs/BOARD.md` ⇒ 报告不自行改。**第 147 轮补21 −1**（`T-155` 派发）／**补16 −1**（`T-164`））
 
