@@ -19,8 +19,8 @@ import java.util.Map;
  * "targetSubAccountId":…}}。
  *
  * <p>规则：变更<b>仅允许在敞口未被任何生效计划引用时</b>执行；目标子账户须存在且启用；
- * 变更留痕。响应显式携带 {@code recomputeRequired=true}——敞口重算由 {@code /spot/exposure}
- * 生成新快照（{@code R-SPOT-5}），本端点<b>不</b>静默改写历史快照。
+ * 变更留痕。{@code T-111} 起归属变更与敞口重算<b>同一事务同步完成</b>——响应 {@code recomputeRequired=true}
+ * 语义为「服务端已重算」（旧「调用方负责重算」语义废止）；旧快照身份留痕，新世代快照标识可审计复现。
  */
 public final class SpotDocSubAccountHandler implements RouteHandler {
 

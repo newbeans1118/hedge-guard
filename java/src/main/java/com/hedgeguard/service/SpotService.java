@@ -1256,17 +1256,25 @@ public final class SpotService {
     }
 
     /**
-     * 变更现货单据的子账户归属（{@code FR-SPOT-16}）。
+     * 变更现货单据的子账户归属（{@code FR-SPOT-16}；{@code T-111} 服务端敞口推导引擎接线）。
      *
      * <p>规则：归属变更<b>仅允许在敞口未被任何生效计划引用时</b>执行（该单据贡献的敞口
      * {@code coveredQty} 恒为 0）；目标子账户须存在且启用；<b>调用者须对源、目标子账户均可见</b>
-     * （{@code NFR-SEC-7} 写面强制）；变更留痕。<b>敞口重算</b>由 {@code /spot/exposure} 计算路径
-     * 承担（{@code R-SPOT-5} 状态由引用关系计算），本端点显式返回 {@code recomputeRequired=true}
-     * 提示调用方重算，<b>不</b>静默改写历史快照。
+     * （{@code NFR-SEC-7} 写面强制）。<b>归属变更 + 两侧敞口重算 + 留痕在同一事务内</b>
+     * （{@code TxTemplate}；重算失败 ⇒ 整笔回滚，不留半笔写）：成功路径<b>同步触发</b>
+     * {@link #recomputeDocExposures}——按构成明细推导（Σ明细同源构造三分量与合计，{@code T-080b}
+     * 口径），旧侧敞口减量（明细清空 ⇒ 归零并按 {@code R-SPOT-5} 进入 {@code CLOSED} 终态）、
+     * 目标子账户侧生成/更新等量敞口（沿既有 snapshot 世代形态刷新快照标识）。
+     *
+     * <p><b>{@code recomputeRequired} 语义（{@code T-111} 收紧）</b>：旧语义
+     * 「{@code true} = 调用方经 {@code /spot/exposure} 负责重算」已废止；现值恒为
+     * {@code true}，语义 = <b>服务端已在本事务内完成敞口重算</b>（旧快照身份留痕、
+     * 新世代快照标识可审计复现）。响应字段形态保留（信封零破坏）。
      *
      * <p><b>拒因口径（{@code TE-T109-006}）</b>：单据被生效计划引用时，拒因按 {@code FR-SPOT-16}
      * 验收 2 列<b>计划</b>（经 {@code t_hedge_plan_exposure} 反查 {@code hedge_plan_id}），
-     * 而非仅列敞口 ID。
+     * 而非仅列敞口 ID。留痕含变更前后子账户与操作人（验收 3），并标注
+     * {@code recalc_triggered='Y'}（{@code TB-SPOT-10}）。
      *
      * @param docType             单据类型（{@code PURCHASE_CONTRACT}/{@code SALES_CONTRACT}/{@code PRODUCTION_PLAN}）
      * @param docId               单据 ID
@@ -1311,9 +1319,10 @@ public final class SpotService {
         }
         tx.inTransaction(connection -> {
             applyDocSubAccount(docType, docId, targetSubAccountId, operatorId);
-            writeLog(docType, docId, "SUB_ACCOUNT_CHANGE", String.valueOf(current),
-                    String.valueOf(targetSubAccountId), targetSubAccountId, operatorId,
-                    "变更单据子账户归属（FR-SPOT-16）");
+            // T-111：归属变更与两侧敞口重算同一事务——重算抛出 ⇒ 整笔回滚（不留半笔写）。
+            recomputeDocExposures(docType, docId, targetSubAccountId, operatorId);
+            writeSubAccountChangeLog(docType, docId, current, targetSubAccountId, operatorId,
+                    "变更单据子账户归属并同步重算敞口（FR-SPOT-16 验收 1/3；T-111）");
             return null;
         });
         Map<String, Object> out = new LinkedHashMap<>();
@@ -1321,10 +1330,243 @@ public final class SpotService {
         out.put("docId", docId);
         out.put("fromSubAccountId", current);
         out.put("toSubAccountId", targetSubAccountId);
+        // T-111 语义收紧：true = 服务端已在本事务内完成敞口重算（旧「调用方负责重算」语义废止）
         out.put("recomputeRequired", true);
-        out.put("note", "归属已变更并留痕；敞口重算请经 /spot/exposure 计算路径生成新快照"
-                + "（R-SPOT-5：状态由引用关系计算，旧快照保留）");
+        out.put("note", "归属已变更并留痕；敞口已由服务端按构成明细同步重算"
+                + "（旧侧减量/清空归 CLOSED，目标侧生成或并入等量敞口并刷新快照世代；"
+                + "R-SPOT-5：状态由引用关系计算，旧快照身份留痕）");
         return out;
+    }
+
+    // ------------------------------------------------------------ T-111 服务端敞口推导引擎
+
+    /**
+     * 按构成明细推导归属变更影响面并重算两侧敞口（{@code T-111}；{@code FR-SPOT-16} 验收 1）。
+     *
+     * <p><b>推导口径（Σ明细同源构造，{@code T-080b}）</b>：三分量与合计<b>不由调用方传值</b>，
+     * 一律从 {@code t_exposure_detail} 按分量分组求和构造——与 {@code recalcForDisplay} 的
+     * 重算口径同源，与 {@code verifyDetails} 的「SUM(明细)=分量列」结构保证互恰。
+     *
+     * <p><b>影响面</b>：单据贡献的全部构成明细（{@code findBySource}，同一单据可对多个基准日
+     * 各贡献明细）按旧敞口分组，逐组 {@link #moveContribution}。单据尚未进入任何敞口构成
+     * （明细为空）⇒ 无可重算（验收 1 不适用），直接返回。
+     *
+     * <p><b>哨兵与双态（{@code DC-041}/{@code CH-008}）</b>：新侧敞口身份列
+     * （{@code product_id}/{@code spot_category_code}/{@code unmapped_flag}）自旧敞口**原样承袭**
+     * ——未映射行携哨兵 {@code product_id=0} 与真实品类（各品类各占一行）、已映射行携
+     * 占位常量 {@code __MAPPED__}；<b>不在本路径重做品种映射</b>（映射状态是敞口身份的组成部分，
+     * 变更归属不改变映射事实）。
+     *
+     * <p><b>事务边界</b>：本方法<b>不</b>自开事务，必须在 {@code changeDocSubAccount} 的
+     * {@code TxTemplate} 事务内调用（嵌套加入外层）；任一写入失败 ⇒ 整笔回滚。
+     *
+     * @param docType            单据类型
+     * @param docId              单据 ID
+     * @param targetSubAccountId 目标子账户
+     * @param operatorId         操作人
+     */
+    private void recomputeDocExposures(String docType, long docId, int targetSubAccountId,
+                                       long operatorId) {
+        List<ExposureDetail> docDetails = exposureDetailDao.findBySource(docType, docId);
+        if (docDetails.isEmpty()) {
+            return; // 单据尚未进入任何敞口构成 ⇒ 验收 1 不适用（无可重算面）
+        }
+        Map<Long, List<ExposureDetail>> byOldExposure = new LinkedHashMap<>();
+        for (ExposureDetail detail : docDetails) {
+            if (detail.exposureId == null) {
+                throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                        "构成明细缺敞口引用（exposure_id 为空），无法重算：detailId=" + detail.id
+                                + "；复现=核对 t_exposure_detail.exposure_id");
+            }
+            byOldExposure.computeIfAbsent(detail.exposureId, k -> new ArrayList<>()).add(detail);
+        }
+        for (Map.Entry<Long, List<ExposureDetail>> entry : byOldExposure.entrySet()) {
+            Exposure oldExposure = exposureDao.findById(entry.getKey());
+            if (oldExposure == null) {
+                throw BizException.of(ErrorCode.INTERNAL_ERROR,
+                        "构成明细指向的敞口不存在，无法重算：exposureId=" + entry.getKey()
+                                + "；复现=核对 t_exposure_detail 与 t_exposure 引用一致性");
+            }
+            moveContribution(oldExposure, entry.getValue(), targetSubAccountId, operatorId);
+        }
+    }
+
+    /**
+     * 将单据在旧敞口上的贡献迁移至目标子账户并重算两侧敞口（{@code T-111}）。
+     *
+     * <p>顺序（同一事务内）：① 目标侧敞口头查找或新建（同身份键：目标子账户 × 品种 × 品类
+     * × 方向 × 口径 × 基准日，即 {@code uk_exposure_key} 六列）；② 构成明细改挂目标敞口
+     * （{@code exposure_id}/{@code sub_account_id} 双列更新，明细行身份与留痕保留）；
+     * ③ 目标侧重算 = Σ其全部明细（既有明细 + 迁入明细），刷新快照世代；
+     * ④ 旧侧重算 = Σ剩余明细，清空 ⇒ 归零并 {@code CLOSED}（{@code R-SPOT-5} 终态）。
+     *
+     * @param oldExposure        旧敞口（迁移来源）
+     * @param movedDetails       迁移的构成明细（须属旧敞口）
+     * @param targetSubAccountId 目标子账户
+     * @param operatorId         操作人
+     */
+    private void moveContribution(Exposure oldExposure, List<ExposureDetail> movedDetails,
+                                  int targetSubAccountId, long operatorId) {
+        // ① 目标侧敞口头：同身份键查找，缺则新建（数量暂零，③ 统一同源重算）
+        Exposure targetExposure = findExposureByIdentity(targetSubAccountId, oldExposure);
+        if (targetExposure == null) {
+            targetExposure = newExposureHead(oldExposure, targetSubAccountId, operatorId);
+        }
+        // ② 明细改挂（保留明细行主键与来源标注，exposure_id / sub_account_id 双列随迁）
+        for (ExposureDetail detail : movedDetails) {
+            detail.exposureId = targetExposure.id;
+            detail.subAccountId = targetSubAccountId;
+            if (exposureDetailDao.updateById(detail, operatorId) != 1) {
+                throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                        "构成明细改挂失败（乐观锁/行缺失）：detailId=" + detail.id
+                                + "；复现=重新读取后再提交");
+            }
+        }
+        // ③ 目标侧重算：Σ 全部明细（既有 + 迁入）——三分量与合计同源构造
+        refreshExposureFromDetails(targetExposure, operatorId);
+        // ④ 旧侧重算：Σ 剩余明细；清空 ⇒ 归零 + CLOSED（R-SPOT-5 终态）
+        refreshExposureFromDetails(oldExposure, operatorId);
+    }
+
+    /**
+     * 按身份键（{@code uk_exposure_key} 六列）查找子账户下的既有敞口（{@code T-111}）。
+     *
+     * <p>谓词走 {@link BaseDao#findPage} 占位符参数（不拼取值）；命中多行（理论不可，
+     * 唯一键保证）取首行。
+     *
+     * @param subAccountId 目标子账户
+     * @param source       承袭身份列的源敞口（品种/品类/方向/口径/基准日）
+     * @return 既有敞口；不存在返回 {@code null}
+     */
+    private Exposure findExposureByIdentity(int subAccountId, Exposure source) {
+        List<Object> args = new ArrayList<>(Arrays.asList(
+                subAccountId, source.productId, source.spotCategoryCode,
+                source.direction, source.calcMode, source.asOfDate));
+        List<Exposure> hits = collectAll(exposureDao,
+                "sub_account_id = ? AND product_id = ? AND spot_category_code = ?"
+                        + " AND direction = ? AND calc_mode = ? AND as_of_date = ?",
+                args, "id");
+        return hits.isEmpty() ? null : hits.get(0);
+    }
+
+    /**
+     * 依旧敞口身份新建目标子账户敞口头（数量暂零；重算在明细改挂后统一进行）。
+     *
+     * <p>快照世代沿 {@link #computeExposure} 既有形态：{@code snapshot_id} =
+     * {@link BizNoGenerator#exposure}（当日序号 = 同子账户同基准日行数 + 1）、
+     * {@code snapshot_time}/{@code calc_time} = 当前时点；估值按 {@code VALUATION} 用途
+     * 处置（缺价标注，不阻断——{@code CFG-12b}）；初始 {@code covered_qty=0}、
+     * 状态 {@code PENDING_HEDGE}（覆盖量重算后按引用关系再派生）。
+     *
+     * @param source             源敞口（身份与口径配置承袭）
+     * @param targetSubAccountId 目标子账户
+     * @param operatorId         操作人
+     * @return 已落库的新敞口（含 {@code id}）
+     */
+    private Exposure newExposureHead(Exposure source, int targetSubAccountId, long operatorId) {
+        Exposure created = new Exposure();
+        created.subAccountId = targetSubAccountId;
+        created.productId = source.productId;
+        created.spotCategoryCode = source.spotCategoryCode;
+        created.direction = source.direction;
+        created.calcMode = source.calcMode;
+        created.asOfDate = source.asOfDate;
+        created.componentsEnabled = source.componentsEnabled;
+        created.combinedComponents = source.combinedComponents;
+        created.unit = source.unit;
+        created.unmappedFlag = source.unmappedFlag;
+        created.contractUnexecutedQty = BigDecimal.ZERO;
+        created.inventoryQty = BigDecimal.ZERO;
+        created.productionPlanQty = BigDecimal.ZERO;
+        created.exposureQty = BigDecimal.ZERO;
+        created.coveredQty = BigDecimal.ZERO;
+        created.status = "PENDING_HEDGE";
+        long seq = exposureDao.count("sub_account_id = ? AND as_of_date = ?",
+                Arrays.asList(targetSubAccountId, created.asOfDate)) + 1;
+        created.snapshotId = BizNoGenerator.exposure(created.asOfDate, targetSubAccountId,
+                created.productId, created.direction, seq);
+        created.snapshotTime = Clocks.now();
+        created.calcTime = Clocks.now();
+        applyValuation(created);
+        if (exposureDao.insert(created, operatorId) != 1) {
+            throw BizException.of(ErrorCode.UNIQUE_CONFLICT,
+                    "目标敞口写入失败（同子账户×品种×品类×方向×口径×基准日或快照标识冲突）：snapshotId="
+                            + created.snapshotId + "；复现=核对 uk_exposure_key / uk_exposure_snapshot");
+        }
+        return created;
+    }
+
+    /**
+     * 从构成明细同源重算敞口头（Σ明细 → 三分量 → 合计；{@code T-080b} 口径）并落库。
+     *
+     * <p>明细为空 ⇒ 三分量与合计归零；状态派生：合计为 0 ⇒ {@code CLOSED}（{@code R-SPOT-5}
+     * 「敞口数量归零时进入已关闭（终态）」）；否则按覆盖量派生（同 {@code computeExposure}）。
+     * 快照世代刷新：重算即新世代（新 {@code snapshot_id}/{@code snapshot_time}/{@code calc_time}），
+     * 旧快照身份随留痕可追溯（Q-17 ③ 禁止静默覆盖——本路径以留痕 + 世代刷新承载）。
+     *
+     * @param exposure   敞口头（须已携 {@code id}）
+     * @param operatorId 操作人
+     */
+    private void refreshExposureFromDetails(Exposure exposure, long operatorId) {
+        List<ExposureDetail> details = exposureDetailDao.findByExposure(exposure.id);
+        Map<String, BigDecimal> sums = sumByComponent(details);
+        exposure.contractUnexecutedQty = sums.getOrDefault("CONTRACT_UNEXECUTED", BigDecimal.ZERO);
+        exposure.inventoryQty = sums.getOrDefault("INVENTORY", BigDecimal.ZERO);
+        exposure.productionPlanQty = sums.getOrDefault("PRODUCTION_PLAN", BigDecimal.ZERO);
+        exposure.exposureQty = nz(exposure.contractUnexecutedQty)
+                .add(nz(exposure.inventoryQty)).add(nz(exposure.productionPlanQty));
+        long seq = exposureDao.count("sub_account_id = ? AND as_of_date = ?",
+                Arrays.asList(exposure.subAccountId, exposure.asOfDate)) + 1;
+        exposure.snapshotId = BizNoGenerator.exposure(exposure.asOfDate, exposure.subAccountId,
+                exposure.productId, exposure.direction, seq);
+        exposure.snapshotTime = Clocks.now();
+        exposure.calcTime = Clocks.now();
+        exposure.status = deriveStatus(exposure);
+        applyValuation(exposure);
+        if (exposureDao.updateById(exposure, operatorId) != 1) {
+            throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                    "敞口重算落库失败（乐观锁/行缺失）：exposureId=" + exposure.id
+                            + "；复现=重新读取后再提交");
+        }
+    }
+
+    /** 按覆盖量与合计派生敞口状态（合计归零 ⇒ CLOSED 终态；{@code R-SPOT-5}）。 */
+    private static String deriveStatus(Exposure exposure) {
+        BigDecimal qty = nz(exposure.exposureQty);
+        BigDecimal covered = nz(exposure.coveredQty);
+        if (qty.compareTo(BigDecimal.ZERO) == 0) {
+            return "CLOSED";
+        }
+        if (covered.compareTo(qty) >= 0) {
+            return "COVERED";
+        }
+        return covered.compareTo(BigDecimal.ZERO) > 0 ? "PARTIALLY_COVERED" : "PENDING_HEDGE";
+    }
+
+    /**
+     * 归属变更留痕（{@code FR-SPOT-16} 验收 3；{@code TB-SPOT-10}）。
+     *
+     * <p>与 {@link #writeLog} 同形态，另三处为归属变更专属：
+     * {@code sub_account_before}/{@code sub_account_after} 非空（{@code ck_spot_chg_sub_change}
+     * 与验收 3「含前后子账户」）、{@code sub_account_id} 取变更后（按子账户检索定位）、
+     * {@code recalc_triggered='Y'}（{@code TB-SPOT-10}：是否触发敞口重算）。
+     */
+    private void writeSubAccountChangeLog(String sourceType, long sourceId, int before,
+                                          int after, long operatorId, String reason) {
+        SpotChangeLog log = new SpotChangeLog();
+        log.sourceType = sourceType;
+        log.sourceId = sourceId;
+        log.changeType = "SUB_ACCOUNT_CHANGE";
+        log.subAccountBefore = before;
+        log.subAccountAfter = after;
+        log.beforeValue = String.valueOf(before);
+        log.afterValue = String.valueOf(after);
+        log.subAccountId = after;
+        log.operatorId = operatorId;
+        log.changeTime = Clocks.now();
+        log.recalcTriggered = "Y";
+        log.changeReason = reason;
+        spotChangeLogDao.insert(log, operatorId);
     }
 
     // ------------------------------------------------------------ 内部
