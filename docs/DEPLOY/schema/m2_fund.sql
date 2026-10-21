@@ -183,6 +183,8 @@ CREATE TABLE t_transfer_apply (
     from_sub_account_id   INT                        NOT NULL,
     to_sub_account_id     INT                        NOT NULL,
     apply_no              VARCHAR(32)                NOT NULL,
+    -- R-FUND-4/FR-FUND-10（v1.3.9/T-202）：划拨幂等标识（同 t_deposit_withdraw_apply.idempotency_key 先例形态）
+    idempotency_key       VARCHAR(64)                NOT NULL,
     amount                DECIMAL(20,4)              NOT NULL,
     reason                VARCHAR(500)               NOT NULL,
     expected_effective_date DATE                     NULL,
@@ -203,6 +205,7 @@ CREATE TABLE t_transfer_apply (
     row_version           INT          DEFAULT 0     NOT NULL,
     CONSTRAINT pk_t_transfer_apply PRIMARY KEY (id),
     CONSTRAINT uk_transfer_apply_no UNIQUE (apply_no),
+    CONSTRAINT uk_transfer_apply_idem UNIQUE (idempotency_key),
     CONSTRAINT ck_transfer_apply_status CHECK (status IN
         ('PENDING_SUBMIT','PENDING_APPROVAL','PENDING_POSTING','POSTED','ROLLED_BACK','REJECTED')),
     CONSTRAINT ck_transfer_apply_diff_sub CHECK (from_sub_account_id <> to_sub_account_id),
@@ -221,6 +224,7 @@ COMMENT ON COLUMN t_transfer_apply.sub_account_id     IS '划出子账户（本�
 COMMENT ON COLUMN t_transfer_apply.from_sub_account_id IS '划出子账户';
 COMMENT ON COLUMN t_transfer_apply.to_sub_account_id  IS '划入子账户（必须 ≠ from_sub_account_id）';
 COMMENT ON COLUMN t_transfer_apply.reason             IS '划拨理由（必填，FR-FUND-10）';
+COMMENT ON COLUMN t_transfer_apply.idempotency_key    IS '幂等标识（同一标识重复提交不得产生第二笔划转，FR-FUND-10）';
 COMMENT ON COLUMN t_transfer_apply.agg_check_id       IS '加总校验记录（划拨后须校验加总不变，FR-FUND-12）';
 CREATE INDEX idx_transfer_apply_status ON t_transfer_apply (status, apply_no);
 CREATE INDEX idx_transfer_apply_from ON t_transfer_apply (from_sub_account_id, status);

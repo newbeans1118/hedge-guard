@@ -21,7 +21,8 @@ public final class DmTransferApplyDao extends AbstractDmDao<TransferApply, Long>
 
     /** 业务列（不含主键与通用审计字段）。 */
     private static final String[] COLUMNS = {
-            "sub_account_id", "from_sub_account_id", "to_sub_account_id", "apply_no", "amount",
+            "sub_account_id", "from_sub_account_id", "to_sub_account_id", "apply_no",
+            "idempotency_key", "amount",
             "reason", "expected_effective_date", "status", "applicant_id", "approver_id",
             "approve_time", "reject_reason", "agg_check_id", "agg_check_passed", "rollback_time",
             "posting_time"
@@ -58,6 +59,7 @@ public final class DmTransferApplyDao extends AbstractDmDao<TransferApply, Long>
         bind(ps, i++, e.fromSubAccountId);
         bind(ps, i++, e.toSubAccountId);
         bind(ps, i++, e.applyNo);
+        bind(ps, i++, e.idempotencyKey);
         bind(ps, i++, e.amount);
         bind(ps, i++, e.reason);
         bind(ps, i++, e.expectedEffectiveDate);
@@ -79,6 +81,7 @@ public final class DmTransferApplyDao extends AbstractDmDao<TransferApply, Long>
         e.fromSubAccountId = nullableInt(rs, "from_sub_account_id");
         e.toSubAccountId = nullableInt(rs, "to_sub_account_id");
         e.applyNo = string(rs, "apply_no");
+        e.idempotencyKey = string(rs, "idempotency_key");
         e.amount = decimal(rs, "amount");
         e.reason = string(rs, "reason");
         e.expectedEffectiveDate = localDate(rs, "expected_effective_date");
@@ -112,6 +115,12 @@ public final class DmTransferApplyDao extends AbstractDmDao<TransferApply, Long>
     public TransferApply findByApplyNo(String applyNo) {
         String sql = "SELECT " + selectList() + " FROM " + tableName() + " WHERE apply_no = ?";
         return queryOne(sql, Arrays.asList(applyNo), this::mapRow);
+    }
+
+    @Override
+    public TransferApply findByIdempotencyKey(String idempotencyKey) {
+        String sql = "SELECT " + selectList() + " FROM " + tableName() + " WHERE idempotency_key = ?";
+        return queryOne(sql, Collections.singletonList(idempotencyKey), this::mapRow);
     }
 
     @Override

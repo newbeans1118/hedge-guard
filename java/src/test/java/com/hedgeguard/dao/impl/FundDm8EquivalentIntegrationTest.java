@@ -106,6 +106,7 @@ class FundDm8EquivalentIntegrationTest {
         assertEquals(1, transferDao.insert(transfer, 7L));
         assertNotNull(transferDao.findByApplyNo("TR20261004001"), "按划拨单号应读回");
         assertEquals(1, transferDao.findByFromSubAccountAndStatus(1, "PENDING_APPROVAL").size());
+        assertNotNull(transferDao.findByIdempotencyKey("IDEM-TR-1"), "按幂等键应读回划拨申请（v1.3.9/T-202）");
 
         DmCapitalReceiptDao receiptDao = new DmCapitalReceiptDao(tx);
         CapitalReceipt receipt = receipt(dw.id);
@@ -194,6 +195,20 @@ class FundDm8EquivalentIntegrationTest {
         assertThrows(IllegalStateException.class, () -> flowDao2.insert(badFlow, 7L),
                 "非法 direction 应被 ck_fund_flow_direction 拒绝");
         assertEquals(2L, engine.rejectedByCheck(), "引擎应累计 2 次 CHECK 冲突");
+    }
+
+    @Test
+    @DisplayName("约束（v1.3.9/T-202）：划拨幂等键唯一（uk_transfer_apply_idem）被引擎强制——先查后插的 uk 兜底")
+    void transferIdempotencyKeyUniqueEnforced() {
+        DmTransferApplyDao transferDao = new DmTransferApplyDao(tx);
+        transferDao.insert(transfer(), 7L);
+        TransferApply bypass = transfer();
+        bypass.applyNo = "TR20261004002"; // 单号不同 ⇒ 仅 idempotency_key 撞 uk_transfer_apply_idem
+        assertThrows(IllegalStateException.class, () -> transferDao.insert(bypass, 7L),
+                "同幂等键绕过服务层先查直插应被 uk_transfer_apply_idem 拒绝（FR-FUND-10）");
+        assertEquals(1L, engine.rejectedByUnique(), "引擎应记录 1 次唯一冲突（划拨幂等键）");
+        assertEquals(1, transferDao.findByFromSubAccountAndStatus(1, "PENDING_APPROVAL").size(),
+                "拒绝后首单仍唯一在库（不产生第二笔划拨）");
     }
 
     @Test
@@ -327,6 +342,7 @@ class FundDm8EquivalentIntegrationTest {
         e.fromSubAccountId = 1;
         e.toSubAccountId = 2;
         e.applyNo = "TR20261004001";
+        e.idempotencyKey = "IDEM-TR-1"; // v1.3.9/T-202：NOT NULL 增列（引擎 DDL DEFAULT 不生效 ⇒ 显式赋值）
         e.amount = new BigDecimal("1000.0000");
         e.reason = "资金调剂";
         e.expectedEffectiveDate = LocalDate.of(2026, 10, 5);

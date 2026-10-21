@@ -543,6 +543,7 @@ class M2EndToEndAcceptanceTest {
         req.toSubAccountId = to;
         req.amount = amount;
         req.reason = "子账户间资金划拨（§10-37）";
+        req.idempotencyKey = "IDEM-E2E-" + from + "-" + to + "-" + amount; // v1.3.9/T-202 必带
         return fundService.initiateTransfer(req, U_TRADER);
     }
 

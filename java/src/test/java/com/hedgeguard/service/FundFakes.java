@@ -300,6 +300,15 @@ final class FundFakes {
             return null;
         }
 
+        @Override public TransferApply findByIdempotencyKey(String idempotencyKey) {
+            for (TransferApply t : rows) {
+                if (idempotencyKey != null && idempotencyKey.equals(t.idempotencyKey)) {
+                    return t;
+                }
+            }
+            return null;
+        }
+
         @Override public List<TransferApply> findByFromSubAccountAndStatus(int fromSubAccountId, String status) {
             List<TransferApply> out = new ArrayList<>();
             for (TransferApply t : rows) {

@@ -72,10 +72,11 @@ class FundSchemaTest {
     private static final List<String> REQUIRED_BUSINESS_CHECKS = Arrays.asList(
             "ck_transfer_apply_diff_sub", "ck_fund_quota_alert_blocked");
 
-    /** 幂等/唯一约束（验收 3/4）。 */
+    /** 幂等/唯一约束（验收 3/4；v1.3.9/T-202 增 uk_transfer_apply_idem）。 */
     private static final List<String> REQUIRED_UNIQUE = Arrays.asList(
             "uk_fund_flow_voucher_no", "uk_dw_apply_idem", "uk_dw_apply_no",
-            "uk_capital_receipt_idem", "uk_fund_ledger_date_sub", "uk_fund_reconcile_key");
+            "uk_capital_receipt_idem", "uk_fund_ledger_date_sub", "uk_fund_reconcile_key",
+            "uk_transfer_apply_idem");
 
     private static Map<String, String> auditColumns() {
         Map<String, String> m = new LinkedHashMap<>();
@@ -262,11 +263,16 @@ class FundSchemaTest {
     }
 
     @Test
-    @DisplayName("验收 4：出入金幂等键 idempotency_key 唯一约束就位（uk_dw_apply_idem）")
+    @DisplayName("验收 4：出入金幂等键 idempotency_key 唯一约束就位（uk_dw_apply_idem）+ 划拨幂等（uk_transfer_apply_idem，v1.3.9/T-202）")
     void acceptanceFourIdempotency() throws IOException {
         String ddlText = new String(Files.readAllBytes(repoRoot().resolve(DDL_REL)), StandardCharsets.UTF_8);
         assertTrue(containsUniqueConstraint(ddlText, "uk_dw_apply_idem"),
                 "t_deposit_withdraw_apply.idempotency_key 须有唯一约束 uk_dw_apply_idem");
+        assertTrue(containsUniqueConstraint(ddlText, "uk_transfer_apply_idem"),
+                "t_transfer_apply.idempotency_key 须有唯一约束 uk_transfer_apply_idem（v1.3.9/T-202）");
+        Map<String, ColumnSpec> tr = parseDdl(Files.readAllLines(
+                repoRoot().resolve(DDL_REL), StandardCharsets.UTF_8)).get("t_transfer_apply");
+        assertTrue(tr.get("idempotency_key").notNull, "t_transfer_apply.idempotency_key 须 NOT NULL");
         Map<String, ColumnSpec> dw = parseDdl(Files.readAllLines(
                 repoRoot().resolve(DDL_REL), StandardCharsets.UTF_8)).get("t_deposit_withdraw_apply");
         assertTrue(dw.get("idempotency_key").notNull, "idempotency_key 须 NOT NULL");

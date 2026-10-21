@@ -762,11 +762,15 @@ public final class FundService {
      * 发起子账户间划拨（{@code FR-FUND-10}；{@code POST /fund/transfer}）。
      *
      * <p>系统内记账；划出/划入不得相同；划出资金须充足；划出/划入子账户当日加总对账
-     * 存在未闭环差异时仅阻断差异所属子账户（{@code Q-11}）。
+     * 存在未闭环差异时仅阻断差异所属子账户（{@code Q-11}）。必须携带幂等标识
+     * （{@code ARCHITECTURE.md} §4.1.1 写类接口必需；v1.3.9/`T-202`）：
+     * 同一幂等标识重复提交返回既有申请，<b>不产生第二笔划拨</b>（先查后插，形态同
+     * {@link #initiateDepositWithdraw}）；缺键报 {@code PARAM_INVALID}（对齐
+     * {@code FR-FUND-5} 验收 3 同族口径）。
      *
      * @param req        划拨请求
      * @param operatorId 发起人
-     * @return 划拨申请（待审批）
+     * @return 划拨申请（新建或幂等命中的既有申请，待审批）
      */
     public TransferApply initiateTransfer(TransferRequest req, long operatorId) {
         if (req == null) {
@@ -779,12 +783,17 @@ public final class FundService {
         }
         BigDecimal amount = requirePositive(req.amount, "amount");
         String reason = requireText(req.reason, "reason（划拨理由必填，FR-FUND-10）");
+        String idem = requireText(req.idempotencyKey, "idempotencyKey（FR-FUND-10，R1-003/T-202）");
         visibility.assertSubAccountWritable(operatorId, from);
         assertNoOpenDifference(from, "划出");
 
         String[] candidateNo = new String[1];
         return retryApplyNo(
                 () -> tx.inTransaction(conn -> {
+                    TransferApply dup = transferDao.findByIdempotencyKey(idem);
+                    if (dup != null) {
+                        return dup; // 幂等 no-op：同一标识不产生第二笔划拨（先查后插）
+                    }
                     FundLedger l = ledgerDao.findBySubAccountAndDate(from, Clocks.today());
                     BigDecimal avail = l == null ? ZERO : nz(l.availableFund);
                     if (avail.compareTo(amount) < 0) {
@@ -798,6 +807,7 @@ public final class FundService {
                     t.toSubAccountId = to;
                     t.amount = amount;
                     t.reason = reason;
+                    t.idempotencyKey = idem;
                     t.expectedEffectiveDate = req.expectedEffectiveDate == null || req.expectedEffectiveDate.isEmpty()
                             ? null : parseDate(req.expectedEffectiveDate, "expectedEffectiveDate");
                     t.status = TR_PENDING_APPROVAL;
@@ -1850,6 +1860,8 @@ public final class FundService {
         public String reason;
         /** 期望生效日。 */
         public String expectedEffectiveDate;
+        /** 幂等标识（同一标识重复提交不得产生第二笔划转，FR-FUND-10；v1.3.9/T-202）。 */
+        public String idempotencyKey;
     }
 
     /** 划拨审批请求。 */

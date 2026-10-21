@@ -27,6 +27,9 @@ public final class TransferApply extends AuditedEntity {
     /** 划拨单号（全系统唯一；两条流水共用）。 */
     public String applyNo;
 
+    /** 幂等标识（同一标识重复提交不得产生第二笔划转，FR-FUND-10；v1.3.9/T-202 增列）。 */
+    public String idempotencyKey;
+
     /** 金额；必须 > 0。 */
     public BigDecimal amount;
 

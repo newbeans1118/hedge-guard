@@ -43,6 +43,12 @@ public final class FundTransferHandler implements RouteHandler {
         }
         FundService.TransferRequest in = JsonCodec.fromJson(
                 FundParams.body(ctx), FundService.TransferRequest.class);
+        if (in == null) {
+            in = new FundService.TransferRequest();
+        }
+        if (in.idempotencyKey == null) {
+            in.idempotencyKey = ctx.idempotencyKey(); // Idempotency-Key 头兜底（§4.1.1；先例 FundApplyHandler）
+        }
         TransferApply t = fundService.initiateTransfer(in, ctx.currentUserId());
         return HttpResult.json(200, ApiResponse.ok(view(t), ctx.traceId()));
     }

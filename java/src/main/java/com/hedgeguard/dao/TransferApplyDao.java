@@ -19,6 +19,15 @@ public interface TransferApplyDao extends BaseDao<TransferApply, Long> {
     TransferApply findByApplyNo(String applyNo);
 
     /**
+     * 按幂等标识查申请（{@code uk_transfer_apply_idem}；重复提交不得产生第二笔划转，
+     * {@code FR-FUND-10}；先例 {@link DepositWithdrawApplyDao#findByIdempotencyKey}，{@code T-202}）。
+     *
+     * @param idempotencyKey 幂等标识
+     * @return 命中的申请；不存在返回 {@code null}
+     */
+    TransferApply findByIdempotencyKey(String idempotencyKey);
+
+    /**
      * 按划出子账户 + 状态取申请（{@code idx_transfer_apply_from}；划出方历史与加总核对）。
      *
      * @param fromSubAccountId 划出子账户

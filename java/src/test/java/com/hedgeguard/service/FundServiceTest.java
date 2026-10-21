@@ -345,6 +345,58 @@ class FundServiceTest {
         assertEquals(ErrorCode.PARAM_INVALID, poor.errorCode());
     }
 
+    // ------------------------------------------------------------------ T-202 划拨幂等（R1-003 收口）
+
+    @Test
+    @DisplayName("T-202：同幂等标识重放返回首单且不产生第二笔（先查后插，形态同 initiateDepositWithdraw）")
+    void transferSameIdempotencyKeyReturnsFirstApply() {
+        initLedger(1, "1000");
+        initLedger(2, "500");
+
+        FundService.TransferRequest first = new FundService.TransferRequest();
+        first.fromSubAccountId = 1;
+        first.toSubAccountId = 2;
+        first.amount = "300";
+        first.reason = "调配";
+        first.idempotencyKey = "IDEM-T1";
+        TransferApply a1 = svc.initiateTransfer(first, 1L);
+
+        FundService.TransferRequest replay = new FundService.TransferRequest();
+        replay.fromSubAccountId = 1;
+        replay.toSubAccountId = 2;
+        replay.amount = "300";
+        replay.reason = "调配";
+        replay.idempotencyKey = "IDEM-T1"; // 同键重放
+        TransferApply a2 = svc.initiateTransfer(replay, 1L);
+
+        assertEquals(a1.id, a2.id, "同幂等标识重放须返回首单");
+        assertEquals(a1.applyNo, a2.applyNo, "重放返回首单单号（不重新取号）");
+        assertEquals(1, transfers.rows.size(), "t_transfer_apply 不得产生第二笔");
+        assertEquals(1, transfers.insertCalls, "重放不得触发 insert（先查后插在 insert 之前命中）");
+    }
+
+    @Test
+    @DisplayName("T-202：缺幂等标识报 PARAM_INVALID（FR-FUND-10 对齐 FR-FUND-5 验收3 同族口径）")
+    void transferMissingIdempotencyKeyRejected() {
+        initLedger(1, "1000");
+        FundService.TransferRequest req = new FundService.TransferRequest();
+        req.fromSubAccountId = 1;
+        req.toSubAccountId = 2;
+        req.amount = "100";
+        req.reason = "调配";
+        req.idempotencyKey = null;
+        BizException ex = assertThrows(BizException.class, () -> svc.initiateTransfer(req, 1L));
+        assertEquals(ErrorCode.PARAM_INVALID, ex.errorCode());
+        assertEquals(0, transfers.rows.size(), "缺键不得落库");
+
+        req.idempotencyKey = "   ";
+        BizException blank = assertThrows(BizException.class, () -> svc.initiateTransfer(req, 1L));
+        assertEquals(ErrorCode.PARAM_INVALID, blank.errorCode(), "空白键等同缺键（requireText 口径）");
+    }
+
+    // （uk 兜底负证见 FundDm8EquivalentIntegrationTest.transferIdempotencyKeyUniqueEnforced：
+    //  本类 FundFakes 为记录型内存假 DAO，不建模 UNIQUE 约束；表级 UNIQUE 由等价引擎强制。）
+
     // ------------------------------------------------------------------ T-049 退回修复回归（be-t049c）
 
     @Test
@@ -526,11 +578,16 @@ class FundServiceTest {
     }
 
     private long initiateTransfer(int from, int to, String amount, String reason) {
+        return initiateTransfer(from, to, amount, reason, "TF-IDEM-" + from + "-" + to);
+    }
+
+    private long initiateTransfer(int from, int to, String amount, String reason, String idem) {
         FundService.TransferRequest req = new FundService.TransferRequest();
         req.fromSubAccountId = from;
         req.toSubAccountId = to;
         req.amount = amount;
         req.reason = reason;
+        req.idempotencyKey = idem;
         return svc.initiateTransfer(req, 1L).id;
     }
 
