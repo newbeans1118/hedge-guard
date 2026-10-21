@@ -309,6 +309,62 @@ class SpotT111ExposureRecomputeTest {
         assertEquals(1, engine.table("t_spot_change_log").rows.size());
     }
 
+    // ================================================================ TE-T111-001/002 承接（T-111c）
+
+    @Test
+    @DisplayName("TE-T111-002 CLOSED 击杀器：单据独占敞口全部明细 ⇒ 旧侧归零且 status=CLOSED（R-SPOT-5 终态）")
+    void soleContributorExposureClosesAfterChange() throws Exception {
+        // 单据独占：敞口仅由合同 1 的构成明细承载（无他人分量，Σ=30；source 反查口径下
+        // 该单据即敞口全部明细的唯一来源）
+        seedExposureHead(1L, SUB_A, "30", "0", "0");
+        seedContract(1L, SUB_A, "PC-001");
+        T111SpotRecomputeSeed.detail(engine, 300L, 1L, SUB_A, "CONTRACT_UNEXECUTED",
+                "PURCHASE_CONTRACT", 1L, "30", AS_OF);
+
+        service.changeDocSubAccount("PURCHASE_CONTRACT", 1L, SUB_B, OPERATOR);
+
+        // 旧侧：全部明细迁出 ⇒ Σ明细=0 ⇒ 归零且 CLOSED（R-SPOT-5 终态；
+        // 击杀复核席 M3 变异——摘 deriveStatus 的 qty==0⇒CLOSED 派生 ⇒ 本断言必红）
+        Exposure oldHead = exposureDao.findById(1L);
+        assertNum("0", oldHead.contractUnexecutedQty);
+        assertNum("0", oldHead.inventoryQty);
+        assertNum("0", oldHead.productionPlanQty);
+        assertNum("0", oldHead.exposureQty);
+        assertEquals("CLOSED", oldHead.status, "Σ明细=0 ⇒ R-SPOT-5 CLOSED 终态");
+        // 目标侧：等量敞口出现（=30），三分量与明细 Σ 同源一致
+        Exposure target = exposureByIdentity(SUB_B);
+        assertNotNull(target, "目标子账户须出现等量敞口");
+        assertNum("30", target.contractUnexecutedQty);
+        assertNum("0", target.inventoryQty);
+        assertNum("0", target.productionPlanQty);
+        assertNum("30", target.exposureQty);
+        assertEquals("PENDING_HEDGE", target.status, "Σ>0 ⇒ 目标侧未关闭");
+        assertEquals(1, detailDao.findByExposure(target.id).size(), "明细改挂目标敞口");
+    }
+
+    @Test
+    @DisplayName("TE-T111-001 方案 A：target == current ⇒ PARAM_INVALID 拒绝，归属/敞口/明细/留痕零变更")
+    void sameTargetAsCurrentRejected() throws Exception {
+        seedContractWithFullContribution(1L, SUB_A, "PC-001", 1L);
+        int exposuresBefore = engine.table("t_exposure").rows.size();
+        int detailsBefore = engine.table("t_exposure_detail").rows.size();
+
+        BizException e = assertThrows(BizException.class,
+                () -> service.changeDocSubAccount("PURCHASE_CONTRACT", 1L, SUB_A, OPERATOR),
+                "目标与当前相同须入口拦截（TE-T111-001，方案 A）");
+        assertEquals(ErrorCode.PARAM_INVALID, e.errorCode());
+        assertTrue(e.getMessage().contains("目标子账户与当前子账户相同"),
+                "拒因对齐 FR-FUND-10 同族口径：" + e.getMessage());
+
+        // 零变更：归属/敞口/明细/留痕
+        assertEquals(SUB_A, purchaseDao.findById(1L).subAccountId, "单据归属不变");
+        assertNum("100", exposureDao.findById(1L).exposureQty, "敞口合计不变");
+        assertEquals("PENDING_HEDGE", exposureDao.findById(1L).status, "状态不变");
+        assertEquals(detailsBefore, engine.table("t_exposure_detail").rows.size(), "明细行数不变");
+        assertEquals(exposuresBefore, engine.table("t_exposure").rows.size(), "敞口行数不变");
+        assertEquals(0, engine.table("t_spot_change_log").rows.size(), "拒绝路径不留痕");
+    }
+
     // ================================================================ M2 击杀器宿主：事务原子性
 
     @Test
@@ -395,6 +451,12 @@ class SpotT111ExposureRecomputeTest {
         assertNotNull(actual, "数值列不得为 NULL");
         assertEquals(0, new BigDecimal(expected).compareTo(actual),
                 "数值不匹配：期望 " + expected + " 实际 " + actual.toPlainString());
+    }
+
+    private static void assertNum(String expected, BigDecimal actual, String message) {
+        assertNotNull(actual, message + "：数值列不得为 NULL");
+        assertEquals(0, new BigDecimal(expected).compareTo(actual),
+                message + "：期望 " + expected + " 实际 " + actual.toPlainString());
     }
 
     private static Path repoRoot() {

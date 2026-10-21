@@ -1308,6 +1308,14 @@ public final class SpotService {
             throw BizException.of(ErrorCode.PARAM_INVALID,
                     "单据不存在或已删除：" + docType + " id=" + docId + "；复现=核对单据 ID");
         }
+        // TE-T111-001（方案 A）：目标 == 当前 ⇒ 同一敞口先迁出后迁入，第二次重算携 stale
+        // row_version 必触乐观锁失败 ⇒ 入口拒绝（对齐 FR-FUND-10「划出与划入不得为同一
+        // 子账户」同族口径，FundService.initiateTransfer 先例形态）。
+        if (current == targetSubAccountId) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "目标子账户与当前子账户相同，无归属可变更（FR-SPOT-16；TE-T111-001）：id="
+                            + targetSubAccountId + "；复现=选择不同的目标子账户");
+        }
         requireSubAccountWritable(operatorId, current);
         requireSubAccountWritable(operatorId, targetSubAccountId);
         List<Long> referenced = referencedExposures(docType, docId);
