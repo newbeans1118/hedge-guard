@@ -63,7 +63,40 @@ public interface HgcpEventListener {
     default void onOrderExpired(OrderExpired e) {
     }
 
+    /**
+     * {@code EVT_MARKET_QUOTE}（{@code 0x020C}；{@code T-040b} 行情桥接纯增量）。
+     *
+     * <p><b>可丢语义</b>（{@code HgcpConstants} {@code EVT_MARKET_QUOTE} javadoc；§4.2.6
+     * 「事件流缓冲」行例外）：行情帧<b>不占 SEQ</b>（C++ 侧 {@code send_frame(type, 0u, body)}），
+     * 接收侧<b>不推进镜像水位</b>——与全部可靠事件不同，本回调<b>不含</b>水位语义。
+     * <b>来源选择性</b>：补数批次（{@code MSG_RESUME_DATA}）内的行情帧按 {@code CH-007}
+     * 消费侧规则在 {@link HgcpClient} 接收侧丢弃，<b>不触发本回调</b>（重放陈旧价会误导）。
+     *
+     * <p><b>消费方</b>：T-040 WS 行情通道（{@code /ws/quote}）；经 {@code WsServer.publishQuote}
+     * 覆盖式节流推送（≤5 条/秒/合约），不落库、不驱动任何自动决策（§6.13）。
+     *
+     * <p>{@code default} 空实现零破坏既有消费者（{@code T-172} 组合器与两实现均不受影响）。
+     *
+     * @param e 行情载荷（9 字段与 {@code proto/hgcp.proto} {@code EvtMarketQuote} 逐字对应）
+     */
+    default void onMarketQuote(MarketQuote e) {
+    }
+
     // ==================== 中立载荷（字段 = 线格式字段，逐字对应；无自造字段） ====================
+
+    /** {@code EvtMarketQuote} 载荷（{@code proto/hgcp.proto:663-673}，仅 9 字段）。 */
+    final class MarketQuote {
+        public String instrumentId;
+        public String lastPrice;
+        public String bidPrice1;
+        public String askPrice1;
+        public int bidVolume1;
+        public int askVolume1;
+        public String preSettlement;
+        public long quoteTsMs;
+        public long sourceTsMs;
+    }
+
 
     /** {@code EvtOrderAccepted} 载荷（{@code §4.2.8}，仅 5 字段）。 */
     final class OrderAccepted {

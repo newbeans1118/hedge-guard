@@ -321,7 +321,12 @@ class HgcpResumeMarketQuoteDropTest {
         assertEquals(Arrays.asList(HgcpConstants.EVT_MARKET_QUOTE), listener.consumedTypes,
                 "非补数批次的行情帧走既有路径（本任务只对补数批次内行情帧收口）");
         assertEquals(1, listener.quoteConsumed());
-        assertEquals(77L, client.mirrorState().watermarkEventSeq(),
-                "非批次路径水位推进不变");
+        // 【T-040b 订正（加注）】水位断言由 77 订正为 0：订正理由 = 需求面（T-040 裁定方案 A
+        //   「0x020C 不写 mirror 水位」——行情帧为可丢例外、不占 SEQ，C++ 侧 emit_quote 生产形态
+        //   佐证；原断言 77 锁定的是接线前 0x020C 落 default 分支顺带推水位的形态）。
+        //   非为过测试而放宽断言：消费透传断言（上方 quoteConsumed()==1）不变，
+        //   「不写水位」的正锚由 HgcpMarketQuoteBridgeTest.quoteDoesNotAdvanceWatermark 承接。
+        assertEquals(0L, client.mirrorState().watermarkEventSeq(),
+                "非批次行情帧不推进镜像水位（T-040b：0x020C 不写 mirror 水位）");
     }
 }

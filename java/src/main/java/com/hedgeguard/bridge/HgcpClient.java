@@ -495,6 +495,26 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
                 notifyListener(l -> l.onCommandFlow(out));
                 break;
             }
+            case HgcpConstants.EVT_MARKET_QUOTE: {
+                // T-040b 行情桥接：解析并透传监听器，但【不写镜像水位】——0x020C 为可丢例外，
+                // 生产 C++ 侧 send_frame(type, 0u, body) 不占 SEQ（event_emitter.cc emit_quote）；
+                // 若此处 advanceWatermark，会把 0 之外的无序行情帧计入水位、破坏
+                // 「水位 = 已消费可靠事件流连续性判据」口径（t_mirror_watermark 复现依据）。
+                // CH-007 拦截分支（补数批次内丢弃）在 onFrame 层先行处置，到不了这里。
+                Hgcp.EvtMarketQuote e = Hgcp.EvtMarketQuote.parseFrom(d.payload);
+                HgcpEventListener.MarketQuote out = new HgcpEventListener.MarketQuote();
+                out.instrumentId = e.getInstrumentId();
+                out.lastPrice = e.getLastPrice();
+                out.bidPrice1 = e.getBidPrice1();
+                out.askPrice1 = e.getAskPrice1();
+                out.bidVolume1 = e.getBidVolume1();
+                out.askVolume1 = e.getAskVolume1();
+                out.preSettlement = e.getPreSettlement();
+                out.quoteTsMs = e.getQuoteTsMs();
+                out.sourceTsMs = e.getSourceTsMs();
+                notifyListener(l -> l.onMarketQuote(out));
+                break;
+            }
             case HgcpConstants.EVT_FUND_RECEIPT: {
                 Hgcp.EvtFundReceipt e = Hgcp.EvtFundReceipt.parseFrom(d.payload);
                 if (idempotency.first(e.getApplyId(), seq)) {

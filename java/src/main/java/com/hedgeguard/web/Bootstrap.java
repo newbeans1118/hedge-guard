@@ -179,6 +179,8 @@ import com.hedgeguard.web.handler.spot.SpotRoutes;
 import com.hedgeguard.web.handler.settle.SettleCheckRoutes;
 import com.hedgeguard.web.handler.settle.SettleRoutes;
 import com.hedgeguard.web.handler.trade.TradeRoutes;
+import com.hedgeguard.web.ws.WsAuthorizer;
+import com.hedgeguard.web.ws.WsServer;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -222,6 +224,18 @@ public final class Bootstrap {
      */
     public static final long SYSTEM_OPERATOR_ID = 0L;
 
+    /**
+     * WS 三配置键（{@code CFG-32}；键名已冻结于 {@code CONTRACTS.md} §4.1.1/§4.3）。
+     *
+     * <p>承载于本类而非 {@code Config}：{@code Config} 的键常量面属既有冻结形态，
+     * 非本单写域；键名以契约文档为准，本类只做装配侧读取（D-19 同族「受配置保护装配」）。
+     */
+    public static final String KEY_WS_PORT = "hg.web.ws.port";
+    /** {@code CFG-32 hg.web.ws.heartbeat_ms}（缺省 30000，CONTRACTS v1.5.3 已填值）。 */
+    public static final String KEY_WS_HEARTBEAT_MS = "hg.web.ws.heartbeat_ms";
+    /** {@code CFG-32 hg.web.ws.max_connections}（缺省 200，同上）。 */
+    public static final String KEY_WS_MAX_CONNECTIONS = "hg.web.ws.max_connections";
+
     private Bootstrap() {
     }
 
@@ -257,6 +271,7 @@ public final class Bootstrap {
         JdbcConnectionFactory factory = null;
         HgcpClient hgcpClient = null;
         ParamDispatchService paramDispatchService = null;
+        WsServerHolder wsServer = null;
         AuthFilter authFilter;
 
         // ---- 条件装配：仅当 hg.db.url 已配置时才接入数据库层 ----
@@ -276,6 +291,11 @@ public final class Bootstrap {
             // HGCP 组件桥：与数据库层同姿态的「受配置保护装配」——凭据（HG_HGCP_AUTH_TOKEN）缺失即不装配。
             // 刻意先于业务服务构造：ParamDispatchService 需要一个可观测其就绪状态的桥实例。
             hgcpClient = assembleHgcpClient(config);
+            // T-040 WS 行情/告警服务端：与数据库层同姿态的「受配置保护装配」——
+            // CFG-32 hg.web.ws.port 未配置即不装配（A-2 落定形态：不得编造默认端口）。
+            // 告警面经 RiskIntradayPersistenceSink 既有的 RiskAlertNotifier 端口注入
+            // （RiskAlertNotifier.notify 与 WsServer.publishAlert 签名逐参一致，无需 sink 扩参）。
+            wsServer = assembleWsServer(config, tx, sessionStore);
             // M2 参数下发服务（T-042 S3）：唯一生产装配点，接 ParamDispatchDao + TxTemplate + 组件桥。
             // 返回值**必须留存**（记入 Assembly.paramDispatch）：丢弃后「凭据缺失 ⇒ 未装配(null)」与
             // 「已装配(实例)」在生产运行时外观完全相同、只剩一行日志可区分，即门禁判据要求的
@@ -289,7 +309,7 @@ public final class Bootstrap {
                     : "参数下发服务已装配（回执超时取 CFG-28 " + ParamDispatchServiceImpl.KEY_CMD_TIMEOUT_MS
                             + "）");
             AuthService authService = registerBusinessRoutes(router, tx, sessionStore, config,
-                    hgcpClient, paramDispatchService);
+                    hgcpClient, paramDispatchService, wsServer);
             // 认证时经 AuthService.touchSession 续期 ⇒ 会话为「空闲 30 min」滑动超时（FR-AUTH-15 验收 2）
             authFilter = new SessionAuthFilter(sessionStore, config.sessionCookieName(),
                     authService::touchSession);
@@ -305,7 +325,7 @@ public final class Bootstrap {
 
         RequestDispatcher dispatcher = new RequestDispatcher(router, staticHandler, authFilter);
         return new Assembly(dispatcher, sessionStore, pool, factory, hgcpClient,
-                paramDispatchService, router.routes().size());
+                paramDispatchService, wsServer, router.routes().size());
     }
 
     /**
@@ -329,6 +349,11 @@ public final class Bootstrap {
             // HgcpClient 的全部线程均为守护线程（start()/restartReader() 显式 setDaemon），
             // 故此处 close 只负责置 running=false 并让在途请求以「客户端已关闭」收口，不阻塞停机。
             assembly.hgcpClient().close();
+        }
+        if (assembly.wsServer() != null) {
+            // T-040：WS 服务端停机（关 accept 线程 + 节拍器 + 全部连接）。线程均为守护，
+            // close 不阻塞停机钩子。
+            assembly.wsServer().server().close();
         }
     }
 
@@ -443,6 +468,143 @@ public final class Bootstrap {
         return "hg-biz-" + pid + "-" + System.currentTimeMillis();
     }
 
+    /**
+     * 装配 WS 行情/告警服务端（{@code T-040}；{@code ARCHITECTURE.md} §7.1.11 A′ 基线，不重新选型）。
+     *
+     * <p><b>受配置保护装配（D-19 同族口径）</b>：{@code CFG-32 hg.web.ws.port} <b>未配置即不装配</b>
+     * ——CONTRACTS §4.3 明令「不得自行编造 WS 默认端口」，键缺省即视为运维未启用 WS 面。
+     * 三键映射（键名已冻结于 CONTRACTS §4.1.1，常量承载于本类——Config 键常量面非本单写域）：
+     * {@code hg.web.ws.port}（装配开关 + 监听端口）、
+     * {@code hg.web.ws.heartbeat_ms}（缺省 30000，CONTRACTS v1.5.3 已填值）、
+     * {@code hg.web.ws.max_connections}（缺省 200，同上）。
+     *
+     * <p><b>装配失败不阻断进程</b>：端口被占用等 {@link IOException} 只记一条可诊断 warning
+     * 并返回 {@code null}——与 {@link #assembleHgcpClient} 对「组件不可达」同姿态
+     * （进程保持可用，绝不因外围面启动失败）。
+     *
+     * <p><b>告警面</b>：{@link com.hedgeguard.risk_intraday.RiskAlertNotifier#notify} 与
+     * {@link WsServer#publishAlert} 参数逐参一致 ⇒ 以方法引用直连，
+     * {@link com.hedgeguard.service.impl.RiskIntradayPersistenceSink} 的既有 notifier 槽
+     * 无需扩参、无需 CONTRACTS §2 登记。告警按子账户的可见性过滤由 WsServer 侧
+     * {@link WsSubscription#matchesAlert}（W-2 安全默认空集）在推送前再次求交——
+     * 即使调用方传越权子账户也不会泄露。
+     *
+     * <p><b>行情面</b>：由调用方（{@code assembleWithResources}）在 {@code HgcpClient} 监听接缝
+     * 组合器中追加 {@link WsQuoteBridge}（补数批次内行情帧已在 {@code HgcpClient.onFrame}
+     * 按 CH-007 拦截，到不了桥），推送经 {@link WsServer#publishQuote} 覆盖式节流
+     * （{@code QUOTE_TICK_MILLIS} ≤5 条/秒/合约）。
+     *
+     * <p><b>快照源（W-5）</b>：本装配未接 {@link WsServer.SnapshotSource}——行情「最近值」
+     * 缓存当前无承载（{@code HgcpClient} 镜像无行情段），据实披露：连接建立后前端等下一次
+     * 推送（≤1s）。正确性不受影响（§4.1.2 W-5「未装配时不发送快照，不影响正确性」）。
+     *
+     * @param config      配置
+     * @param tx          事务模板（{@code WsAuthorizer.PermDaoGrantReader} 经 {@code DmUserSubAccountPermDao} 读授权）
+     * @param sessionStore 与 HTTP 同源的会话存储（握手鉴权 {@code SessionAuthFilter} 复用同一 SessionStore
+     *                    ——WS 与 REST 凭据同口径，{@code CONTRACTS §4.1}「沿用 HGSESSION Cookie」）
+     * @return 组合产物（server + 告警 notifier 槽）；未配置端口或启动失败返回 {@code null}
+     */
+    static WsServerHolder assembleWsServer(Config config, TxTemplate tx, SessionStore sessionStore) {
+        String rawPort = config.get(KEY_WS_PORT, null);
+        if (rawPort == null || rawPort.trim().isEmpty()) {
+            LOG.info("未装配 WS 服务端（" + KEY_WS_PORT + " 未配置）：/ws/quote、/ws/alert 不可用；"
+                    + "事中风控告警仅落库 + REST 补拉（既有形态不变）");
+            return null;
+        }
+        int port = Integer.parseInt(rawPort.trim());
+        int heartbeat = config.getInt(KEY_WS_HEARTBEAT_MS, 30000);
+        int maxConnections = config.getInt(KEY_WS_MAX_CONNECTIONS, 200);
+        WsServer server = new WsServer(port, heartbeat, maxConnections,
+                new SessionAuthFilter(sessionStore, config.sessionCookieName()),
+                new WsAuthorizer(failClosedGrantReader(tx), violation -> recordWsViolation(tx, violation)),
+                null);
+        try {
+            server.start();
+        } catch (IOException e) {
+            LOG.warning("WS 服务端启动失败（不阻断进程，/ws 面不可用）：端口=" + port
+                    + "；原因=" + e.getClass().getSimpleName() + "：" + e.getMessage()
+                    + "；处置=检查端口占用（CFG-32 " + KEY_WS_PORT + "）后重启");
+            server.close();
+            return null;
+        }
+        LOG.info("已装配 WS 服务端（T-040）：ws://127.0.0.1:" + server.boundPort()
+                + "（/ws/quote 行情桥=已接线·覆盖式节流 ≤5条/秒/合约；/ws/alert 告警推送=已接线"
+                + "（子账户可见性经 t_user_sub_account_perm·W-2 安全默认空集）；"
+                + "心跳=" + heartbeat + "ms；上限=" + maxConnections + " 连接；"
+                + "W-5 首帧快照=未接（行情最近值缓存无承载，据实披露））");
+        return new WsServerHolder(server,
+                (subAccountId, level, metric, value, threshold) ->
+                        server.publishAlert(subAccountId, level, metric, value, threshold));
+    }
+
+    /**
+     * WS 授权集读取的 <b>fail-closed 包装</b>（{@code W-2} 安全默认同族纪律）。
+     *
+     * <p>授权数据读取故障（库不可达/表异常）⇒ 返回<b>空集</b>（= 不下发任何数据），
+     * 绝不让读取异常把 WS 握手炸成 5xx 或把推送退化为「未过滤」。注意与
+     * {@link WsAuthorizer#authorize} 的「无授权 ⇒ 空集（不抛错）」语义同向：
+     * 本包装只兜「读取时抛异常」这一条路。
+     */
+    private static WsAuthorizer.SubAccountGrantReader failClosedGrantReader(TxTemplate tx) {
+        WsAuthorizer.SubAccountGrantReader reader =
+                new WsAuthorizer.PermDaoGrantReader(new DmUserSubAccountPermDao(tx));
+        return userId -> {
+            try {
+                return reader.grantedSubAccounts(userId);
+            } catch (RuntimeException e) {
+                LOG.warning("WS 授权集读取失败（fail-closed：按空集处理，不下发任何数据）：userId="
+                        + userId + "；原因=" + e.getClass().getSimpleName() + "：" + e.getMessage());
+                return java.util.Collections.emptySet();
+            }
+        };
+    }
+
+    /**
+     * WS 订阅越权留痕（{@code WsAuthorizer.WsViolationSink} 生产实现；{@code TB-AUTH-13}）。
+     *
+     * <p>落 {@code t_unauthorized_attempt}（{@code attempt_type='PERMISSION_DENIED'}，取值域内；
+     * {@code reject_code='10004'}）。落库失败只记日志<b>不影响裁决结果</b>——
+     * 越权已在 {@code WsAuthorizer} 被拒，留痕失败不得放大为推送面故障。
+     */
+    private static void recordWsViolation(TxTemplate tx, WsAuthorizer.WsViolation violation) {
+        try {
+            com.hedgeguard.dao.entity.UnauthorizedAttempt row =
+                    new com.hedgeguard.dao.entity.UnauthorizedAttempt();
+            row.operatorId = violation.userId;
+            row.attemptType = "PERMISSION_DENIED";
+            row.attemptDesc = violation.desc;
+            row.targetResource = "/ws/**";
+            row.subAccountId = violation.subAccountId;
+            row.rejectReason = "10004 子账户权限不足，订阅被拒绝（W-2 安全默认）";
+            row.rejectCode = "10004";
+            row.attemptTime = violation.at;
+            new DmUnauthorizedAttemptDao(tx).insert(row, violation.userId);
+        } catch (RuntimeException e) {
+            LOG.warning("WS 越权留痕落库失败（不影响已生效的拒绝裁决）："
+                    + e.getClass().getSimpleName() + "：" + e.getMessage());
+        }
+    }
+
+    /** WS 装配产物（server + 告警 notifier 槽）。包内可见，供 Assembly、路由装配与单测取证。 */
+    static final class WsServerHolder {
+
+        final WsServer server;
+        final com.hedgeguard.risk_intraday.RiskAlertNotifier alertNotifier;
+
+        WsServerHolder(WsServer server, com.hedgeguard.risk_intraday.RiskAlertNotifier alertNotifier) {
+            this.server = server;
+            this.alertNotifier = alertNotifier;
+        }
+
+        WsServer server() {
+            return server;
+        }
+
+        com.hedgeguard.risk_intraday.RiskAlertNotifier alertNotifier() {
+            return alertNotifier;
+        }
+    }
+
     /** 由 {@code CFG-31 hg.db.pool.*} 构造池参数；缺省取 {@link PoolConfig} 默认值。 */
     static PoolConfig poolConfig(Config config) {
         return new PoolConfig(
@@ -464,7 +626,8 @@ public final class Bootstrap {
     private static AuthService registerBusinessRoutes(Router router, TxTemplate tx,
                                                       SessionStore sessionStore, Config config,
                                                       TradingBridge bridge,
-                                                      ParamDispatchService paramDispatchService) {
+                                                      ParamDispatchService paramDispatchService,
+                                                      WsServerHolder wsServer) {
         DmProductSpotCategoryDao productSpotCategoryDao = new DmProductSpotCategoryDao(tx);
         DmExposureDao exposureDao = new DmExposureDao(tx);
         DmProductContractDao productContractDao = new DmProductContractDao(tx);
@@ -641,7 +804,8 @@ public final class Bootstrap {
                 + "复算口径=C++ risk_engine（R-RISK-4/5/6）；期限统计无承载表（经返回项展示）");
 
         IntradayRiskMonitor monitor = registerRiskIntradayRoute(router, config, bridge,
-                paramDispatchService, authService, tx, lossTrigger);
+                paramDispatchService, authService, tx, lossTrigger,
+                wsServer == null ? null : wsServer.alertNotifier());
         // M3 风控告警查询与处置面（T-065）：GET /risk/alert（FR-RISK-19）+ POST /risk/alert/{id}/dispose
         // （FR-RISK-15/16）。处置的「限制/解除新开仓」经既有 ParamDispatchServiceImpl 下发
         // CMD_SET_TRADING_SUSPEND(0x0118)（scan_scope=OPEN_ONLY，R-RISK-5）；桥不可用时端口为 null（拒绝下发）。
@@ -656,12 +820,22 @@ public final class Bootstrap {
         // T-172 事件面接线：生产装配（bridge = HgcpClient）时注册事件消费监听接缝 ——
         // EVT_TRADE_FILL → recordTrade（异常下单行为）+ 每事件 → evaluate()（评估泵，验收 2）。
         // 非 HgcpClient（测试桩）或缺省不装配时跳过；仅推进会水位的接线前行为不变（nullable seam）。
+        // T-040 行情桥接：组合器再并联 WsQuoteBridge（WS 已装配时）——EVT_MARKET_QUOTE →
+        // WsServer.publishQuote 覆盖式节流推送；补数批次内行情帧已被 HgcpClient.onFrame
+        // 按 CH-007 拦截丢弃，到不了桥（不破坏 CH-007、不占 SEQ、不写镜像水位）。
         if (bridge instanceof HgcpClient && monitor != null) {
             // 单槽接缝：组合「事中风控投喂（IntradayEventFeed）」与「交易执行落库（TradeService.HgcpEventSink）」，两者均被回调。
             // ProductIdResolver 接 Q-5 真值（order_id→product_id 经提交上下文），替代 IntradayEventFeed 恒 0 缺省。
             IntradayEventFeed feed = new IntradayEventFeed(monitor, tradeService::productIdForOrder);
             TradeService.HgcpEventSink sink = tradeService.new HgcpEventSink();
-            ((HgcpClient) bridge).setEventListener(new CompositeHgcpEventListener(feed, sink));
+            java.util.List<HgcpEventListener> consumers =
+                    new java.util.ArrayList<>(Arrays.asList(feed, sink));
+            if (wsServer != null) {
+                consumers.add(new WsQuoteBridge(wsServer.server()));
+                LOG.info("已接线 WS 行情桥（T-040）：EVT_MARKET_QUOTE→/ws/quote（覆盖式节流）");
+            }
+            ((HgcpClient) bridge).setEventListener(new CompositeHgcpEventListener(
+                    consumers.toArray(new HgcpEventListener[0])));
             LOG.info("已接线 HGCP 事件消费（T-172）：EVT_TRADE_FILL→recordTrade + 每事件→evaluate()"
                     + " + 六事件富化落库（Q-5 品种级解析=提交上下文真值）");
         }
@@ -761,7 +935,8 @@ public final class Bootstrap {
                                                   TradingBridge bridge,
                                                   ParamDispatchService paramDispatchService,
                                                   AuthService authService, TxTemplate tx,
-                                                  MajorEventLossThresholdTrigger lossTrigger) {
+                                                  MajorEventLossThresholdTrigger lossTrigger,
+                                                  com.hedgeguard.risk_intraday.RiskAlertNotifier wsAlertNotifier) {
         TradingSuspender suspender = paramDispatchService instanceof ParamDispatchServiceImpl
                 ? (subAccountId, reason, operatorId) ->
                         ((ParamDispatchServiceImpl) paramDispatchService)
@@ -772,10 +947,11 @@ public final class Bootstrap {
         // T-065：真实落库 sink（t_risk_alert / t_risk_metric_snapshot / t_mirror_watermark /
         // t_abnormal_order_stat），经 AsyncRiskMetricSink 异步下游落库 —— 事件消费线程零 DB（R-RISK-10）。
         // T-188：组合 sink 再并联重大事项亏损阈值触发器（盘中镜像轨，提醒级；单下游失败隔离）。
-        // 实时推送端口 notifier = null：WsServer 生产装配属 T-040（BLOCKED），接入后即通（补拉侧 REST 本单已实现）。
+        // 实时推送端口 notifier 由 T-040 装配（assembleWsServer 注入 wsAlertNotifier），
+        // 未装配 WS 时仍为 null（仅落库不推送，既有形态不变）。
         RiskIntradayPersistenceSink persistence = new RiskIntradayPersistenceSink(tx,
                 new DmRiskAlertDao(tx), new DmRiskMetricSnapshotDao(tx), new DmMirrorWatermarkDao(tx),
-                new DmAbnormalOrderStatDao(tx), null,
+                new DmAbnormalOrderStatDao(tx), wsAlertNotifier,
                 () -> tracker.snapshot(thresholds, RiskIntradayPersistenceSink.INTRADAY_WINDOW_MINUTES,
                         RiskIntradayPersistenceSink.ROLLING_WINDOW_MINUTES),
                 RiskIntradayPersistenceSink.DEFAULT_COMPONENT_ID, SYSTEM_OPERATOR_ID,
@@ -787,7 +963,8 @@ public final class Bootstrap {
         LOG.info("已装配事中风控模块（risk_intraday）：GET " + MirrorStatusHandler.PATH
                 + "；自动限制开仓=" + thresholds.autoSuspendEnabled
                 + "；限制端口=" + (suspender == null ? "未装配（仅告警）" : "已装配（OPEN_ONLY）")
-                + "；落库 sink=已装配（异步下游）；实时推送端口=未装配（T-040 承接）");
+                + "；落库 sink=已装配（异步下游）；实时推送端口=" + (wsAlertNotifier == null
+                        ? "未装配（WS 未启用）" : "已装配（/ws/alert 经 WsServer.publishAlert）"));
         return monitor;
     }
 
@@ -819,6 +996,11 @@ public final class Bootstrap {
         @Override
         public void onEventConsumed(int eventType, long seq) {
             each(l -> l.onEventConsumed(eventType, seq));
+        }
+
+        @Override
+        public void onMarketQuote(HgcpEventListener.MarketQuote e) {
+            each(l -> l.onMarketQuote(e));
         }
 
         @Override
@@ -859,6 +1041,43 @@ public final class Bootstrap {
         @Override
         public void onOrderExpired(HgcpEventListener.OrderExpired e) {
             each(l -> l.onOrderExpired(e));
+        }
+    }
+
+    /**
+     * 行情桥接器（{@code T-040} 要求 2）：{@code EVT_MARKET_QUOTE} → {@link WsServer#publishQuote}。
+     *
+     * <p><b>CH-007 不破坏论证</b>：拦截点在 {@code HgcpClient.onFrame} 的
+     * 「{@code fromResumeBatch && type==EVT_MARKET_QUOTE}」分支（{@code HgcpClient.java} 既有行，
+     * 本单零改动）——补数批次内的行情帧在该分支被丢弃（不消费、不推进水位、不透传监听器），
+     * <b>到不了本桥</b>；本桥只接收实时路径（非补数批次）的行情载荷。
+     * 线格式侧 0x020C 本就不占 SEQ（C++ {@code EventEmitter::emit_quote} 走可丢例外，
+     * 且配额不写入镜像水位 ⇒ 不进补数缓冲），故「不占 SEQ / 不写 mirror 水位」双侧成立。
+     *
+     * <p><b>不阻塞</b>：{@code publishQuote} 为覆盖式 {@code ConcurrentHashMap.put}（纳秒级），
+     * 实际推送由 WsServer 既有节拍器（{@code QUOTE_TICK_MILLIS} = 200ms ⇒ ≤5 条/秒/合约）承担——
+     * 满足 {@code hgcp-reader} 单线程「不得阻塞」约束（{@code R-RISK-10} 同族）。
+     *
+     * <p><b>载荷映射</b>：{@code publishQuote(instrument, last, bid, ask)} 四参与 W-1 线格式
+     * {@code /ws/quote} 消息字段一一对应；{@code EvtMarketQuote} 其余 5 字段（volume/pre_settlement/
+     * ts）在 W-1 冻结的 quote 消息形态中无承载位（§4.1.1 已冻结），据实不透传（不自造字段）。
+     */
+    static final class WsQuoteBridge implements HgcpEventListener {
+
+        private final WsServer server;
+
+        WsQuoteBridge(WsServer server) {
+            this.server = server;
+        }
+
+        @Override
+        public void onMarketQuote(HgcpEventListener.MarketQuote e) {
+            if (e == null || e.instrumentId == null || e.instrumentId.isEmpty()) {
+                return;
+            }
+            server.publishQuote(e.instrumentId, e.lastPrice,
+                    e.bidPrice1 == null ? "" : e.bidPrice1,
+                    e.askPrice1 == null ? "" : e.askPrice1);
         }
     }
 
@@ -913,17 +1132,20 @@ public final class Bootstrap {
         private final HgcpClient hgcpClient;
         /** 参数下发服务（M2，{@code T-042} S3）；凭据缺失/桥未装配时为 {@code null}。 */
         private final ParamDispatchService paramDispatchService;
+        /** WS 行情/告警服务端组合产物（{@code T-040}）；CFG-32 未配置/启动失败时为 {@code null}。 */
+        private final WsServerHolder wsServer;
         private final int routeCount;
 
         Assembly(RequestDispatcher dispatcher, SessionStore sessionStore, DataSourcePool pool,
                  JdbcConnectionFactory factory, HgcpClient hgcpClient,
-                 ParamDispatchService paramDispatchService, int routeCount) {
+                 ParamDispatchService paramDispatchService, WsServerHolder wsServer, int routeCount) {
             this.dispatcher = dispatcher;
             this.sessionStore = sessionStore;
             this.pool = pool;
             this.factory = factory;
             this.hgcpClient = hgcpClient;
             this.paramDispatchService = paramDispatchService;
+            this.wsServer = wsServer;
             this.routeCount = routeCount;
         }
 
@@ -958,6 +1180,18 @@ public final class Bootstrap {
          */
         ParamDispatchService paramDispatchService() {
             return paramDispatchService;
+        }
+
+        /**
+         * WS 服务端组合产物：{@code CFG-32} 未配置或启动失败时为 {@code null}。
+         *
+         * <p>使「是否真的装上」在生产运行时<b>可观测</b>（与 {@code paramDispatchService} 同姿态），
+         * 并供装配级用例断言与 {@link #close(Assembly)} 释放。
+         *
+         * @return WS 组合产物；未装配时为 {@code null}
+         */
+        WsServerHolder wsServer() {
+            return wsServer;
         }
 
         /** 已注册路由条数（含平台级 ping 的 GET/HEAD）。 */
