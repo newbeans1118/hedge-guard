@@ -584,7 +584,7 @@ M1 交付域（AUTH/CONFIG/PRODUCT/SPOT/PLAN 五模块）六轴全部实扫：�
 
 **观察（不开单）**：
 - O1：`ConfigService` 五服务中唯一可见性强制点计数为 0（CONFIG 资源为全局/账户级，子账户维度不适用），与 v1.5.11 §8.2「层③账户级不适用子账户维度哨兵」口径自洽——留观 T-119 落地时 CONFIG 写面须挂 `assertCanConfigureAccountLevel`，届时本观察自动闭。
-- O2：`M1EndToEndAcceptanceTest` 11 用例聚焦 PLAN 隔离/取号域；AUTH/CONFIG/PRODUCT/SPOT 四模块无同等装配级 e2e 类（各模块覆盖靠 service/handler 分层用例 1223 全量），非缺口（M2 e2e T-058 已覆盖装配级面），列观察防「M1 e2e = 全模块」误读。
+- O2：`M1EndToEndAcceptanceTest` 11 用例聚焦 PLAN 隔离/取号域；AUTH/CONFIG/PRODUCT/SPOT 四模块无同等装配级 e2e 类（各模块覆盖靠 service/handler 分层用例 1223 全量），非缺口（M2 e2e T-058 已覆盖装配级面），列观察防「M1 e2e = 全模块」误读。　**📌 结案加注（2026-10-22，用户批准 cr-t025 遗留处置批；只加不改）**：M2 装配级 e2e 已由 `T-058`（DONE，M2EndToEndAcceptanceTest 10 用例）承载全模块装配面——本观察**结案不开单**，仅防「M1 e2e = 全模块」误读的历史标注价值保留。
 
 ## M1.7 一致性核对（文档 vs 实现，抽验）
 
