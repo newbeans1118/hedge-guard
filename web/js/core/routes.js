@@ -37,8 +37,11 @@
  *           POST /plan/{id}/{submit|approve|reject|withdraw|freeze|unfreeze|terminate|extend}、
  *           GET|POST /plan/{id}/trade-plans、POST /plan/ratio/{simple|minvar|custom}
  *   PING    GET|HEAD /ping
- * ## 未注册（前端**不得**调用；handler/ 下无该模块目录，见 Q-FE-001）
- *   `/risk/dashboard`、`/trade/order`、其余模块（risk/trade/settle/acct/fund/audit）
+ * ## 未注册（前端**不得**调用；handler/ 下无对应 (方法, 路径) 对——调用即 404，见 Q-FE-001）
+ *   余量逐键见 NOT_REGISTERED：RISK 5 路径（T-070 登记）+ TRADE 9 路径（T-053 登记）。
+ *   TRADE 的 `/trade/order` 已随 T-046 注册写入面 3 对（POST /trade/order、
+ *   POST /trade/order/{id}/confirm、POST /trade/order/{id}/cancel）——见下方 TRADE 键；
+ *   NOT_REGISTERED.TRADE_ORDER 键保留仅作既有探针（t070_risk_probe）与历史镜像锚，勿据其发起调用。
  *
  * 边界：只暴露路径常量；不拼业务参数、不做业务判定。
  */
@@ -167,7 +170,19 @@ export const ROUTES = {
     RISK_FORCE_CLOSE_HINT: '/risk/force-close-hint',
     RISK_VIOLATION: '/risk/violation',
     RISK_POST_REPORT: '/risk/post-report',
-    TRADE_ORDER: '/trade/order'
+    // T-053 补登记：ApiRoutes TRADE 路径表 12 路径中未注册方法对的 9 个（页面保留 Tab 框架 +
+    // 「未注册」诚实提示，缺口只报不改——属后续立号承接，cr-t025 R1-004 判例）。
+    // 历史登记 TRADE_ORDER 已随 T-046 注册为写入端点（键保留勿删，见上方文件头口径）。
+    TRADE_ORDER: '/trade/order',
+    TRADE_ORDER_REPORT: '/trade/order-report',
+    TRADE_FILL: '/trade/fill',
+    TRADE_POSITION: '/trade/position',
+    TRADE_REASON: '/trade/reason',
+    TRADE_REJECT_RECORD: '/trade/reject-record',
+    TRADE_FLOW: '/trade/flow',
+    TRADE_QUOTE: '/trade/quote/{instrument}',        // 含占位符——参数化调用前须先有 Handler
+    TRADE_STRATEGY: '/trade/strategy',
+    TRADE_EXPORT: '/trade/export'
   },
   // T-077/T-078：套期会计首批键（hedge-relation / effectiveness / rebalance 各 GET|POST）。
   // T-079/T-080/T-083：凭证与期间面 + 效果与上报面全量接齐。
@@ -194,6 +209,17 @@ export const ROUTES = {
     voucherReview: (id) => '/acct/voucher/' + enc(id) + '/review',     // POST 凭证审核（R-ACCT-6 岗位分离；FR-ACCT-7）
     voucherReverse: (id) => '/acct/voucher/' + enc(id) + '/reverse',   // POST 凭证冲销（反向凭证 + 双人复核 DC-032；FR-ACCT-13）
     periodClose: (id) => '/acct/period/' + enc(id) + '/close'          // POST 关账/撤销关账（三前置 + 双人复核 R-ACCT-8；FR-ACCT-12）
+  },
+  // T-053：交易执行（FR-TRADE-1~18）。**端点注册面不对称**——ApiRoutes TRADE 路径表登记 12 路径，
+  // 但 handler/trade/TradeRoutes.java（T-046）仅注册 3 对写入面：
+  //   POST /trade/order                  提交交易指令（不落库，经桥接下发 C++；FR-TRADE-1）
+  //   POST /trade/order/{id}/confirm     人工确认后发出（FR-TRADE-2；confirmToken 线格式必填 0x1018）
+  //   POST /trade/order/{id}/cancel      撤单（FR-TRADE-6；reason 可选）
+  // 请求字段以 TradeService.SubmitRequest / ReasonInput 实测为准（camelCase）。
+  // 读取面 9 路径未注册（见 NOT_REGISTERED.TRADE_*），页面保留 Tab 框架 + 「未注册」诚实提示。
+  TRADE: {
+    ORDER: '/trade/order',                              // POST 提交指令（写类：携带 Idempotency-Key）
+    orderAction: (id, action) => '/trade/order/' + enc(id) + '/' + enc(action) // POST confirm | cancel（TradeOrderActionHandler.Action.path()）
   }
 };
 
