@@ -142,19 +142,30 @@ HG.router.register = realRegister;
 
 /* ================= 断言 0：SETTLE 端点面对账（== ApiRoutes.java SETTLE 模块 12 路径 / 15 方法对） ================= */
 const R = HG.routes.SETTLE;
-ok(R === undefined, 'routes.js 无 SETTLE 键（T-054 只读核对结论：键集增删回报编排者裁决，本单禁写 routes.js）');
+ok(R !== undefined, 'routes.js SETTLE 键已由编排者落法承接（fe-t054 键清单逐字采纳，第 255 轮补3 裁决）；页面须改读 HG.routes.SETTLE');
+ok(R.CTP_DATA === '/settle/ctp-data', 'routes SETTLE.CTP_DATA 逐字');
+ok(R.CYCLE === '/settle/cycle', 'routes SETTLE.CYCLE 逐字');
+ok(typeof R.cycleAction === 'function' && R.cycleAction(7, 'reconcile') === '/settle/cycle/7/reconcile', 'routes SETTLE.cycleAction 参数化');
+ok(R.DIFFERENCE === '/settle/difference', 'routes SETTLE.DIFFERENCE 逐字');
+ok(R.REPORT === '/settle/report', 'routes SETTLE.REPORT 逐字');
+ok(R.MARGIN === '/settle/margin', 'routes SETTLE.MARGIN 逐字');
+ok(R.STRESS_TEST === '/settle/stress-test', 'routes SETTLE.STRESS_TEST 逐字');
+ok(R.MONTHLY_CHECK === '/settle/monthly-check', 'routes SETTLE.MONTHLY_CHECK 逐字');
+ok(R.QUARTERLY_REPORT === '/settle/quarterly-report', 'routes SETTLE.QUARTERLY_REPORT 逐字');
+ok(R.EXPORT === '/settle/export', 'routes SETTLE.EXPORT 逐字');
 // 页面内路径常量对账（源码级逐字断言；调用面在下方各 Tab 逐一断言）
 const src = (await import('node:fs')).readFileSync(new URL('../../web/js/pages/settle.js', import.meta.url), 'utf8');
-ok(src.includes("CTP_DATA: '/settle/ctp-data'"), 'S.CTP_DATA 逐字 /settle/ctp-data');
-ok(src.includes("CYCLE: '/settle/cycle'"), 'S.CYCLE 逐字 /settle/cycle');
-ok(src.includes("DIFFERENCE: '/settle/difference'"), 'S.DIFFERENCE 逐字 /settle/difference');
-ok(src.includes("REPORT: '/settle/report'"), 'S.REPORT 逐字 /settle/report');
-ok(src.includes("MARGIN: '/settle/margin'"), 'S.MARGIN 逐字 /settle/margin');
-ok(src.includes("STRESS_TEST: '/settle/stress-test'"), 'S.STRESS_TEST 逐字 /settle/stress-test');
-ok(src.includes("MONTHLY_CHECK: '/settle/monthly-check'"), 'S.MONTHLY_CHECK 逐字 /settle/monthly-check');
-ok(src.includes("QUARTERLY_REPORT: '/settle/quarterly-report'"), 'S.QUARTERLY_REPORT 逐字 /settle/quarterly-report');
-ok(src.includes("EXPORT: '/settle/export'"), 'S.EXPORT 逐字 /settle/export');
-ok(src.includes("'/settle/cycle/' + encodeURIComponent(id) + '/' + encodeURIComponent(action)"), 'S.cycleAction 参数化 /settle/cycle/{id}/{action}');
+const routesSrc = (await import('node:fs')).readFileSync(new URL('../../web/js/core/routes.js', import.meta.url), 'utf8'); // T-054 键迁移后字面量真源 = routes.js SETTLE 块（第 255 轮补3 落法）
+ok(routesSrc.includes("CTP_DATA: '/settle/ctp-data'"), 'S.CTP_DATA 逐字 /settle/ctp-data');
+ok(routesSrc.includes("CYCLE: '/settle/cycle'"), 'S.CYCLE 逐字 /settle/cycle');
+ok(routesSrc.includes("DIFFERENCE: '/settle/difference'"), 'S.DIFFERENCE 逐字 /settle/difference');
+ok(routesSrc.includes("REPORT: '/settle/report'"), 'S.REPORT 逐字 /settle/report');
+ok(routesSrc.includes("MARGIN: '/settle/margin'"), 'S.MARGIN 逐字 /settle/margin');
+ok(routesSrc.includes("STRESS_TEST: '/settle/stress-test'"), 'S.STRESS_TEST 逐字 /settle/stress-test');
+ok(routesSrc.includes("MONTHLY_CHECK: '/settle/monthly-check'"), 'S.MONTHLY_CHECK 逐字 /settle/monthly-check');
+ok(routesSrc.includes("QUARTERLY_REPORT: '/settle/quarterly-report'"), 'S.QUARTERLY_REPORT 逐字 /settle/quarterly-report');
+ok(routesSrc.includes("EXPORT: '/settle/export'"), 'S.EXPORT 逐字 /settle/export');
+ok(src.includes('HG.routes.SETTLE') && src.includes('const S = HG.routes.SETTLE;'), 'S 已迁移为 HG.routes.SETTLE 别名（第 255 轮补3 落法·零调用面改动）');
 ok(registeredPaths.includes('/settle'), '/settle 路由已注册');
 
 /* ---------------- 页面渲染与 Tab 走查辅助 ---------------- */
@@ -529,7 +540,8 @@ switchTab('export');
 {
   // 页面源码中出现的全部 /settle/ 前缀路径字面量必须 ∈ ApiRoutes SETTLE 12 路径
   const srcAll = (await import('node:fs')).readFileSync(new URL('../../web/js/pages/settle.js', import.meta.url), 'utf8');
-  const literals = new Set((srcAll.match(/'\/settle\/[a-z-]+'/g) || []).map((s) => s.slice(1, -1)));
+  const routesAll = (await import('node:fs')).readFileSync(new URL('../../web/js/core/routes.js', import.meta.url), 'utf8'); // 负例① 扫描面扩展：S 迁移后页面字面量真源含 routes.js
+  const literals = new Set(((srcAll + routesAll).match(/'\/settle\/[a-z-]+'/g) || []).map((s) => s.slice(1, -1)));
   const REGISTERED = new Set(['/settle/ctp-data', '/settle/cycle', '/settle/difference', '/settle/report',
     '/settle/margin', '/settle/stress-test', '/settle/monthly-check', '/settle/quarterly-report', '/settle/export']);
   let allIn = true;

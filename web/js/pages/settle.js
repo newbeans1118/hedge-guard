@@ -64,18 +64,9 @@ const F = HG.format;
  * 路径常量（页面内承载；逐字取自 ApiRoutes.byModule().get("SETTLE")。
  * routes.js SETTLE 键落地后整体迁移——迁移时逐字不变，见文件头「routes.js 键」节）
  * ------------------------------------------------------------------ */
-const S = {
-  CTP_DATA: '/settle/ctp-data',
-  CYCLE: '/settle/cycle',
-  cycleAction: (id, action) => '/settle/cycle/' + encodeURIComponent(id) + '/' + encodeURIComponent(action),
-  DIFFERENCE: '/settle/difference',
-  REPORT: '/settle/report',
-  MARGIN: '/settle/margin',
-  STRESS_TEST: '/settle/stress-test',
-  MONTHLY_CHECK: '/settle/monthly-check',
-  QUARTERLY_REPORT: '/settle/quarterly-report',
-  EXPORT: '/settle/export'
-};
+// T-054 交付时页面内常量；第 255 轮补3 编排者裁决 routes.js SETTLE 键落地 ⇒ 整体迁移至
+// HG.routes.SETTLE（逐字不变，见 routes.js T-054 补登记块）。S 保留为迁移别名（零调用面改动）。
+const S = HG.routes.SETTLE;
 
 /* ------------------------------------------------------------------ *
  * 取值域（以 SettleService 常量与 DATA_MODEL 冻结域实测为准）

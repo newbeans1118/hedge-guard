@@ -220,6 +220,20 @@ export const ROUTES = {
   TRADE: {
     ORDER: '/trade/order',                              // POST 提交指令（写类：携带 Idempotency-Key）
     orderAction: (id, action) => '/trade/order/' + enc(id) + '/' + enc(action) // POST confirm | cancel（TradeOrderActionHandler.Action.path()）
+  },
+  // T-054 补登记：SETTLE 模块 12 路径（15 方法对；与 ApiRoutes BY_MODULE.SETTLE 对齐——
+  //   fe-t054 交付 8c2f389 页面内常量迁移源；cycleAction 参数化沿 PLAN.action 先例）。
+  SETTLE: {
+    CTP_DATA: '/settle/ctp-data',
+    CYCLE: '/settle/cycle',
+    cycleAction: (id, action) => '/settle/cycle/' + enc(id) + '/' + enc(action),
+    DIFFERENCE: '/settle/difference',
+    REPORT: '/settle/report',
+    MARGIN: '/settle/margin',
+    STRESS_TEST: '/settle/stress-test',
+    MONTHLY_CHECK: '/settle/monthly-check',
+    QUARTERLY_REPORT: '/settle/quarterly-report',
+    EXPORT: '/settle/export'
   }
 };
 
