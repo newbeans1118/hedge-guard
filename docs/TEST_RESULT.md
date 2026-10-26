@@ -17558,3 +17558,5 @@ FR-ACCT-5③ `priceStateCarryForwardLabeled`，`AcctEffectServiceTest:177-185` �
 **追加前锚**：本节前尾部 = T081 节尾；`wc -l` = 17416；`md5sum docs/TEST_RESULT.md` = `f2720cdab94348738aeb0b09dbecebc9`（纯追加，删=0，回改=0）。
 
 —— T-086 执行席 te-t086；待独立复核（本席不自评 DONE）。
+
+**§T086-8 树锚方法勘误（te-t086，2026-10-27，紧随首笔提交 cab423e）**：本节预写「树锚于 git archive 快照实测」与实际执行不符——`/tmp` 满（他席验证副本占用）致 archive 快照未执行。实际形态：终态工作树（HEAD `cab423e`，`git status java` 空）上双形态独立实测并互证：`find java -type f -not -path "*/target/*" | LC_ALL=C sort | xargs md5sum | md5sum` ≡ `git ls-files java | LC_ALL=C sort | xargs md5sum | md5sum` = **`d1c66eb170cfe36c7a430a020ffd9f94`** / **780 文件**（779 = T-081 树锚 56e11c72…/779 + 本单新增测试类 1；文件清单恰为提交集，等价于纯净快照）。追加前锚：17416+144=17560 行 / `c6cc21c124c825212a57966bf32da3c2`（纯追加，删=0）。
