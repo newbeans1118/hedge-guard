@@ -33,3 +33,4 @@ cr-t025 `R1-002`（用户批准收口）：`SessionAuthFilter` 会话白名单**
 | 时间 | 处理人 | 动作 | 结论 |
 |------|--------|------|------|
 | 2026-10-26 | 编排者 | 用户批准派发（cr-t025 R1-002 收口；实例 be-t203） | OPEN，待 backend-engineer#java 处置 |
+| 2026-10-26 | be-t203 | PUBLIC_EXACT 三项改 `ApiRoutes.full` 拼装（与 FORCE_CHANGE_ALLOWED 同形）+ 新增 `SessionAuthFilterWhitelistTest` 5 用例（派生等值/冻结值钉/负例/行为级/源残留守卫）| 已修复，待独立复核——提交号见回报；★披露：工单 grep 形态 `'"/api/v1/'` 与合法取值形状重合（`"POST /api/v1/...` 引号后跟方法名）恒 0 命中＝盲守卫，变异实证后按「非注释行含 /api/v1/ =0（javadoc 豁免）」收紧，变异 M1（回退字面量）/M2（路径脱钩）双杀 |
