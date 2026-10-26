@@ -505,30 +505,32 @@ switchTab('checks');
   ok(textOf(cardOf(sBtn)).includes('签署已受理'), 'checks：签署受理反馈渲染');
 }
 
-/* ================= Tab export：JSON 信封转 CSV（张力披露）+ 空数据不生成 ================= */
+/* ================= Tab export：CSV 直返下载（T-204 起 /settle/export 返回 CSV；空数据不生成 + 数据态） ================= */
 switchTab('export');
 {
-  ok(textOf(root).includes('JSON 信封'), 'export：导出形态张力披露（工单要求 1③）');
-  ok(textOf(root).includes('CSV'), 'export：CSV 转换声明');
-  // 空数据
-  HG.api._stub('GET /settle/export', () => ({ exportTime: '2026-10-21T20:00:00', exportedBy: 1, columns: ['tradeDate', 'aggResult'], rows: [] }));
+  ok(textOf(root).includes('已直返化'), 'export：导出形态已直返化声明（T-204，替代原 JSON 信封张力披露）');
+  ok(textOf(root).includes('CSV'), 'export：CSV 直返声明（HG.api.download 形态）');
+  // 空数据：后端空态契约 = 仅表头一行（/fund/export、/product/export 先例同构：服务端恒回
+  // CSV 表头行，前端以「行数 ≤ 1」判空、不触发下载并提示）
+  HG.api._stub('GET /settle/export', () => 'section,settleNo,tradeDate,subAccountId,status,equity,aggResult,exportTime,exportedBy\r\n');
   const eBtn = findBtnByText(root, '导出结算报表');
   await eBtn.click(); await tick();
   ok(textOf(cardOf(eBtn)).includes('暂无数据') && textOf(cardOf(eBtn)).includes('不生成'), 'export：无数据不生成文件（FR-SETTLE-16 验收 3）');
-  // 数据态：渲染预览表 + 触发下载
-  HG.api._stub('GET /settle/export', () => ({ exportTime: '2026-10-21T20:00:00', exportedBy: 1, columns: ['tradeDate', 'subAccountId', 'closePnl', 'aggResult'], rows: [{ tradeDate: '2026-10-20', subAccountId: 8, closePnl: '100.00', aggResult: 'CONSISTENT' }] }));
+  // 数据态：CSV 直返（meta 行 + data 行，T-195 先例同构）→ 走 download
+  HG.api._stub('GET /settle/export', () => 'section,settleNo,tradeDate,subAccountId,status,equity,aggResult,exportTime,exportedBy\r\n'
+    + 'meta,,,,,,,2026-10-21T20:00:00,1\r\n'
+    + 'data,ST-20261020-1,2026-10-20,8,RECONCILED,12345.00,CONSISTENT,,\r\n');
   HG.api._calls.length = 0;
   await eBtn.click(); await tick();
-  ok(textOf(cardOf(eBtn)).includes('导出就绪'), 'export：数据态渲染导出就绪反馈');
-  ok(textOf(cardOf(eBtn)).includes('CONSISTENT'), 'export：预览表渲染（含加总对账结论列，FR-SETTLE-16 验收 1）');
-  const eCall = HG.api._calls.find((c) => c.p === '/settle/export');
-  ok(!!eCall, 'export：GET /settle/export 已调用');
+  const dl = HG.api._calls.find((c) => c.m === 'DOWNLOAD' && c.p === '/settle/export');
+  ok(!!dl, 'export：数据态走 HG.api.download（T-204 CSV 直返契约）');
+  ok(textOf(cardOf(eBtn)).includes('数据行') && textOf(cardOf(eBtn)).includes('正在触发下载'), 'export：数据态反馈下载动作（含数据行计数）');
   // 筛选参数透传
   findInput(root, 'st-e-sub').value = '8';
   findInput(root, 'st-e-from').value = '2026-10-01';
   HG.api._calls.length = 0;
   await eBtn.click(); await tick();
-  const e2 = HG.api._calls.find((c) => c.p === '/settle/export');
+  const e2 = HG.api._calls.find((c) => c.m === 'DOWNLOAD' && c.p === '/settle/export');
   ok(e2 && e2.q.subAccountId === '8' && e2.q.from === '2026-10-01', 'export：筛选参数透传（from/subAccountId）');
   // 错误态
   HG.api._stub('GET /settle/export', () => { throw { code: 10003, message: '功能权限不足' }; });

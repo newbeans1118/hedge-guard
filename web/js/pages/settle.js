@@ -40,10 +40,10 @@
  *     SystemTradeRow）生产由事件流承接（T-172 域）——本页「执行结算」的明细粘贴区仅为
  *     服务方法接缝的演练入口，生产数据面以事件接线为准（诚实披露，不冒充已自动化）。
  *
- * ## 导出形态张力披露（工单要求 1③，TE-T069-003/T-195 先例）
- *   后端 GET /settle/export 现为 **JSON 信封**承载（ExportResult：exportTime/exportedBy/columns/rows），
- *   与 FR-SETTLE-16 输出「CSV/报表文件」的直返形态存在张力。本页在浏览器侧将 columns/rows
- *   转换为 CSV 触发下载（不改后端）；CSV **直返化**须后端变更承接（T-193/T-195 先例），已披露待裁。
+ * ## 导出形态（T-204 已直返化；T-054 披露①用户裁定 A 案，2026-10-26）
+ *   后端 GET /settle/export 为 **CSV 直返**（text/csv + Content-Disposition；ConfigExportHandler/
+ *   FundExportHandler/T-193 单表导出先例同构）。本页经 HG.api.download 取回 blob 触发下载，
+ *   以「行数 ≤ 1」（仅表头）判空——无数据不生成文件并显式提示（FR-SETTLE-16 验收 3）。
  *
  * ## 幂等纪律
  *   写操作（ctp-data/执行结算/核对/对账/关账/差异处理/任务生成/签署）一律携带 Idempotency-Key
@@ -923,15 +923,9 @@ function checksTab(container) {
 }
 
 /* ------------------------------------------------------------------ *
- * Tab 6：导出（FR-SETTLE-16；GET /settle/export —— JSON 信封，浏览器侧转 CSV 下载，
- *        张力披露见文件头「导出形态张力披露」）
+ * Tab 6：导出（FR-SETTLE-16；T-204 起 GET /settle/export 返回 CSV 直返——
+ *        Content-Type=text/csv，前端以 HG.api.download 下载；与 /fund/export 同构）
  * ------------------------------------------------------------------ */
-/** CSV 单元格转义（含逗号/引号/换行则包裹双引号）。 */
-function csvCell(v) {
-  const s = v === null || v === undefined ? '' : String(v);
-  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-}
-
 function exportTab(container) {
   const card = ui.el('section', { class: 'hg-card' });
   card.appendChild(ui.el('h3', { class: 'hg-card__title', text: '导出结算报表（GET /settle/export，FR-SETTLE-16）' }));
@@ -939,8 +933,8 @@ function exportTab(container) {
     '导出仅覆盖<strong>有权限的子账户范围</strong>（服务端可见性强制；FR-SETTLE-16 验收 4）；'
       + '导出内容含<strong>加总对账结论</strong>列与<strong>导出时间/导出人</strong>（验收 1/2）；'
       + '无数据时不生成文件并给出提示（验收 3）。'
-      + '<strong>形态披露</strong>：后端当前为 JSON 信封承载，本页在浏览器侧转换为 CSV 下载；'
-      + 'CSV 直返化须后端变更承接（T-193/T-195 先例），张力已披露待裁（工单要求 1③）。',
+      + '<strong>形态披露</strong>：后端导出已直返化（T-204，T-193/T-195 先例一致化）——'
+      + '本页经 HG.api.download 取回 CSV 文件直接触发下载，不再做浏览器侧转换。',
     'warn'
   ));
   const eFrom = dateInput('st-e-from');
@@ -964,26 +958,19 @@ function exportTab(container) {
     if (eSub.value) q.subAccountId = eSub.value;
     ui.clear(eBody); ui.renderLoading(eBody, '正在生成结算报表导出…');
     try {
-      const r = await HG.api.get(S.EXPORT, q);
-      ui.clear(eBody);
-      const columns = (r && r.columns) || [];
-      const rows = (r && r.rows) || [];
-      if (!rows.length) {
+      const res = await HG.api.download(S.EXPORT, q);
+      const text = await res.blob.text();
+      // 行数统计：仅用于「无数据 ⇒ 不生成空文件」的界面裁决（FR-SETTLE-16 验收 3；
+      // 后端空态契约 = 仅表头一行，/fund/export、/product/export 先例同构）
+      const lines = text.replace(/^\uFEFF/, '').split(/\r\n|\n/).filter((l) => l !== '');
+      if (lines.length <= 1) {
+        ui.clear(eBody);
         ui.renderEmpty(eBody, '无数据——不生成导出文件（FR-SETTLE-16 验收 3）。');
         return;
       }
-      const csv = columns.map(csvCell).join(',') + '\r\n'
-        + rows.map((row) => columns.map((c) => csvCell(row[c])).join(',')).join('\r\n');
-      eBody.appendChild(ui.banner('导出就绪：数据 ' + F.esc(String(rows.length)) + ' 行 / ' + F.esc(String(columns.length))
-        + ' 列（导出时间 ' + F.esc(F.dateTime(r.exportTime) || '—') + '，导出人 #' + F.esc(String(r.exportedBy ?? '—'))
-        + '），正在触发 CSV 下载…', 'ok'));
-      eBody.appendChild(ui.el('div', { html: ui.tableHTML(
-        columns.map((c) => ({ key: c, title: c })),
-        rows.slice(0, 50)
-      ) }));
-      if (rows.length > 50) eBody.appendChild(ui.el('p', { class: 'hg-muted', text: '（预览前 50 行，完整 ' + rows.length + ' 行见下载文件）' }));
-      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv; charset=UTF-8' });
-      triggerCsvDownload(blob, 'settle-report.csv');
+      eBody.appendChild(ui.el('p', { class: 'hg-muted', text: 'CSV 已生成：数据行 '
+        + (lines.length - 2) + ' 行（含元信息行），正在触发下载…' }));
+      triggerCsvDownload(res.blob, res.filename || 'settle-report.csv');
       ui.toast('结算报表已导出（CSV）', 'ok');
     } catch (err) { ui.renderError(eBody, err, () => eBtn.click()); }
   });
