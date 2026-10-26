@@ -35,8 +35,8 @@ import java.util.Set;
 public final class SessionAuthFilter implements AuthFilter {
 
     private static final Set<String> PUBLIC_EXACT = Collections.unmodifiableSet(
-            new HashSet<>(Arrays.asList("POST /api/v1/auth/login", "GET /api/v1/ping",
-                    "HEAD /api/v1/ping")));
+            new HashSet<>(Arrays.asList("POST " + ApiRoutes.full("/auth/login"),
+                    "GET " + ApiRoutes.full("/ping"), "HEAD " + ApiRoutes.full("/ping"))));
 
     /**
      * 「强制修改口令」期间仍放行的端点（冻结：仅本人改口令与登出）。
