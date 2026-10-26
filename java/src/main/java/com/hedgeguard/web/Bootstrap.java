@@ -538,6 +538,34 @@ public final class Bootstrap {
     }
 
     /**
+     * 构造 HGCP 事件消费组合器清单（T-040c <b>包内可见接缝</b>；原装配方法体内局部构造
+     * <b>行为零变更</b>搬移）。
+     *
+     * <p><b>为何提取</b>：te-verify-t040 {@code TE-T040-V-001}（M1）——原构造系装配方法体内
+     * 局部代码，装配级测试环境（{@code hgcpClient=null}）走不到 {@code bridge instanceof
+     * HgcpClient} 分支，测试只能以「同构造」fallback 自建行情桥，恰绕过被测行
+     * {@code consumers.add(WsQuoteBridge)} ⇒ 摘行全量恒绿（判别力缺口）。提取为包内可见
+     * 静态接缝后，装配级测试直证接缝产物（生产路径/关态路径分别取证），端到端用例改以
+     * <b>接缝产物</b>喂桥（不再测试侧自建），摘行即红。
+     *
+     * @param feed     事中风控投喂监听（{@code IntradayEventFeed}）
+     * @param sink     交易执行落库监听（{@code TradeService.HgcpEventSink}）
+     * @param wsServer WS 装配产物持有器（{@code assembleWsServer} 返回值）；{@code null} =
+     *                 WS 未装配（不接行情桥，既有形态）
+     * @return 组合器清单：恒含 {@code feed}、{@code sink}；{@code wsServer != null} 时
+     *         再并联 {@link WsQuoteBridge}（持有 {@code wsServer.server()}，与原装配行逐参同一）
+     */
+    static java.util.List<HgcpEventListener> buildEventConsumers(
+            HgcpEventListener feed, HgcpEventListener sink, WsServerHolder wsServer) {
+        java.util.List<HgcpEventListener> consumers =
+                new java.util.ArrayList<>(Arrays.asList(feed, sink));
+        if (wsServer != null) {
+            consumers.add(new WsQuoteBridge(wsServer.server()));
+        }
+        return consumers;
+    }
+
+    /**
      * WS 授权集读取的 <b>fail-closed 包装</b>（{@code W-2} 安全默认同族纪律）。
      *
      * <p>授权数据读取故障（库不可达/表异常）⇒ 返回<b>空集</b>（= 不下发任何数据），
@@ -828,10 +856,8 @@ public final class Bootstrap {
             // ProductIdResolver 接 Q-5 真值（order_id→product_id 经提交上下文），替代 IntradayEventFeed 恒 0 缺省。
             IntradayEventFeed feed = new IntradayEventFeed(monitor, tradeService::productIdForOrder);
             TradeService.HgcpEventSink sink = tradeService.new HgcpEventSink();
-            java.util.List<HgcpEventListener> consumers =
-                    new java.util.ArrayList<>(Arrays.asList(feed, sink));
+            java.util.List<HgcpEventListener> consumers = buildEventConsumers(feed, sink, wsServer);
             if (wsServer != null) {
-                consumers.add(new WsQuoteBridge(wsServer.server()));
                 LOG.info("已接线 WS 行情桥（T-040）：EVT_MARKET_QUOTE→/ws/quote（覆盖式节流）");
             }
             ((HgcpClient) bridge).setEventListener(new CompositeHgcpEventListener(
