@@ -17414,3 +17414,147 @@ FR-ACCT-5③ `priceStateCarryForwardLabeled`，`AcctEffectServiceTest:177-185` �
 **门禁（2026-10-26 实测，@Test==surefire 口径）**：全量 `mvn -B -o clean test` = **1273/0/0/0**（开工基线 1262 + 新增 11〔触发器用例 10 + ConfigSeedDataTest 点名断言 1〕；基线证据 = 第 256 轮 T-082 贴标记录 74a6cc6，本席开工时 HEAD 复核一致）；变异复位后全量重跑同值（canonical 证据落在最终树态）；`mvn -B -o validate` arch 门禁 **rc0**（八判据全过）；树锚：`cd /root/myspace/hedge-guard && find java -type f -not -path "*/target/*" | LC_ALL=C sort | xargs md5sum | md5sum` = `56e11c72171eaf26a1142b01862d8c0f`/**779 文件**（命令形态经 HEAD 快照双向复现：同命令对 `git archive HEAD` 快照 = `3c8dfa4b…`/777，与第 256 轮 T-082b 贴标树锚逐字一致）。
 
 **追加前锚**：本节前尾部 = T082 节尾；`wc -l` = 17393；`md5sum docs/TEST_RESULT.md` = `643d54db1d34e3694b1ff2d2417fb4bd`（纯追加，删=0，回改=0）。
+
+## T-086 执行实盘小资金运行验证与安全审计（te-t086，2026-10-26/27）
+
+> **执行判据**：`TEST_PLAN/M4.md` §8 线 d（`TC-M4-21`~`26`）+ §8.2 诚实披露 + §10 唯一预期值口径；
+> `PROJECT.md` §9 M4 验收；NFR-SEC-1~8 收敛核验（底稿 = §T082 R-1~R-5 + T-199 §12，抽查 ≥2 项独立复跑）。
+> **冻结点**：开工 HEAD = `3cef6ba`（第 256 轮 T-081 贴标后终态；`git status` 干净）。
+> 执行形态沿 T-073/T-074/T-085 先例：真实运行 + 本证据章**纯追加** + 缺口单列。
+> **观察期（`TC-M4-24`）系日历期 1–2 个月不占工时——本单只产出启动记录框架，不记观察期开始或完成。**
+
+### §T086-1 交付物清单
+
+| 文件 | 行数 | md5 | 说明 |
+|------|------|-----|------|
+| `java/src/test/java/com/hedgeguard/service/T086CtpEnvIdentityTest.java` | 236 | `d0fddf500ccd94c1d1a2cff0dd84af66` | `TC-M4-21` 落点补测（5 @Test：非法值三入口拒绝 / CFG-22 种子 / 误连探测==0 / 连接测试无静默回退 / 启动自检基元双向；真实 DAO + InMemoryDmEngine，零直插伪造） |
+| `docs/DEPLOY/T086_OBSERVATION_FRAMEWORK.md` | 78 | `a3eb96d6c85c9e420ff46242a4223898` | `TC-M4-24` 观察期**框架**产出（启动记录模板 + 每日运行记录模板 + 告警审计查询口径 Q1~Q6 + L3 启动前置清单） |
+| `dev-team/inbox/test-engineer/T-086-task.md` | — | 见文件 | 工单处理记录追加一行 |
+
+- `src/main` 零改动（变异验证临时改动两文件均已 md5 复位核对，见 §T086-3；`git status java/src/main` 空）。
+- 未触碰：TASKS / BOARD / TEST_PLAN / web js（工单边界；M4.md 勘误点无——用例判据与实测面一致）。
+
+### §T086-2 L0：测试档全绿基线（判据 = 当前 HEAD 全量绿 + arch rc0）
+
+| 判据 | 唯一预期值 | 实测 | 判定 |
+|------|-----------|------|------|
+| 全量（开工时点，HEAD `3cef6ba` 未含本单新增） | `Tests run == 1273, Failures == 0, Errors == 0, Skipped == 0` | 1273/0/0/0 BUILD SUCCESS（3m21s，`/tmp/t086_l0_full.log`） | ✅ |
+| arch 门禁 | `mvn validate` 退出码 == 0 | rc0（20.2s） | ✅ |
+| 全量（含本单新增 5 用例后终态） | `Tests run == 1278, Failures == 0, Errors == 0, Skipped == 0` | 1278/0/0/0 BUILD SUCCESS（3m02s，§T086-8） | ✅ |
+
+### §T086-3 L1：模拟盘冒烟可重复（TC-M4-21/22）
+
+**TC-M4-21 环境类型显式区分、无实盘误连（RSK-15）**——`T086CtpEnvIdentityTest` **5/5 绿**（真实 DmCtpFrontConfigDao/DmConfigItemDao + m1_config_auth.sql/m1_product.sql 真实 DDL；CFG-22 行经生产 DAO 写入播种，字段值与 `data-init.sql` §④ 逐字段一致，文件级结构断言由既有 `ConfigSeedDataTest` 承载不复发）：
+
+| @Test | 判据（唯一预期值） | 实测 | 判定 |
+|-------|-------------------|------|------|
+| `tcM4_21_illegalEnvTypeRejectedThreeFaces` | 非法 envType（`UAT`）三入口（listCtpFronts/saveCtpFront/testCtpConnection）拒绝 `== 3/3`，业务码均 `10001`（PARAM_INVALID），且零落库（`t_ctp_front_config` 行数 `== 0`） | 3/3 均 10001、表行数 0 | ✅ |
+| `tcM4_21_cfg22SeedDefaultsToSimulationWithTwoValueDomain` | CFG-22 `hg.ctp.env_type` 默认值 `== "SIMULATION"`，取值域值数 `== 2`（含 SIMULATION 与 PRODUCTION） | `SIMULATION` / 2 值（`SIMULATION,PRODUCTION`） | ✅ |
+| `tcM4_21_simulationFaceZeroProductionAddrHit` | 实盘地址（`tcp://127.0.0.1:42001`）在模拟盘取数面命中 `== 0`（listCtpFronts("SIMULATION") 与 findEnabledByPriority("SIMULATION","TRADE") 双面），模拟盘面行数 `== 1` | 0 命中（两面），行数 1 | ✅ |
+| `tcM4_21_connectionTestNoSilentFallback` | SIMULATION 连接测试显式拒，业务码 `== 10002`（COMPONENT_UNAVAILABLE）且报文含「已配置启用中交易前置=1」（配置计数 `== 1`，无静默成功） | 10002 + 「已配置启用中交易前置=1」 | ✅ |
+| `tcM4_21_existsEnabledProductionPrimitiveBothDirections` | 启动自检基元 `existsEnabledProduction()` 双向：启用实盘前置 `== true` → 停用（`isEnabled='N'`，updateById 影响行数 `== 1`）`== false` | true→false 双向成立 | ✅ |
+
+**变异验证（§4.3，备份 .orig + md5 复位 + clean 重建）**：
+- **M1**（`ConfigService.listCtpFronts` 摘 `requireIn(envType,…)`）→ `mvn -B -o clean test -Dtest=T086CtpEnvIdentityTest` 红（`Tests run: 5, Failures: 1`，恰 `tcM4_21_illegalEnvTypeRejectedThreeFaces`——判据有牙）→ 复位 md5 `b6164422a57b864d46b4dba3b047e7bf` 与原值一致。
+- **M2**（`DmCtpFrontConfigDao.findEnabledByPriority` 摘 `env_type = ?` 过滤）→ 红（`Tests run: 5, Failures: 1`，恰 `tcM4_21_simulationFaceZeroProductionAddrHit`）→ 复位 md5 `f07caaeffa7f26f3c90ebff278c21786` 与原值一致 → clean 重建绿（5/0）。
+
+**TC-M4-22 模拟盘端到端冒烟可重复（替代形态执行，披露见 §T086-9-1）**：
+- 判据：冒烟链「现货敞口 → 计划 → 下单 → 成交 → 结算 → 会计凭证」连续 2 次执行结果一致；每环节留痕非空。
+- 实测（替代形态 = 装配级 e2e 测试集双次运行：`M2EndToEndAcceptanceTest`〔敞口/计划/下单/成交/结算，InMemoryTradingBridge + InMemoryDmEngine 真实建表脚本〕+ `M4DocPackageCas24SelfcheckTest`〔会计文档包/凭证〕）：第 1 次 `16/0/0/0`（M4DocPackage 6 + M2E2E 10）BUILD SUCCESS；第 2 次 `16/0/0/0` BUILD SUCCESS；**计数逐类相等（6+10 两次全同）**，仅耗时字段不同（4.132/2.396s vs 4.206/2.476s——非判据）。留痕非空 = 两测试类既有落库断言（委托/成交/结算/凭证/四件套行）逐环节覆盖。判定 ✅（幂等重放成立·替代形态）。
+
+### §T086-4 L2：模拟盘连续验证基线复跑（TC-M4-17~20，对账 T-085 证据章）
+
+`M4DocPackageCas24SelfcheckTest` 以当前树（HEAD `3cef6ba`）复跑 **6/6 绿**（§T085-2 的 5 用例 + te-t085b delta 三态②报表 face 探针）：
+
+| 用例 | T-085 证据章（冻结点 6bb5030） | 本次实测（3cef6ba） | 对账 |
+|------|------------------------------|---------------------|------|
+| `TC-M4-17` 文档包四件套端到端（断链 `== 0`） | ✅ 通过 | ✅（`tcM4_17_*`） | 一致 |
+| `TC-M4-18` CAS 24 五条自检（含④FAIL 负例） | ✅ 通过 | ✅（`tcM4_18_*`） | 一致 |
+| `TC-M4-19` 「待外部复核」标注 | ❌ 不通过（BUG-005，承载 2/4） | ✅ **4/4**（v1.3.8/T-201 `1e4f062` 增列承载，探针授权改写——类注与断言 `:581` 实测吻合） | **唯一差异 = BUG-005 已修复**（T-201 全链 DONE），合法预期值变化 |
+| `TC-M4-20` 双侧盈亏上报留痕 | ✅（三态①；三态② face 未执行 → §T085-8 订正） | ✅（含三态② face 探针，delta 在树） | 一致（覆盖较 T-085 冻结点增广） |
+
+**L2 判定：✅ 通过**（判据锚：文档包四件套 + 自检报告产出，连续验证基线复跑绿；「连续 5 个交易日」运行面属观察期/演练环境，不在 Java 测试档可达面，见 §T086-9 披露）。
+
+### §T086-5 L3 准入核验与护栏/回滚（TC-M4-23/25/26；**不启动观察期**）
+
+**TC-M4-23 实盘小资金准入判据核验（检查单逐项）**：
+
+| # | 准入项 | 实测 | 判定 |
+|---|--------|------|------|
+| 1 | L2 绿 | §T086-4 复跑 6/6 | ✅ |
+| 2 | 护栏预演通过（`TC-M4-25`） | 部分（①✅ ②❌ ③❌ ④引用，见下） | ⚠️ 未满足 |
+| 3 | 回滚演练通过（`TC-M4-26`） | 未执行（前置未达，见下） | ❌ |
+| 4 | 资金上限配置生效可证 | Java 侧可证：CFG-25 阈值可配置（`FundServiceTest.quotaConfigurableAndAccountCap` 阈值改 `0.50/0.75/0.90` 生效 + 账户级超真实账户上限拒绝 10001）；**「小资金约定值 ≤ 总资金 5%」权威席未定值** | ⚠️ 部分（待权威席定值） |
+| 5 | CTP 实盘账户/柜台连通已核验（§8.1 L3 行） | 未核验：`testCtpConnection` 恒 10002（组件桥未交付）；`cpp/src/main.cc` 实测 66 行、`listen|socket` 命中 `== 0`（本席复核） | ❌ |
+
+**`TC-M4-23` 判定：❌ L3 准入不就绪**（按 §8.1 全部满足方可进 L3；1 ✅ / 2 ⚠️ / 2 ❌）。
+
+**TC-M4-25 风险护栏预演（模拟盘档 Java 可达面）**：
+
+| 判据 | 实测 | 判定 |
+|------|------|------|
+| ①资金上限触发告警（§10-20） | `FundServiceTest` 目标复跑 **21/21 绿**：额度 1000、占用 850→INFO / 960→WARNING / 1000→CRITICAL、`blockedOperation=='NONE'`、500 无告警、告警行数 `== 3`；CFG-25 阈值可配置生效 | ✅（Java 可达面；「超限阻断下单」见②） |
+| ②超限指令被阻断且不发 CTP（调用计数 `== 0`） | **生产落点缺失**：`TradeService` 全文 `quota|fund` 引用 `== 0`（本席 grep 实测）——资金额度与下单链路无 Java 接线；事前风控阻断判定在 C++ risk_engine（真联档不可达）。相邻可达面 = `T063RiskThresholdTest`「放宽合规红线无复核 → 10012，不落库、不下发」参数域阻断形态（非订单域、非资金额度） | ❌ 缺口（G-6） |
+| ③紧急停止 ≤1 操作停新开仓 | 生产落点缺失：`emergency|紧急停止|halt|stopTrading` 在 `java/src/main` 命中 `== 0`（本席 grep 实测） | ❌ 缺口（G-7） |
+| ④护栏判定耗时（NFR-SEC-9 纯度档案） | 沿用 E1/E2/E4 rc0 档案引用；本单 `mvn validate` 复跑 rc0 | 引用成立（NFR-SEC-9 终审归 T-088） |
+
+**TC-M4-26 回滚预案演练**：**未执行（前置未达）**——实盘下单通道关闭可证（发单调用 `== 0`）与在途指令按崩溃恢复重放无重复（细化 `TC-M3-32`）均依赖真联档与 C++ 生产侧装配。Java 侧可预置证据（非演练结论）：凭据缺失 ⇒ HGCP 桥不装配（`Bootstrap.java:425-440`，§T082 在树引用）＝通道缺省关闭形态。演练前置清单：①`main.cc` 实化 + 双组件真联（DEPLOY README U-3 同一承接点）；②实盘/模拟盘演练环境；③护栏预演先行通过。判定 ❌ 待环境。
+
+**TC-M4-24 观察期**：框架产出 = `docs/DEPLOY/T086_OBSERVATION_FRAMEWORK.md`（§T086-1）；**观察期未开始**——启动前置五项（L2 绿/护栏预演/回滚演练/资金上限定值/CTP 连通核验）实测状态已载入框架 §5，当前全部前置未齐。判定 = 框架产出 ✅、观察期**未启动**（据实披露，不记完成）。
+
+### §T086-6 NFR-SEC-1~8 收敛核验（底稿引用 + 抽查独立复跑，不重复审计）
+
+底稿 = §T082（R-1~R-5 四合一战役 + 承载面复核引用清单）+ T-199 §12 权限清单（**不可用，见 TE-T086-V-001**）。
+
+| 需求 | 底稿承载（引用，不复述审计） | 本席抽查/现状可验面 | 判定 |
+|------|------------------------------|---------------------|------|
+| `NFR-SEC-1` 零落盘 | §T082 R-1 四腿（词形/日志/配置/持久化）+ rejectSecrets/环境注入/SensitiveLog/内存清零 | **独立复跑 R-1①**：`DUMMY_PASSWORD|DUMMY_AUTH_CODE|DUMMY_TOKEN|DUMMY_SECRET` 在 `java/src` 命中 = 仅 `DummySecretLexiconTest.java`（判据自排除文件）＝生产面 0；**独立复跑 R-1②**：日志面 grep 恰 2 处（`Bootstrap.java:392/428`，均为 `Config.ENV_HGCP_AUTH_TOKEN` 环境变量**名**非值）——与 §T082 记载逐点吻合 | ✅ |
+| `NFR-SEC-2` 口令策略/认证 | PBKDF2 `AuthService.java:52`（§T082 引用） | 引用 | ✅（引用面） |
+| `NFR-SEC-3` 通信鉴权 | `TcpHgcpTransport.java:12/49`（§T082 引用） | 引用（真联面行为待 L3 档） | ✅（引用面） |
+| `NFR-SEC-4` 会话安全 | T-049 线（§T082 引用） | 引用 | ✅（引用面） |
+| `NFR-SEC-5` 审计不可篡改 | m3_audit（§T082 引用） | 引用 | ✅（引用面） |
+| `NFR-SEC-6` 日志脱敏 | SensitiveLog CFG-19 四项 + `SensitiveLoggingAndConfigTest.sensitiveFieldListIsFixed` | **独立复跑词形判据测试**：`DummySecretLexiconTest` 4/4 绿（目标复跑 + 全量内含双证） | ✅ |
+| `NFR-SEC-7` 子账户数据隔离 | T-107 线（§T082 引用） | 引用 | ✅（引用面） |
+| `NFR-SEC-8` 数据库最小权限 | **T-199 §12 不可用（TE-T086-V-001）**；在树承载 = 11 个建表脚本头注「应用账号仅 SELECT/INSERT/UPDATE（NFR-SEC-8）」+ `ARCHITECTURE.md:2294` 需求行 | 权限清单小节本体缺失 ⇒ **承载不完整，缺口立案** | ⚠️ 不完整（TE-T086-V-001） |
+
+（`NFR-SEC-9` 归 T-088 终审，本单不核——工单口径。）
+
+### §T086-7 缺陷与缺口清单（一单一事，不停手内裁、不越界修补）
+
+**TE-T086-V-001（P1·账实背离·比照 T-081/T-082 丢失线判例）**：**T-199（DEPLOY 权限清单 §12）交付丢失**。证据链（2026-10-27 本席实测，冻结点 `3cef6ba`）：
+1. `git cat-file -t 82c91d5` ⇒ `fatal: Not a valid object name`（BOARD 第 253 轮收官行记载「T-199 已 DONE `82c91d5`」的提交**不在对象库**；`git log --all --grep="T-199"` 亦零命中）；
+2. `docs/TASKS.md` **无 T-199 任务行**（`^| T-19x/T-20x` 行序列实测 T-197→T-200 跳号）；
+3. 交付内容零在树：`grep -rn "数据库账户权限清单" docs/` 命中 `== 0`；`docs/DEPLOY/README.md` 章节实测止于 §11（§12 不存在）；
+4. **反面**：TASKS T-082 行 INV-081082 盘点叙述称「T-199 §12 均在树」——该盘点断言与本席实测**相悖**（盘点对本项失真）；
+5. 影响：§T086-6 `NFR-SEC-8` 收敛核验底稿缺失，M4.md §11.2 `TC-M4-15` 的承载面（权限清单）不完整。
+**建议处置**：比照 T-081/T-082 先例——编排者立只读盘点 + 重做单（交付物 = DEPLOY §12 数据库账户权限清单；NFR-SEC-8 终验判据挂靠）；**本席不改 TASKS/BOARD/DEPLOY 文档**（越界），仅立案回报。
+
+**缺口（设计有/落点无，`M4.md` §11 判例「=0 是验收底线」；全部**不动 main 源**，回报编排者/技术负责人定承接）**：
+- **G-1** `TC-M4-21` 判据①「非法环境标识**启动时拒启**（退出码非 0）」：`Bootstrap.main` 实测无 env 校验（服务面 `requireIn` 拒绝已有承载并被本单测试钉死；启动面缺失）。承载建议：启动读 CFG-22 + 值域校验 + 拒启。
+- **G-2** `TC-M4-21` 判据②「切实盘二次确认 + 双人复核留痕 `== 1` 条」：`t_config_item.double_review_required` 种子位在树（CFG-22 行 'Y'），但切换 PRODUCTION 的确认/复核/留痕链路无生产承载。
+- **G-3** `TC-M4-21` 判据③「界面/响应头环境标识」：`web/js` 横幅实测均为红线/告警文案（risk.js:91/96、audit.js:161、trade.js:97），无环境标识横幅；响应无 env 头。依赖 RSK-15① 界面承载补齐。
+- **G-4** 启动自检基元 `existsEnabledProduction()`（`CtpFrontConfigDao`，javadoc 自述「启动自检：防误连实盘」）**生产调用点 `== 0`**（grep 实测）——判例「机制存在/签名存在 ≠ 机制可用」；本单测试已把基元行为双向钉死，接线缺失立案。
+- **G-5** `TC-M4-22`/NFR-TEST-3「一键冒烟脚本」：`tools/` 实测仅 `arch-check/`+`probes/`，冒烟脚本无落点；本单以装配级 e2e 双次运行替代（§T086-3），脚本化交付待承接口。
+- **G-6** `TC-M4-25`②「资金额度超限 → 下单阻断不发 CTP」：Java 订单链路无额度接线（`TradeService` 零 fund 引用）；阻断语义当前依赖 C++ 事前风控（真联档不可达）。承载建议：额度检查接入 submitOrder 前置（或显式裁定由 C++ 承担并留披露）。
+- **G-7** `TC-M4-25`③「紧急停止 ≤1 操作」：生产承载 `== 0`（grep 实测）。
+- **G-8**（既知，非新发现）：真联档前提未达成（`main.cc` 66 行/0 listen·socket）⇒ `TC-M4-26` 演练与 L3 实盘观察期程序面前提缺失（M4.md §8.2-1 披露在案）。
+- **待裁**：`TC-M4-23`「小资金约定值 ≤ 总资金 5%」**权威席未定值**——定值前资金上限配置只能证「可配置生效」（CFG-25），不能证「已按约定值配置」。
+
+### §T086-8 门禁与度量
+
+- 全量 `mvn -B -o clean test` = **1278/0/0/0** BUILD SUCCESS（开工基线 1273 + 本单新增 5〔`T086CtpEnvIdentityTest`〕；基线证据 = 第 256 轮 T-081 贴标记录 3cef6ba + 本席开工复跑 §T086-2；surefire 口径）。
+- `mvn -B -o validate` arch 门禁 **rc0**（E1–E8；变异复位后于终态复跑）。
+- 树锚（提交后于 `git archive` 快照按规范形态实测，见提交回报）：`cd <仓库> && find java -type f | LC_ALL=C sort | xargs md5sum | md5sum`（快照内无 target 残留，附命令原文与文件数）。
+- 变异 2/2 全杀（§T086-3，clean 重建 + md5 复位核对）。
+- 冒烟双跑计数一致（16/0/0/0 ×2，§T086-3）。
+
+### §T086-9 诚实披露（单列，不冒充）
+
+1. **真联档前提未达成（再证实）**：`cpp/src/main.cc` 66 行、`listen|socket` 命中 `== 0`（本席复核）⇒ `TC-M4-22` 以装配级 e2e 测试集双次运行替代（T-057/T-058 单侧档先例）；`TC-M4-25`②③、`TC-M4-26`、`TC-M4-23` 第 5 项均因真联档不可达而未达/未执行——**不得以本单结论冒充实盘证据**。
+2. **前端**：本单零触碰 web；环境标识横幅缺口见 G-3（`TC-M4-21` 界面判据未验，服务面已验）。
+3. **观察期日历期**：`TC-M4-24` 仅产出框架（`docs/DEPLOY/T086_OBSERVATION_FRAMEWORK.md`），观察期**未启动**；L3 准入不就绪（§T086-5），任务完成判定 = L3 准入就绪 + 框架产出的**前者未满足**——据实披露，待前置补齐与日历期。
+4. **资金上限 5% 定值**待权威席（§T086-7 待裁项）；本单未擅自取值。
+
+**追加前锚**：本节前尾部 = T081 节尾；`wc -l` = 17416；`md5sum docs/TEST_RESULT.md` = `f2720cdab94348738aeb0b09dbecebc9`（纯追加，删=0，回改=0）。
+
+—— T-086 执行席 te-t086；待独立复核（本席不自评 DONE）。
