@@ -39,3 +39,4 @@ V-001 实测（复核席独立亲证，编排者核采信；与编排者交付�
 | 时间 | 处理人 | 动作 | 结论 |
 |------|--------|------|------|
 | 2026-10-25 | 编排者 | 用户批准派发（TE-T040-V-001 delta 补测；实例 be-t040c） | OPEN，待 backend-engineer#java 处置 |
+| 2026-10-26 | be-t040c | 交付提交 **a9404cb**（numstat：Bootstrap 29+/3-·WsProductionAssemblyTest 134+/14-）。M1=接缝 `buildEventConsumers(feed,sink,WsServerHolder)` 提取（行为零变更）+接缝直证/e2e 改喂接缝产物；M2=新用例经生产 lambda 收 alert 帧（授权行使形态=订阅置 {7}·求交语义由 WsAuthorizerTest/WsServerTest 覆盖·假驱动 fail-closed 空集已在用例 javadoc 披露——复核报告建议的「经 TxTemplate 播种授权行」在 FakeJdbcDriver 下不可行，SQL 走 null 代理，故采反射等价手段）；javadoc 判据声明订正。变异矩阵（全部全量 clean 重建·复位 md5 三文件对照 OK）：M1=2 红/M2=1 红/M3=3 红/M4=2 红（与复核报告逐一吻合）/断言侧反转变异=1 红；复位后 **1248/0/0/0 + mvn validate rc0**；树锚（git archive a9404cb 快照·`find java -type f \| sort \| xargs md5sum \| md5sum`）=**e1d0534251486a5ea12cd5e087bb9b40 / 773 文件**（基线 5d1d708=1070e223…/773 同文件数，无新增文件） | DONE，待独立复核 |
