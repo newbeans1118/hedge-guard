@@ -219,6 +219,12 @@ public final class SettleService {
     private volatile MajorEventLossThresholdTrigger lossThresholdTrigger;
 
     /**
+     * 加总对账不一致超时未闭环触发器（{@code T-081}，{@code R-AUDIT-5} 条件①）；可空接缝
+     * （生产由 {@code Bootstrap} 装配）——{@code null} = 不启用自动提醒，加总对账行为不变。
+     */
+    private volatile AggregationInconsistencyTrigger aggregationInconsistencyTrigger;
+
+    /**
      * 构造。
      *
      * @param tx                 事务模板
@@ -561,6 +567,16 @@ public final class SettleService {
      */
     public void setLossThresholdTrigger(MajorEventLossThresholdTrigger trigger) {
         this.lossThresholdTrigger = trigger;
+    }
+
+    /**
+     * 装配加总对账不一致触发器（{@code T-081}，{@code R-AUDIT-5} 条件①；可空接缝，
+     * 生产由 {@code Bootstrap} 装配）。
+     *
+     * @param trigger 触发器；{@code null} = 不启用自动提醒
+     */
+    public void setAggregationInconsistencyTrigger(AggregationInconsistencyTrigger trigger) {
+        this.aggregationInconsistencyTrigger = trigger;
     }
 
     private SettleCycle upsertCycle(LocalDate date, int subId, long operatorId) {
@@ -1249,6 +1265,10 @@ public final class SettleService {
      * 不一致 ⇒ 结论 {@code INCONSISTENT_BLOCKED}、{@code block_scope='DIFF_SUB_NON_CLOSE'}、
      * 阻断与告警时间非空，并生成结构化候选（{@code t_agg_diff_candidate}）与全账户告警。</p>
      *
+     * <p><b>事务提交后接线（{@code T-081}，{@code R-AUDIT-5} 条件①）</b>：加总对账事务提交后
+     * 扫描「不一致且超时未闭环」记录并自动落 {@code t_major_event} 提醒
+     * （{@link AggregationInconsistencyTrigger}，可空接缝；失败只记日志不阻断本流程）。</p>
+     *
      * @param cycleId    结算单号（取该单交易日为对账日）
      * @param operatorId 操作人
      * @return 对账结论（含阻断子账户集合）
@@ -1261,7 +1281,7 @@ public final class SettleService {
         List<SettleCtpPosition> ctpPositions = queryCtpPositions(date);
         List<SettleCtpFund> ctpFunds = queryCtpFunds(date);
 
-        return tx.inTransaction(conn -> {
+        AggregateResult result = tx.inTransaction(conn -> {
             AggregateResult res = new AggregateResult();
             res.tradeDate = date;
             res.blockedSubAccountIds = new LinkedHashSet<>();
@@ -1326,6 +1346,21 @@ public final class SettleService {
             }
             return res;
         });
+
+        // T-081 条件①（R-AUDIT-5「加总对账不一致且超时未闭环」）：加总对账事务提交后，
+        // 扫描超时未闭环的不一致记录并自动落 t_major_event 提醒（AGG 稳定键幂等）。旁路能力：
+        // 任何失败只记日志、不阻断加总对账主流程（R-SETTLE-2 阻断逻辑零改动）；
+        // 每次加总对账重跑即天然重评一次。
+        if (aggregationInconsistencyTrigger != null) {
+            try {
+                aggregationInconsistencyTrigger.evaluate();
+            } catch (RuntimeException e) {
+                LOG.severe("加总对账不一致超时触发（条件①）失败，不阻断加总对账主流程（T-081）："
+                        + "cycleId=" + cycleId + "；原因=" + e.getClass().getSimpleName()
+                        + "：" + e.getMessage());
+            }
+        }
+        return result;
     }
 
     private SettleAggregationCheck buildCheck(LocalDate date, String type, BigDecimal sys, BigDecimal real,

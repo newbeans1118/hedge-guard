@@ -17391,3 +17391,26 @@ FR-ACCT-5③ `priceStateCarryForwardLabeled`，`AcctEffectServiceTest:177-185` �
   - **负例（变异 M1，判据有牙证据）**：注入 `DUMMY_PASSWORD` 至 `Config.java:26` 注释 → `mvn -B -o clean test -Dtest=DummySecretLexiconTest` 红（`Tests run: 4, Failures: 1`，报文精确点名 `src/main/java/com/hedgeguard/common/Config.java: line 26 命中词形 DUMMY_PASSWORD`）→ 复位（`md5 0d5276cf1069ee47ea9cf956123e581d` 与 `git show HEAD` 一致）→ clean 重建绿。
 - **门禁（2026-10-26 实测，@Test==surefire 口径）**：全量 `mvn -B -o clean test` = **1262/0/0/0**（开工基线 1258 + 新增 4，基线证据=第 256 轮 T-203 贴标记录；本节追加前全量已跑）；`mvn -B -o validate` arch 门禁 **rc0**；树锚：`cd /root/myspace/hedge-guard && find java -type f | LC_ALL=C sort | xargs md5sum | md5sum` = **见提交回报**（附文件数；提交后于无 target 残留的树上实测）。
 - **追加前锚**：本节前尾部 = T202 节尾；`wc -l` = 17368；`md5sum docs/TEST_RESULT.md` = `913f5c7c71b1e0b6d1dc11d1540cb9be`（纯追加，删=0，回改=0）。
+
+---
+
+## T081 实现证据链导出（重做交付·be-t081b）
+
+**定位**：T-081 完成断言指向已丢失 git 线（`744f8d5`/`94b83c7` 经 `git cat-file`/`log --all` 606 提交全量核验不存在，账实背离 2026-10-26 实锤，用户裁定 A 重做）。判据底稿 = INV-081082 盘点报告（`/root/inv-081082.md`，md5 `92a0c9ed…`/121）：验收 1~4（FR-AUDIT-8 证据链导出四面）已由当前链 T-067/T-193 线**在树承载**（`EvidenceExportService` + REST 双对 + `t_evidence_export` 留痕 + 27 列 CSV 门禁覆盖，盘点报告 §1.1 逐项证据在案）、`t_settle_pnl` 轨1 由 T-189 在树——本重做 = **缺口窄增量 6 项**（盘点报告 §1.2）：条件①触发器 / aggregate 提交后接线 / 24h CFG 超时种子 / 幂等 AGG 键 / 跨日幂等用例+M1′ 变异 / 本证据章。**在树承载面复核引用、不重复施工。**
+
+**交付语义（R-AUDIT-5 条件①，工单硬约束范围）**：
+
+- **触发器** `service/AggregationInconsistencyTrigger.java`（新类）：`t_aggregation_check` 存在 `result='INCONSISTENT_BLOCKED' AND closed_time IS NULL` 且 `check_time` 早于「当前时间 − 超时阈值」的对账记录 ⇒ 逐条自动写 `t_major_event`（`event_type=AGG_INCONSISTENT_TIMEOUT`〔`ck_major_event_type` 冻结域〕+ `status=TRIGGERED`，供 `AuditReportService.pendingMajorEvents` 经 `findByTypeAndStatus` 消费——既有 major-event 报告契约不改，条件⑤先例同形态）。javadoc 显式声明**仅承接条件①**（②③④范围外·盘点报告 §1.3；条件⑤=T-188 `MajorEventLossThresholdTrigger`）。取数经 `SettleAggregationCheckDao.findPage`（`BaseDao` 冻结契约，dao 之外零 SQL 语句形态）；键集逐页循环（终止=本页条数<页宽，T-190 先例）。
+- **配置**：`CONFIG_KEY = audit.major_event.agg_inconsistency_timeout_hours`（**CFG-26b**），缺省 **24h**；缺键/空 ⇒ 回退默认；非法（非整数）或 ≤0 ⇒ `IllegalStateException` 显式拒（不回退默认、拒绝本次判定、不阻断主流程——CFG-26 同姿态）。种子落 `docs/DEPLOY/schema/data-init.sql:464`（§④-3，`REPORT_PERIOD`/`INT`/`24`/下限 1/`LOCAL_ADMIN`/`N`/`N`）。
+- **接线**：`SettleService.aggregate` 事务**提交后**调用（`:1284` 捕获事务返回值 `result`，`:1354-1362` 可空接缝 + try/catch + LOG.severe 失败隔离，形态对齐 `:543-544` T-188 轨1 接线先例）；**R-SETTLE-2 关账门禁阻断逻辑（`:1312`/`:1464`/`:1521` 原行号区）零改动**；每次加总对账重跑即天然重评。生产装配 `Bootstrap.java:737-757`（惰性读取 CFG 键，T-188 `:722-741` 装配先例同形态）。
+- **幂等（AGG 稳定键）**：`eventNo = AGG-<对账记录 tradeDate yyyyMMdd>-<checkType>`——**锚业务日（对账记录 tradeDate），不锚触发时点**（丢失线判例：取触发日会跨日重复落行）；`uk_major_event_no`（event_no 单列）唯一约束兜底，「先查后插」前置换取同号即跳过（跨日不重复、同日同型至多 1 行）。
+
+**测试（`AggregationInconsistencyTriggerTest`，10 用例，真实 DAO + InMemoryDmEngine，触发行全部由生产路径或触发器本体产生、无直插伪造）**：超时触发（含 eventNo 冻结断言 `AGG-20261010-FUND`）/ 缺省 24h 边界（恰 24h 不触发〔严格小于〕、超 24h 触发）/ 已闭环与一致结论不触发 / **跨日幂等**（D 日触发 → 时钟 +25h 再评不重复落行）/ 同日同型去重 / 缺键回退 / 非法显式拒（`0`/`-5`/`abc`/`24.5` 四形态）/ 配置生效 / **全链路**（`aggregate` 生产路径：首次对账新鲜不一致不触发 → 时钟前进 25h 再对账对历史未闭环记录触发 1 行）/ 失败隔离（触发器抛错不阻断对账主流程）。
+
+**变异（M1′，判据有牙证据）**：摘 tradeDate 稳定键改触发时点（`check.tradeDate.format(DAY_FMT)` → `Clocks.now().toLocalDate().format(DAY_FMT)`）→ `mvn -B -o clean test -Dtest=AggregationInconsistencyTriggerTest` **双红**（`Tests run: 10, Failures: 2`：`crossDayIdempotent` + `fullChainAggregateFiresAfterTimeout`，恰为两个跨日/重评断言）→ 复位（md5 `649c9bfc143616ae6d4c86ddbf39fca5` 与原值一致）→ clean 重建绿（10/0）。变异期间主源零遗留。
+
+**配套计数锁同步（种子连锁，精确点名）**：`ConfigSeedDataTest` 播种行数断言 65→66（`seedsRowCounts`/`dispatchFlagsFollowSection113`/`replaySeedsAgainstRealDdl` 三处）+ 新增 **CFG-26b 点名断言**（默认 24/INT/下限 1/LOCAL_ADMIN/dispatch=N，T-188 CFG-26 点名先例同形态）；`data-init.sql` 头注与 §④-3 段注 65→66；`docs/DEPLOY/README.md` 播种计数两处 65→66（含 `ARCH §11` 落登缺口披露：新键未列 `ARCHITECTURE.md §11` 清单，**待编排者转技术负责人落登勘误**）。
+
+**门禁（2026-10-26 实测，@Test==surefire 口径）**：全量 `mvn -B -o clean test` = **1273/0/0/0**（开工基线 1262 + 新增 11〔触发器用例 10 + ConfigSeedDataTest 点名断言 1〕；基线证据 = 第 256 轮 T-082 贴标记录 74a6cc6，本席开工时 HEAD 复核一致）；变异复位后全量重跑同值（canonical 证据落在最终树态）；`mvn -B -o validate` arch 门禁 **rc0**（八判据全过）；树锚：`cd /root/myspace/hedge-guard && find java -type f -not -path "*/target/*" | LC_ALL=C sort | xargs md5sum | md5sum` = `56e11c72171eaf26a1142b01862d8c0f`/**779 文件**（命令形态经 HEAD 快照双向复现：同命令对 `git archive HEAD` 快照 = `3c8dfa4b…`/777，与第 256 轮 T-082b 贴标树锚逐字一致）。
+
+**追加前锚**：本节前尾部 = T082 节尾；`wc -l` = 17393；`md5sum docs/TEST_RESULT.md` = `643d54db1d34e3694b1ff2d2417fb4bd`（纯追加，删=0，回改=0）。

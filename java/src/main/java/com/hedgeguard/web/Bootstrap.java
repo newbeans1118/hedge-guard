@@ -143,6 +143,7 @@ import com.hedgeguard.service.CheckTaskQueryService;
 import com.hedgeguard.service.ConfigService;
 import com.hedgeguard.service.EvidenceExportService;
 import com.hedgeguard.service.FundService;
+import com.hedgeguard.service.AggregationInconsistencyTrigger;
 import com.hedgeguard.service.MajorEventLossThresholdTrigger;
 import com.hedgeguard.service.ParamDispatchService;
 import com.hedgeguard.service.PlanService;
@@ -730,15 +731,30 @@ public final class Bootstrap {
 
         // M2 结算服务（T-047）：CTP 日终入库 → 子账户拆分/独立结算 → 三类核对 → 加总对账 → 关账门禁。
         // 系统内按子账户数据以「服务方法 + 入参接缝」承接（生产事件接线归 T-172）。
+        // T-081 加总对账不一致超时未闭环触发器（R-AUDIT-5 条件①；CFG 键
+        // audit.major_event.agg_inconsistency_timeout_hours 缺省 24h，惰性读取）：挂加总对账
+        // 提交后（SettleService.aggregate），AGG 稳定键幂等，失败不阻断对账主流程。
+        com.hedgeguard.dao.impl.DmSettleAggregationCheckDao aggregationCheckDao =
+                new com.hedgeguard.dao.impl.DmSettleAggregationCheckDao(tx);
+        AggregationInconsistencyTrigger aggInconsistencyTrigger =
+                new AggregationInconsistencyTrigger(
+                new DmMajorEventDao(tx), aggregationCheckDao,
+                () -> {
+                    com.hedgeguard.dao.entity.ConfigItem ci =
+                            configService.getConfig(AggregationInconsistencyTrigger.CONFIG_KEY);
+                    return ci == null ? null : ci.configValue;
+                },
+                SYSTEM_OPERATOR_ID);
         SettleService settleService = new SettleService(tx, authService,
                 new DmSettleCtpBatchDao(tx), new DmSettleCtpPositionDao(tx),
                 new DmSettleCtpTradeDao(tx), new DmSettleCtpFundDao(tx),
                 new DmSettleCycleDao(tx), new DmSettlePositionDao(tx),
                 new DmSettleFundDao(tx), new DmSettlePnlDao(tx),
                 new DmSettleReconcileRecordDao(tx), new DmSettleReconcileDifferenceDao(tx),
-                new DmSettleAggregationCheckDao(tx), new DmSettleAggDiffCandidateDao(tx),
+                aggregationCheckDao, new DmSettleAggDiffCandidateDao(tx),
                 new DmSettleReportDao(tx), new DmSettleStressTestDao(tx));
         settleService.setLossThresholdTrigger(lossTrigger);
+        settleService.setAggregationInconsistencyTrigger(aggInconsistencyTrigger);
         SettleRoutes.register(router, settleService);
 
         // M2 核对任务与电子签署（T-048）：核对任务 + 三级签署 + 不可代签（DC-022）+ 逾期巡检 +

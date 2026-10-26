@@ -38,3 +38,4 @@ T-081 完成断言指向已丢失 git 线（账实背离 2026-10-26 实锤·用�
 | 时间 | 处理人 | 动作 | 结论 |
 |------|--------|------|------|
 | 2026-10-26 | 编排者 | 工单落箱（用户裁定 A 案重做承接·判据直采 INV-081082 §1.2；**待 T-082b 交付后派**——TEST_RESULT 单写者纪律） | QUEUED，待编排者调度 |
+| 2026-10-26 | be-t081b（#java2） | 交付：AggregationInconsistencyTrigger 新类（R-AUDIT-5 条件①·CFG-26b 缺省 24h·AGG 稳定键 `AGG-<tradeDate>-<checkType>` 先查后插幂等）+ SettleService.aggregate 提交后接线（:1284/:1354-1362·R-SETTLE-2 零改动）+ Bootstrap 装配（:737-757·T-188 先例同形态）+ data-init.sql:464 CFG-26b 种子（65→66 计数连锁：ConfigSeedDataTest 三处+点名断言、data-init 头注、DEPLOY/README 两处·ARCH §11 落登待编排者转技术负责人）+ AggregationInconsistencyTriggerTest 10 用例 + TEST_RESULT §T081 纯追加 23 行（643d54db→f2720cda）；门禁 1273/0/0/0（1262+11）+ arch rc0 + 树锚 56e11c72…/779（HEAD 快照双向复现 3c8dfa4b…/777）；M1′ 变异（摘 tradeDate 稳定键改触发时点）双红复位绿 | DONE（待独立复核） |

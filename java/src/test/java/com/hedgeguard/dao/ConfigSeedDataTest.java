@@ -37,7 +37,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * CHECK / 唯一键 / NOT NULL 全部按 {@code m1_config_auth.sql} 强制），证明：
  * <ul>
  *   <li><b>播种行数</b>：{@code t_dict_item} = 2（仅代码实际消费域）/ {@code t_report_period_config} = 6 /
- *       {@code t_config_item} = 65（§11.1 全部 37 键 + §11.2 可持久化 28 键）；</li>
+ *       {@code t_config_item} = 66（§11.1 全部 37 键 + §11.2 可持久化 28 键 + {@code CFG-26b}
+ *       1 键〔{@code T-081b} 增补，{@code R-AUDIT-5} 条件①超时阈值〕）；</li>
  *   <li><b>关键字段</b>：R-CONFIG-8 下限值（0.90/0.80/12/30/6/10/5/3/0.02/0.05…）、
  *       敏感项零落盘（无 is_sensitive='Y' 行）、persist_scope / dispatch_to_ctp 按 §11.3；</li>
  *   <li><b>幂等</b>：三段 INSERT 均含 NOT EXISTS（自然键去重）＋引擎唯一约束对重复行必拒
@@ -67,12 +68,12 @@ class ConfigSeedDataTest {
     // ------------------------------------------------------------------ 结构断言
 
     @Test
-    @DisplayName("播种行数：dict 2 / report 6 / config 65（T-009 验收 5）")
+    @DisplayName("播种行数：dict 2 / report 6 / config 66（T-009 验收 5 + T-081b 增补 1 键）")
     void seedsRowCounts() {
         assertEquals(2, rowCount(block(section4, "t_dict_item")), "t_dict_item 应为 2 行（仅代码消费域）");
         assertEquals(6, rowCount(block(section4, "t_report_period_config")), "t_report_period_config 应为 6 行");
-        assertEquals(65, rowCount(block(section4, "t_config_item")),
-                "t_config_item 应为 65 键（§11.1=37 + §11.2 可持久化=28）");
+        assertEquals(66, rowCount(block(section4, "t_config_item")),
+                "t_config_item 应为 66 键（§11.1=37 + §11.2 可持久化=28 + CFG-26b T-081b 增补=1）");
     }
 
     @Test
@@ -155,11 +156,11 @@ class ConfigSeedDataTest {
     }
 
     @Test
-    @DisplayName("持久化属性按 §11.3：dispatch_to_ctp / persist_scope / 双人复核逐格核对（全 65 行）")
+    @DisplayName("持久化属性按 §11.3：dispatch_to_ctp / persist_scope / 双人复核逐格核对（全 66 行）")
     void dispatchFlagsFollowSection113() {
         String b = block(section4, "t_config_item");
         String[][] rows = sourceRows(b);
-        assertEquals(65, rows.length, "④-3 源行应为 65 行");
+        assertEquals(66, rows.length, "④-3 源行应为 66 行");
         // 下标：0=k 1=cat 2=val 3=vt 4=scope 5=lo 6=hi 7=ps 8=dsp 9=rev 10=qno
         for (String[] row : rows) {
                 assertEquals(12, row.length, "源行应为 12 格（k..dscr）：" + row[0]);
@@ -197,7 +198,7 @@ class ConfigSeedDataTest {
         }
     }
 
-    /** 在 65 行源行中取含指定 key 字面量的行。 */
+    /** 在 66 行源行中取含指定 key 字面量的行。 */
     private static String[] findRow(String keyLiteral, String[][] rows) {
         for (String[] row : rows) {
             if (row.length > 0 && row[0].contains(keyLiteral)) {
@@ -220,6 +221,22 @@ class ConfigSeedDataTest {
         assertEquals("1", unquote(stripAlias(row[5])), "CFG-26 下限应为 1（取值须 >0）");
         assertEquals("LOCAL_ADMIN", unquote(stripAlias(row[7])), "CFG-26 persist_scope 应为 LOCAL_ADMIN");
         assertEquals("N", unquote(stripAlias(row[8])), "CFG-26 dispatch_to_ctp 应为 N（Java 侧消费）");
+    }
+
+    @Test
+    @DisplayName("CFG-26b 点名：audit.major_event.agg_inconsistency_timeout_hours 播种在案"
+            + "（默认 24 / INT / 下限 1；T-081b 读取源，R-AUDIT-5 条件①超时阈值）")
+    void aggInconsistencyTimeoutSeeded() {
+        String b = block(section4, "t_config_item");
+        String[][] rows = sourceRows(b);
+        String[] row = findRow("'audit.major_event.agg_inconsistency_timeout_hours'", rows);
+        // 下标：0=k 1=cat 2=val 3=vt 4=scope 5=lo 6=hi 7=ps 8=dsp 9=rev 10=qno（+11=dscr）
+        assertEquals("24", unquote(stripAlias(row[2])),
+                "CFG-26b 默认值应为 24（T-081b 缺键回退同值）");
+        assertEquals("INT", unquote(stripAlias(row[3])), "CFG-26b 取值类型应为 INT");
+        assertEquals("1", unquote(stripAlias(row[5])), "CFG-26b 下限应为 1（取值须 >0）");
+        assertEquals("LOCAL_ADMIN", unquote(stripAlias(row[7])), "CFG-26b persist_scope 应为 LOCAL_ADMIN");
+        assertEquals("N", unquote(stripAlias(row[8])), "CFG-26b dispatch_to_ctp 应为 N（Java 侧消费）");
     }
 
     @Test
@@ -261,7 +278,7 @@ class ConfigSeedDataTest {
 
         assertEquals(2, engine.table("t_dict_item").rows.size());
         assertEquals(6, engine.table("t_report_period_config").rows.size());
-        assertEquals(65, engine.table("t_config_item").rows.size());
+        assertEquals(66, engine.table("t_config_item").rows.size());
 
         // 关键行抽查（引擎内真实值）
         Map<String, Object> warn = findRow("t_config_item", "config_key", "risk.price.warn_pct");

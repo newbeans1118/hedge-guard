@@ -9,7 +9,7 @@
 --  执行者：DBA（应用账号禁 INSERT 之外的 DDL；本脚本仅 INSERT）。
 --
 --  版本说明：v2（T-009 承接，2026-10-03）——追加第 ④ 段 CONFIG 模块播种
---        （t_dict_item 2 行 / t_report_period_config 6 行 / t_config_item 65 键），
+--        （t_dict_item 2 行 / t_report_period_config 6 行 / t_config_item 66 键），
 --        §② 表对应三行状态同步更新；第 ①/②/③ 段原文未改动。
 --
 --  ⚠️ 脚本纪律：不含存储过程 / 触发器 / 自定义函数（PROJECT.md §6 永久禁止）。
@@ -237,7 +237,8 @@ WHERE NOT EXISTS (
     SELECT 1 FROM t_report_period_config r WHERE r.report_type = src.rt
 );
 
--- ④-3 配置项 t_config_item（65 键：ARCHITECTURE.md §11.1 全部 37 键 + §11.2 可持久化 28 键）
+-- ④-3 配置项 t_config_item（66 键：ARCHITECTURE.md §11.1 全部 37 键 + §11.2 可持久化 28 键
+--     + CFG-26b 1 键〔T-081b 增补·R-AUDIT-5 条件①超时阈值；ARCH §11 落登待编排者转技术负责人〕）
 --     列映射：persist_scope / dispatch_to_ctp 按 §11.3 逐项；related_question_no = §11.1 来源 Q-n；
 --     config_value = default_value = 已确认口径默认值（R-CONFIG-8：不得低于 INDEX.md §9.1）。
 INSERT INTO t_config_item (
@@ -460,6 +461,10 @@ FROM (
            NULL, 1, NULL,
            'LOCAL_ADMIN', 'N', 'N', NULL,
            'CFG-26 重大事项触发：单笔/当日亏损阈值（元）；触发 MAJOR_EVENT 报告'
+    UNION ALL SELECT 'audit.major_event.agg_inconsistency_timeout_hours', 'REPORT_PERIOD', '24', 'INT',
+           NULL, 1, NULL,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-26b 重大事项触发条件①：加总对账不一致且超时未闭环阈值（小时；R-AUDIT-5 ①/T-081）'
     UNION ALL SELECT 'settle.stress.scenarios', 'REPORT_PERIOD', '-3%,-5%,-10%;+10%', 'STRING',
            NULL, NULL, NULL,
            'LOCAL_ADMIN', 'N', 'N', NULL,
