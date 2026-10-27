@@ -614,3 +614,107 @@ M1 交付域（AUTH/CONFIG/PRODUCT/SPOT/PLAN 五模块）六轴全部实扫：�
 ## M1.10 结论
 
 **有条件通过**：门禁三件（1223/0/0/0、arch rc0、树锚 069f373a…/764）独立复现；六轴无阻断/严重项；R1-003（中，跨域幂等契约不一致）与 R1-001/002/004（建议）按 §M1.6 处置建议归口，不构成 M1 收官放行障碍。
+
+---
+
+# M4 代码与架构终审（cr-t088，2026-10-27）
+
+> 审查人：code-reviewer 席实例 `cr-t088`；任务 `T-088`（M4 终审收官单，用户批准派发）。
+> 形态沿 `cr-t075` M3 合规审查先例：**只读审查 + 问题清单（不代改代码）+ merge-base 范围核对 + 并发边界声明**。
+> 本报告全部结论对主树 HEAD `a46ff60`（`main`，2026-10-27 11:46 +08:00）成立。
+
+## M4.1 审查结论
+
+**通过**：门禁四元组独立复现全绿（全量 **1289/0/0/0** + `mvn validate` **rc0** + ctest 桩轨 **50/50** + 树锚双形态逐字复现 `c200ac53…`/781 · `7cd8b575…`/781 且 ②≡③ 互证）；NFR-SEC-9 / NFR-MAINT-4 / NFR-MAINT-6 三条终验判据逐条成立（见 §M4.4/§M4.5）；M4 证据链 §T081~§T087 存在且抽验纯追加红线完好；机读 181 对账吻合；未发现 ARCH/DATA_MODEL 未登记背离。**0 阻断 / 0 严重**；R4 系 5 条均为观察/建议级，均系已在案披露或挂账承接项的终审登记，不构成 M4 收官放行障碍。
+
+## M4.2 已执行的验证（全部真实执行，2026-10-27 11:46–12:00 +08:00）
+
+| # | 验证项 | 命令（形态原文） | 结果 |
+|---|--------|------------------|------|
+| V1 | Java 全量门禁 | `cd java && mvn -B -o clean test` | **Tests run: 1289, Failures: 0, Errors: 0, Skipped: 0**，BUILD SUCCESS（5m17s）✅ |
+| V2 | 架构门禁 E1~E8 | `mvn -f java/pom.xml validate` | 「arch-check 通过：八个判据脚本全部通过（退出码 0）」BUILD SUCCESS（50.7s）✅ |
+| V3 | C++ 桩轨 | `cmake --build cpp/build_stub`（既有目录增量构建）→ `ctest --test-dir cpp/build_stub` | **100% tests passed, 0 failed out of 50**（27.6s）✅ |
+| V4 | 树锚·canonical | 纯净副本（`git archive 7fb4969 java` 快照）：`find java -type f \| sort \| xargs md5sum \| md5sum` | **`c200ac53`… / 781 文件** —— 与 §T087-8 记录逐字一致 ✅ |
+| V5 | 树锚·LC_ALL=C | 同快照：`find java -type f \| LC_ALL=C sort \| xargs md5sum \| md5sum` | **`7cd8b575`… / 781** —— 与 §T087-8 记录逐字一致 ✅ |
+| V6 | 树锚·tracked 互证 | 主树：`git ls-files java \| LC_ALL=C sort \| xargs md5sum \| md5sum` | **`7cd8b575`… / 781** —— ②≡③ 互证成立 ✅ |
+| V7 | C++ SQL/DB 静态扫描 | `grep -rniEc "select\|insert into\|delete from\|…set\|sqlite\|mysql\|odbc\|libpq" cpp/src cpp/include`（独立于 E5 的自设扫描） | **命中总数 = 0** ✅ |
+| V8 | C++ 链接面 | `grep target_link_libraries cpp --include=CMakeLists.txt` 逐处目检 | 全部为内部模块（`hg::ctp_adapter/order_engine/risk_engine/risk_state/flow_store/hgcp`）与测试目标，**零 DB 客户端库** ✅ |
+| V9 | 机读对账 | `grep "^| T-" docs/TASKS.md \| grep -c "机读:DONE"` | **181**（与派单基线一致；总行 204；重复行查重 = 0）✅ |
+| V10 | TEST_RESULT 只追加红线 | 4 个抽样提交（`67d32a3`/`a99e8f1`/`e2fd22d`/`3748474`）版本与 HEAD 前缀逐字节 diff | **4/4 前缀逐字节一致**（删=0、回改=0）✅ |
+| V11 | CFG 键对账（ARCH 背离扫描） | `grep -oE "CFG-[0-9]+b?"` 于 `data-init.sql` vs `ARCHITECTURE.md` 双向差集 | 差集恰为 **CFG-26b/34/35** 三键 = 已登记挂账批（TL-ARCH-081/081b），**无其他未登记背离** ✅ |
+| V12 | M4.md 勘误注记核 | `grep "355\|371" docs/TEST_PLAN/M4.md` | `:343` 加注在案（371 实测·只加不改）✅ |
+
+## M4.3 范围核对（merge-base 先行，cr-t025 判例留痕）
+
+- M4 里程碑起点锚定：M4 首单 T-076 首笔交付 `7563dc4`（2026-10-13 feat(T-076)），其父提交 = **`a6f6aaa`**（`git rev-parse 7563dc4^` 实测；恰为第 243 轮「T-075 M3 合规审查 DONE ⇒ M3 门禁闭环」收官提交——M3/M4 边界清晰无重叠）。
+- 终审覆盖面 = **`a6f6aaa..HEAD`（`a46ff60`）共 122 commits**，`git log --oneline a6f6aaa..HEAD | wc -l` 实测。
+- 覆盖面内 M4 全域逐项清点：ACCT 域（T-076 `7563dc4` / T-077 `a8ed1b0`+`06c1c9d` / T-078 `93ec647`+`803415d` / T-079 `5055695` / T-080 `b3cabbe`+`ebe3c9f` / T-083 `9609808`+`2b09279` / T-084 `e780827`+`918a036` / T-085 `4e1c867`+`618f18a` / T-086 `cab423e`+`e2fd22d` / T-087 `3748474`+`7fb4969`）+ 重做链（T-081b `a99e8f1` / T-082b `67d32a3` / T-199 `5cdfd23`）+ T-205 护栏（`1bb5797`+`47011cb`）+ 伴生域微单（T-196/T-197/T-200/T-201/T-203/T-204/T-111/T-202/T-040 系）全部在跨度内，**无遗漏、无越界（未发现 M4 域交付散落在 `a6f6aaa` 之前）**。
+
+## M4.4 NFR-SEC-9 逐条判定（`REQUIREMENTS/NONFUNCTIONAL.md:129`）
+
+判据原文三联：①C++ 组件零数据库访问代码；②零 DB 客户端库链接；③静态扫描无 SQL 语句。
+
+| 判据 | 取证 | 判定 |
+|------|------|------|
+| ① 零 DB 访问代码 | V7 自设扫描（SQL 关键词+DB 库名，`cpp/src`+`cpp/include`）命中 **0**；E5 判据 rc0（V2） | **成立** |
+| ② 零 DB 客户端库链接 | V8 全部 `target_link_libraries`/`find_package` 逐处目检：仅内部 hg:: 模块与系统线程库 | **成立** |
+| ③ 静态扫描无 SQL | E5（V2 内 rc0）+ V7 双口径；T-087 §T087.2 曾实测 371 文件 E5 rc0 与本轮 rc0 一致 | **成立** |
+
+**NFR-SEC-9 终验 = 通过（3/3）**。
+
+## M4.5 NFR-MAINT-4 / NFR-MAINT-6 逐条判定（`:183` / `:191`）
+
+**NFR-MAINT-4（组件边界不可越界）四子句**：
+
+| 子句 | 取证 | 判定 |
+|------|------|------|
+| C++ 不得访问数据库 | §M4.4 ①② 同源（V7/V8） | **成立** |
+| C++ 不得承载业务逻辑搬移 | C++ 面为 CTP 适配/事前风控（`risk_engine.cc`+parity 金测 `risk_engine_parity_golden_test`/`risk_engine_purity_test` 在轨，ctest 50/50 含之）；无业务数据 CRUD 面 | **成立** |
+| 事前风控不得搬到 Java | `TradeService.submitOrder:457` 注释与实现实证：**10012 阻断类四项由 C++ 事前风控判定结果逐字段承载**（Java 仅转发与呈现）；G-6/G-7 为 L3 提交路径护栏（见下行边界复核），非事前风控搬移 | **成立** |
+| Java 不得替代 C++ 下单职责 | **G-6/G-7 护栏边界独立复核（本席）**：两门禁位于 `submitOrder` ②-b/②-c（`TradeService.java:368-377`），命中 ⇒ 拒绝 + LOG 告警 + **不发 CTP**（`bridge.placeOrder` 不被调用，:501 javadoc 显式声明）；**下单执行本身仍唯一经 C++**（`bridge.placeOrder` → HGCP → C++ → CTP）；护栏是「拒绝放行」的门禁而非「代为下单」的替代——**与 T-205 复核已裁定的语义边界（提交前置校验非替代下单职责）独立核对成立**；R-FUND-7 告警面 `FundService.checkQuotaAlert` 零改动、`t_fund_quota_alert` CHECK 冻结未触碰（V2 E 判据 rc0 旁证） | **成立** |
+
+**NFR-MAINT-6（单一写库入口）**：C++ 侧零 SQL/零 DB 库（§M4.4）⇒ 无第二写库入口的物质基础；写库唯一经 Java dao 层（E5 判据 dao 之外零 SQL，V2 rc0）；C++ 业务结果经 HGCP 事件流交 Java 落库（T-172/T-039 事件面；T-087 §T087.4 实测 Java 唯一出站点 = `TcpHgcpTransport:54` loopback 强制、C++ 出站审计点 0）。**成立**。
+
+## M4.6 门禁终态四元组（独立复现）
+
+见 §M4.2 V1~V6：**1289/0/0/0 + arch rc0（E1~E8）+ ctest 桩轨 50/50 + 树锚双形态（canonical `c200ac53…`/781 · LC_ALL=C `7cd8b575…`/781，②≡③ 主树互证）**——与 T-087 贴标时点记录逐字一致（java 源自 `7fb4969` 零改动旁证：`git diff 7fb4969..HEAD -- java` 空 + archive 快照与主树同值）。
+> 形态注记（T-199 判例复现）：主树工作区因 V1 全量构建含 `target/`，`find java` 形态须在 archive 纯净快照上执行；`git ls-files` 形态可在主树直跑且与 LC_ALL=C 等值。
+
+## M4.7 M4 证据链完整性与机读对账
+
+- **证据章存在性**：§T081（:17397）/ §T082（:17371）/ §T085（:17149 起）/ §T086（:17418）/ §T087（:17573~:17688）全部实存；T-083/T-084 证据经 T-197 章（t083 探针轨迹）与 M4.md/§T087.2（355→371 溯源闭环至 `e780827`）可追溯，无断链。
+- **只追加红线**：V10 四抽样提交逐字节前缀一致（17393→17416→17562→17686→现 17688 行，删=0 回改=0）。
+- **机读对账**：V9 行锚口径 **181** DONE 与派单基线一致；重复行查重 0。
+- **锚一致性抽查**：§T086 前锚（17393/`643d54db`）与 §T081b 交付记录吻合；§T087-8 树锚与 V4~V6 复现一致。
+
+## M4.8 挂账批（待办承接，非缺陷）
+
+| 挂账项 | 内容 | 状态实测 |
+|--------|------|----------|
+| TL-ARCH-081 | CFG-26b 落登 ARCHITECTURE §11（勘误免 CH 口径） | 工单已落箱 `dev-team/inbox/tech-lead/TL-ARCH-081-task.md`，**QUEUED 未派**；实测 ARCH §11 现无 CFG-26b（与挂账口径一致） |
+| TL-ARCH-081b | CFG-34/35 落登 + 护栏语义（L3-FUND-CAP/L3-EMERGENCY-STOP 独立语义层）+ DATA_MODEL 增表（L3 硬停留痕落库候选） | **工单尚未落箱**（inbox/tech-lead 无 081b 文件，仅在 T-088 工单 refs 引用）——见 R4-003 |
+| V11 扫描结论 | data-init ↔ ARCH CFG 键双向差集恰为上述三键 | **无其他未登记背离** |
+
+## M4.9 问题清单（R4 系；只报不改）
+
+分级计数：**阻断 0 / 严重 0 / 一般 0 / 建议 1 / 观察 4**。
+
+| 编号 | 级别 | 位置 | 摘要 | 状态 |
+|------|------|------|------|------|
+| R4-001 | 观察 | `TradeService.java:157/558+`（G-6 取数面） | G-6 护栏缺省 **fail-open**：CFG-34 缺省启用，但无有效额度（缺配置/过期/≤0）或额度面取数异常 ⇒ 惰性放行（据实披露、T-205 复核在案）。失效场景：额度数据面故障时 L3 资金上限护栏静默失效，唯一观测面 = LOG。建议：随 TL-ARCH-081b 护栏语义落登时一并登记失效模式与监控口径 | 已在案披露·终审登记 |
+| R4-002 | 观察 | `TradeService.java:486-491/530+`（L3 告警留痕） | L3 硬停告警仅 **LOG + 响应载荷**、不落库（`t_fund_quota_alert` CHECK 冻结 ⇒ LOG 留痕系唯一合规形态，te-verify-t205 已裁定）。失效场景：事后审计/告警回溯依赖日志留存策略，无持久化审计行；TL-ARCH-081b DATA_MODEL 增表承接中，落地前属已知限制 | 已在案·挂账承接 |
+| R4-003 | 建议 | `dev-team/inbox/tech-lead/`（缺 TL-ARCH-081b 工单） | TL-ARCH-081b 挂账**仅存在于 T-088 工单 refs 转述，工单本体未落箱**。失效场景：M4 收官后 T-088 工单归档 ⇒ CFG-34/35/护栏语义/DATA_MODEL 增表承接点丢失（丢失线先例已三例：T-081/T-082/T-199）。建议：编排者下一轮将 081b 工单落箱（本席写域不含 inbox/tech-lead，不代落） | 待编排者承接 |
+| R4-004 | 观察 | `docs/BOARD.md:469`（T-199 O-1） | off-by-one 勘误留观在案（CH-025 引用行号应为 :470，产出时点即错）——未处置，随 BOARD 下次触碰订正 | 已在案·留观 |
+| R4-005 | 观察 | `docs/DEPLOY/`（TE-T087-V-002） | DEPLOY 档三处时点漂移（信息级）归 DEPLOY 维护周期，未处置 | 已在案·留观 |
+
+## M4.10 并发边界声明
+
+- 本席写域 = **`docs/REVIEW.md`（仅本 §M4 纯追加）+ 工单处理记录追加一行**；源码/TASKS/BOARD/TEST_RESULT/TEST_PLAN/工具/ARCH/DATA_MODEL 全零触碰（V1 构建产物与 V4 临时快照 `/tmp/t088-arch` 除外，均不入 git）。
+- 追加前锚：`docs/REVIEW.md` = **616 行 / md5 `2bc630139d6cf727af84da247f4aac91`**（末行 md5 `e17646bc718e982d6c6b2d41c34d6728`）；最后写者 `f6dfbb4`（2026-10-25，cr-t025 遗留处置批）——追加期间无并发写者（开工 `git status` 全净 + 最后写者时点距本席开工 >40h 静默）。
+- 变异/探针：本席未对源码做任何注入或临时改动（终审以门禁复现 + 只读取证为判据，未发现须变异击杀的争议项）。
+
+## M4.11 遗留风险与未决项
+
+1. **真联（L3）档缺位**：TC-M4-23/24/30 CTP 连通子项待真实环境（main.cc 骨架 + CTP SDK 环境），M4 实盘验收以 dev/test 档替代形态承载（T-086/T-087 披露先例）——放行判读权在用户，本席仅登记。
+2. **DM8 真库项**：TC-M4-27 按 CH-016 替代口径（SQLite 侧单侧档披露 + InMemoryDmEngine 承载）；`docs/DEPLOY/DM8-ACCEPTANCE-BASELINE.md` 底稿（C-1~C-14）供真库增量补验。
+3. R4-001/002 的护栏失效模式与审计持久化，随 TL-ARCH-081b 承接后应在本报告对应问题下回执闭环。
