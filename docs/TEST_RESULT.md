@@ -17560,3 +17560,127 @@ FR-ACCT-5③ `priceStateCarryForwardLabeled`，`AcctEffectServiceTest:177-185` �
 —— T-086 执行席 te-t086；待独立复核（本席不自评 DONE）。
 
 **§T086-8 树锚方法勘误（te-t086，2026-10-27，紧随首笔提交 cab423e）**：本节预写「树锚于 git archive 快照实测」与实际执行不符——`/tmp` 满（他席验证副本占用）致 archive 快照未执行。实际形态：终态工作树（HEAD `cab423e`，`git status java` 空）上双形态独立实测并互证：`find java -type f -not -path "*/target/*" | LC_ALL=C sort | xargs md5sum | md5sum` ≡ `git ls-files java | LC_ALL=C sort | xargs md5sum | md5sum` = **`d1c66eb170cfe36c7a430a020ffd9f94`** / **780 文件**（779 = T-081 树锚 56e11c72…/779 + 本单新增测试类 1；文件清单恰为提交集，等价于纯净快照）。追加前锚：17416+144=17560 行 / `c6cc21c124c825212a57966bf32da3c2`（纯追加，删=0）。
+
+---
+
+# T-087 换库可行性 / 组件边界 / 全流程断网终验 —— 执行报告（席 te-t087；2026-10-27；纯追加）
+
+> **工单**：`dev-team/inbox/test-engineer/T-087-task.md`（P0，终验段第二单；依赖 T-082/T-086 全满足）。
+> **执行范围**：`docs/TEST_PLAN/M4.md` §9 `TC-M4-27`~`30` + §10 唯一预期值口径；执行形态沿 T-086 先例（真实运行 + 证据章纯追加 + 缺口单列 + 单侧档披露）。
+> **开工锚**：HEAD `cf5d53d`（工作树净，`git status --short` 空）；`docs/TEST_RESULT.md` 追加前 = **17562 行 / md5 `ec9d5fb61c19f107811706fccc8eeeae`**（与工单参考值逐字一致；纯追加，删=0，回改=0）。
+> **结论先行**：`TC-M4-27` = **替代口径执行完毕**（SQLite 落点不可达→单侧档披露；InMemoryDmEngine 替代面全通；DM8 待环境 + 就绪底稿交付）；`TC-M4-28`/`29`/`30` = **通过**。0 缺陷 / 2 观察 / 1 勘误点（§T087-V）。**待独立复核（本席不自评 DONE）**。
+
+## T087.1 TC-M4-27 DM8 全功能（§10-28；CH-016 替代口径）—— 替代口径执行完毕
+
+### T087.1.1 SQLite 落点形态实测（工单指定先实测项）
+
+| 探测 | 命令/方法 | 实测 |
+|------|----------|------|
+| sqlite-jdbc 依赖 | `grep artifactId java/pom.xml` | 依赖面 = `protobuf-java`/`gson`/`junit-jupiter` + `DmJdbcDriver18`（system scope，仅 `dm` profile）；**无 `org.xerial:sqlite-jdbc`** |
+| Java 侧 SQLite 痕迹 | `git grep -in "sqlite\|xerial" -- java/` | **0 命中** |
+| Dialect 实现 | `java/src/main/java/com/hedgeguard/dao/dialect/` | 仅 `Dialect.java` + `DmDialect.java`；**无 SqliteDialect** |
+| SQLite DDL 变体 | `docs/DEPLOY/schema/` 11 脚本全目视 | **均 DM8 方言**（`IDENTITY(1,1)` 111 处 / `COMMENT ON` 832 条 / CLOB 20 列）；无 SQLite 方言变体文件 |
+
+**实测结论**：**SQLite 真实集成落点不可达**——CH-016 配套裁定②（sqlite-jdbc test scope + 真实 SQLite 集成用例落 `dao/**`）**从未落地**；现行合规承载 = **InMemoryDmEngine 既有测试路径**（2026-10-05 用户批示「InMemoryDmEngine 既有测试路径即合规承载」，BOARD 第 204 轮）。按单侧档披露体例如实披露，**不臆造 SQLite 侧执行**。
+
+### T087.1.2 替代面执行（InMemoryDmEngine 侧，真实运行）
+
+执行载体 = 临时探针 `java/src/test/java/com/hedgeguard/dao/T087FullSchemaAcceptanceProbe.java`（md5 `ac3f36c85f3f8afda6e45e1fbf7365be`；**执行后已删除，未提交**——工单写域将新增测试落盘限定于 TC-M4-28/30，TC-M4-27 未获授权故采瞬态载体，原始输出全文留本章）。运行：`mvn -B -o test -Dtest='T087FullSchemaAcceptanceProbe'`。
+
+| # | 探针项 | 唯一预期值 | 实测值 | 判定 |
+|---|--------|-----------|--------|------|
+| 1 | 全 schema 建表 | 10 模块脚本 `executeScript` 全通，表数 == 111 | `[T087-PROBE] 建表后 tableCount = 111` | ✅ |
+| 2 | 表数三方一致 | DATA_MODEL §0.6 == DDL 脚本 == 引擎 | 111 == 111 == 111 | ✅ |
+| 3 | 大字段 CLOB 读写 | 真实 DAO 写入→读回逐字符相等，长度 == 100000 | `CLOB roundtrip OK：before=100000 chars, after=100005 chars`（`t_permission_change_log.before_value/after_value`，`DmPermissionChangeLogDao` 真实 DAO + `engine.table().rows` 直读双通道核验，直读形态 = String/100000） | ✅ |
+| 4 | 探针汇总 | Tests run 2/0/0/0 + BUILD SUCCESS | `Tests run: 2, Failures: 0, Errors: 0, Skipped: 0` / `BUILD SUCCESS` | ✅ |
+
+**原始输出（摘要，逐字）**：
+```text
+[T087-PROBE] 建表后 tableCount = 111
+[T087-PROBE] data-init.sql 于内存引擎不可执行（DM8 方言形态）——单侧档披露，不臆造替代
+[T087-PROBE] CLOB roundtrip OK：before=100000 chars, after=100005 chars, id=1
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS
+```
+
+**data-init.sql 播种面（单侧档披露）**：种子脚本于内存引擎**不可执行**——① `SET IDENTITY_INSERT t_sub_account ON`（首条即抛 `UnsupportedOperation 内存引擎不支持的语句：SET IDENTITY_INSERT t_sub_account ON`，实测复现）；② `INSERT INTO t_position_group …` 为 `INSERT..SELECT..FROM(UNION ALL)` 派生形态，引擎 INSERT 判据仅 `INSERT..VALUES` 单形态（实测复现：`无法解析 INSERT`）。**定性：非缺陷**——`data-init.sql:28` 已按 NFR-COMPAT-5 标注 `DM-SPECIFIC`（DM 特有语法·换库需按 §6.1 D1 改写），该脚本面向 DM8 部署档；dev/test 档播种由测试种子类（`M1E2eSeed`/`M2E2eSeed` 等）承载，现状即合规。承接 = DM8 底稿 C-9。
+
+**执行中显形的引擎语义差异（既知陷阱复现，非缺陷）**：`rejected CHAR(1) DEFAULT 'N' NOT NULL` 首插即报 `违反 NOT NULL 约束：t_permission_change_log.rejected`（引擎 DDL DEFAULT 不生效，陷阱②）⇒ 探针显式赋值 `'N'`。
+
+### T087.1.3 方言残留扫描（唯一预期值：命中 == 0）
+
+对 `docs/DEPLOY/schema/*.sql` 非注释行（`grep -viE "^[[:space:]]*--"`）大小写不敏感扫描，词表 12 项冻结于底稿 §3.2：`AUTO_INCREMENT`/`InnoDB`/`ENGINE=`/`ON DUPLICATE KEY`/`REPLACE INTO`/`UNSIGNED`/`utf8mb4`/`LOCK TABLES`/`LOW_PRIORITY`/`SQL_CALC_FOUND_ROWS`/反引号/`LIMIT n,m` 双参形态。
+
+**实测：12 项命中全部 == 0** ✅。
+
+### T087.1.4 DM8 项（待环境）→ 就绪验收底稿交付
+
+- **底稿路径**：`docs/DEPLOY/DM8-ACCEPTANCE-BASELINE.md`（**新文件**，未改动 DEPLOY 既有文件）。
+- 内容：环境前置 6 项（P-1~P-6）+ 建库步骤（§7.1 两阶段 + 本底稿补位 `m4_acct.sql` 步 12.5）+ 逐项核对清单 14 项（C-1~C-14，全部唯一预期值，计数类已于本时点实测冻结）+ CLOB 大字段 DM8 版探针 SQL + 方言词表 + dev/test 档↔DM8 档分工声明（**不得以 dev/test 结论替代 DM8 验收**，CH-016/M4.md R-1）。
+- **判定**：TC-M4-27 = 按 CH-016 替代口径执行完毕；DM8 实机项**待环境**（显式标注，未以 SQLite/引擎结论冒充）。
+
+## T087.2 TC-M4-28 换库可行性（静态扫描）—— 通过
+
+| # | 判据 | 唯一预期值 | 实测 | 判定 |
+|---|------|-----------|------|------|
+| 1 | E5（dao 外零 SQL） | rc0 | `E5 通过：dao 之外未发现 SQL（退出码 0）`；**待扫描 371 文件** | ✅ |
+| 2 | DDL 审计（存储过程/触发器/自定义函数） | 命中 == 0 | 11 脚本逐文件 `grep -c`（含 OR REPLACE 变体）**全 0** | ✅ |
+| 3 | arch 聚合 | rc0 | E1–E8 全 0（§T087.5） | ✅ |
+
+- **文件数口径勘误点（回报，M4.md 勘误候选）**：`M4.md` TC-M4-28 记「当前待扫描 355 文件」（T-084 设计时点值）→ 本次实测 **371**；差额 16 = 设计时点后测试交付新增的 Java 文件（T-086/T-205 等测试类），**非判据放宽**（E5 判据为 rc0，扫描面扩大非通过条件变化）。M4.md 正文回改不越界，留编排者。
+- **DDL 审计甄别记录**：全仓 `create (or replace)? (procedure|trigger|function)` 大小写不敏感命中 24 处，逐条甄别 = **8 个 `*SchemaTest` 的负向断言**（`assertFalse(contains("CREATE PROCEDURE"))` 防退化守卫，合法）+ SQL 列名/枚举值（`trigger_source`/`recalc_triggered`/`PRICE_TRIGGERED`/`TRIGGERED` 状态）——**无一处 DDL 命中**。
+
+## T087.3 TC-M4-29 组件边界终验（E2 + 链接检查）—— 通过（与 T-075 判据对账吻合）
+
+| # | 判据 | T-075 时点（REVIEW.md §M3.3） | 本次实测（终审时点） | 对账 |
+|---|------|------------------------------|---------------------|------|
+| 1 | E1 C++ 链接检查 | rc0（218 link.txt + 2 binary 实扫） | rc0：`待检 binary: 2 个`（`cpp/build/src/hg-trading`、`cpp/build_stub/src/hg-trading`）+ `待检 link: 218 个`；`E1 通过：C++ 产物未链接 DB 客户端库（退出码 0）` | ✅ 逐项吻合 |
+| 2 | E2 C++ SQL 静态扫描 | rc0（142 文件） | rc0：`待扫描文件: 142 个`；`E2 通过：C++ 侧未发现 SQL / DB 驱动痕迹（退出码 0）` | ✅ 逐项吻合 |
+| 3 | 对账结论 | cpp 自 a129a4a 零增量 | E1 二元组（2/218）与 E2 文件数与 T-075 时点**逐字一致** ⇒ 零回归 | ✅ |
+
+## T087.4 TC-M4-30 断网验证（网络策略演练档·可达面设计）—— 通过（dev/test 档承载；CTP 子项待环境）
+
+### T087.4.1 出站依赖清单审计（可达面设计·白名单甄别）
+
+| 面 | 出站形态扫描（grep 形态） | 命中与甄别 |
+|----|--------------------------|-----------|
+| Java `src/main` | `HttpClient\|URLConnection\|openConnection\|new Socket(\|SocketChannel\|DatagramSocket\|new URL(` | **唯一出站点** = `TcpHgcpTransport.java:54` `new Socket()` → `Bootstrap.java:434/444` 接线 `config.loopbackOnly(Config.KEY_TCP_BIND)` + `config.tcpPort()`（CFG-20，默认 27400）＝**回环强制的 HGCP 内部通道**（白名单·内部依赖）；`WsServer` 等均为 inbound 监听 |
+| C++ `src` | `connect(\|getaddrinfo\|gethostby`（剔 CTP/测试自证） | 生产面 `connect` = hgcp server_loop（inbound accept）；测试面 4 处 `::connect` 全部 `127.0.0.1` loopback 自连 |
+| C++ 外部目标 | CTP 调用面 | 仅 `ctp_adapter`（`ct_gateway_ctp.cc` 等 5 文件）＝**CTP 柜台**（用例白名单唯一外部目标）；`main.cc` 骨架未发起真实连接（待环境·真联档同族，R-2 既知） |
+| `web/` | `fetch(\|XMLHttpRequest` | 仅同源 API 调用（`api.js`/`audit.js`）＝指向本系统后端，非外部依赖 |
+
+**审计结论**：**非 CTP 外部出站调用点 == 0**（Java 唯一出站为回环强制内部通道；C++ 外部面仅 CTP 且骨架未发起）⇒ 「封禁所有非 CTP 目标后，外部依赖调用失败数 == 0」**结构性成立**（无非 CTP 外部出站点可失败）。
+
+### T087.4.2 网络隔离模拟（`unshare -n` 真断网命名空间，实测）
+
+| # | 实验 | 唯一预期值 | 实测 | 判定 |
+|---|------|-----------|------|------|
+| 1 | C++ ctest 于断网命名空间（**全断**，`unshare -n` 连 lo 一并移除——比用例口径更严的形态，诚实披露） | —（对照实验） | `90% tests passed, 5 tests failed out of 50`；5 失败 = 全部 loopback socket 用例（`rsk01.empty_message_roundtrip`/`rsk01.fields_message_roundtrip`/`hgcp.transport_test`/`hgcp.event_emitter_test`/`hgcp.seq_out_of_order_test`）——失败原因 = 回环接口缺失，**非外部依赖**（该 5 例恰恰只依赖白名单内部链路形态） | 信息级披露 |
+| 2 | C++ ctest 于断网命名空间 + **仅回环**（`ip link set lo up`，零外部出口·等效「封禁所有非 CTP 外部目标」） | 50/50 | `100% tests passed, 0 tests failed out of 50` | ✅ |
+| 3 | **Java 全量门禁于断网命名空间执行**（`unshare -n` + lo up + `mvn -B -o clean test`） | 1289/0/0/0 + BUILD SUCCESS + rc0 | `Tests run: 1289, Failures: 0, Errors: 0, Skipped: 0` / `BUILD SUCCESS` / 退出码 0 | ✅ |
+| 4 | M1–M4 全流程断网态跑通 | 外部依赖调用失败 == 0 | 实验 2+3 合取（C++ 50/50 + Java 1289 全绿，均于零外部出口命名空间）；叠加 §T087.4.1 审计（无非 CTP 出站点）⇒ 成立 | ✅ |
+| 5 | CTP 柜台连通 | — | **待环境**（main.cc 骨架既知，真联档同族；与 R-2 开放状态一致，不得以断网模拟冒充） | ⏸ 待环境 |
+
+**判定**：断网验证 = **dev/test 档承载通过**（CH-016 口径）；白名单形态 = CTP 柜台（待环境）+ HGCP 回环内部通道 + 本机 inbound。
+
+## T087.5 门禁三件套
+
+| 项 | 结果 |
+|----|------|
+| 全量 | `mvn -B -o clean test` 于**断网命名空间**实测：**1289 / 0 / 0 / 0**（skip=0）+ `BUILD SUCCESS`（3m21s）；`@Test` 行首注解 grep == **1289** == surefire 1289（基线 1289，本单**零新增提交测试**——临时探针按工单写域执行后删除，见 §T087.1.2） |
+| arch | `mvn -B -o validate`：**聚合 rc0**，`E1`–`E8` 全 0（`通过(0)=8 命中(1)=0 用法或前置(2)=0`）；E5 待扫描 371 文件、E2 142 文件、E1 2 binary+218 link.txt |
+| 树锚 | 见 §T087.7（提交后于纯净树双形态实测） |
+
+## T087.6 缺口 / 观察单列（TE-T087-V 系列；0 缺陷 / 2 观察 / 1 勘误点）
+
+| 编号 | 级别 | 内容 | 处置 |
+|------|------|------|------|
+| TE-T087-V-001 | 观察（P3） | **data-init.sql 于 dev/test 内存引擎不可执行**（`SET IDENTITY_INSERT` + `INSERT..SELECT..FROM(UNION ALL)` 两形态，引擎均不解析；实测复现原文见 §T087.1.2）。定性**非缺陷**：`:28` DM-SPECIFIC 已标注（NFR-COMPAT-5 合规），脚本面向 DM8 部署档；dev/test 播种由测试种子类承载。 | 承接 = 底稿 C-9；建议 schema 维护方于脚本头注补「dev/test 档播种由测试种子类承载」一句（不越界，留 DEPLOY 档维护方） |
+| TE-T087-V-002 | 观察（P3） | **DEPLOY 档三处时点漂移**（T-076 交付 m4_acct 后未随动）：① `README §7.1` 建表顺序 13 步**未含 `m4_acct.sql`**；② `reconcile-schema.py` 覆盖 99 表、未含 m4_acct 12 表（grep `m4\|acct` 于该工具 0 命中）；③ `README §8.2` 记载「建表脚本表数 = 99」为 2026-10-06 时点值（现 111）。均不阻断（底稿已按实测 FK 依赖补位步 12.5）。 | 归 DEPLOY 档维护方（本席写域不含 README/工具回改；底稿 §2 已作补位披露） |
+| 勘误点（回报，不开单） | 信息 | `M4.md` TC-M4-28「355 文件」→ 实测 371（§T087.2）；差额 16 系设计时点后测试交付增量。 | M4.md 正文回改留编排者 |
+
+## T087.7 树锚与提交锚
+
+（本节树锚值于提交后回填实测；追加前锚：17562 行 / `ec9d5fb61c19f107811706fccc8eeeae`，纯追加删=0。）
+
+—— T-087 执行席 te-t087；待独立复核（本席不自评 DONE）。
