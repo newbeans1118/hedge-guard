@@ -37,8 +37,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * CHECK / 唯一键 / NOT NULL 全部按 {@code m1_config_auth.sql} 强制），证明：
  * <ul>
  *   <li><b>播种行数</b>：{@code t_dict_item} = 2（仅代码实际消费域）/ {@code t_report_period_config} = 6 /
- *       {@code t_config_item} = 66（§11.1 全部 37 键 + §11.2 可持久化 28 键 + {@code CFG-26b}
- *       1 键〔{@code T-081b} 增补，{@code R-AUDIT-5} 条件①超时阈值〕）；</li>
+ *       {@code t_config_item} = 68（§11.1 全部 37 键 + §11.2 可持久化 28 键 + {@code CFG-26b}
+ *       1 键〔{@code T-081b} 增补，{@code R-AUDIT-5} 条件①超时阈值〕+ {@code CFG-34/35}
+ *       2 键〔{@code T-205} 增补，L3 实盘护栏启用态 / 紧急停止开关〕）；</li>
  *   <li><b>关键字段</b>：R-CONFIG-8 下限值（0.90/0.80/12/30/6/10/5/3/0.02/0.05…）、
  *       敏感项零落盘（无 is_sensitive='Y' 行）、persist_scope / dispatch_to_ctp 按 §11.3；</li>
  *   <li><b>幂等</b>：三段 INSERT 均含 NOT EXISTS（自然键去重）＋引擎唯一约束对重复行必拒
@@ -68,12 +69,13 @@ class ConfigSeedDataTest {
     // ------------------------------------------------------------------ 结构断言
 
     @Test
-    @DisplayName("播种行数：dict 2 / report 6 / config 66（T-009 验收 5 + T-081b 增补 1 键）")
+    @DisplayName("播种行数：dict 2 / report 6 / config 68（T-009 验收 5 + T-081b 增补 1 键 + T-205 增补 2 键）")
     void seedsRowCounts() {
         assertEquals(2, rowCount(block(section4, "t_dict_item")), "t_dict_item 应为 2 行（仅代码消费域）");
         assertEquals(6, rowCount(block(section4, "t_report_period_config")), "t_report_period_config 应为 6 行");
-        assertEquals(66, rowCount(block(section4, "t_config_item")),
-                "t_config_item 应为 66 键（§11.1=37 + §11.2 可持久化=28 + CFG-26b T-081b 增补=1）");
+        assertEquals(68, rowCount(block(section4, "t_config_item")),
+                "t_config_item 应为 68 键（§11.1=37 + §11.2 可持久化=28 + CFG-26b T-081b 增补=1"
+                        + " + CFG-34/35 T-205 增补=2）");
     }
 
     @Test
@@ -156,11 +158,11 @@ class ConfigSeedDataTest {
     }
 
     @Test
-    @DisplayName("持久化属性按 §11.3：dispatch_to_ctp / persist_scope / 双人复核逐格核对（全 66 行）")
+    @DisplayName("持久化属性按 §11.3：dispatch_to_ctp / persist_scope / 双人复核逐格核对（全 68 行）")
     void dispatchFlagsFollowSection113() {
         String b = block(section4, "t_config_item");
         String[][] rows = sourceRows(b);
-        assertEquals(66, rows.length, "④-3 源行应为 66 行");
+        assertEquals(68, rows.length, "④-3 源行应为 68 行");
         // 下标：0=k 1=cat 2=val 3=vt 4=scope 5=lo 6=hi 7=ps 8=dsp 9=rev 10=qno
         for (String[] row : rows) {
                 assertEquals(12, row.length, "源行应为 12 格（k..dscr）：" + row[0]);
@@ -240,6 +242,31 @@ class ConfigSeedDataTest {
     }
 
     @Test
+    @DisplayName("CFG-34/35 点名：hg.trade.fund_cap_enabled / hg.trade.emergency_stop 播种在案"
+            + "（BOOL Y/N、dispatch N、复核关〔TC-M4-25 ≤1 操作〕；T-205 读取源）")
+    void tradeGuardKeysSeeded() {
+        String b = block(section4, "t_config_item");
+        String[][] rows = sourceRows(b);
+        String[] cap = findRow("'hg.trade.fund_cap_enabled'", rows);
+        // 下标：0=k 1=cat 2=val 3=vt 4=scope 5=lo 6=hi 7=ps 8=dsp 9=rev 10=qno（+11=dscr）
+        assertEquals("Y", unquote(stripAlias(cap[2])),
+                "CFG-34 护栏启用态默认应为 Y（缺省启用；无额度数据惰性放行）");
+        assertEquals("BOOL", unquote(stripAlias(cap[3])), "CFG-34 取值类型应为 BOOL");
+        assertEquals("N", unquote(stripAlias(cap[8])), "CFG-34 dispatch_to_ctp 应为 N（Java 侧消费）");
+        assertEquals("N", unquote(stripAlias(cap[9])), "CFG-34 双人复核应为 N");
+        assertEquals("LOCAL_ADMIN", unquote(stripAlias(cap[7])), "CFG-34 persist_scope 应为 LOCAL_ADMIN");
+
+        String[] stop = findRow("'hg.trade.emergency_stop'", rows);
+        assertEquals("N", unquote(stripAlias(stop[2])),
+                "CFG-35 紧急停止默认应为 N（缺省不停止）");
+        assertEquals("BOOL", unquote(stripAlias(stop[3])), "CFG-35 取值类型应为 BOOL");
+        assertEquals("N", unquote(stripAlias(stop[8])), "CFG-35 dispatch_to_ctp 应为 N（Java 侧消费）");
+        assertEquals("N", unquote(stripAlias(stop[9])),
+                "CFG-35 双人复核应为 N（TC-M4-25：≤1 个操作内停新开仓，双人复核即两操作）");
+        assertEquals("LOCAL_ADMIN", unquote(stripAlias(stop[7])), "CFG-35 persist_scope 应为 LOCAL_ADMIN");
+    }
+
+    @Test
     @DisplayName("报告周期：六类型齐全、is_mandatory 全 Y 且 is_enabled 全 Y（R-CONFIG-7）")
     void reportPeriodsCompleteAndMandatory() {
         String b = block(section4, "t_report_period_config");
@@ -278,7 +305,7 @@ class ConfigSeedDataTest {
 
         assertEquals(2, engine.table("t_dict_item").rows.size());
         assertEquals(6, engine.table("t_report_period_config").rows.size());
-        assertEquals(66, engine.table("t_config_item").rows.size());
+        assertEquals(68, engine.table("t_config_item").rows.size());
 
         // 关键行抽查（引擎内真实值）
         Map<String, Object> warn = findRow("t_config_item", "config_key", "risk.price.warn_pct");

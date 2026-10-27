@@ -9,7 +9,8 @@
 --  执行者：DBA（应用账号禁 INSERT 之外的 DDL；本脚本仅 INSERT）。
 --
 --  版本说明：v2（T-009 承接，2026-10-03）——追加第 ④ 段 CONFIG 模块播种
---        （t_dict_item 2 行 / t_report_period_config 6 行 / t_config_item 66 键），
+--        （t_dict_item 2 行 / t_report_period_config 6 行 / t_config_item 68 键〔66 + T-205 增补
+--          CFG-34/35 2 键，2026-10-27〕），
 --        §② 表对应三行状态同步更新；第 ①/②/③ 段原文未改动。
 --
 --  ⚠️ 脚本纪律：不含存储过程 / 触发器 / 自定义函数（PROJECT.md §6 永久禁止）。
@@ -87,7 +88,7 @@ SET IDENTITY_INSERT t_product OFF;
 --   | 4 | `t_account_subject` | 套期会计常用科目模板（is_template_default='Y'） | TB-CONFIG-5 / Q-9 | ACCT 模块任务 | 待 ACCT |
 --   | 5 | `t_report_period_config` | 六类报告的周期与提醒角色 | TB-CONFIG-6 | CONFIG 模块任务 | ✅ **已交付：见第 ④ 段（T-009 承接）** |
 --   | 6 | `t_dict_item` | 业务枚举字典（TRADE_REASON / UNIT_LABEL / EXPOSURE_DIRECTION 等） | TB-CONFIG-4 | CONFIG 模块任务 | ✅ **已交付：见第 ④ 段（T-009 承接）** |
---   | 7 | `t_config_item` | `ARCHITECTURE.md` §11 的全部 CFG-*（默认值 = 已确认口径） | §11 / R-CONFIG-8 | CONFIG 模块任务 | ✅ **已交付：见第 ④ 段（T-009 承接）** |
+--   | 7 | `t_config_item` | `ARCHITECTURE.md` §11 的全部 CFG-*（默认值 = 已确认口径） | §11 / R-CONFIG-8 | CONFIG 模块任务 | ✅ **已交付：见第 ④ 段（T-009 承接）**；CFG-34/35 2 键系 T-205 增补（2026-10-27，ARCH §11 落登待编排者转技术负责人） |
 --
 --   ✅ 已解决（v1.3.3 / DC-041）：`t_product` 保留系统行 `id=0` **已在本脚本第 ①-bis 段落盘**
 --      （由 `#java2` 的 `question` 触发：`t_exposure.product_id = 0` 需要该行作外键目标）。
@@ -237,8 +238,9 @@ WHERE NOT EXISTS (
     SELECT 1 FROM t_report_period_config r WHERE r.report_type = src.rt
 );
 
--- ④-3 配置项 t_config_item（66 键：ARCHITECTURE.md §11.1 全部 37 键 + §11.2 可持久化 28 键
---     + CFG-26b 1 键〔T-081b 增补·R-AUDIT-5 条件①超时阈值；ARCH §11 落登待编排者转技术负责人〕）
+-- ④-3 配置项 t_config_item（68 键：ARCHITECTURE.md §11.1 全部 37 键 + §11.2 可持久化 28 键
+--     + CFG-26b 1 键〔T-081b 增补·R-AUDIT-5 条件①超时阈值；ARCH §11 落登待编排者转技术负责人〕
+--     + CFG-34/35 2 键〔T-205 增补·L3 实盘护栏启用态 / 紧急停止开关；ARCH §11 落登挂账转技术负责人〕）
 --     列映射：persist_scope / dispatch_to_ctp 按 §11.3 逐项；related_question_no = §11.1 来源 Q-n；
 --     config_value = default_value = 已确认口径默认值（R-CONFIG-8：不得低于 INDEX.md §9.1）。
 INSERT INTO t_config_item (
@@ -517,6 +519,14 @@ FROM (
            NULL, 1, NULL,
            'LOCAL_ADMIN', 'N', 'N', NULL,
            'CFG-33 Java 前端 HTTP 处理线程数（取 T-003 实测实现值，可调）'
+    UNION ALL SELECT 'hg.trade.fund_cap_enabled', 'RISK_PARAM', 'Y', 'BOOL',
+           NULL, NULL, NULL,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-34 L3 资金上限护栏启用态（T-205/G-6）：Y=提交路径强制（占用≥额度即拒绝+告警留痕+不发 CTP，子账户/账户两级）；与 R-FUND-7 告警不阻断为独立语义层，R-FUND-7 告警面零改动'
+    UNION ALL SELECT 'hg.trade.emergency_stop', 'RISK_PARAM', 'N', 'BOOL',
+           NULL, NULL, NULL,
+           'LOCAL_ADMIN', 'N', 'N', NULL,
+           'CFG-35 L3 紧急停止开关（T-205/G-7）：Y=全部新提交拒绝（在途指令与既有流程不受影响，R-TRADE-13）；经既有 CONFIG 参数面切换、双人复核关（TC-M4-25 ≤1 操作停新开仓）'
 ) src
 WHERE NOT EXISTS (
     SELECT 1 FROM t_config_item c WHERE c.config_key = src.k

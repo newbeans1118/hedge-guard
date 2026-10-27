@@ -8,7 +8,10 @@ import com.hedgeguard.bridge.PlaceOrderResult;
 import com.hedgeguard.bridge.TradingBridge;
 import com.hedgeguard.common.Clocks;
 import com.hedgeguard.dao.BizNoGenerator;
+import com.hedgeguard.dao.ConfigItemDao;
 import com.hedgeguard.dao.ExposureDao;
+import com.hedgeguard.dao.FundLedgerDao;
+import com.hedgeguard.dao.FundQuotaDao;
 import com.hedgeguard.dao.HedgePlanDao;
 import com.hedgeguard.dao.TradeCommandFlowDao;
 import com.hedgeguard.dao.TradeFillDao;
@@ -19,6 +22,9 @@ import com.hedgeguard.dao.TradePositionDao;
 import com.hedgeguard.dao.TradePreTradeRejectDao;
 import com.hedgeguard.dao.TradeReasonDao;
 import com.hedgeguard.dao.entity.Exposure;
+import com.hedgeguard.dao.entity.ConfigItem;
+import com.hedgeguard.dao.entity.FundLedger;
+import com.hedgeguard.dao.entity.FundQuota;
 import com.hedgeguard.dao.entity.HedgePlan;
 import com.hedgeguard.dao.entity.TradeCommandFlow;
 import com.hedgeguard.dao.entity.TradeFill;
@@ -28,6 +34,9 @@ import com.hedgeguard.dao.entity.TradePlan;
 import com.hedgeguard.dao.entity.TradePosition;
 import com.hedgeguard.dao.entity.TradePreTradeReject;
 import com.hedgeguard.dao.entity.TradeReason;
+import com.hedgeguard.dao.impl.DmConfigItemDao;
+import com.hedgeguard.dao.impl.DmFundLedgerDao;
+import com.hedgeguard.dao.impl.DmFundQuotaDao;
 import com.hedgeguard.dao.impl.DmHedgePlanDao;
 import com.hedgeguard.dao.tx.TxTemplate;
 import com.hedgeguard.web.BizException;
@@ -69,6 +78,17 @@ import java.util.logging.Logger;
  *       {@link AuthService#assertCanTrade}（负责人/管理层禁操盘 析取判据 + 交易岗能力），随后写面
  *       {@link AuthService#assertSubAccountWritable}（{@code T-115}）。</li>
  * </ol>
+ *
+ * <p><b>L3 实盘护栏两项前置门禁（{@code T-205}·T-086 缺口 G-6/G-7）</b>：{@link #submitOrder} 在
+ * {@code assertCanTrade} 强制点之后、理由校验之前，依次执行
+ * ① {@code assertEmergencyStopCleared}（G-7 紧急停止：{@code CFG-35} 为 {@code Y} ⇒ 全部新提交拒绝，
+ * 在途指令与既有流程不受影响，{@code R-TRADE-13} 边界）；
+ * ② {@code assertFundCapNotExceeded}（G-6 资金上限：占用 ≥ 上限〔子账户/账户两级，取数面同
+ * {@code FundService}：{@code t_fund_quota} 有效额度 + {@code t_fund_ledger.margin_occupied}〕
+ * ⇒ 拒绝 + 告警留痕 + 不发 CTP）。两项均为<b>只读校验</b>（读 CFG/额度/台账），不产生任何写语句
+ * ——「提交路径零写」口径不变；告警留痕为 LOG 形态 + 阻断响应四项载荷
+ * （{@code t_fund_quota_alert.blocked_operation} 受 CHECK 恒 {@code 'NONE'} 冻结
+ * 〔FR-FUND-14 验收 3〕，L3 硬停告警不可入该表，且本护栏与 {@code R-FUND-7}「告警不阻断」为独立语义层）。
  *
  * <p><b>与 {@code Project.md} §10-23 的口径说明（据实披露）</b>：架构正文（§4.2.6(4) 第 ③ 步注记、§6.1④）
  * 把该保证表述为「Java <b>不预写库</b> / 不产生 SQL」，而 {@code FR-TRADE-10} 第①层又明确要求权威校验
@@ -126,6 +146,26 @@ public final class TradeService {
     /** 桥回执等待上限（毫秒）；超时按组件不可用拒绝（{@code COMPONENT_UNAVAILABLE}）。 */
     private static final long BRIDGE_TIMEOUT_MS = 10_000L;
 
+    // ==================== T-205 实盘护栏（G-6 资金上限 / G-7 紧急停止）====================
+
+    /** {@code CFG-34} 配置键：L3 资金上限护栏启用态（BOOL Y/N）。 */
+    public static final String CFG_FUND_CAP_ENABLED = "hg.trade.fund_cap_enabled";
+
+    /** {@code CFG-34} 缺省值 = {@code Y}（护栏缺省启用；无有效额度数据时惰性放行——据实披露）。 */
+    public static final String DEFAULT_FUND_CAP_ENABLED = "Y";
+
+    /** {@code CFG-35} 配置键：L3 紧急停止开关（BOOL Y/N；工单框定键形 {@code hg.trade.emergency_stop}）。 */
+    public static final String CFG_EMERGENCY_STOP = "hg.trade.emergency_stop";
+
+    /** {@code CFG-35} 缺省值 = {@code N}（缺省不停止，正常受理）。 */
+    public static final String DEFAULT_EMERGENCY_STOP = "N";
+
+    /** 护栏命中规则编号：资金上限硬停（G-6；独立于 {@code R-FUND-7} 告警语义层）。 */
+    public static final String RULE_ID_FUND_CAP = "L3-FUND-CAP";
+
+    /** 护栏命中规则编号：紧急停止（G-7）。 */
+    public static final String RULE_ID_EMERGENCY_STOP = "L3-EMERGENCY-STOP";
+
     private final TxTemplate tx;
     private final TradingBridge bridge;
     private final AuthService authService;
@@ -140,6 +180,17 @@ public final class TradeService {
     private final TradePositionDao tradePositionDao;
     private final TradePreTradeRejectDao preTradeRejectDao;
     private final TradeCommandFlowDao commandFlowDao;
+
+    // ---- T-205 护栏取数面（G-6/G-7；tx 派生，与 hedgePlanDao 同姿态）----
+
+    /** 资金额度 DAO（{@code t_fund_quota} 有效额度；{@code FundService.latestQuota} 同形过滤）。 */
+    private final FundQuotaDao fundCapQuotaDao;
+
+    /** 资金台账 DAO（占用 = {@code t_fund_ledger.margin_occupied}）。 */
+    private final FundLedgerDao fundCapLedgerDao;
+
+    /** 配置项 DAO（{@code CFG-34}/{@code CFG-35} 惰性读取，T-188 触发器同形态）。 */
+    private final ConfigItemDao fundCapConfigDao;
 
     // ==================== 提交上下文（T-172 硬边界①）====================
 
@@ -198,6 +249,45 @@ public final class TradeService {
                         TradeOrderReportDao tradeOrderReportDao, TradeFillDao tradeFillDao,
                         TradePositionDao tradePositionDao, TradePreTradeRejectDao preTradeRejectDao,
                         TradeCommandFlowDao commandFlowDao) {
+        this(tx, bridge, authService, tradePlanDao, hedgePlanDao, exposureDao,
+                tradeOrderDao, tradeReasonDao, tradeOrderReportDao, tradeFillDao,
+                tradePositionDao, preTradeRejectDao, commandFlowDao,
+                new DmFundQuotaDao(tx), new DmFundLedgerDao(tx), new DmConfigItemDao(tx));
+    }
+
+    /**
+     * 构造（{@code T-205} 扩展签名：显式注入护栏取数面）。
+     *
+     * <p><b>兼容变更</b>（{@code CONTRACTS.md} §5.3「新增方法属兼容变更」同类先例）：既有两构造器
+     * 签名不变——主构造以 {@code tx} 派生 {@code DmFundQuotaDao}/{@code DmFundLedgerDao}/
+     * {@code DmConfigItemDao}（与 {@code DmHedgePlanDao(tx)} 同姿态），生产装配（{@code Bootstrap}）
+     * 与冻结验收件（{@code M2EndToEndAcceptanceTest} 历史签名）均无需改动。
+     *
+     * @param tx                事务模板（仅事件流落库 / 理由落库用；提交路径不使用）
+     * @param bridge            组件桥（{@code TradingBridge}）
+     * @param authService       认证服务（{@code assertCanTrade} 强制点 + 子账户写面断言）
+     * @param tradePlanDao      交易计划 DAO
+     * @param hedgePlanDao      套保计划 DAO
+     * @param exposureDao       实货敞口 DAO
+     * @param tradeOrderDao     交易指令 DAO
+     * @param tradeReasonDao    交易理由 DAO
+     * @param tradeOrderReportDao 委托回报 DAO
+     * @param tradeFillDao      成交 DAO
+     * @param tradePositionDao  持仓 DAO
+     * @param preTradeRejectDao 事前风控拒绝 DAO
+     * @param commandFlowDao    指令流水镜像 DAO
+     * @param fundCapQuotaDao   T-205 护栏：资金额度 DAO（{@code t_fund_quota}）
+     * @param fundCapLedgerDao  T-205 护栏：资金台账 DAO（占用 = {@code margin_occupied}）
+     * @param fundCapConfigDao  T-205 护栏：配置项 DAO（{@code CFG-34}/{@code CFG-35}）
+     */
+    public TradeService(TxTemplate tx, TradingBridge bridge, AuthService authService,
+                        TradePlanDao tradePlanDao, HedgePlanDao hedgePlanDao, ExposureDao exposureDao,
+                        TradeOrderDao tradeOrderDao, TradeReasonDao tradeReasonDao,
+                        TradeOrderReportDao tradeOrderReportDao, TradeFillDao tradeFillDao,
+                        TradePositionDao tradePositionDao, TradePreTradeRejectDao preTradeRejectDao,
+                        TradeCommandFlowDao commandFlowDao,
+                        FundQuotaDao fundCapQuotaDao, FundLedgerDao fundCapLedgerDao,
+                        ConfigItemDao fundCapConfigDao) {
         this.tx = tx;
         this.bridge = bridge;
         this.authService = authService;
@@ -211,6 +301,9 @@ public final class TradeService {
         this.tradePositionDao = tradePositionDao;
         this.preTradeRejectDao = preTradeRejectDao;
         this.commandFlowDao = commandFlowDao;
+        this.fundCapQuotaDao = fundCapQuotaDao;
+        this.fundCapLedgerDao = fundCapLedgerDao;
+        this.fundCapConfigDao = fundCapConfigDao;
     }
 
     /**
@@ -271,6 +364,15 @@ public final class TradeService {
         // ② 服务端权限强制点（T-102 裁定：M2 Java 下单写路径）
         authService.assertCanTrade(operatorId, subAccountId);
         authService.assertSubAccountWritable(operatorId, subAccountId);
+
+        // ②-b G-7 紧急停止门禁（T-205；CFG-35）：Y ⇒ 全部新提交拒绝（留痕 + 不发 CTP）；
+        // 在途指令（已受理/已发 CTP）与确认/撤单路径不在本门禁面（R-TRADE-13 边界·工单框定）。
+        assertEmergencyStopCleared(operatorId);
+
+        // ②-c G-6 资金上限护栏（T-205；CFG-34）：占用 ≥ 上限（子账户/账户两级）⇒ 拒绝 + 告警留痕
+        // + 不发 CTP。与 R-FUND-7「额度告警不阻断」为独立语义层：本护栏系 L3 实盘硬停，
+        // R-FUND-7 告警面（FundService.checkQuotaAlert）零改动。
+        assertFundCapNotExceeded(subAccountId, operatorId);
 
         // ③ 交易理由结构化必填（CFG-13 / FR-TRADE-10 第①层：Java 提交时权威，同子账户）
         validateReasonStructured(req.reason, subAccountId, operatorId);
@@ -359,6 +461,158 @@ public final class TradeService {
                             + " ruleId=" + result.ruleId + (result.message == null ? "" : " msg=" + result.message));
         }
         return result;
+    }
+
+    // ================================================================== T-205 实盘护栏（G-6/G-7）
+
+    /**
+     * <b>G-7 紧急停止门禁</b>（{@code CFG-35} {@code hg.trade.emergency_stop}；T-086 缺口 G-7 最小承载形态）。
+     *
+     * <p>取 {@code Y} ⇒ <b>全部新提交拒绝</b>（{@code 10012} 阻断类 + LOG 告警留痕 + 不发 CTP）；
+     * 在途指令（已受理待确认 / 已发 CTP 未收回报）与既有流程（确认 / 撤单 / 事件落库）<b>不受影响</b>
+     * （{@code R-TRADE-13} 边界；工单框定：PROJECT/M4 原文无「全平仓」等超出最小形态的语义要件）。
+     * 切换入口 = 既有 CONFIG 参数面（{@code ConfigService.changeConfigValue}，零新端点）；
+     * {@code double_review_required='N'}（TC-M4-25「≤ 1 个操作内停新开仓」判据，双人复核即两操作）。
+     * 缺键 / 取值非 Y ⇒ 不停止（缺省 {@code N}）。
+     *
+     * <p>仅 {@link #submitOrder} 调用（在途不受影响的结构性证据：确认/撤单/事件路径不含本判定）。
+     *
+     * @param operatorId 操作人（留痕用）
+     * @throws BizException 紧急停止生效时抛 {@code 10012}（{@code ruleId=L3-EMERGENCY-STOP}）
+     */
+    private void assertEmergencyStopCleared(long operatorId) {
+        if (!"Y".equalsIgnoreCase(configValue(CFG_EMERGENCY_STOP, DEFAULT_EMERGENCY_STOP))) {
+            return;
+        }
+        LOG.warning("L3 紧急停止告警[CRITICAL] emergency_stop=Y blocked_operation=PLACE_ORDER"
+                + " operator_id=" + operatorId
+                + "（全部新提交拒绝，未发 CTP；在途指令不受影响 R-TRADE-13；T-205/G-7）");
+        throw BizException.blocking(ErrorCode.COMPLIANCE_GATE_FAILED,
+                "紧急停止生效，拒绝全部新提交（T-205/G-7；CFG-35 hg.trade.emergency_stop=Y）："
+                        + "在途指令与既有流程不受影响（R-TRADE-13）；复现=等待紧急停止解除后重试",
+                RULE_ID_EMERGENCY_STOP, "emergency_stop=Y", "新提交=全部拒绝",
+                "由管理员经 CONFIG 参数面将 hg.trade.emergency_stop 改回 N 后重试");
+    }
+
+    /**
+     * <b>G-6 资金上限护栏</b>（{@code CFG-34} {@code hg.trade.fund_cap_enabled}；T-086 缺口 G-6）。
+     *
+     * <p><b>触发条件</b>：占用 ≥ 上限（边界含等号，工单框定「占用 ≥ 上限 ⇒ 拒绝」）。
+     * <b>阻断对象</b>：当前提交指令（拒绝 + 不发 CTP——{@code bridge.placeOrder} 不被调用）。
+     * <b>维度</b>：子账户级（{@code SUB_ACCOUNT} 额度 vs 该子账户当日 {@code margin_occupied}）与
+     * 账户级（{@code ACCOUNT} 额度 vs 全部子账户当日 {@code margin_occupied} 求和）两级独立判定，
+     * 任一命中即拒绝（{@code PROJECT.md} §10-35「子账户限额与总账户限额均生效」）。
+     * <b>告警留痕</b>：LOG 结构化告警行（对齐 FundService 告警面字段形态：
+     * {@code quota_scope}/{@code quota_value}/{@code occupied_value}/{@code alert_level=CRITICAL}/
+     * {@code blocked_operation=PLACE_ORDER}）+ 拒绝响应四项载荷。
+     *
+     * <p><b>语义边界（硬约束）</b>：{@code R-FUND-7} 额度系业务额度<b>告警不阻断</b>
+     * （{@code blocked_operation='NONE'}，表 CHECK 冻结）——本护栏系 L3 实盘硬停（独立语义层），
+     * {@code FundService.checkQuotaAlert} 告警面零改动；受该 CHECK 冻结约束，L3 硬停告警<b>不可</b>
+     * 落 {@code t_fund_quota_alert}，留痕形态 = LOG + 响应载荷（如须落库留痕须 DATA_MODEL 增表，
+     * 已挂账 ARCH 转 tech-lead）。
+     *
+     * <p><b>缺省行为（据实披露）</b>：开关缺省 {@code Y}（启用）；无有效额度（缺配置 / 已过期 /
+     * 额度 ≤ 0）⇒ 无阈值可执行，惰性放行（{@code FundService.checkQuotaAlert} 缺额度同姿态）；
+     * 额度面取数异常（表不可用等）⇒ 视同无有效额度放行 + LOG 披露——生产 fund schema 完整，
+     * 且 C++ 事前风控额度层（{@code 0x1004}/{@code 0x1005}/{@code 0x100D}）独立存在不受影响。
+     *
+     * @param subAccountId 指令子账户
+     * @param operatorId   操作人（留痕用）
+     * @throws BizException 任一级占用 ≥ 上限时抛 {@code 10012}（{@code ruleId=L3-FUND-CAP}）
+     */
+    private void assertFundCapNotExceeded(int subAccountId, long operatorId) {
+        if (!"Y".equalsIgnoreCase(configValue(CFG_FUND_CAP_ENABLED, DEFAULT_FUND_CAP_ENABLED))) {
+            return; // 开关关闭 ⇒ 直通（CFG-34='N'，显式披露的可关断路径）
+        }
+        try {
+            checkFundCapLayer(FundService.SCOPE_SUB, Integer.valueOf(subAccountId), operatorId);
+            checkFundCapLayer(FundService.SCOPE_ACCOUNT, null, operatorId);
+        } catch (BizException e) {
+            throw e; // 阻断判定命中：原样上抛（不得被取数兜底吞掉）
+        } catch (RuntimeException e) {
+            LOG.warning("L3 资金上限护栏取数不可用（视为无有效额度，放行；T-205/G-6 据实披露）：" + e);
+        }
+    }
+
+    /** 单层护栏判定（{@code scope=SUB_ACCOUNT} 按子账户；{@code scope=ACCOUNT} 汇总全部台账行）。 */
+    private void checkFundCapLayer(String scope, Integer subAccountId, long operatorId) {
+        FundQuota quota = latestEffectiveQuota(scope, subAccountId);
+        if (quota == null || quota.quotaValue == null || quota.quotaValue.signum() <= 0) {
+            return; // 无有效额度 ⇒ 无阈值可执行 ⇒ 放行（FundService 同姿态）
+        }
+        BigDecimal occupied = occupiedOf(scope, subAccountId);
+        if (occupied.compareTo(quota.quotaValue) < 0) {
+            return; // 占用 < 上限 ⇒ 放行
+        }
+        LOG.warning("L3 资金上限护栏告警[CRITICAL] quota_scope=" + scope
+                + " sub_account_id=" + subAccountId
+                + " quota_value=" + quota.quotaValue.toPlainString()
+                + " occupied_value=" + occupied.toPlainString()
+                + " blocked_operation=PLACE_ORDER operator_id=" + operatorId
+                + "（占用≥上限，拒绝新提交，未发 CTP；T-205/G-6）");
+        throw BizException.blocking(ErrorCode.COMPLIANCE_GATE_FAILED,
+                "资金占用已达上限，拒绝新提交（T-205/G-6 L3 实盘护栏；与 R-FUND-7 告警面独立）：维度="
+                        + scope + " 占用=" + occupied.toPlainString()
+                        + " 上限=" + quota.quotaValue.toPlainString()
+                        + "；复现=下调占用或经 FR-FUND-13 额度面调整后重试",
+                RULE_ID_FUND_CAP, occupied.toPlainString(), quota.quotaValue.toPlainString(),
+                "下调占用或调整资金额度后重试（本笔未发 CTP）");
+    }
+
+    /**
+     * 有效额度：{@code effective_from ≤ 当日 ≤ effective_to}（端点含当日）行中取
+     * {@code effective_from} 最新者（{@code FundService.latestQuota} 同形过滤）。
+     */
+    private FundQuota latestEffectiveQuota(String scope, Integer subAccountId) {
+        List<FundQuota> candidates = subAccountId == null
+                ? fundCapQuotaDao.findByScope(scope) : fundCapQuotaDao.findBySubAccount(subAccountId);
+        FundQuota best = null;
+        LocalDate today = Clocks.today();
+        for (FundQuota q : candidates) {
+            if (!scope.equals(q.quotaScope)) {
+                continue;
+            }
+            if (q.effectiveFrom != null && q.effectiveFrom.isAfter(today)) {
+                continue;
+            }
+            if (q.effectiveTo != null && q.effectiveTo.isBefore(today)) {
+                continue;
+            }
+            if (best == null || (q.effectiveFrom != null
+                    && (best.effectiveFrom == null || q.effectiveFrom.isAfter(best.effectiveFrom)))) {
+                best = q;
+            }
+        }
+        return best;
+    }
+
+    /** 占用（{@code margin_occupied}）：子账户级取当日台账行；账户级取全部台账行求和。 */
+    private BigDecimal occupiedOf(String scope, Integer subAccountId) {
+        if (subAccountId != null) {
+            FundLedger l = fundCapLedgerDao.findBySubAccountAndDate(subAccountId, Clocks.today());
+            return l == null || l.marginOccupied == null ? BigDecimal.ZERO : l.marginOccupied;
+        }
+        BigDecimal total = BigDecimal.ZERO;
+        for (FundLedger l : fundCapLedgerDao.findByDate(Clocks.today())) {
+            if (l.marginOccupied != null) {
+                total = total.add(l.marginOccupied);
+            }
+        }
+        return total;
+    }
+
+    /**
+     * CFG 惰性读取（T-188 触发器同形态）：缺键 / 取值为空 / 读取失败 ⇒ 缺省值（不因配置面异常阻断提交）。
+     */
+    private String configValue(String key, String defaultValue) {
+        try {
+            ConfigItem item = fundCapConfigDao.findByKey(key);
+            return item == null || item.configValue == null || item.configValue.trim().isEmpty()
+                    ? defaultValue : item.configValue.trim();
+        } catch (RuntimeException e) {
+            return defaultValue;
+        }
     }
 
     // ================================================================== 二、人工确认 / 撤单

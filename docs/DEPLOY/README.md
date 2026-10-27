@@ -121,12 +121,12 @@
 
 ---
 
-## 3. 配置项清单（`CFG-01`~`CFG-33`，验收 1/4）
+## 3. 配置项清单（`CFG-01`~`CFG-35`，验收 1/4）
 
 **权威来源**：`ARCHITECTURE.md` §11（§11.1 业务口径 / §11.2 基础设施 / §11.3 分类与持久化属性）。
-**持久化载体**：`TB-CONFIG-2 t_config_item`（通用 `(key,value,scope,version)` 模型）；**初始化播种**见 `docs/DEPLOY/schema/data-init.sql` 第 ④ 段（**66 键**；含 `CFG-26b` 1 键〔`T-081b` 增补，`ARCH §11` 落登待编排者转技术负责人〕）。
+**持久化载体**：`TB-CONFIG-2 t_config_item`（通用 `(key,value,scope,version)` 模型）；**初始化播种**见 `docs/DEPLOY/schema/data-init.sql` 第 ④ 段（**68 键**；含 `CFG-26b` 1 键〔`T-081b` 增补，`ARCH §11` 落登待编排者转技术负责人〕+ `CFG-34`/`CFG-35` 2 键〔`T-205` 增补：L3 资金上限护栏启用态 / 紧急停止开关，`ARCH §11` 落登挂账转技术负责人〕）。
 
-> `data-init.sql` 播种 **`§11.1 全部 37 键 + §11.2 可持久化 28 键 + CFG-26b 1 键（T-081b 增补）= 66`**。以下三项按设计**不播种**：
+> `data-init.sql` 播种 **`§11.1 全部 37 键 + §11.2 可持久化 28 键 + CFG-26b 1 键（T-081b 增补）+ CFG-34/35 2 键（T-205 增补）= 68`**。以下三项按设计**不播种**：
 > `CFG-19`（`hg.security.sensitive_fields`，零落盘仅内存）、`CFG-31`（`hg.db.*`，密码不落盘、部署时填写）、`CFG-32` 的 `hg.web.ws.port`（部署时填写）。
 > `CFG-01`~`CFG-18` 及 `b` 后缀子项见 `ARCHITECTURE.md` §11.1 原表（默认值 = 已确认口径，`R-CONFIG-8` 不得静默放宽）。
 
