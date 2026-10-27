@@ -17684,3 +17684,5 @@ FR-ACCT-5③ `priceStateCarryForwardLabeled`，`AcctEffectServiceTest:177-185` �
 （本节树锚值于提交后回填实测；追加前锚：17562 行 / `ec9d5fb61c19f107811706fccc8eeeae`，纯追加删=0。）
 
 —— T-087 执行席 te-t087；待独立复核（本席不自评 DONE）。
+
+**§T087-8 树锚回填（te-t087，2026-10-27，紧随首笔提交 3748474）**：提交 `3748474`（2 文件 +229/0：§T087 证据章 + DM8 底稿新文件）后、`rm -rf java/target` 后于工作树实测（git status 除 gitignore 的 dev-team 工单外全净；java 零改动）：三形态——① 工单 canonical `find java -type f | sort | xargs md5sum | md5sum` = **`c200ac53605beaedad0f5f37a446e620` / 781 文件**；② LC_ALL=C 规范形态 `find java -type f | LC_ALL=C sort | xargs md5sum | md5sum` = **`7cd8b575d2ccc6ac8c6139214dcc7162` / 781**；③ `git ls-files java | LC_ALL=C sort | xargs md5sum | md5sum` = 同 ②——②≡③ 互证（纯 tracked 集），① 与 ② 差异纯系排序区域设置（树锚命令形态敏感判例，与 T-086 双形态口径同族）。`7cd8b575…/781` 与 T-205 交付时点前值逐字一致 ⇒ java 侧本单零改动旁证。追加前锚：17562+124=17686 行 / `3748474` 提交前 md5 与 §T087 头锚同源（纯追加，删=0）。
