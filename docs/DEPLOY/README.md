@@ -352,3 +352,83 @@ python3 docs/DEPLOY/tools/fk-order-check.py -v     # 逐条 FK 边明细
 ---
 
 *本文件由 backend-engineer#java2 席位实例 be-t052 于 T-052 交付；行号/md5 引用以实时为准；DM8/CTP/protobuf 证据见 §2、§8。*
+
+---
+
+## 12. 数据库账户权限清单（`NFR-SEC-8` / `CH-025` / `T-199`）
+
+> **依据**：`REQUIREMENTS/NONFUNCTIONAL.md:125-127`（`NFR-SEC-8` 原文与验收）、
+> `TASKS.md:240`（`T-199` 立号行·丢失线第三例重做）、`BOARD.md:469`（`CH-025` 禁 DELETE 分域细化裁定落账·第 253 轮收官行）、
+> `DATA_MODEL.md:124-128`（§0.3「例外（允许物理 DELETE）」注）、`schema/data-init.sql:9`、
+> `java/src/main/java/com/hedgeguard/common/Config.java:63-72`、`java/.../web/Bootstrap.java:278-279`、
+> `java/.../dao/impl/DmLoginSessionDao.java:21`、`DmPasswordHistoryDao.java:22`、`hg.properties.template:45-50`。
+> 行号以本单提交时点（2026-10-27）实测为准，以实时为准。
+
+### 12.0 五判据（先定义后施工）
+
+本节系 `T-199` 重做单（`TE-T086-V-001`：原贴标 `82c91d5` 系丢失线、五判据细节不可考）。以下五判据由产出方依上列现行依据**合法重定义**，逐条显式列依据：
+
+| # | 判据 | 内容 | 依据（行号级） |
+|---|------|------|----------------|
+| G1 | 账户清单完备 | 部署文档记录全部数据库访问账户（账户×连接面×来源），即 §12.1 | `NONFUNCTIONAL.md:127`（验收 2「部署文档记录账户权限清单」） |
+| G2 | 应用账户高危权限禁绝 | 应用账户**不具**建库/删库/DDL/授权（GRANT/REVOKE）权限 | `NONFUNCTIONAL.md:125`（「应用账户不得具备建库、删库、授权等高危权限」）；`data-init.sql:9`（「应用账号禁 INSERT 之外的 DDL」）；`Config.java:63`（javadoc「仅 SELECT/INSERT/UPDATE，`NFR-SEC-8`」） |
+| G3 | 禁超级账号连接 | 连接面**唯一**入口 = `hg.db.user` 专用应用账户；禁止以 SYSDBA 等数据库超级账号连接 | `NONFUNCTIONAL.md:125`（「禁止使用数据库超级账号连接」）；`Config.java:64`（`KEY_DB_USER` 为唯一账号键） |
+| G4 | DELETE 分域（`CH-025`） | 应用账户 DELETE 仅覆盖豁免域 7 表 8 处（§12.3 逐处对账）；审计域与已生效业务台账 DELETE=无 | `BOARD.md:469`（CH-025「8 处逐处核实均豁免域」）；`DATA_MODEL.md:124-128`（§0.3 例外注）；`DmLoginSessionDao.java:21` / `DmPasswordHistoryDao.java:22`（契约要求 javadoc） |
+| G5 | 判据可证伪 + 验证可达 | 矩阵/计数判据用非平凡形态（==111 表、==7 表、==8 处）并附改前负控；部署时按 §12.4 以应用账户尝试 DDL/授权**应失败** | `NONFUNCTIONAL.md:127`（验收 1）；T-203 判例（禁用改前即 0 命中的盲形态） |
+
+**判据形态负控（改前实测 2026-10-27）**：`grep -c "数据库账户权限清单" docs/DEPLOY/README.md` = **0**（本节追加前）；追加后承载本清单。可证伪判据 = §12.2 矩阵域行数（==3）、豁免 DELETE 表数（==7）、DELETE 语句站点数（==8）、审计域 UPDATE/DELETE 语句数（==0，实测 `grep -c '"UPDATE'` / `'DELETE'` 于 `DmAuditLogDao`/`DmOperationLogDao`/`DmAuditLogChecksumDao`/`DmViolationScreenRunDao`/`DmViolationScreenItemDao`/`DmAuditReportDao`/`DmEvidenceExportDao`/`DmMajorEventDao` 八文件均 0）——非「0 命中」盲形态。
+
+### 12.1 账户清单（G1）
+
+| 账户 | 用途 | 连接面/来源（实测） | 最小权限定位 |
+|------|------|---------------------|--------------|
+| 应用账户（模板示例名 `HG_APP`） | hg-biz（Java）**唯一写库入口**（§1 拓扑） | `hg.db.user`（`hg.properties.template:46`；`Config.java:64`）+ 口令唯一来源环境变量 `HG_DB_PASSWORD`（`Config.java` `ENV_DB_PASSWORD`；**无** `hg.db.password` 属性键，`rejectSecrets` 拒绝任何含 `password` 键名） | §12.2 矩阵 |
+| 部署账户（DBA） | 执行 `schema/*.sql` 建表/播种与 §12.4 授权；**仅部署期使用，运行期不连接** | `data-init.sql:9`（「执行者：DBA」）；§7 步 5-6 | DDL 全量（限建库窗口）；运行期应锁定 |
+| 审计数据库账户 | **无独立账户（诚实披露）** | 审计域写入由应用账户单点承载（`AuditLogService` 单写入口；T-075 M3 合规审查判据「审计旁路=0」成立） | 不适用 |
+| hg-trading（C++） | **无数据库账户** | E1 红线：C++ 零 DB I/O、零 SQL（`NFR-SEC-9`；`ARCHITECTURE.md` E1） | 不适用 |
+
+连接面实测（`Config.java:57-72`）：DB 相关键仅 `hg.db.url` / `hg.db.user` / `hg.db.driver` / `hg.db.pool.*` + 环境变量 `HG_DB_PASSWORD`，**无第二账号键**。装配开关：`hg.db.url` 为空即不接库（`Bootstrap.java:278-279` 条件装配）。
+
+### 12.2 权限矩阵（应用账户 × 对象域，G2/G3/G4 判定）
+
+对象全集 = `docs/DEPLOY/schema/` 10 个建表脚本 **111 张表**（判据命令 `grep -h '^CREATE TABLE' m*.sql \| wc -l` = 111；分脚本：m1_config_auth 20 / m1_product 8 / m1_spot 10 / m1_plan 8 / m2_trade 9 / m2_settle 16 / m2_fund 9 / m3_risk 11 / m3_audit 8 / m4_acct 12）+ `data-init.sql`（种子，仅 INSERT）。
+
+| 对象域 | SELECT | INSERT | UPDATE | DELETE | DDL/授权 | 判定 |
+|--------|--------|--------|--------|--------|----------|------|
+| 全部 111 表（通用 DML 面） | 授予 | 授予 | 授予 | **拒绝**（仅 §12.3 豁免 7 表例外） | **拒绝** | 应用为唯一写库入口（§1），DML 下限即业务所需；高危权限零授予（G2/G3）。逐表更细粒度收紧（如只读表仅 SELECT）为部署方可选项，不影响本清单合规性 |
+| 豁免域 7 表（§12.3：t_dict_item / t_login_session / t_sales_contract / t_production_plan / t_password_history / t_purchase_contract / t_hedge_plan） | 授予 | 授予 | 授予 | **授予（仅此 7 表）** | 拒绝 | CH-025 豁免域；与 `DATA_MODEL.md` §0.3 例外注（:124-128）同源（G4） |
+| 审计域 m3_audit 8 表（t_operation_log / t_audit_log / t_audit_log_checksum / t_violation_screen_run / t_violation_screen_item / t_audit_report / t_evidence_export / t_major_event） | 授予 | 授予 | **拒绝**（制品内 UPDATE=0，见 §12.0 负控） | **拒绝** | 拒绝 | CH-025：审计域禁 DELETE（G4）；只增不改（`DATA_MODEL.md` §0.3） |
+
+可证伪计数：矩阵域行 == 3；豁免 DELETE 表 == 7；DELETE 语句站点 == 8（§12.3）。
+
+### 12.3 DELETE 分域与 CH-025 八处对账（G4）
+
+CH-025 裁定（`BOARD.md:469`）：禁 DELETE 限定为**审计域与已生效业务台账**；豁免 = `DATA_MODEL.md` §0.3 例外态单据（仅 DRAFT 可删）+ `t_dict_item` 未引用项 + 运维清理。`java/src/main` 全库实测 DELETE 语句恰 **8 处**（命令 `grep -rn "DELETE FROM" java/src/main --include=*.java`），逐处对账：
+
+| # | DAO:行号 | 表 | 豁免域归属 | 依据 | 生产调用面（实测披露） |
+|---|----------|----|-----------|------|------------------------|
+| 1 | `DmDictItemDao.java:111` | t_dict_item | 字典未引用项删除 | §0.3 例外注（`DATA_MODEL.md:126`） | 现无生产调用点（DAO 契约能力） |
+| 2 | `DmLoginSessionDao.java:139`（deleteExpired） | t_login_session | 会话过期运维清理 | §0.3（:128）+ `DATA_MODEL.md:285`（TB-AUTH-9「可物理删除」） | 现无生产调用点（`DmLoginSessionDao.java:21` 明示系契约要求） |
+| 3 | `DmLoginSessionDao.java:145`（deleteById） | t_login_session | 会话登出清理 | 同上 | 同上 |
+| 4 | `DmSalesContractDao.java:127` | t_sales_contract | 草稿态单据（仅 DRAFT） | §0.3（:127） | 现无生产调用点（同族 DRAFT 门禁先例见 #7） |
+| 5 | `DmProductionPlanDao.java:99` | t_production_plan | 草稿态单据（仅 DRAFT） | §0.3（:127） | 现无生产调用点 |
+| 6 | `DmPasswordHistoryDao.java:121`（deleteBeyond） | t_password_history | 口令历史滚动清理（运维） | TB-AUTH-11（`DATA_MODEL.md:903`）；`DmPasswordHistoryDao.java:22` javadoc 明示「非业务留痕」 | **已接线**：`AuthService.java:481`（口令变更滚动保留 N 条） |
+| 7 | `DmPurchaseContractDao.java:122` | t_purchase_contract | 草稿态单据（仅 DRAFT） | §0.3（:127） | **已接线**：`SpotService.java:436`（`deleteDraftPurchaseContract`，:428-431 DRAFT 门禁，非 DRAFT 抛 STATE_NOT_ALLOWED） |
+| 8 | `DmHedgePlanDao.java:215` | t_hedge_plan | 草稿态计划（仅 DRAFT） | §0.3（:127） | 现无生产调用点 |
+
+- **审计域核对**：8 处中 **0 处**命中 m3_audit 8 表（`t_audit_log` 不在其中）——CH-025 禁域成立。
+- **软删澄清**：`AcctService.deleteDraftVoucher`（:2288）凭证草稿「删除」系 **UPDATE 置 REVERSED 留痕**（非 DELETE SQL），不在 8 处内、不产生 DELETE 权限需求（FR-ACCT-13 留痕承载，`AcctService.java:2280` javadoc）。
+- **调用面口径**：DELETE 权限授予按**部署制品内可执行能力**计（8 处语句均在制品中，账户缺 DELETE 将使契约行为运行期失败）；其中 2 处现有生产调用路径、6 处为 DAO 契约能力（现无调用点）。此为如实披露——豁免域逐处有 §0.3 / TB-AUTH-11 显式依据，不构成越权放开。
+
+### 12.4 部署时授权与验证步骤（G5 / `NFR-SEC-8` 验收）
+
+1. DBA 以部署账户按 §12.2 矩阵对应用账户执行授权（DM8 具体 GRANT 语法由 DBA 按 DM8 实测版本确定——本环境无 DM8 实例（§8.1），**未实机执行**，与 U-1/U-2 同口径承接）；
+2. **负向验证（验收 1）**：以应用账户尝试 `CREATE TABLE` / `DROP` / `GRANT` 应失败；尝试对审计域 8 表 `DELETE`/`UPDATE` 应失败（权限层面拒绝）；
+3. **正向验证**：应用账户完成 §7 步 6 播种核对、`/api/v1/ping`、登录与一笔业务写入链路；
+4. 结果回填本节（部署时点 + 执行人），作为 `NFR-SEC-8` 验收 1/2 终验证据。
+
+### 12.5 已知表述张力与披露
+
+- `Config.java:63` javadoc 记「仅 SELECT/INSERT/UPDATE，`NFR-SEC-8`」——系 CH-025（第 253 轮用户裁定）**之前**的一般口径；CH-025 分域细化后豁免域 7 表需 DELETE。javadoc 修订属 Java 改动、不在本单边界（Java 零改动），以**本节为权威口径**，javadoc 对齐留待他单承接。
+- 本环境无 DM8（§8.1）⇒ §12.4 授权与双向验证未实机执行，部署时回填（与 U-1/U-2 同口径）。
+- 行号引用以本单提交时点为准（2026-10-27），以实时为准。
