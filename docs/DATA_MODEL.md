@@ -10,7 +10,7 @@
 > 开发角色不得自行增删表或字段；确需变更时，走变更流程并先改本文件。
 
 - **项目名称**：企业期货套期保值管理系统（HedgeGuard）
-- **数据模型版本**：**v1.3.9**（变更时递增并记录于 §7；v1.1 传导 `CH-001` / `CH-002`，v1.2 为 **M1 会签整改**，v1.3 为 **M1 会签第二轮整改**，**v1.3.4 为 `TB-PLAN-1.term_end_date` 期限口径勘误〔`OR` → `min`〕**，**v1.3.5 为 `CH-011` 传导：抬头「需求基线」`FR` 计数 `183 → 184`〔**非结构变更**〕**，**v1.3.6 为 `CH-021` 扩 `parse_status`/`dispatch_type` 两处 `CHECK` 取值域〔**结构性**〕**，**v1.3.7 为 `CH-023` 扩 `TB-SETTLE-2` 增 `close_pnl`/`position_pnl` 两列承载逐合约盈亏〔**结构性**〕**，**v1.3.8 为 `BUG-005`/`T-201` 补 `TB-ACCT-2`/`TB-ACCT-3` 两表 `pending_external_review` 「待外部复核」标注承载列〔**结构性**〕**，**v1.3.9 为 `R1-003`/`T-202` 补 `TB-FUND-4` `idempotency_key` 划拨幂等承载列〔**结构性**〕**）
+- **数据模型版本**：**v1.3.9**（变更时递增并记录于 §7；v1.1 传导 `CH-001` / `CH-002`，v1.2 为 **M1 会签整改**，v1.3 为 **M1 会签第二轮整改**，**v1.3.4 为 `TB-PLAN-1.term_end_date` 期限口径勘误〔`OR` → `min`〕**，**v1.3.5 为 `CH-011` 传导：抬头「需求基线」`FR` 计数 `183 → 184`〔**非结构变更**〕**，**v1.3.6 为 `CH-021` 扩 `parse_status`/`dispatch_type` 两处 `CHECK` 取值域〔**结构性**〕**，**v1.3.7 为 `CH-023` 扩 `TB-SETTLE-2` 增 `close_pnl`/`position_pnl` 两列承载逐合约盈亏〔**结构性**〕**，**v1.3.8 为 `BUG-005`/`T-201` 补 `TB-ACCT-2`/`TB-ACCT-3` 两表 `pending_external_review` 「待外部复核」标注承载列〔**结构性**〕**，**v1.3.9 为 `R1-003`/`T-202` 补 `TB-FUND-4` `idempotency_key` 划拨幂等承载列〔**结构性**〕**，**v1.3.10 为 `T-206`（`cr-t088` `R4-002` 承接）新增 `TB-TRADE-10` `t_trade_l3_reject` L3 护栏/紧急停止拒绝事件持久化〔**结构性**〕**）
 - **需求基线**：`docs/REQUIREMENTS/` **184 FR** / **129 R** / 50 NFR（**v1.2 校正：原写 131 R，实测 129 R**，`PI-10`；**v1.3.5 `FR` 计数传导 `183 → 184`，源自 `CH-011` 新增 `FR-SPOT-19`**）；**17 条待澄清问题已全部解决**（`INDEX.md` §9.1）
 - **数据库**：**达梦数据库 DM8**（国产；与 `PROJECT.md` §5 一致）
 - **访问方式**：**仅 Java 业务组件经标准 JDBC 访问**；**C++ 交易组件零数据库访问**（架构红线）
@@ -24,7 +24,7 @@
 > v1.1 已把全部确认口径传导到数据模型：**新增 3 张表**（三层限额层②、规模基数、核对签署）、
 > **修订 12 张表**（子账户类别、敞口三分量、三层限额、交易理由关联对象、有效性观察点、再平衡四类触发、
 > 核对任务、双侧盈亏价格时点、科目模板、筛查关联对象缺失等）。逐项登记见 **§7.2 `DC-001`～`DC-014`**。
-> **表数由 106 → 109（v1.1）→ 111（v1.2，M1 会签整改新增 `TB-SETTLE-16` 与 `TB-PLAN-8`）。**
+> **表数由 106 → 109（v1.1）→ 111（v1.2，M1 会签整改新增 `TB-SETTLE-16` 与 `TB-PLAN-8`）→ 112（v1.3.10，`T-206`/`cr-t088` `R4-002` 承接新增 `TB-TRADE-10`）。**
 
 > ⚠️ **v1.2 修订说明（M1 会签整改，必读）**：本版**仅做 M1 会签缺陷整改**，不改变模型架构。
 > ① **阻塞项 B-1**：删除建在已删除列 `reason_code` 上的失效索引 `idx_trade_reason_code`，
@@ -71,7 +71,7 @@
 
 ## 0. 全局建表约定（所有表适用，§2 各表不再重复）
 
-> 本节定义**全库统一约定**，避免 111 张表逐一重复声明。**执行者照此建表即可**。
+> 本节定义**全库统一约定**，避免 112 张表逐一重复声明。**执行者照此建表即可**。
 
 ### 0.1 命名约定
 
@@ -168,7 +168,7 @@ CREATE INDEX idx_t_example_sub_status ON t_example (sub_account_id, status);
 > ⚠️ **脚本纪律**：① 不含存储过程 / 触发器 / 自定义函数（§6 红线）；② 不含 DML（初始化数据用独立的 `data-init.sql`）；
 > ③ 每条 DM 特性语法须带 `-- DM-SPECIFIC:` 注释（`NFR-COMPAT-5`）。
 
-### 0.6 表编号总览（**111 张**，v1.2）
+### 0.6 表编号总览（**112 张**，v1.2 基 111 + v1.3.10 增 1）
 
 | 模块 | 表编号区间 | 张数 | 模块 | 表编号区间 | 张数 |
 |------|-----------|------|------|-----------|------|
@@ -177,7 +177,7 @@ CREATE INDEX idx_t_example_sub_status ON t_example (sub_account_id, status);
 | `PRODUCT` | `TB-PRODUCT-1` ~ `TB-PRODUCT-8` | **8** | `FUND` | `TB-FUND-1` ~ `TB-FUND-9` | 9 |
 | `SPOT` | `TB-SPOT-1` ~ `TB-SPOT-10` | 10 | `RISK` | `TB-RISK-1` ~ `TB-RISK-11` | **11** |
 | `PLAN` | `TB-PLAN-1` ~ `TB-PLAN-8` | **8** | `SETTLE` | `TB-SETTLE-1` ~ `TB-SETTLE-16` | **16** |
-| `TRADE` | `TB-TRADE-1` ~ `TB-TRADE-9` | 9 | **合计** | — | **111** |
+| `TRADE` | `TB-TRADE-1` ~ `TB-TRADE-10` | 10 | **合计** | — | **112** |
 
 > **v1.1 新增 3 张**（源自 `CH-001` / `CH-002`）：
 > `TB-PRODUCT-8` `t_sub_instrument_quota`（限额层②，`Q-16`）、
@@ -188,6 +188,10 @@ CREATE INDEX idx_t_example_sub_status ON t_example (sub_account_id, status);
 > `TB-SETTLE-16` `t_agg_diff_candidate`（加总差异候选归属，`Q-11`、`NFR-REL-6`，`DC-021`）、
 > `TB-PLAN-8` `t_custom_hedge_rule`（自定义套保比例规则实体，`Q-6`、`FR-PLAN-8`，`DC-025`）
 > → **表数 109 → 111**。
+>
+> **v1.3.10 新增 1 张**（`T-206`，`cr-t088` `R4-002` 承接）：
+> `TB-TRADE-10` `t_trade_l3_reject`（L3 护栏/紧急停止拒绝事件持久化，`DC-047`）
+> → **表数 111 → 112**。
 
 ---
 
@@ -378,6 +382,7 @@ CREATE INDEX idx_t_example_sub_status ON t_example (sub_account_id, status);
 | 104 | 资金额度 | `TB-FUND-7` | 子账户 / 账户 两级上限 | ≤ 1,000 |
 | 105 | 资金额度告警 | `TB-FUND-8` | 超限告警（不阻断出金） | ≤ 200,000 |
 | 106 | 资金对账 | `TB-FUND-9` | 期初 + 发生额 = 期末；与 SETTLE 同口径 | ≤ 20,000 |
+| 107 | **L3 护栏/紧急停止拒绝事件**（v1.3.10） | **`TB-TRADE-10`** | 提交路径 Java 侧硬停（资金上限/紧急停止）拒绝留痕（合规证据·不可改删，`cr-t088` `R4-002`/`T-206`） | ≤ 500,000 |
 
 **量级带来的索引与归档要求**：成交记录（`TB-TRADE-3`）、CTP 成交明细（`TB-SETTLE-4`）、
 指令流水镜像（`TB-TRADE-7`）、风险指标快照（`TB-RISK-10`）、操作留痕（`TB-AUDIT-1`）、
@@ -1965,7 +1970,7 @@ ALTER TABLE t_product_quota ADD CONSTRAINT ck_product_quota_layer_sentinel CHECK
 ---
 
 
-### 2.6 模块 `TRADE`（交易执行）—— 9 张
+### 2.6 模块 `TRADE`（交易执行）—— 10 张
 
 > ⚠️ **本模块跨组件**：`C++` 负责下单、事前风控、指令流水与重放；
 > `Java` 负责**事件流落库**（单一写库入口）。本模块的表**全部由 Java 写入**
@@ -2366,6 +2371,43 @@ ALTER TABLE t_product_quota ADD CONSTRAINT ck_product_quota_layer_sentinel CHECK
 | `uk_replay_log_seq` | `component_id, replay_seq` | 唯一 | 每次重放一条记录 |
 | `idx_replay_log_time` | `started_ts_ms` | 普通 | 按时间查重放历史（`FR-TRADE-15` 验收 3） |
 | `idx_replay_log_result` | `result, duration_ms` | 普通 | **统计重放耗时与失败率（验证 `NFR-REL-1` 的 60 s 指标）** |
+
+---
+
+#### TB-TRADE-10 `t_trade_l3_reject` L3 护栏/紧急停止拒绝事件（v1.3.10，`DC-047`）
+
+**用途**：L3 实盘护栏（`L3-FUND-CAP`，G-6 资金上限）与紧急停止门禁（`L3-EMERGENCY-STOP`，G-7）
+在 Java 提交路径（`submitOrder` ②-b/②-c）拒绝下单时的**持久化留痕**（`cr-t088` `R4-002` 承接，任务 `T-206`）。
+此前留痕形态仅为 LOG 结构化告警 + 响应载荷，事后审计/告警回溯依赖日志留存策略、无持久化审计行。
+**合规证据，只增不改不删**（`R-TRADE-14` 同族）；**无幂等键**——每次拒绝尝试均为独立事件，逐笔留行。
+
+> ⚠️ **语义边界**：本表与 `t_fund_quota_alert`（`R-FUND-7`「告警不阻断」，`blocked_operation`
+> `CHECK` 恒 `'NONE'` 冻结）**相互独立**——本表记录的是 **L3 硬停拒绝**（阻断类 `10012`，未发 CTP），
+> `R-FUND-7` 告警面语义零改动；落库留痕**不得**阻断/改变下单主流程结果（写入方吞并失败 + LOG）。
+> **写入方唯一**：`TradeService` L3 拒绝路径（提交受理成功路径零写，`FR-TRADE-2` 验收 5 不变）。
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| `🔴子` `sub_account_id` | `INT` | NOT NULL, FK → `t_sub_account(id)` | 触发提交的指令子账户（账户级维度命中时为**提交方**子账户，占用/阈值为账户级汇总值） |
+| `rule_id` | `VARCHAR(32)` | NOT NULL, CHECK | 护栏规则编号：`L3-FUND-CAP` / `L3-EMERGENCY-STOP`（与响应载荷 `ruleId` 逐字同源） |
+| `trigger_source` | `VARCHAR(32)` | NOT NULL, CHECK | 事件触发来源标识（现值域同 `rule_id`；为「一规则多来源」预留分化位，工单 `T-206` 规定承载） |
+| `quota_scope` | `VARCHAR(16)` | NULL, CHECK | 资金上限命中的维度：`SUB_ACCOUNT` / `ACCOUNT`；**紧急停止拒绝为 `NULL`** |
+| `product_id` | `BIGINT` | NULL, FK → `t_product(id)` | 品种（提交请求携带时记录；拒绝点位于计划一致性校验之前且请求未携带时为 `NULL`） |
+| `current_value` | `VARCHAR(64)` | NOT NULL | 当前值（响应载荷 `current`：资金占用值 / `emergency_stop=Y`） |
+| `threshold_value` | `VARCHAR(64)` | NOT NULL | 阈值（响应载荷 `threshold`：资金上限值 / `新提交=全部拒绝`） |
+| `blocked_operation` | `VARCHAR(24)` | NOT NULL, CHECK | 被阻断的操作（现唯一取值 `PLACE_ORDER` 下单提交） |
+| `operator_id` | `BIGINT` | NOT NULL | 操作人（提交人，留痕） |
+| `event_time` | `TIMESTAMP` | NOT NULL | 事件时间（拒绝判定时点，业务时钟） |
+
+**索引**：
+
+| 索引名 | 字段 | 类型 | 用途 |
+|--------|------|------|------|
+| `idx_l3_reject_sub_time` | `sub_account_id, event_time` | 普通 | 按子账户 + 时间回溯拒绝事件（告警回溯/事后审计） |
+| `idx_l3_reject_rule_time` | `rule_id, event_time` | 普通 | 按规则编号统计拒绝（护栏触发频度稽核） |
+
+**备注**：通用审计字段（§0.3）随表内联（DDL 见 `m2_trade.sql`）；`created_time` 为行写入时点（审计），
+`event_time` 为拒绝判定时点（业务），二者语义分列。
 
 ### 2.7 模块 `SETTLE`（结算）—— 16 张
 
@@ -4398,16 +4440,16 @@ ALTER TABLE t_risk_threshold ADD CONSTRAINT ck_risk_threshold_scope_sentinel CHE
 
 | 项 | 数量 | 说明 |
 |----|------|------|
-| 主键索引 | **111** | 每表一个（`id`；`t_sub_account` 为 `INT`） |
-| **唯一索引**（不含主键） | **94**（具名去重；v1.3.9 +1：`uk_transfer_apply_idem`） | 含业务编号唯一、幂等键唯一、组合唯一、条件唯一 |
-| **普通索引** | **297**（具名去重） | 全部标注"服务什么查询" |
-| **索引合计（不含主键）** | **391** | 平均每表 3.5 个（`391 / 111 ≈ 3.52`） |
+| 主键索引 | **112** | 每表一个（`id`；`t_sub_account` 为 `INT`） |
+| **唯一索引**（不含主键） | **94**（具名去重；v1.3.9 +1：`uk_transfer_apply_idem`；v1.3.10 无新增） | 含业务编号唯一、幂等键唯一、组合唯一、条件唯一 |
+| **普通索引** | **299**（具名去重；v1.3.10 +2：`idx_l3_reject_sub_time`/`idx_l3_reject_rule_time`） | 全部标注"服务什么查询" |
+| **索引合计（不含主键）** | **393** | 平均每表 3.5 个（`393 / 112 ≈ 3.51`） |
 | 视图 | **1（建议）** | `v_position_summary_by_sub`（持仓汇总，**不落表**，`R-SETTLE-9`） |
 
 > **计数口径（`S-6` 整改，v1.3）**：本表**只统计 §2 各表"索引"清单中类型为『唯一』/『普通』的具名索引行**（按索引名去重）。
 > **字段行内联 `UNIQUE`**（如 `t_sub_account.sub_account_code`、`t_config_item.config_key`、`t_trade_fill.trade_id`）
 > **均已在本表索引清单中以具名 `uk_*` 索引一一登记**，**不重复计数**。
-> ① 机器复核命令（**为避免自指，模式用反斜杠转义**）：`grep -cE "\| 唯一 \|"`（= **94**，v1.3.9 前为 93）、`grep -cE "\| 普通 \|"`（= **297**）；
+> ① 机器复核命令（**为避免自指，模式用反斜杠转义**）：`grep -cE "\| 唯一 \|"`（= **94**，v1.3.9 前为 93）、`grep -cE "\| 普通 \|"`（= **299**，v1.3.10 前为 297）；
 > ② §4.2「高价值索引」表为**引用性列举**（非定义），其中 `uk_command_flow_idem` / `uk_audit_log_chain_seq` 与 §2 定义**同名重复出现不计入**本计数。
 
 > **索引纪律**：① 每个索引**必须有明确的服务查询**（§2 已逐条标注）；
@@ -4683,12 +4725,12 @@ ALTER TABLE t_check_signature ADD CONSTRAINT ck_check_signature_scope_sentinel C
 >   **一律按物理列约束计**（`W2` 裁决）；账户级/全账户取值用**哨兵值 `0`**，**仍属本层**（`DC-020`）。
 > - **② 可空但已说明**：存在该列但**可空**，且**已在 §4.6.1 或「例外说明」中给出理由**。
 > - **③ 非五类数据表（不适用）**：表中**无** `sub_account_id` 列（含 5 张属五类但有书面理由的例外 E1/E2/E3）。
-> **合计恒等式**：① + ② + ③ = 全库表数 = **111**。
+> **合计恒等式**：① + ② + ③ = 全库表数 = **112**。
 >
 > **⚠️ 两个口径必须分开引用（v1.3 `G-9` 拆名，消除"一名两义"）**：
 > - **口径 A「可加总」= 43 张**：**仅**用于**五类数据中属①且度量可加总**的核心表（**§4.6.4**）。
 >   它是①的**子集**：五类①共 **44** 张，其中 `t_spot_price` 虽物理 `NOT NULL`（属①），但**单价不参与加总**，故**不计入 43** → 可加总 = 44 − 1 = **43**。
-> - **口径 B「物理列存在」= ① 59 张**（全库三层划分，**§4.6.3**）。二者**定义不同、非矛盾**：`43 ⊂ ①五类(44) ⊂ ①全库(59)`。
+> - **口径 B「物理列存在」= ① 60 张**（全库三层划分，**§4.6.3**）。二者**定义不同、非矛盾**：`43 ⊂ ①五类(44) ⊂ ①全库(60)`。
 > - **§4.6.1 逐表「可加总（口径 A）」列**：标 ✅ 者**恰为 43 张**（五类①减去 `t_spot_price`）；标 ➖ 者逐张注明不计入理由。**除 §4.6.4 外，全文不得用"可加总"指代①。**
 
 | 数据类别 | 涉及表数 | ① 物理 `NOT NULL` 行级携带 | 其中「**可加总**」（口径 A） | ② 可空但已说明 | ③ 不适用（有理由） | **遗漏** |
@@ -4711,9 +4753,10 @@ ALTER TABLE t_check_signature ADD CONSTRAINT ck_check_signature_scope_sentinel C
 > **均不计入「可加总 43」（43 仅限五类）**。
 >
 > **⑦ 非穷举说明（v1.3.1 订正，`N-3`）**：本行 ⑦ **仅列 §4.6.1 逐表核对范围（60 张）内**的四张，**并非全库非五类① 的穷举**。
-> **全库非五类① = 全库① 59 − 五类① 44 = 15 张**；未列入 ⑦ 的另 **11 张**（均在 §4.6.1 核对范围之外，已含于 §4.6.3 模块级 ① 59）为：
+> **全库非五类① = 全库① 60 − 五类① 44 = 16 张**；未列入 ⑦ 的另 **12 张**（均在 §4.6.1 核对范围之外，已含于 §4.6.3 模块级 ① 60）为：
 > `t_authorization`、`t_user_sub_account_perm`、`t_sub_product_whitelist`、`t_risk_threshold`、`t_risk_alert`、`t_risk_disposal`、
-> `t_abnormal_order_stat`、`t_risk_violation`、`t_limit_usage_stat`、`t_risk_metric_snapshot`、`t_violation_screen_item`（**计数本身不变**）。
+> `t_abnormal_order_stat`、`t_risk_violation`、`t_limit_usage_stat`、`t_risk_metric_snapshot`、`t_violation_screen_item`、
+> **`t_trade_l3_reject`（`TB-TRADE-10`，v1.3.10 新增）**（**计数本身随 v1.3.10 由 11 → 12**）。
 
 #### 4.6.3 三层划分的机器可核对清单与推导（**v1.2 重写，`G-2`/`W1` 整改**）
 
@@ -4723,7 +4766,7 @@ ALTER TABLE t_check_signature ADD CONSTRAINT ck_check_signature_scope_sentinel C
 > 且 D 类**重复列入** §4.6.1 已核对的表（`t_trade_plan`、`t_voucher_line`、`t_settle_5/6/7/8` 等），
 > 导致归类无法从清单推导（测试经理 `G-2`）。**本节改为可机器复现的模块级汇总 + 显式推导。**
 
-**（1）全库 111 张表 —— 按模块的机器可核对汇总（三层划分）**
+**（1）全库 112 张表 —— 按模块的机器可核对汇总（三层划分）**
 
 | 模块 | 表数 | **① `NOT NULL` 行级携带** | **② 可空但已说明** | **③ 无该列（不适用）** |
 |------|-----:|--------------------------:|------------------:|----------------------:|
@@ -4732,13 +4775,13 @@ ALTER TABLE t_check_signature ADD CONSTRAINT ck_check_signature_scope_sentinel C
 | `PRODUCT` | 8 | 3 | 1 | 4 |
 | `SPOT` | 10 | 9 | 1 | 0 |
 | `PLAN` | 8 | 8 | 0 | 0 |
-| `TRADE` | 9 | 8 | 0 | 1 |
+| `TRADE` | 10 | 9 | 0 | 1 |
 | `SETTLE` | 16 | 7 | 4 | 5 |
 | `RISK` | 11 | 8 | 2 | 1 |
 | `AUDIT` | 8 | 1 | 4 | 3 |
 | `ACCT` | 12 | 7 | 2 | 3 |
 | `FUND` | 9 | 6 | 3 | 0 |
-| **合计** | **111** | **59** | **19** | **33** |
+| **合计** | **112** | **60** | **19** | **33** |
 
 > **复核方法（可机器复现，口径 = 物理列约束）**：对 §2 每张表，检查其字段表是否存在 `sub_account_id` 列；
 > 无该列 → **③**；有该列且声明 `NOT NULL` → **①**（账户级哨兵值 `0` 仍属①）；有该列但可空 → **②**。
@@ -4747,10 +4790,10 @@ ALTER TABLE t_check_signature ADD CONSTRAINT ck_check_signature_scope_sentinel C
 **（2）推导（合计恒等式）**
 
 ```
-① 物理列 NOT NULL 行级携带 = 59
+① 物理列 NOT NULL 行级携带 = 60
 ② 可空但已说明            = 19
 ③ 非五类数据表（无该列）   = 33
-① + ② + ③ = 111 = 全库表数   ✅
+① + ② + ③ = 112 = 全库表数   ✅
 ```
 
 **（3）属五类但归入③的「有理由例外」= 5 张**（E1/E2/E3；与 §4.6.2「不适用」列 5 张**逐表对应**）
@@ -4770,9 +4813,9 @@ CONFIG 7 + AUTH 9 + PRODUCT 4 + SETTLE 3 + RISK 1 + AUDIT 3 + ACCT 1 = 28
 （其中 SETTLE 3 = 5 − E1 的 2；ACCT 1 = 3 − E2 的 2；TRADE 0 = 1 − E3 的 1）
 ```
 
-> **结论（可复现）**：全库 **111** 张 = ① **59** + ② **19** + ③ **33**（恒等成立）；
+> **结论（可复现）**：全库 **112** 张 = ① **60** + ② **19** + ③ **33**（恒等成立；v1.3.10 增 `t_trade_l3_reject` 归①）。
 > 五类数据 **56 张** = ① **44**（其中「可加总」**43** 〔§4.6.4〕+ `t_spot_price` 1 张单价不加总）+ ② **7** + ③ **5**（44 + 7 + 5 = 56 ✅）。
-> **口径区分**：① **44** 为五类物理 `NOT NULL` 计数；「**可加总 43**」= 44 − `t_spot_price`（**仅五类**，`43 ⊂ 44 ⊂ 全库① 59`）。
+> **口径区分**：① **44** 为五类物理 `NOT NULL` 计数；「**可加总 43**」= 44 − `t_spot_price`（**仅五类**，`43 ⊂ 44 ⊂ 全库① 60`）。
 > v1.0 文档所写的"**53 张不携带**"**与任一正确口径均不符**（既非 5，也非 33），
 > 系以陈旧的 106 表数循环推导所致，**予以更正**；本文档**不再使用"不携带"表述**。
 
@@ -4820,15 +4863,15 @@ CONFIG 7 + AUTH 9 + PRODUCT 4 + SETTLE 3 + RISK 1 + AUDIT 3 + ACCT 1 = 28
 | **不得用"用户→子账户"或"计划→子账户"关联推导替代行级标识** | ① `t_hedge_plan_exposure`、`t_production_plan_line`、`t_exposure_detail`、`t_voucher_line` 等**连接/明细表仍冗余携带**；② `t_trade_order` 的子账户**由协议字段显式携带**（`ARCHITECTURE.md` §4.2.4），**不由会话或计划推导** |
 | **`AUTH` 的用户-子账户授权不属于五类** | 已在 §4.6.3（5）`AUTH` 行显式说明（`INDEX.md` §2.1 原文支持） |
 | **子账户为逻辑虚拟账户，CTP 报文不含该字段** | 全模型**无一处**假设"从 CTP 回报中获取子账户"；子账户标识的来源只有两个：**业务侧录入时确定**（SPOT/PLAN）或**指令显式携带**（TRADE，经协议） |
-| **口径可核对（`G-1`/`G-2`/`W1`/`W2`/`G-9` 整改）** | 本表"**43**"为**口径 A（五类中属①且度量可加总）**，**且** `43 = 五类① 44 − `t_spot_price``；**全库三层划分**的口径 B 见 §4.6.3（**111 = ① 59 + ② 19 + ③ 33**）。**二者定义不同、非矛盾**：`可加总 43 ⊂ 五类① 44 ⊂ 全库① 59` |
+| **口径可核对（`G-1`/`G-2`/`W1`/`W2`/`G-9` 整改）** | 本表"**43**"为**口径 A（五类中属①且度量可加总）**，**且** `43 = 五类① 44 − `t_spot_price``；**全库三层划分**的口径 B 见 §4.6.3（**112 = ① 60 + ② 19 + ③ 33**）。**二者定义不同、非矛盾**：`可加总 43 ⊂ 五类① 44 ⊂ 全库① 60` |
 | **作用域哨兵值与"五类恒 >0"的边界（`G-11` 整改）** | **两个集合互不相同**：**A 行级归属类**（五类业务数据行）`sub_account_id` **恒 >0**；**B 作用域列**（账户级/全账户口径，见 §4.3）**允许且仅允许** `0`。`t_product_quota` / `t_annual_scale` 为**混合表**（A/B 并存，**仍计入五类①，计数不变**），其边界由 §4.3 **具名 `CHECK`**（`ck_product_quota_layer_sentinel` 等）在**数据库级**保证 |
 | **加总闭环（`W5` 整改）** | 「可加总 = 可 `GROUP BY` 求和」只是**必要条件**；**收敛闭环**（`Σ子账户 ≡ 真实账户` 的比对、差异定位、告警与阻断）由 `ARCHITECTURE.md` §6.5 落实，其**差异归属的机判取数**为 `t_agg_diff_candidate`（`TB-SETTLE-16`）与 `t_reconcile_difference.sub_account_id`（见 §4.4.1）。**即"可求和"→"被系统比对并阻断"的链条在 M1 已有落点，不是仅证必要性** |
 
 > **M1 门禁自评结论（技术负责人席，v1.3）**：五类数据 **56 张表逐表核对完成**（含额度/规模基数 3 张），
 > **物理 `NOT NULL` 行级携带 44 张**，其中 **「可加总」43 张**（= 44 − `t_spot_price` 单价不加总）、可空但已说明 **7 张**、有理由不适用 **5 张**、遗漏 **0 张**；
 > 另有 **4 张非五类但属①的主动携带表**（`t_check_task` / `t_check_signature` / `t_agg_diff_candidate` / `t_custom_hedge_rule`），**均不计入 43**。
-> **全库 111 张表**按三层划分：**① 物理 `NOT NULL` 行级携带 59 张 / ② 可空但已说明 19 张 / ③ 非五类无该列 33 张**，
-> **① + ② + ③ = 111**，**全部有明确归属或理由（机器可复核，见 §4.6.3）**。
+> **全库 112 张表**按三层划分：**① 物理 `NOT NULL` 行级携带 60 张 / ② 可空但已说明 19 张 / ③ 非五类无该列 33 张**，
+> **① + ② + ③ = 112**，**全部有明确归属或理由（机器可复核，见 §4.6.3）**。
 > ⚠️ **本结论属产出方自评**，**不替代**产品经理（业务字段覆盖）与测试经理（可验证性）的独立审查（`PROJECT.md` §9 会签纪律）。
 
 ---
@@ -4925,6 +4968,7 @@ CONFIG 7 + AUTH 9 + PRODUCT 4 + SETTLE 3 + RISK 1 + AUDIT 3 + ACCT 1 = 28
 | `t_trade_order` / `t_trade_order_report` / `t_trade_fill` / `t_trade_reason` / `t_command_flow` / `t_pre_trade_reject` / `t_option_strategy` | **`TRADE`（由 C++ 事件流驱动）** | `SETTLE`、`RISK`、`ACCT`、`AUDIT` | **事件驱动**（C++ 产生 → 事件流 → Java 落库） | 永久（**不可改删**） |
 | `t_position` | `TRADE`（`EVT_POSITION_CHANGE` 增量） | `TRADE`（可用持仓）、`SETTLE`（结算拆分）、`RISK`、`FUND` | **事件驱动** | 当前态（历史在 `t_settle_position`） |
 | `t_replay_log` | `TRADE`（`EVT_REPLAY_PROGRESS`） | 运维、审计 | **组件启动 / 手工触发** | 永久 |
+| **`t_trade_l3_reject`**（v1.3.10） | **`TRADE`（`TradeService` L3 拒绝路径：资金上限护栏 / 紧急停止门禁）** | `AUDIT`、风控、管理层 | **事件驱动**（提交路径拒绝时点落行；受理成功路径零写） | 永久（**不可改删**） |
 | `t_ctp_settle_*` | `SETTLE`（**CTP 日终文件/接口导入**） | `SETTLE`（核对基准） | **日终批量** | 永久（外部基准，只读） |
 | `t_settle_cycle` / `t_settle_position` / `t_settle_fund` / `t_settle_pnl` | `SETTLE`（**日终批量计算**） | `FUND`、`ACCT`、`RISK`、`AUDIT` | **日终批量**（调度触发） | 永久（作废重算保留原单） |
 | `t_reconcile_record` / `t_reconcile_difference` / `t_aggregation_check` / **`t_agg_diff_candidate`** | `SETTLE`（结算岗 + 系统） | `SETTLE`（阻断判定）、`FUND`、`AUDIT` | **日终批量 + 用户处理** | 永久 |
@@ -4979,7 +5023,7 @@ CONFIG 7 + AUTH 9 + PRODUCT 4 + SETTLE 3 + RISK 1 + AUDIT 3 + ACCT 1 = 28
 
 | # | 依赖项 | 用到的 DM8 特性 | 是否标准 SQL | 换库时的处理 | 出现位置 |
 |---|--------|---------------|-------------|------------|---------|
-| **D1** | **自增主键** | `BIGINT IDENTITY(1,1)` / `INT IDENTITY(1,1)` | ❌ 非标准 | 改 `AUTO_INCREMENT`（MySQL）/ `GENERATED ALWAYS AS IDENTITY`（PG/Oracle 12c+）/ `SERIAL`；**或统一改用序列 + 应用层取号** | **全部 111 张表的主键** |
+| **D1** | **自增主键** | `BIGINT IDENTITY(1,1)` / `INT IDENTITY(1,1)` | ❌ 非标准 | 改 `AUTO_INCREMENT`（MySQL）/ `GENERATED ALWAYS AS IDENTITY`（PG/Oracle 12c+）/ `SERIAL`；**或统一改用序列 + 应用层取号** | **全部 112 张表的主键** |
 | **D2** | **审计时间默认值** | `DEFAULT CURRENT_TIMESTAMP` | ⚠️ 半标准（SQL:2003 有 `CURRENT_TIMESTAMP`，但作为列默认值的写法各家不同） | PG/Oracle 可沿用；MySQL 需 `DEFAULT CURRENT_TIMESTAMP`（5.6+ 支持）；**建议统一改由应用层写入**以彻底解耦 | 全部表的 `created_time` |
 | **D3** | **分页语法** | `SELECT ... LIMIT ? OFFSET ?`（DM 兼容 MySQL 风格） | ❌ **非标准**（SQL:2008 标准为 `OFFSET ? ROWS FETCH NEXT ? ROWS ONLY`） | 统一改写为 `OFFSET ... FETCH NEXT`（PG/Oracle/SQL Server 支持）或 `ROWNUM`（Oracle 11g） | `dao/dialect/DmDialect.java`（**唯一集中点**） |
 | **D4** | **日期函数** | `SYSDATE`、`TO_DATE`、`TRUNC`、`ADD_MONTHS`、`MONTHS_BETWEEN` | ❌ 非标准（Oracle 风格） | `SYSDATE`→`CURRENT_TIMESTAMP`/`NOW()`；`TO_DATE`→`TO_TIMESTAMP`/`STR_TO_DATE`；`ADD_MONTHS`→`INTERVAL` 运算；`TRUNC(date)`→`DATE_TRUNC` | `DmDialect.java`；SQL 注释 `// DM-SPECIFIC: 日期函数` |
@@ -5019,7 +5063,7 @@ CONFIG 7 + AUTH 9 + PRODUCT 4 + SETTLE 3 + RISK 1 + AUDIT 3 + ACCT 1 = 28
 
 | 位置 | 工作量 | 说明 |
 |------|--------|------|
-| **DDL 脚本** | **中**（111 张表） | `D1`（自增）、`D6`（条件唯一索引，**MySQL 最麻烦**）、`D7`（CLOB 类型名）、`D10`（注释语法）、`D13`（分区）需逐表改；可用脚本生成 |
+| **DDL 脚本** | **中**（112 张表） | `D1`（自增）、`D6`（条件唯一索引，**MySQL 最麻烦**）、`D7`（CLOB 类型名）、`D10`（注释语法）、`D13`（分区）需逐表改；可用脚本生成 |
 | **`DmDialect.java`** | **小**（1 个文件） | `D3`（分页）、`D4`（日期函数）、`D5`（拼接）集中在此；**这是分级设计回报最大的地方** |
 | **DAO 层 SQL** | **小-中** | 因"SQL 只在 `dao`"（`E5` 校验）+ "DM 特性集中在 `DmDialect`"，改写量可控；`// DM-SPECIFIC:` 注释用于定位 |
 | **JDBC 驱动** | **小** | 替换 jar + 驱动类名 + URL（`HG.DB.*`） |
@@ -5033,7 +5077,7 @@ CONFIG 7 + AUTH 9 + PRODUCT 4 + SETTLE 3 + RISK 1 + AUDIT 3 + ACCT 1 = 28
 
 ### 6.3 红线自检（`PROJECT.md` §5.2 / §6）
 
-- [x] **未使用存储过程** —— 本模型全部 111 张表**仅用表、索引、约束、视图**；`DDL` 脚本中**无 `CREATE PROCEDURE`**
+- [x] **未使用存储过程** —— 本模型全部 112 张表**仅用表、索引、约束、视图**；`DDL` 脚本中**无 `CREATE PROCEDURE`**
 - [x] **未使用触发器** —— **无 `CREATE TRIGGER`**；所有"自动更新"均由**应用层**在同一事务内完成
 - [x] **未使用自定义函数** —— **无 `CREATE FUNCTION`**；所有计算（敞口、比率、盈亏、加总）均由 **Java 服务层**完成
 - [x] **业务逻辑均在应用层，未下沉到数据库** —— 比对：敞口计算、套保比率、红线校验、加总对账、盈亏与凭证生成、追溯链遍历、违规筛查**全部在 Java 层**（见 `ARCHITECTURE.md` §3.8）
@@ -5056,6 +5100,7 @@ CONFIG 7 + AUTH 9 + PRODUCT 4 + SETTLE 3 + RISK 1 + AUDIT 3 + ACCT 1 = 28
 | v1 | 2026-09-20 | 初始模型：**106 张表**（11 模块）、**约 360 个具名索引**、**五类数据 53 张表子账户贯穿逐表核对**、DM8 特性依赖 15 条 | — | S2 架构阶段产出 | 全库（新建） |
 | **v1.1** | 2026-09-20 | **传导 `CH-001` / `CH-002`**：**新增 3 张表**（`TB-PRODUCT-8` 限额层②、`TB-RISK-11` 规模基数、`TB-SETTLE-15` 核对签署记录）+ **修订 14 张表**（详见 §7.2 `DC-001`～`DC-014`）→ **表数 106 → 109**，具名索引 **约 360 → 385**；子账户贯穿核对由 53 张 → **56 张五类表 + 2 张流程表** | **源自 `CH-001` / `CH-002`（L2 需求级，用户已确认）** | `Q-1`～`Q-17` 全部确认口径落地为库表结构；**新增 2 条 FR（`FR-SETTLE-17`、`FR-AUDIT-13`）与 2 条规则** | **需数据迁移**（v1.1 是 M1 编码前的定稿修订，**尚无生产数据**，故不涉及历史数据迁移；建表脚本按 v1.1 一次性生成） |
 | **v1.3** | 2026-09-20 | **M1 数据模型会签第二轮整改**（测试经理 `B-3`/`G-7`~`G-10`/`S-6`~`S-9`；产品经理 `PI-15`~`PI-20`）：<br>① **`B-3`/`PI-15` 阻塞项**：`t_spot_change_log.change_type` 列级 `CHECK` 补 **`COMPONENT_RECALC`**（`DC-033`）；<br>② §3.1 枚举总表同步（`related_type` 8 值、`limit_layer` 5 值、非限额类拒绝统一 `NONE`，`DC-034`）；<br>③ `round_trip_count` 改 `NOT NULL DEFAULT 0`（`DC-035`）；<br>④ **「可加总」口径拆名**（`t_spot_price` 归①但单列不加总 → 五类① **44**、可加总 **43**；§4.6.1 逐表✅恰 43 行）；<br>⑤ **取一算法四处统一**为 `ratio_cap` 升序→`priority` 升序→`id` 升序；<br>⑥ §0.6 删重复行、§5 旧表名 `t_compliance_check`→`t_check_task`、`TB-SPOT-7` 清除 `PER_SUB_ACCOUNT` 残留；<br>⑦ **唯一索引计数 94→93**（合计 391→390）并写死计数口径；`uk_spot_price`→`uk_spot_price_global`；`DC-021`/`DC-025` 笔误订正；<br>⑧ 补**快照字段集定义**（`C-3`/`S-8`，`ARCHITECTURE.md` §6.14① 同步）；`#13` 补占用率权威/协议构造纪律（`C-4`/`S-9`，`DC-036`）；<br>⑨ **作用域哨兵值 `CHECK` 落为具名 DDL（共 5 条：双向联动型 3 + 范围标注型 2）** + **A/B 术语分离**（`G-11`，`DC-037`） | **源自** `docs/gates/M1-data-model-signoff/test-manager.md`（R1～R8）与 `product-manager.md`（`PI-15`～`PI-20`）第二轮复核 + 编排者裁决 | **表数维持 111**；**无架构变更（仅 1 列可空性 + 1 列级 `CHECK` + 5 具名 `CHECK`〔双向联动型 3 + 范围标注型 2〕）**；**无生产数据，不涉及历史数据迁移**（按 v1.3 一次性生成建表脚本） |
+| **v1.3.10** | 2026-10-27 | **`T-206`/`cr-t088` `R4-002` 承接：新增 `TB-TRADE-10` `t_trade_l3_reject`（L3 护栏/紧急停止拒绝事件持久化）**：<br>**新增表 1 张**（TRADE 模块 9 → 10）：L3 实盘护栏（`L3-FUND-CAP`，G-6 资金上限）与紧急停止门禁（`L3-EMERGENCY-STOP`，G-7）在 Java 提交路径（`submitOrder` ②-b/②-c）拒绝下单时的**持久化留痕**——此前仅 LOG 结构化告警 + 响应载荷，事后审计/告警回溯依赖日志留存策略、无持久化审计行（`cr-t088` `R4-002` 失效场景）。10 业务列（`sub_account_id`/`rule_id`/`trigger_source`/`quota_scope`/`product_id`/`current_value`/`threshold_value`/`blocked_operation`/`operator_id`/`event_time`）+ §0.3 通用审计字段 + 4 具名 `CHECK` + 2 外键 + 2 普通索引；**无幂等键**（每次拒绝尝试均为独立事件，逐笔留行）；**合规证据只增不改不删**（`R-TRADE-14` 同族） | **源自 `cr-t088` 终审 `R4-002`（中；`ARCHITECTURE.md` v1.5.24 §3.8 挂账登记）；用户 2026-10-27 批准立项；承接任务 `T-206`；字段级登记 `DC-047`；`t_fund_quota_alert.blocked_operation` `CHECK` 恒 `'NONE'` 冻结（`FR-FUND-14` 验收 3 / `te-verify-t205` 裁定 LOG 留痕系该表唯一合规形态）⇒ 以新表承载** | L3 拒绝事件现无持久化承载：`t_fund_quota_alert` 被 `CHECK` 冻结不可承载（`R-FUND-7`「告警不阻断」语义不得改）；LOG 行受日志留存策略约束，不构成审计级持久化 ⇒ 以 `TRADE` 模块新表承载（与 `t_pre_trade_reject`〔C++ 事前风控拒绝〕同域并列：同为「提交路径拒绝」合规证据；`L3-EMERGENCY-STOP` 与资金额度域无关，不入 FUND；非审计聚合域，不入 AUDIT） | **新增表**（**表数 111 → 112**；TRADE 模块 9 → 10）；**普通索引 297 → 299**（合计 391 → 393）、唯一索引 94 不变；具名 `CHECK` +4；**无生产数据，不涉及历史数据迁移**（新建库按 v1.3.10 一次性建表；若已建库由 DBA 执行 `m2_trade.sql` 中 `TB-TRADE-10` 段，回滚 `DROP TABLE t_trade_l3_reject`）；服务写入侧（`TradeService` L3 拒绝路径）独立事务落行、失败吞并 + LOG（不改变拒绝结果，`R-FUND-7` 语义零改动）；`m2_trade.sql` 同步；`TradeSchemaTest`/`TradeDm8EquivalentIntegrationTest` 随动 |
 | **v1.3.9** | 2026-10-22 | **`R1-003`/`T-202` 划拨幂等承载补齐（`R-FUND-4` 收口·方案 A）**：<br>`TB-FUND-4 t_transfer_apply` 增列 **`idempotency_key`**（`VARCHAR(64)` **NOT NULL, UNIQUE**）+ 具名唯一约束 **`uk_transfer_apply_idem`** + `COMMENT ON COLUMN`——沿 `TB-FUND-3 t_deposit_withdraw_apply.idempotency_key`/`uk_dw_apply_idem` 先例形态（`FR-FUND-5` 验收 3 同族口径） | **源自 `cr-t025` `R1-003`（中：`ARCHITECTURE.md` §4.1.1 声明「写类接口要求头 `Idempotency-Key`（出入金/划拨/下单/参数下发必需）」vs `FundService.initiateTransfer`/`TransferRequest` 无承载 vs `FR-FUND-10` 输入列未列，三落点不一致）；用户裁定采方案 A（拒 B 修 ARCH 声明/拒 C 应用层软幂等）；承接任务 `T-202`；字段级登记 `DC-046`** | `FR-FUND-10` 划拨系写类接口，`ARCH` 声明其必需幂等头，但服务层 `TransferRequest` 无 `idempotencyKey` 字段、`t_transfer_apply` 无承载列 ⇒ 同键重放会产生第二笔划拨，违反 `§2` 数据字典「同一幂等标识重复提交不得产生第二笔划转」通用语义（`R-FUND-4`「加总不变」的结构前提） | **列结构变更 1 表 1 列（新增，NOT NULL + UNIQUE）**：**表数维持 111**；**唯一索引 93 → 94**（`uk_transfer_apply_idem`；合计 390 → 391）；具名 `CHECK` / 枚举 0 变更；**无生产数据，不涉及历史数据迁移**；若已建库须由 DBA `ALTER TABLE t_transfer_apply ADD idempotency_key VARCHAR(64) NOT NULL`（+ `CONSTRAINT uk_transfer_apply_idem UNIQUE (idempotency_key)` + `COMMENT`）——回滚 `DROP COLUMN`；服务写入侧（`FundService.initiateTransfer`）事务内「先查后插」幂等 no-op（同 `initiateDepositWithdraw` 形态），缺键报 `PARAM_INVALID`；`m2_fund.sql` 同步；`FundSchemaTest`/`FundDm8EquivalentIntegrationTest` 自动覆盖 |
 | **v1.3.8** | 2026-10-20 | **`BUG-005`/`T-201` 四类套期会计文档「待外部复核」标注承载补齐（`R-ACCT-10` 收口）**：<br>`TB-ACCT-2 t_effectiveness_assess` / `TB-ACCT-3 t_rebalance_record` 两表各增列 **`pending_external_review`**（`CHAR(1)` **NOT NULL DEFAULT `'Y'`**）+ 具名 `CHECK` **恒 `'Y'`**（`ck_t_effectiveness_assess_pending_review` / `ck_t_rebalance_record_pending_review`）+ `COMMENT ON COLUMN`——沿 `t_voucher`/`t_cas24_selfcheck` 先例形态（**恒 'Y' 形态**：R-ACCT-10「标注不得被移除」治理红线系数据库级保证，对照 `t_dual_pnl_report` IN('Y','N') 自择依据见工单 T-201） | **源自 `BUG-005`（P1 缺陷，te-t085 执行 `TC-M4-19` 实测四类文档标注承载 2/4；实现与 DATA_MODEL 一致、缺口在设计层⇒修复=模型订正免 `CH`）；承接任务 `T-201`；字段级登记 `DC-045`** | `R-ACCT-10` 字面「全部套期会计文档必须带"待外部复核"标注」：关系文档（`t_hedge_doc`）与自检报告（`t_cas24_selfcheck`）有承载、评估/再平衡两类记录无承载列 ⇒ `TC-M4-19` 唯一预期值（==4/4）不通过；缺列致「标注不得移除」约束对两类文档无结构保证（只能靠下游展示层自律） | **列结构变更 2 表各 1 列（新增，均 NOT NULL DEFAULT 'Y' + 恒 'Y' CHECK）**：**表数维持 111**；**索引 / 枚举 0 变更**、具名 `CHECK` +2；**无生产数据，不涉及历史数据迁移**；若已建库须由 DBA `ALTER TABLE t_effectiveness_assess ADD pending_external_review CHAR(1) DEFAULT 'Y' NOT NULL`（+ `CHECK`/`COMMENT`，`t_rebalance_record` 同）—回滚 `DROP COLUMN`；服务写入侧（`AcctService` 评估/再平衡路径）恒置 `'Y'`，`M4DocPackageCas24SelfcheckTest.tcM4_19` 探针随修复改写为 4/4 断言（`T-201`） |
 | **v1.3.7** | 2026-10-10 | **`CH-023` `TB-SETTLE-2 t_ctp_settle_position` 增两列承载逐合约盈亏**：<br>`close_pnl` / `position_pnl`（均 `DECIMAL(20,4)` **NULL**）——转录自 CTP SDK `ThostFtdcUserApiStruct.h` 持仓字段 `CloseProfit` / `PositionProfit`（逐字转录不推算，盈正亏负）；**允许 NULL 语义**：上游（导入契约 `CtpPositionRow.closeProfit`/`positionProfit`，`T-189` 方案 A）未供即空，该行不参与结算盈亏转录（旧模板向后兼容）；结算链据此落 `t_settle_pnl` 的 `CLOSE_REALIZED`/`FLOAT_UNREALIZED` 转录行（`T-189`） | **源自 `CH-023`（L3 冻结面结构变更；用户 2026-10-10 预批，`T-189` 停手请示授权链）；字段级登记 `DC-044`** | `T-189` 结算链生产写入 `t_settle_pnl`：逐合约盈亏（含亏损侧）是 `T-188` 轨 1（`CFG-26` 亏损阈值，语义依赖负值求和）的输入，导入契约已扩列（36079a5）但逐字转录值**无中间持久化承载**即丢失 ⇒ 须扩 `TB-SETTLE-2`（`M2SettleSchemaTest` 以本文件 §2.7 逐列锁 DDL，扩列必走 CH） | **列结构变更 1 表 2 列（新增，均可空）**：**表数维持 111**；**索引 / `CHECK` / 枚举 0 变更**；**无生产数据，不涉及历史数据迁移**；若已建库须由 DBA `ALTER TABLE t_ctp_settle_position ADD close_pnl DECIMAL(20,4) NULL, ADD position_pnl DECIMAL(20,4) NULL`（回滚 DROP COLUMN） |
@@ -5128,6 +5173,11 @@ CONFIG 7 + AUTH 9 + PRODUCT 4 + SETTLE 3 + RISK 1 + AUDIT 3 + ACCT 1 = 28
 
 | `DC-045` | 2026-10-20 | `t_effectiveness_assess`（`TB-ACCT-2`）/ `t_rebalance_record`（`TB-ACCT-3`）+ 文档 §2.10 | **两表各新增 1 列**：`pending_external_review`（`CHAR(1)` **NOT NULL DEFAULT `'Y'`**）+ 具名 `CHECK` 恒 `'Y'`（`ck_t_effectiveness_assess_pending_review` / `ck_t_rebalance_record_pending_review`）+ `COMMENT ON COLUMN`；服务写入侧（`AcctService` `doAssess`/`doRebalance`）恒置 `'Y'`（同 `t_voucher`/`t_cas24_selfcheck` 先例形态） | **`BUG-005`（P1 缺陷；承接任务 `T-201`，v1.3.8）**：`te-t085` 执行 `TC-M4-19` 实测四类套期会计文档「待外部复核」标注承载仅 2/4（关系文档/自检报告 ✓，评估/再平衡记录列不存在）；`R-ACCT-10`「全部套期会计文档必须带标注、标注不得被移除」对两类记录无数据库级结构保证——实现与 DATA_MODEL 一致，缺口在设计层 ⇒ 修复=模型订正（免 `CH`） | **列结构变更（新增 NOT NULL 列 2，带恒 'Y' CHECK）**；**无表 / 索引变更、无迁移**（`m4_acct.sql` 同步；`M4AcctSchemaTest` 逐列一致性自动覆盖） |
 | `DC-046` | 2026-10-22 | `t_transfer_apply`（`TB-FUND-4`）+ 文档 §2.11 | **新增 1 列**：`idempotency_key`（`VARCHAR(64)` **NOT NULL**）+ 具名唯一约束 `uk_transfer_apply_idem` + `COMMENT ON COLUMN`；服务写入侧（`FundService.initiateTransfer`）事务内「先查后插」幂等 no-op（同 `initiateDepositWithdraw`/`dwDao.findByIdempotencyKey` 先例形态），缺键报 `PARAM_INVALID`；handler 侧 `FundTransferHandler` 缺省取 `Idempotency-Key` 头兜底（`FundApplyHandler` 先例形态） | **`cr-t025` `R1-003`（中；承接任务 `T-202`，v1.3.9；用户裁定采方案 A）**：`ARCHITECTURE.md` §4.1.1 声明划拨幂等头必需 vs 服务层/表结构/`FR-FUND-10` 输入列三处均无承载 ⇒ 同键重放产生第二笔划拨 | **列结构变更（新增 NOT NULL 列 1 + 唯一索引 1）**；唯一索引 93 → 94、合计 390 → 391；**无表 / `CHECK` / 枚举变更、无迁移**（`m2_fund.sql` 同步；`FundSchemaTest`/`FundDm8EquivalentIntegrationTest` 自动覆盖） |
+
+| `DC-047` | 2026-10-27 | **新增 `t_trade_l3_reject`（`TB-TRADE-10`）**+ 文档 §0.6/§1.3/§2.6/§4.1/§4.6/§5.1 | L3 护栏/紧急停止拒绝事件表（**10 业务列** + §0.3 通用审计字段 + 4 具名 `CHECK`：`ck_l3_reject_rule_id`/`ck_l3_reject_trigger_source`/`ck_l3_reject_quota_scope`/`ck_l3_reject_blocked` + 2 外键 `fk_l3_reject_sub`/`fk_l3_reject_product` + 2 索引 `idx_l3_reject_sub_time`/`idx_l3_reject_rule_time`）；写入方唯一 = `TradeService` L3 拒绝路径（独立事务、失败吞并 + LOG）；§4.6.3 全库三层 112 = ① 60 + ② 19 + ③ 33（本表归①） | **`cr-t088` 终审 `R4-002`（中；用户 2026-10-27 批准立项；承接任务 `T-206`，v1.3.10）**：L3 拒绝事件仅 LOG + 响应载荷，无持久化审计行；`t_fund_quota_alert` 载荷列被 `CHECK` 恒 `'NONE'` 冻结不可承载（`te-verify-t205` 裁定）⇒ 新表承载 （TRADE 域：与 `t_pre_trade_reject` 同为提交路径拒绝合规证据；`L3-EMERGENCY-STOP` 非资金域、非审计聚合域） | **新增表**（**表数 111 → 112**、TRADE 模块 9 → 10）；**索引：普通 297 → 299、合计 391 → 393（唯一 94 不变）**；**无迁移**（尚无生产数据）（`m2_trade.sql` 同步；`TradeSchemaTest`/`TradeDm8EquivalentIntegrationTest` 随动） |
+
+**v1.3.10 变更统计（`T-206`/`cr-t088` `R4-002` L3 拒绝事件持久化承载）**：**新增表 1 张**（**表数 111 → 112**；TRADE 模块 9 → 10，`TB-TRADE-10` `t_trade_l3_reject`，`DC-047`）；
+**索引变更：普通索引 297 → 299**（合计 391 → 393）；**唯一索引 94 不变**；**具名 `CHECK` +4 / 枚举取值域 0 变更**（`rule_id`/`trigger_source` 二值域、`quota_scope` 可空二值域、`blocked_operation` 单值域均为**新表新域**，非既有域扩展）。**是否需要数据迁移**：**不需要**（尚无生产数据；若已建库由 DBA 执行 `m2_trade.sql` 中 `TB-TRADE-10` 段，回滚 `DROP TABLE t_trade_l3_reject`）。
 
 **v1.3.9 变更统计（`R1-003`/`T-202` 划拨幂等承载补齐）**：**新增表 0 张**（**表数维持 111**）；
 **列结构变更 1 表 1 列**（`t_transfer_apply`：新增 `idempotency_key`，`VARCHAR(64)` NOT NULL + 唯一索引 `uk_transfer_apply_idem`，`DC-046`）；
@@ -5277,7 +5327,7 @@ TASKS.md（任务分解按数据/模块边界切开）
 | 13 | 表编号规范是否为 `TB-<模块>-<序号>` | 技术负责人（自评） | §0.6、§2 |
 | 14 | 字段变更编号规范是否为 `DC-<序号>` | 技术负责人（自评） | §7 |
 | 15 | 与 `PROJECT.md` §5 / §6 是否一致（无自行更换数据库、无强绑定对象） | 三方 | §0、§6.3 |
-| 16 | **`INDEX.md` §9.1 的 17 条已确认口径是否逐条有库表承载**（`Q-1`～`Q-17`） | 技术负责人（自评）+ **测试经理复核可测性** | **§7.2 `DC-001`～`DC-046`**、§3.1、§4.4 |
+| 16 | **`INDEX.md` §9.1 的 17 条已确认口径是否逐条有库表承载**（`Q-1`～`Q-17`） | 技术负责人（自评）+ **测试经理复核可测性** | **§7.2 `DC-001`～`DC-047`**、§3.1、§4.4 |
 | 17 | **三层限额（`Q-16`）是否三层齐备且校验口径明确**（层①主维度 + 层② 可选 + 层③ 防串用；**v1.2 写死"最细命中者"全序 层②>层①>层③**） | 技术负责人 + 测试经理 | `TB-PRODUCT-6`（层①③）、`TB-PRODUCT-8`（层②）、§4.4（三层限额行）、§4.6.1（1b） |
 | 18 | **敞口快照是否存三类分量（`Q-17`）**，而非只存合计；**v1.2 写死分量缺失时按用途分别处理** | 产品经理 + 测试经理 | `TB-SPOT-8`（三分量列 + `snapshot_id/time`）、§4.4（三分量缺失行） |
 | 19 | **交易理由是否结构化必填且关联对象校验同子账户（`Q-13`）**；**v1.2（`CH-004`）：`related_*` 条件非空 + 「理由缺失 `REASON_MISSING` / 关联缺失 `RELATED_MISSING`」两个筛查维度并列且均可构造** | 产品经理 + 测试经理 | `TB-TRADE-4`（`related_type`/`related_*`/`time_desc` + `related_object_missing_flag` + `ck_trade_reason_related_or_missing`） |

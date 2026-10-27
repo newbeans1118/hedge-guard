@@ -15,6 +15,7 @@ import com.hedgeguard.dao.FundQuotaDao;
 import com.hedgeguard.dao.HedgePlanDao;
 import com.hedgeguard.dao.TradeCommandFlowDao;
 import com.hedgeguard.dao.TradeFillDao;
+import com.hedgeguard.dao.TradeL3RejectDao;
 import com.hedgeguard.dao.TradeOrderDao;
 import com.hedgeguard.dao.TradeOrderReportDao;
 import com.hedgeguard.dao.TradePlanDao;
@@ -32,12 +33,14 @@ import com.hedgeguard.dao.entity.TradeOrder;
 import com.hedgeguard.dao.entity.TradeOrderReport;
 import com.hedgeguard.dao.entity.TradePlan;
 import com.hedgeguard.dao.entity.TradePosition;
+import com.hedgeguard.dao.entity.TradeL3Reject;
 import com.hedgeguard.dao.entity.TradePreTradeReject;
 import com.hedgeguard.dao.entity.TradeReason;
 import com.hedgeguard.dao.impl.DmConfigItemDao;
 import com.hedgeguard.dao.impl.DmFundLedgerDao;
 import com.hedgeguard.dao.impl.DmFundQuotaDao;
 import com.hedgeguard.dao.impl.DmHedgePlanDao;
+import com.hedgeguard.dao.impl.DmTradeL3RejectDao;
 import com.hedgeguard.dao.tx.TxTemplate;
 import com.hedgeguard.web.BizException;
 import com.hedgeguard.web.ErrorCode;
@@ -85,10 +88,14 @@ import java.util.logging.Logger;
  * 在途指令与既有流程不受影响，{@code R-TRADE-13} 边界）；
  * ② {@code assertFundCapNotExceeded}（G-6 资金上限：占用 ≥ 上限〔子账户/账户两级，取数面同
  * {@code FundService}：{@code t_fund_quota} 有效额度 + {@code t_fund_ledger.margin_occupied}〕
- * ⇒ 拒绝 + 告警留痕 + 不发 CTP）。两项均为<b>只读校验</b>（读 CFG/额度/台账），不产生任何写语句
- * ——「提交路径零写」口径不变；告警留痕为 LOG 形态 + 阻断响应四项载荷
- * （{@code t_fund_quota_alert.blocked_operation} 受 CHECK 恒 {@code 'NONE'} 冻结
+ * ⇒ 拒绝 + 告警留痕 + 不发 CTP）。两项均为<b>只读校验</b>（读 CFG/额度/台账），不产生任何业务写语句
+ * ——「提交路径零写」口径不变；告警留痕为 LOG 形态 + 阻断响应四项载荷 + <b>持久化留痕</b>
+ * （{@code T-206}/{@code cr-t088} {@code R4-002} 承接：拒绝时落 {@code t_trade_l3_reject}，
+ * {@code DATA_MODEL.md} §2.6 {@code TB-TRADE-10}；独立事务、失败吞并 + LOG，
+ * <b>不改变拒绝结果</b>——{@code R-FUND-7}「告警不阻断」语义零改动；
+ * {@code t_fund_quota_alert.blocked_operation} 受 CHECK 恒 {@code 'NONE'} 冻结
  * 〔FR-FUND-14 验收 3〕，L3 硬停告警不可入该表，且本护栏与 {@code R-FUND-7}「告警不阻断」为独立语义层）。
+ * 受理成功路径仍零写（验收 5 不变；留痕仅发生于拒绝分支）。
  *
  * <p><b>与 {@code Project.md} §10-23 的口径说明（据实披露）</b>：架构正文（§4.2.6(4) 第 ③ 步注记、§6.1④）
  * 把该保证表述为「Java <b>不预写库</b> / 不产生 SQL」，而 {@code FR-TRADE-10} 第①层又明确要求权威校验
@@ -192,6 +199,15 @@ public final class TradeService {
     /** 配置项 DAO（{@code CFG-34}/{@code CFG-35} 惰性读取，T-188 触发器同形态）。 */
     private final ConfigItemDao fundCapConfigDao;
 
+    // ---- T-206 L3 拒绝事件持久化（cr-t088 R4-002 承接；tx 派生，与 fundCap 取数面同姿态）----
+
+    /**
+     * L3 拒绝事件 DAO（{@code t_trade_l3_reject}，{@code DATA_MODEL.md} §2.6 {@code TB-TRADE-10}；
+     * v1.3.10/{@code DC-047}）。由 {@code tx} 派生（{@code DmTradeL3RejectDao}），
+     * 构造签名零变更（{@code T-205} 扩展构造先例同姿态）。
+     */
+    private final TradeL3RejectDao l3RejectDao;
+
     // ==================== 提交上下文（T-172 硬边界①）====================
 
     /** 提交上下文有界地图容量上限（硬边界①：容量上限 + 淘汰策略）。 */
@@ -279,6 +295,7 @@ public final class TradeService {
      * @param fundCapQuotaDao   T-205 护栏：资金额度 DAO（{@code t_fund_quota}）
      * @param fundCapLedgerDao  T-205 护栏：资金台账 DAO（占用 = {@code margin_occupied}）
      * @param fundCapConfigDao  T-205 护栏：配置项 DAO（{@code CFG-34}/{@code CFG-35}）
+     *                          ；另由 {@code tx} 派生 {@code DmTradeL3RejectDao}（T-206 L3 拒绝事件落库，签名零变更）
      */
     public TradeService(TxTemplate tx, TradingBridge bridge, AuthService authService,
                         TradePlanDao tradePlanDao, HedgePlanDao hedgePlanDao, ExposureDao exposureDao,
@@ -304,6 +321,8 @@ public final class TradeService {
         this.fundCapQuotaDao = fundCapQuotaDao;
         this.fundCapLedgerDao = fundCapLedgerDao;
         this.fundCapConfigDao = fundCapConfigDao;
+        // T-206：L3 拒绝事件 DAO 由 tx 派生（构造签名零变更；DmHedgePlanDao(tx)/DmFundQuotaDao(tx) 同姿态）
+        this.l3RejectDao = new DmTradeL3RejectDao(tx);
     }
 
     /**
@@ -347,7 +366,9 @@ public final class TradeService {
      *
      * <p>顺序：① 参数与格式 → ② {@code assertCanTrade} + 写面可见性 → ③ 交易理由结构化权威校验（同子账户）
      * → ④ 计划一致性（品种 / 方向 / 剩余可下单量）→ ⑤ 组装 {@link PlaceOrderCmd} 并下发。
-     * <b>全程不写库</b>。
+     * <b>受理成功路径不写库</b>（{@code FR-TRADE-2} 验收 5 不变）；<b>L3 拒绝分支</b>（②-b/②-c 命中）
+     * 落 {@code t_trade_l3_reject} 留痕一行（T-206/cr-t088 R4-002 承接；失败吞并 + LOG，
+     * 不改变拒绝结果）。
      *
      * @param req        提交请求
      * @param operatorId 操作人（取自会话，{@code 0} 视为非法）
@@ -367,12 +388,14 @@ public final class TradeService {
 
         // ②-b G-7 紧急停止门禁（T-205；CFG-35）：Y ⇒ 全部新提交拒绝（留痕 + 不发 CTP）；
         // 在途指令（已受理/已发 CTP）与确认/撤单路径不在本门禁面（R-TRADE-13 边界·工单框定）。
-        assertEmergencyStopCleared(operatorId);
+        // T-206：拒绝时持久化留痕至 t_trade_l3_reject（TB-TRADE-10；失败吞并 + LOG，不改变拒绝结果）。
+        assertEmergencyStopCleared(operatorId, subAccountId, req.productId);
 
         // ②-c G-6 资金上限护栏（T-205；CFG-34）：占用 ≥ 上限（子账户/账户两级）⇒ 拒绝 + 告警留痕
         // + 不发 CTP。与 R-FUND-7「额度告警不阻断」为独立语义层：本护栏系 L3 实盘硬停，
         // R-FUND-7 告警面（FundService.checkQuotaAlert）零改动。
-        assertFundCapNotExceeded(subAccountId, operatorId);
+        // T-206：拒绝时持久化留痕至 t_trade_l3_reject（TB-TRADE-10；失败吞并 + LOG，不改变拒绝结果）。
+        assertFundCapNotExceeded(subAccountId, operatorId, req.productId);
 
         // ③ 交易理由结构化必填（CFG-13 / FR-TRADE-10 第①层：Java 提交时权威，同子账户）
         validateReasonStructured(req.reason, subAccountId, operatorId);
@@ -477,16 +500,25 @@ public final class TradeService {
      *
      * <p>仅 {@link #submitOrder} 调用（在途不受影响的结构性证据：确认/撤单/事件路径不含本判定）。
      *
-     * @param operatorId 操作人（留痕用）
+     * <p><b>持久化留痕（{@code T-206}）</b>：拒绝成立时落 {@code t_trade_l3_reject} 一行
+     * （{@code trigger_source=L3-EMERGENCY-STOP}；{@code quota_scope=NULL}），
+     * 与既有 LOG/响应载荷<b>并行</b>；落库失败吞并 + LOG（<b>不改变拒绝结果</b>——
+     * 拒绝响应仍为 {@code 10012} 四项载荷原样；独立事务，理由见 {@link #persistL3GuardRejection}）。
+     *
+     * @param operatorId   操作人（留痕用）
+     * @param subAccountId 指令子账户（留痕用）
+     * @param productId    请求携带品种（可空；留痕用）
      * @throws BizException 紧急停止生效时抛 {@code 10012}（{@code ruleId=L3-EMERGENCY-STOP}）
      */
-    private void assertEmergencyStopCleared(long operatorId) {
+    private void assertEmergencyStopCleared(long operatorId, int subAccountId, Long productId) {
         if (!"Y".equalsIgnoreCase(configValue(CFG_EMERGENCY_STOP, DEFAULT_EMERGENCY_STOP))) {
             return;
         }
         LOG.warning("L3 紧急停止告警[CRITICAL] emergency_stop=Y blocked_operation=PLACE_ORDER"
                 + " operator_id=" + operatorId
                 + "（全部新提交拒绝，未发 CTP；在途指令不受影响 R-TRADE-13；T-205/G-7）");
+        persistL3GuardRejection(RULE_ID_EMERGENCY_STOP, "emergency_stop=Y", "新提交=全部拒绝",
+                subAccountId, productId, null, operatorId);
         throw BizException.blocking(ErrorCode.COMPLIANCE_GATE_FAILED,
                 "紧急停止生效，拒绝全部新提交（T-205/G-7；CFG-35 hg.trade.emergency_stop=Y）："
                         + "在途指令与既有流程不受影响（R-TRADE-13）；复现=等待紧急停止解除后重试",
@@ -519,15 +551,18 @@ public final class TradeService {
      *
      * @param subAccountId 指令子账户
      * @param operatorId   操作人（留痕用）
+     * @param productId    请求携带品种（可空；留痕用）
      * @throws BizException 任一级占用 ≥ 上限时抛 {@code 10012}（{@code ruleId=L3-FUND-CAP}）
      */
-    private void assertFundCapNotExceeded(int subAccountId, long operatorId) {
+    private void assertFundCapNotExceeded(int subAccountId, long operatorId, Long productId) {
         if (!"Y".equalsIgnoreCase(configValue(CFG_FUND_CAP_ENABLED, DEFAULT_FUND_CAP_ENABLED))) {
             return; // 开关关闭 ⇒ 直通（CFG-34='N'，显式披露的可关断路径）
         }
         try {
-            checkFundCapLayer(FundService.SCOPE_SUB, Integer.valueOf(subAccountId), operatorId);
-            checkFundCapLayer(FundService.SCOPE_ACCOUNT, null, operatorId);
+            checkFundCapLayer(FundService.SCOPE_SUB, Integer.valueOf(subAccountId),
+                    subAccountId, operatorId, productId);
+            checkFundCapLayer(FundService.SCOPE_ACCOUNT, null,
+                    subAccountId, operatorId, productId);
         } catch (BizException e) {
             throw e; // 阻断判定命中：原样上抛（不得被取数兜底吞掉）
         } catch (RuntimeException e) {
@@ -535,22 +570,41 @@ public final class TradeService {
         }
     }
 
-    /** 单层护栏判定（{@code scope=SUB_ACCOUNT} 按子账户；{@code scope=ACCOUNT} 汇总全部台账行）。 */
-    private void checkFundCapLayer(String scope, Integer subAccountId, long operatorId) {
-        FundQuota quota = latestEffectiveQuota(scope, subAccountId);
+    /**
+     * 单层护栏判定（{@code scope=SUB_ACCOUNT} 按子账户；{@code scope=ACCOUNT} 汇总全部台账行）。
+     *
+     * <p><b>持久化留痕（{@code T-206}）</b>：命中时落 {@code t_trade_l3_reject} 一行
+     * （{@code trigger_source=L3-FUND-CAP}；{@code quota_scope}=命中维度；
+     * {@code sub_account_id}=提交方子账户——账户级命中时占用/阈值为账户级汇总值，
+     * 列 {@code NOT NULL} 故恒记提交方），与既有 LOG/响应载荷<b>并行</b>；
+     * 落库失败吞并 + LOG（不改变拒绝结果）。留痕调用自身不抛 {@code RuntimeException}
+     * ——{@code assertFundCapNotExceeded} 的「取数不可用放行」兜底（放行语义）与
+     * 留痕失败语义（仍拒绝）必须分离，见 {@link #persistL3GuardRejection}。
+     *
+     * @param scope             命中维度（{@code SUB_ACCOUNT} / {@code ACCOUNT}）
+     * @param scopeSubAccountId 维度取数子账户（账户级为 {@code null}；LOG 字段形态与 T-205 逐字一致）
+     * @param orderSubAccountId 提交方子账户（留痕行 {@code sub_account_id}，恒非空）
+     * @param operatorId        操作人（留痕用）
+     * @param productId         请求携带品种（可空；留痕用）
+     */
+    private void checkFundCapLayer(String scope, Integer scopeSubAccountId,
+                                   int orderSubAccountId, long operatorId, Long productId) {
+        FundQuota quota = latestEffectiveQuota(scope, scopeSubAccountId);
         if (quota == null || quota.quotaValue == null || quota.quotaValue.signum() <= 0) {
             return; // 无有效额度 ⇒ 无阈值可执行 ⇒ 放行（FundService 同姿态）
         }
-        BigDecimal occupied = occupiedOf(scope, subAccountId);
+        BigDecimal occupied = occupiedOf(scope, scopeSubAccountId);
         if (occupied.compareTo(quota.quotaValue) < 0) {
             return; // 占用 < 上限 ⇒ 放行
         }
         LOG.warning("L3 资金上限护栏告警[CRITICAL] quota_scope=" + scope
-                + " sub_account_id=" + subAccountId
+                + " sub_account_id=" + scopeSubAccountId
                 + " quota_value=" + quota.quotaValue.toPlainString()
                 + " occupied_value=" + occupied.toPlainString()
                 + " blocked_operation=PLACE_ORDER operator_id=" + operatorId
                 + "（占用≥上限，拒绝新提交，未发 CTP；T-205/G-6）");
+        persistL3GuardRejection(RULE_ID_FUND_CAP, occupied.toPlainString(),
+                quota.quotaValue.toPlainString(), orderSubAccountId, productId, scope, operatorId);
         throw BizException.blocking(ErrorCode.COMPLIANCE_GATE_FAILED,
                 "资金占用已达上限，拒绝新提交（T-205/G-6 L3 实盘护栏；与 R-FUND-7 告警面独立）：维度="
                         + scope + " 占用=" + occupied.toPlainString()
@@ -558,6 +612,60 @@ public final class TradeService {
                         + "；复现=下调占用或经 FR-FUND-13 额度面调整后重试",
                 RULE_ID_FUND_CAP, occupied.toPlainString(), quota.quotaValue.toPlainString(),
                 "下调占用或调整资金额度后重试（本笔未发 CTP）");
+    }
+
+    /**
+     * L3 拒绝事件持久化留痕（{@code T-206}；{@code t_trade_l3_reject}，{@code DATA_MODEL.md}
+     * §2.6 {@code TB-TRADE-10}，v1.3.10/{@code DC-047}；{@code cr-t088} {@code R4-002} 承接）。
+     *
+     * <p><b>事务边界选型（据实披露）</b>：独立事务（{@code tx.inTransaction} 单行插入即提交），
+     * <b>不与拒绝响应绑定</b>、失败<b>吞并 + LOG</b>——理由：
+     * ① 拒绝路径无外层事务可搭（{@code submitOrder} 受理路径零写，handler → service 无既有事务，
+     *    留痕行为本路径唯一写语句）；
+     * ② {@code R-FUND-7}/{@code R-TRADE-13} 语义下留痕是<b>观测面</b>而非业务前置——留痕失败
+     *    不得把「拒绝」变成「放行」，也不得改变拒绝响应内容（吞并后原样上抛 {@code 10012} 四项载荷）；
+     * ③ 先例判例「事务内写后抛吞留痕」（第 182-184 轮）：若留痕写入与后续 {@code throw} 同事务，
+     *    事务回滚将吞掉留痕行——独立事务 + 先落行后抛出，规避该形态；
+     *    且调用点位于 {@code checkFundCapLayer} 抛出前、{@code assertFundCapNotExceeded}
+     *    「取数不可用放行」兜底（{@code catch RuntimeException}）的作用域内，故本方法
+     *    <b>自身吞并全部 {@code RuntimeException}、永不抛出</b>——否则留痕失败会被误判为
+     *    「取数不可用」而放行，改变主流程结果。
+     *
+     * <p><b>失败面</b>：表未建 / 连接不可用 / 约束拒绝等任何写失败 ⇒ LOG 告警行
+     * （含 {@code rule_id}/{@code sub_account_id} 便于事后比对 LOG 与库的缺口）。
+     *
+     * @param ruleId        护栏规则编号（同时落 {@code trigger_source}，工单 T-206 规定二者同值域）
+     * @param currentValue  当前值（响应载荷 current 同源）
+     * @param thresholdValue 阈值（响应载荷 threshold 同源）
+     * @param subAccountId  提交方子账户（列 NOT NULL，恒非空）
+     * @param productId     请求携带品种（可空）
+     * @param quotaScope    命中维度（紧急停止为 {@code null}）
+     * @param operatorId    操作人
+     */
+    private void persistL3GuardRejection(String ruleId, String currentValue, String thresholdValue,
+                                         int subAccountId, Long productId, String quotaScope,
+                                         long operatorId) {
+        try {
+            TradeL3Reject row = new TradeL3Reject();
+            row.ruleId = ruleId;
+            row.triggerSource = ruleId; // 工单 T-206：trigger_source 值域 = L3-FUND-CAP/L3-EMERGENCY-STOP（同 rule_id）
+            row.subAccountId = subAccountId;
+            row.productId = productId;
+            row.quotaScope = quotaScope;
+            row.currentValue = currentValue;
+            row.thresholdValue = thresholdValue;
+            row.blockedOperation = "PLACE_ORDER";
+            row.operatorId = operatorId;
+            row.eventTime = Clocks.now();
+            tx.inTransaction(connection -> {
+                l3RejectDao.insert(row, operatorId);
+                return null;
+            });
+        } catch (RuntimeException e) {
+            LOG.warning("L3 拒绝事件落库失败（吞并 + LOG，拒绝结果不变；T-206/cr-t088 R4-002）"
+                    + " rule_id=" + ruleId + " sub_account_id=" + subAccountId
+                    + " operator_id=" + operatorId + "：" + e);
+        }
     }
 
     /**

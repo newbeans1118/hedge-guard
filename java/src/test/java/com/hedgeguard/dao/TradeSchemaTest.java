@@ -22,21 +22,23 @@ import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@code T-043} 建表脚本与 {@code DATA_MODEL.md} 的逐列一致性校验（TRADE 模块 9 张）。
+ * {@code T-043} 建表脚本与 {@code DATA_MODEL.md} 的逐列一致性校验（TRADE 模块 10 张；v1.3.10 起）。
  *
  * <p>本环境无 DM8 实例，无法「在 DM8 上建表成功」；本用例是替代证据：
- * 直接解析 {@code docs/DATA_MODEL.md} §2.6（TRADE，TB-TRADE-1~9）的字段表与索引表，与
+ * 直接解析 {@code docs/DATA_MODEL.md} §2.6（TRADE，TB-TRADE-1~10）的字段表与索引表，与
  * {@code docs/DEPLOY/schema/m2_trade.sql} 的 {@code CREATE TABLE} 定义逐列比对：
  * <ul>
- *   <li>表数与表名一一对应（9 张）；</li>
+ *   <li>表数与表名一一对应（10 张）；</li>
  *   <li>每张表的列集合完全一致（含 §0.3 通用审计字段）；</li>
  *   <li>每列的类型（含精度）与非空约束一致（文档以 "—" 表「未规定类型」者跳过类型比较）；</li>
  *   <li>文档「索引」清单中的唯一/普通索引在脚本中均存在；</li>
  *   <li>外键数量与文档 FK 标注数量一致（含文件末尾 ALTER TABLE 后置外键）；</li>
- *   <li>子账户贯穿（§4.6.3）：① NOT NULL = 8 / ② 可空 = 0 / ③ 无该列 = 1（t_replay_log，例外 E3）；</li>
+ *   <li>子账户贯穿（§4.6.3）：① NOT NULL = 9 / ② 可空 = 0 / ③ 无该列 = 1（t_replay_log，例外 E3；
+ *       v1.3.10 起 TB-TRADE-10 t_trade_l3_reject 归①，T-206）；</li>
  *   <li>验收 2/4 落点：t_trade_fill.trade_id 唯一、t_pre_trade_reject 含 limit_layer 与敞口快照列、
  *       成交/委托/流水表均含事件幂等唯一约束；</li>
  *   <li>脚本纪律：无存储过程/触发器/自定义函数、无级联删除、DM 特性有标注。</li>
@@ -51,10 +53,11 @@ class TradeSchemaTest {
 
     private static final String DDL_REL = "docs/DEPLOY/schema/m2_trade.sql";
 
-    /** 9 张表名。 */
+    /** 10 张表名。 */
     private static final List<String> TABLES = Arrays.asList(
             "t_trade_order", "t_trade_order_report", "t_trade_fill", "t_trade_reason",
-            "t_position", "t_pre_trade_reject", "t_command_flow", "t_option_strategy", "t_replay_log");
+            "t_position", "t_pre_trade_reject", "t_command_flow", "t_option_strategy", "t_replay_log",
+            "t_trade_l3_reject");
 
     /** §0.3 通用审计字段。 */
     private static final Map<String, String> AUDIT_COLUMNS = auditColumns();
@@ -108,7 +111,7 @@ class TradeSchemaTest {
     }
 
     @Test
-    @DisplayName("DDL 与 DATA_MODEL.md §2.6 逐表逐列一致（9 张、含类型/非空/索引/外键）")
+    @DisplayName("DDL 与 DATA_MODEL.md §2.6 逐表逐列一致（10 张、含类型/非空/索引/外键）")
     void ddlMatchesDataModel() throws IOException {
         Path repo = repoRoot();
         Path modelFile = repo.resolve("docs/DATA_MODEL.md");
@@ -117,13 +120,13 @@ class TradeSchemaTest {
         assertTrue(Files.isRegularFile(ddlFile), "缺少建表脚本：" + ddlFile);
 
         Map<String, TableSpec> specs = parseDataModel(Files.readAllLines(modelFile, StandardCharsets.UTF_8));
-        assertEquals(9, specs.size(), "核对范围应为 TRADE 9 张，实际解析到 " + specs.size());
+        assertEquals(10, specs.size(), "核对范围应为 TRADE 10 张，实际解析到 " + specs.size());
         assertEquals(new TreeSet<>(TABLES), new TreeSet<>(specs.keySet()),
-                "解析到的表名与 TB-TRADE-1~9 不一致：" + specs.keySet());
+                "解析到的表名与 TB-TRADE-1~10 不一致：" + specs.keySet());
 
         String ddlText = new String(Files.readAllBytes(ddlFile), StandardCharsets.UTF_8);
         Map<String, Map<String, ColumnSpec>> ddl = parseDdl(Files.readAllLines(ddlFile, StandardCharsets.UTF_8));
-        assertEquals(9, ddl.size(), "建表脚本应含 9 张表，实际 " + ddl.keySet());
+        assertEquals(10, ddl.size(), "建表脚本应含 10 张表，实际 " + ddl.keySet());
 
         List<String> problems = new ArrayList<>();
         int checkedColumns = 0;
@@ -196,7 +199,7 @@ class TradeSchemaTest {
     }
 
     @Test
-    @DisplayName("子账户贯穿（§4.6.3）：TRADE ① NOT NULL=8 / ② 可空=0 / ③ 无该列=1（t_replay_log，例外 E3）")
+    @DisplayName("子账户贯穿（§4.6.3）：TRADE ① NOT NULL=9 / ② 可空=0 / ③ 无该列=1（t_replay_log，例外 E3）")
     void subAccountCarriageMatchesSpec() throws IOException {
         Map<String, Map<String, ColumnSpec>> ddl = parseDdl(Files.readAllLines(
                 repoRoot().resolve(DDL_REL), StandardCharsets.UTF_8));
@@ -213,11 +216,38 @@ class TradeSchemaTest {
                 nullable++;
             }
         }
-        assertEquals(8, notNull, "TRADE NOT NULL 行级携带应为 8");
+        assertEquals(9, notNull, "TRADE NOT NULL 行级携带应为 9（v1.3.10 起：含 t_trade_l3_reject）");
         assertEquals(0, nullable, "TRADE 可空应为 0");
         assertEquals(1, absent, "TRADE 无该列应为 1（t_replay_log，E3）");
         assertFalse(ddl.get("t_replay_log").containsKey("sub_account_id"),
                 "t_replay_log 不应有 sub_account_id 列（例外 E3）");
+    }
+
+    @Test
+    @DisplayName("TB-TRADE-10 t_trade_l3_reject（v1.3.10/T-206）：列集/具名 CHECK/索引/无唯一键/子账户 NOT NULL")
+    void l3RejectTableAnchors() throws IOException {
+        String ddlText = new String(Files.readAllBytes(repoRoot().resolve(DDL_REL)), StandardCharsets.UTF_8);
+        Map<String, ColumnSpec> cols = parseDdl(Files.readAllLines(
+                repoRoot().resolve(DDL_REL), StandardCharsets.UTF_8)).get("t_trade_l3_reject");
+        assertNotNull(cols, "t_trade_l3_reject 应已登记（TB-TRADE-10）");
+        for (String c : Arrays.asList("sub_account_id", "rule_id", "trigger_source", "quota_scope",
+                "product_id", "current_value", "threshold_value", "blocked_operation",
+                "operator_id", "event_time")) {
+            assertTrue(cols.containsKey(c), "t_trade_l3_reject 缺列：" + c);
+        }
+        assertTrue(cols.get("sub_account_id").notNull, "sub_account_id 应 NOT NULL（提交方子账户恒非空）");
+        assertTrue(!cols.get("quota_scope").notNull, "quota_scope 应可空（紧急停止拒绝为 NULL）");
+        assertTrue(!cols.get("product_id").notNull, "product_id 应可空（请求未携带为 NULL）");
+        for (String ck : Arrays.asList("ck_l3_reject_rule_id", "ck_l3_reject_trigger_source",
+                "ck_l3_reject_quota_scope", "ck_l3_reject_blocked")) {
+            assertTrue(ddlText.contains("CONSTRAINT " + ck + " "), "缺具名 CHECK：" + ck);
+        }
+        assertTrue(ddlText.contains("CREATE INDEX idx_l3_reject_sub_time "),
+                "缺普通索引 idx_l3_reject_sub_time");
+        assertTrue(ddlText.contains("CREATE INDEX idx_l3_reject_rule_time "),
+                "缺普通索引 idx_l3_reject_rule_time");
+        // 无幂等唯一键：每次拒绝尝试均为独立事件，逐笔留行（工单 T-206 语义）
+        assertFalse(ddlText.contains("uk_l3_reject"), "t_trade_l3_reject 不得登记幂等唯一键（逐笔事件表）");
     }
 
     @Test

@@ -34,3 +34,4 @@ T-205 的 L3 护栏/紧急停止告警当前仅 **LOG + 响应载荷**，不落�
 | 时间 | 处理人 | 动作 | 结论 |
 |------|--------|------|------|
 | 2026-10-27 | 编排者 | 用户批准立项，立号落箱（TASKS 合计 204→205）并派发 | TODO→已派 be-t206 |
+| 2026-10-27 | be-t206 | 执行完毕（见提交号回报 team-lead）：DDL `m2_trade.sql` TB-TRADE-10 `t_trade_l3_reject`（TRADE 域归属论证：与 `t_pre_trade_reject` 同为提交路径拒绝合规证据，L3-EMERGENCY-STOP 非资金域不入 FUND、非审计聚合域不入 AUDIT）；DATA_MODEL v1.3.10（§0.6 表 111→112·§1.3 实体 107·§2.6 新增节·§4.1 索引 297→299/391→393·§4.6 三层 112=①60+②19+③33·§5.1 数据流·§7.1 v1.3.10 行纯追加+§7.2 DC-047+变更统计·§6 计数）；新 DAO `TradeL3RejectDao`/`DmTradeL3RejectDao`/实体 `TradeL3Reject`（tx 派生、构造签名零变更，T-205 先例同姿态）；`TradeService` ②-b/②-c 拒绝路径接线（独立事务、失败吞并+LOG、响应面 10012+ruleId+四项载荷零变更守卫）；计数锁连锁：TradeSchemaTest/TradeDm8EquivalentIntegrationTest/AuditedEntity 注记随动，DEPLOY 历史快照/CONTRACTS 叙述类比/TASKS/BOARD/gates 判定不动（依据见交付回执）；门禁：全量 surefire 绿+arch rc0+变异 M1/M2 红 | 执行完毕·待独立复核 |

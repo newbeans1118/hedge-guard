@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
  *       此类表由 {@link com.hedgeguard.dao.tx.TxTemplate} 之外的表专用 DAO 忽略。</li>
  * </ul>
  *
- * <p>设计取舍（冻结）：实体采用 <b>public 字段</b>，不写 getter/setter —— 全库 111 张表的
+ * <p>设计取舍（冻结）：实体采用 <b>public 字段</b>，不写 getter/setter —— 全库 112 张表的（v1.3.10 起）
  * 样板方法会掩盖真正的业务约束，且本项目不使用反射式 ORM；映射由 DAO 显式完成。
  * 该约定写入 {@code java/CONTRACTS.md}，{@code #java2} 各模块遵循。
  */

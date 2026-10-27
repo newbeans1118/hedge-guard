@@ -1,8 +1,9 @@
 -- =============================================================================
---  HedgeGuard 建表脚本 —— 模块 TRADE（交易执行），9 张
+--  HedgeGuard 建表脚本 —— 模块 TRADE（交易执行），10 张
 --  制品编号：docs/DEPLOY/schema/m2_trade.sql
---  依据：docs/DATA_MODEL.md §2.6 TRADE（TB-TRADE-1~9，9 张）+ §0.2 字段类型
+--  依据：docs/DATA_MODEL.md §2.6 TRADE（TB-TRADE-1~10，10 张）+ §0.2 字段类型
 --        + §0.3 通用审计字段 + §0.4 外键与级联 + §0.5 DM8 建表模板 + §3.1 枚举 + §4.3 / §4.6.3
+--        （v1.3.10：T-206/cr-t088 R4-002 新增 TB-TRADE-10 t_trade_l3_reject）
 --  目标库：达梦 DM8（PROJECT.md §5.1）
 --  执行者：DBA（应用账号仅 SELECT/INSERT/UPDATE，禁 DDL —— NFR-SEC-8）
 --
@@ -510,6 +511,56 @@ COMMENT ON COLUMN t_replay_log.mismatch_detail   IS '不一致明细（0x0405 �
 COMMENT ON COLUMN t_replay_log.duration_ms       IS '耗时（NFR-REL-1：≤ 60 s）';
 CREATE INDEX idx_replay_log_time   ON t_replay_log (started_ts_ms);
 CREATE INDEX idx_replay_log_result ON t_replay_log (result, duration_ms);
+
+-- ===== TB-TRADE-10 t_trade_l3_reject L3 护栏/紧急停止拒绝事件（v1.3.10，DC-047） =====
+-- cr-t088 R4-002 承接（T-206）：L3 实盘护栏（L3-FUND-CAP，G-6 资金上限）与紧急停止门禁
+-- （L3-EMERGENCY-STOP，G-7）在 Java 提交路径（TradeService.submitOrder ②-b/②-c）拒绝下单时的
+-- 持久化留痕（此前仅 LOG 结构化告警 + 响应载荷，失效场景见 cr-t088 R4-002：事后审计依赖日志留存策略）。
+-- 合规证据，只增不改不删（R-TRADE-14 同族）；无幂等键——每次拒绝尝试均为独立事件，逐笔留行。
+-- 语义边界：与 t_fund_quota_alert（R-FUND-7「告警不阻断」，blocked_operation CHECK 恒 'NONE' 冻结）
+-- 相互独立——本表记录 L3 硬停拒绝（阻断类 10012，未发 CTP），R-FUND-7 告警面语义零改动。
+CREATE TABLE t_trade_l3_reject (
+    id                   BIGINT       IDENTITY(1,1) NOT NULL,
+    sub_account_id       INT                        NOT NULL,
+    rule_id              VARCHAR(32)                NOT NULL,
+    trigger_source       VARCHAR(32)                NOT NULL,
+    quota_scope          VARCHAR(16)                NULL,
+    product_id           BIGINT                     NULL,
+    current_value        VARCHAR(64)                NOT NULL,
+    threshold_value      VARCHAR(64)                NOT NULL,
+    blocked_operation    VARCHAR(24)                NOT NULL,
+    operator_id          BIGINT                     NOT NULL,
+    event_time           TIMESTAMP                  NOT NULL,
+    created_by           BIGINT                     NOT NULL,
+    -- DM-SPECIFIC: CURRENT_TIMESTAMP 默认值；DM 特有写法，换库需按 §6.1 D2 改写
+    created_time         TIMESTAMP    DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_by           BIGINT                     NULL,
+    updated_time         TIMESTAMP                  NULL,
+    row_version          INT          DEFAULT 0     NOT NULL,
+    CONSTRAINT pk_t_trade_l3_reject        PRIMARY KEY (id),
+    CONSTRAINT ck_l3_reject_rule_id        CHECK (rule_id IN ('L3-FUND-CAP','L3-EMERGENCY-STOP')),
+    CONSTRAINT ck_l3_reject_trigger_source CHECK (trigger_source IN ('L3-FUND-CAP','L3-EMERGENCY-STOP')),
+    CONSTRAINT ck_l3_reject_quota_scope    CHECK (quota_scope IS NULL
+        OR quota_scope IN ('SUB_ACCOUNT','ACCOUNT')),
+    CONSTRAINT ck_l3_reject_blocked        CHECK (blocked_operation IN ('PLACE_ORDER')),
+    CONSTRAINT fk_l3_reject_sub            FOREIGN KEY (sub_account_id) REFERENCES t_sub_account (id)
+        ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT fk_l3_reject_product        FOREIGN KEY (product_id) REFERENCES t_product (id)
+        ON DELETE RESTRICT ON UPDATE RESTRICT
+);
+COMMENT ON TABLE  t_trade_l3_reject                   IS 'L3 护栏/紧急停止拒绝事件（提交路径 Java 侧硬停留痕，cr-t088 R4-002/T-206；合规证据只增不改不删）';
+COMMENT ON COLUMN t_trade_l3_reject.sub_account_id    IS '触发提交的指令子账户（账户级维度命中时为提交方子账户，占用/阈值为账户级汇总值）';
+COMMENT ON COLUMN t_trade_l3_reject.rule_id           IS '护栏规则编号（L3-FUND-CAP 资金上限 / L3-EMERGENCY-STOP 紧急停止；与响应载荷 ruleId 逐字同源）';
+COMMENT ON COLUMN t_trade_l3_reject.trigger_source    IS '事件触发来源标识（现值域同 rule_id；为「一规则多来源」预留分化位，工单 T-206 规定承载）';
+COMMENT ON COLUMN t_trade_l3_reject.quota_scope       IS '资金上限命中的维度（SUB_ACCOUNT/ACCOUNT；紧急停止拒绝为 NULL）';
+COMMENT ON COLUMN t_trade_l3_reject.product_id        IS '品种（提交请求携带时记录；拒绝点位于计划一致性校验之前且请求未携带时为 NULL）';
+COMMENT ON COLUMN t_trade_l3_reject.current_value     IS '当前值（响应载荷 current：资金占用值 / emergency_stop=Y）';
+COMMENT ON COLUMN t_trade_l3_reject.threshold_value   IS '阈值（响应载荷 threshold：资金上限值 / 新提交=全部拒绝）';
+COMMENT ON COLUMN t_trade_l3_reject.blocked_operation IS '被阻断的操作（现唯一取值 PLACE_ORDER 下单提交）';
+COMMENT ON COLUMN t_trade_l3_reject.operator_id       IS '操作人（提交人，留痕）';
+COMMENT ON COLUMN t_trade_l3_reject.event_time        IS '事件时间（拒绝判定时点，业务时钟）';
+CREATE INDEX idx_l3_reject_sub_time  ON t_trade_l3_reject (sub_account_id, event_time);
+CREATE INDEX idx_l3_reject_rule_time ON t_trade_l3_reject (rule_id, event_time);
 
 -- -----------------------------------------------------------------------------
 -- 模块内后置外键（目标表定义于本文件靠后，故以 ALTER TABLE 声明；见 §0.4 级联约定）

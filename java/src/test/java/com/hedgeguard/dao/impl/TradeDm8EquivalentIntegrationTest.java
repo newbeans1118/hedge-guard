@@ -8,6 +8,7 @@ import com.hedgeguard.dao.entity.TradeOrderReport;
 import com.hedgeguard.dao.entity.TradePosition;
 import com.hedgeguard.dao.entity.TradePreTradeReject;
 import com.hedgeguard.dao.entity.TradeReason;
+import com.hedgeguard.dao.entity.TradeL3Reject;
 import com.hedgeguard.dao.entity.TradeReplayLog;
 import com.hedgeguard.dao.pool.DataSourcePool;
 import com.hedgeguard.dao.pool.PoolConfig;
@@ -31,7 +32,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@code T-043} 等价执行（建表 → 真实 DAO 读写 → 约束强制），覆盖 TRADE 9 张表与 9 个 Dm*Dao。
+ * {@code T-043} 等价执行（建表 → 真实 DAO 读写 → 约束强制），覆盖 TRADE 10 张表与 10 个 Dm*Dao
+ * （v1.3.10/T-206：含 TB-TRADE-10 t_trade_l3_reject）。
  *
  * <p>本环境无可达 DM8 实例，故把 {@code docs/DEPLOY/schema/m2_trade.sql} 的 {@code CREATE TABLE}
  * 逐条喂给 {@link InMemoryDmEngine}（按 DDL 语义登记列/NOT NULL/主键/唯一/外键/CHECK），
@@ -58,9 +60,9 @@ class TradeDm8EquivalentIntegrationTest {
     }
 
     @Test
-    @DisplayName("建表：m2_trade.sql 登记 9 张表；子账户列 NOT NULL；t_replay_log 无子账户列；关键唯一/CHECK 已登记")
+    @DisplayName("建表：m2_trade.sql 登记 10 张表；子账户列 NOT NULL；t_replay_log 无子账户列；关键唯一/CHECK 已登记")
     void ddlCreatesNineTables() {
-        assertEquals(9, engine.tableCount(), "应登记 9 张 TRADE 表，实际 " + engine.tableCount());
+        assertEquals(10, engine.tableCount(), "应登记 10 张 TRADE 表，实际 " + engine.tableCount());
         InMemoryDmEngine.Table order = engine.table("t_trade_order");
         assertNotNull(order, "t_trade_order 应已建表");
         assertTrue(order.columns.containsKey("client_order_ref"), "t_trade_order 应有 client_order_ref 列");
@@ -76,14 +78,15 @@ class TradeDm8EquivalentIntegrationTest {
         assertNotNull(replay, "t_replay_log 应已建表");
         assertTrue(!replay.columns.containsKey("sub_account_id"), "t_replay_log 不应有 sub_account_id（例外 E3）");
         for (String t : new String[]{"t_trade_order", "t_trade_order_report", "t_trade_fill",
-                "t_trade_reason", "t_position", "t_pre_trade_reject", "t_command_flow", "t_option_strategy"}) {
+                "t_trade_reason", "t_position", "t_pre_trade_reject", "t_command_flow", "t_option_strategy",
+                "t_trade_l3_reject"}) {
             assertTrue(engine.table(t).columns.get("sub_account_id").notNull, t + ".sub_account_id 应 NOT NULL");
         }
     }
 
     @Test
-    @DisplayName("读写：9 个真实 Dm*Dao 各插一行并读回（主键回填、审计字段填充、CLOB 往返）")
-    void allNineDaosInsertAndReadBack() {
+    @DisplayName("读写：10 个真实 Dm*Dao 各插一行并读回（主键回填、审计字段填充、CLOB 往返）")
+    void allTenDaosInsertAndReadBack() {
         DmTradeOrderDao orderDao = new DmTradeOrderDao(tx);
         TradeOrder order = order();
         assertEquals(1, orderDao.insert(order, 7L), "insert 影响 1 行");
@@ -140,6 +143,16 @@ class TradeDm8EquivalentIntegrationTest {
         assertEquals("mismatch-a,mismatch-b", read.mismatchDetail, "CLOB 应往返一致");
         assertEquals("MISMATCH", read.result, "结果码应往返一致");
         assertNotNull(read.startedTsMs, "开始时间应读回");
+
+        // T-206：TB-TRADE-10 t_trade_l3_reject（v1.3.10）
+        DmTradeL3RejectDao l3Dao = new DmTradeL3RejectDao(tx);
+        TradeL3Reject l3 = l3Reject();
+        assertEquals(1, l3Dao.insert(l3, 7L), "insert 影响 1 行");
+        assertTrue(l3.id > 0, "自增主键应回填");
+        assertEquals(7L, l3.createdBy, "审计 created_by = operatorId");
+        assertEquals("L3-FUND-CAP", l3.ruleId, "rule_id 应往返一致");
+        assertEquals("SUB_ACCOUNT", l3.quotaScope, "quota_scope 应往返一致");
+        assertNotNull(l3.eventTime, "事件时间应读回");
     }
 
     @Test
@@ -172,10 +185,12 @@ class TradeDm8EquivalentIntegrationTest {
     }
 
     @Test
-    @DisplayName("只增不改：DmTradeFillDao / DmTradePreTradeRejectDao / DmTradeCommandFlowDao / DmTradeOrderReportDao 的 updateById 显式抛")
+    @DisplayName("只增不改：DmTradeFillDao / DmTradePreTradeRejectDao / DmTradeCommandFlowDao / DmTradeOrderReportDao / DmTradeL3RejectDao 的 updateById 显式抛")
     void appendOnlyDaosRejectUpdate() {
         assertThrows(UnsupportedOperationException.class,
                 () -> new DmTradeFillDao(tx).updateById(fill(1L, "X"), 7L));
+        assertThrows(UnsupportedOperationException.class,
+                () -> new DmTradeL3RejectDao(tx).updateById(l3Reject(), 7L));
         assertThrows(UnsupportedOperationException.class,
                 () -> new DmTradePreTradeRejectDao(tx).updateById(reject(), 7L));
         assertThrows(UnsupportedOperationException.class,
@@ -349,6 +364,21 @@ class TradeDm8EquivalentIntegrationTest {
         r.result = "MISMATCH";
         return r;
     }
+    private static TradeL3Reject l3Reject() {
+        TradeL3Reject r = new TradeL3Reject();
+        r.subAccountId = 1;
+        r.ruleId = "L3-FUND-CAP";
+        r.triggerSource = "L3-FUND-CAP";
+        r.quotaScope = "SUB_ACCOUNT";
+        r.productId = 1L;
+        r.currentValue = "1000";
+        r.thresholdValue = "1000";
+        r.blockedOperation = "PLACE_ORDER";
+        r.operatorId = 7L;
+        r.eventTime = LocalDateTime.of(2026, 10, 4, 9, 30);
+        return r;
+    }
+
 
     // ------------------------------------------------------------ 工具
 
