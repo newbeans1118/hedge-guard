@@ -2,6 +2,7 @@
 java/target/
 cpp/build_stub/
 cpp/build/
+cpp/build_*/
 cpp/proto_smoke/build/
 cpp/ctp_smoke/build/
 **/build/
