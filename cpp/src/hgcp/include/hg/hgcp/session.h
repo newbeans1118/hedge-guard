@@ -54,6 +54,24 @@ class TransportPolicy {
       std::uint64_t from_seq, std::uint64_t to_seq, bool is_last,
       const std::vector<std::vector<std::uint8_t> >& frames) const = 0;
 
+  // `MSG_HELLO_ACK` 的 body（§4.2.8.2 `MsgHelloAck` 六字段；T-208）—— 入参**逐项对齐**
+  //   该 message 的字段集（勿只传 `accepted`）：
+  //     `accepted`(1:bool·必) / `server_proto_version`(2:uint32·必) /
+  //     `session_id`(3:string·条件〔`accepted=true`〕) / `server_state`(4:ServerState·必) /
+  //     `param_version`(5:uint64·可) / `reason_code`(6:uint32·条件〔`accepted=false`〕)。
+  //   ⚠️ **必须由本接缝编码**：proto3 下**空 body 解析出全默认值** ⇒
+  //     `accepted=false` / `server_proto_version=0` / `server_state=SERVER_STATE_UNSET`，
+  //     消费侧（Java `HgcpClient`）以 `accepted` 判握手 ⇒ **合法握手被判失败**（T-208 本体）。
+  //   `server_state` 传 `pbv1::ServerState` 的整数值（值域 = §4.2.8.7，4 值 + `UNSET`；
+  //     **不新增枚举值**）；由**注入的组件状态源**提供（本层不反向依赖 app 层）。
+  //   `session_id` 生成规则架构未定义 ⇒ 现状发空串（T-208 回执已披露该裁量）。
+  //   `TransportPolicy` 仍是**出站 body 的单一注入接缝**（不新增第二套符号；同族先例 =
+  //     `auth_fail_body`，同为 `Msg*` 的字段级编码）。
+  virtual std::vector<std::uint8_t> hello_ack_body(
+      bool accepted, std::uint32_t server_proto_version, const std::string& session_id,
+      std::int32_t server_state, std::uint64_t param_version,
+      std::uint32_t reason_code) const = 0;
+
   // ---------------------------------------------------------------------------
   // 入站侧（T-171 / FR-CONFIG-9 验收 4）：与出站 body 同为**本接缝**的两个方向，
   // 不新增第二套符号。状态机（本层）仍不解释字段 —— 字段级解析仍由实现方完成。
@@ -96,6 +114,12 @@ class EmptyTransportPolicy : public TransportPolicy {
   virtual std::vector<std::uint8_t> resume_data_body(
       std::uint64_t /*from_seq*/, std::uint64_t /*to_seq*/, bool /*is_last*/,
       const std::vector<std::vector<std::uint8_t> >& /*frames*/) const;
+  // T-208：占位实现**保持返回空 body**（= 现状）—— 供 `session_test` 等 schema-free
+  //   用例沿用（其语义不依赖 `MsgHelloAck` 字段编码）。
+  virtual std::vector<std::uint8_t> hello_ack_body(
+      bool /*accepted*/, std::uint32_t /*server_proto_version*/,
+      const std::string& /*session_id*/, std::int32_t /*server_state*/,
+      std::uint64_t /*param_version*/, std::uint32_t /*reason_code*/) const;
   virtual std::string hello_auth_token(
       const std::vector<std::uint8_t>& /*hello_body*/) const;
   virtual std::uint32_t hello_token_version(

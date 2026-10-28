@@ -16,7 +16,9 @@ namespace {
 std::uint16_t mt(MessageType m) { return static_cast<std::uint16_t>(m); }
 std::uint16_t fl(FlagBits b) { return static_cast<std::uint16_t>(b); }
 
-std::vector<std::uint8_t> empty_body() { return std::vector<std::uint8_t>(); }
+// T-208：未注入组件状态源时的**保守**取值 = §4.2.8.7 `SERVER_STATE_NOT_READY`（值 `1`）。
+//   本地常量（不新增公开符号、不引 app 层），仅用于 `component_state()` 的缺省分支。
+const std::int32_t kFallbackServerStateNotReady = 1;
 
 // 有界轮询：预算内等待可读；已可读则立即返回（不空等）。
 // 分片 5ms 以避免「数据已就绪却空等整段预算」。
@@ -46,6 +48,8 @@ HgcpServerLoop::HgcpServerLoop(const TcpConfig& cfg)
       session_ready_sink_(0),
       resume_gap_sink_(0),
       reconnect_alarm_sink_(0),
+      component_state_fn_(0),
+      component_state_user_(0),
       accepted_(0),
       duplicates_(0),
       frames_in_(0),
@@ -84,6 +88,25 @@ void HgcpServerLoop::set_replay_window_ms(std::int64_t ms) {
 
 void HgcpServerLoop::set_auth_audit_sink(AuthAuditSink* s) {
   auth_audit_sink_ = s;
+}
+
+// T-208：组件状态源取值（未注入 ⇒ 保守 = NOT_READY / 0）。
+//   §4.2.8.7 `ServerState` 的整数常量（**本地**取值，不新增枚举值、不引 app 层符号）：
+//     `SERVER_STATE_UNSET` / `NOT_READY` / `REPLAYING` / `READY` / `STOPPING` = 0/1/2/3/4。
+//   ⚠️ 该值由**注入回调**提供；`hgcp` 不反向依赖 `TradingApp`（T-208 硬约束）。
+void HgcpServerLoop::component_state(std::int32_t* server_state,
+                                     std::uint64_t* param_version) const {
+  if (component_state_fn_ != 0) {
+    std::int32_t st = 0;
+    std::uint64_t pv = 0;
+    component_state_fn_(component_state_user_, &st, &pv);
+    if (server_state != 0) *server_state = st;
+    if (param_version != 0) *param_version = pv;
+    return;
+  }
+  // 无权威来源 ⇒ **不得**报 READY（保守取 NOT_READY；见 server_loop.h 接缝契约）。
+  if (server_state != 0) *server_state = kFallbackServerStateNotReady;
+  if (param_version != 0) *param_version = 0;
 }
 
 void HgcpServerLoop::configure(std::int64_t heartbeat_interval_ms, int heartbeat_miss,
@@ -286,7 +309,22 @@ void HgcpServerLoop::handle_inbound(const Frame& f, std::int64_t now_ms) {
         }
       }
       handshaken_ = true;
-      send_frame(mt(MessageType::kMsgHelloAck), fl(kFlagIsReply), empty_body());
+      // T-208：`MSG_HELLO_ACK` 的 body 经 `TransportPolicy` 接缝**逐字段编码**
+      //   （§4.2.8.2 `MsgHelloAck` 六字段）。**不得**再回 `empty_body()`：proto3 下空 body
+      //   解析出全默认值（`accepted=false` / `server_proto_version=0` /
+      //   `server_state=SERVER_STATE_UNSET`）⇒ Java `HgcpClient` 以 `accepted` 判握手 ⇒
+      //   **合法握手被判 `AUTH_FAILED`**，C++↔Java 真联不可达（本缺陷本体）。
+      //   取值：`accepted=true`（走到本行必经鉴权通过，见 :275-288）；
+      //         `server_proto_version = kWireVersion`（`protocol.h:31` = `0x0100`，与 Java
+      //           `HgcpFrame.WIRE_VERSION` 对齐）；
+      //         `server_state` / `param_version` = **注入的组件状态源**（见 component_state()）；
+      //         `session_id` = 空串（架构未定义生成规则 ⇒ 现状；T-208 回执已披露）；
+      //         `reason_code = 0`（`accepted=true` ⇒ 该字段非必填，§4.2.8.5）。
+      std::int32_t st = 0;
+      std::uint64_t pv = 0;
+      component_state(&st, &pv);
+      send_frame(mt(MessageType::kMsgHelloAck), fl(kFlagIsReply),
+                 policy_->hello_ack_body(true, kWireVersion, std::string(), st, pv, 0u));
       // T-039：握手完成 ⇒ 通知事件层（保留队列按序补发；先于任何 RESUME_DATA 上线）。
       if (session_ready_sink_ != 0) {
         session_ready_sink_->on_session_ready();

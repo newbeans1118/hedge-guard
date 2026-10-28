@@ -119,6 +119,14 @@ foreach(_t ${HGCP_UNIT_TESTS})
 endforeach()
 
 # -----------------------------------------------------------------------------
+# T-208：`MSG_HELLO_ACK` body 的**跨侧共享 golden 向量**（`tests/golden/hello_ack_bodies.tsv`）
+#   路径在 configure 期注入（绝对路径；ctest 工作目录 = 构建目录，测试按该宏直读源树
+#   夹具 —— 单一事实源，C++ 与 Java 两侧共享同一文件，T-186 先例）。
+# -----------------------------------------------------------------------------
+target_compile_definitions(hgcp_transport_test PRIVATE
+  HG_HELLO_ACK_GOLDEN="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/hello_ack_bodies.tsv")
+
+# -----------------------------------------------------------------------------
 # T-038：command_handler_test 需要引擎联动（把装填后的快照喂给 RiskEngine 判定）。
 # T-036：order_path_test 同形（交易路径接缝集成，复用 risk_engine testutil）。
 foreach(_t command_handler_test order_path_test)

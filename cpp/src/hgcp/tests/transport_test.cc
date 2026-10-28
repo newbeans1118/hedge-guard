@@ -28,7 +28,10 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -36,6 +39,11 @@
 #include "hg/hgcp/payload_codec.h"
 #include "hg/hgcp/pb_transport_policy.h"
 #include "hgcp_test_util.h"
+
+// T-208：跨侧共享 golden 向量路径（configure 期注入绝对路径；见 CMakeLists.txt）。
+#ifndef HG_HELLO_ACK_GOLDEN
+#define HG_HELLO_ACK_GOLDEN "hello_ack_bodies.tsv"
+#endif
 
 // 前置断言：失败即记 FAIL 并**从用例返回**，避免后续对空容器/未初始化帧取值（UB）。
 // `HG_CHECK` 用于「可继续观察」的断言；`HG_REQUIRE` 用于「失败则后续无意义」的前置条件。
@@ -85,6 +93,32 @@ namespace pbv1 = ::hgcp::v1;
 std::uint16_t mt(MessageType m) { return static_cast<std::uint16_t>(m); }
 std::uint16_t fl(hg::hgcp::FlagBits b) { return static_cast<std::uint16_t>(b); }
 std::vector<std::uint8_t> empty_body() { return std::vector<std::uint8_t>(); }
+
+// T-208：TSV 解析（# 与空行跳过；列以 \t 分隔；与 risk_engine golden 同形）。
+//   仅用于读**跨侧共享夹具**（非判定路径）。
+std::vector<std::vector<std::string> > goldenRows(const char* path) {
+  std::vector<std::vector<std::string> > rows;
+  std::ifstream in(path);
+  if (!in.is_open()) {
+    std::printf("[FAIL] golden 文件不可读: %s\n", path);
+    ++hg::hgcp::testutil::failures();
+    return rows;
+  }
+  std::string line;
+  while (std::getline(in, line)) {
+    if (!line.empty() && line[0] == '\xEF') {  // 剥离 UTF-8 BOM（若编辑工具引入）
+      line = line.substr(3);
+    }
+    if (line.empty() || line[0] == '#') continue;
+    std::vector<std::string> cols;
+    std::string cur;
+    std::istringstream ss(line);
+    while (std::getline(ss, cur, '\t')) cols.push_back(cur);
+    if (!cols.empty() && cols[0] == "label") continue;  // 表头行
+    rows.push_back(cols);
+  }
+  return rows;
+}
 
 // 端口 0 = 内核分配（测试用；见 tcp.h「校验层级」）。
 TcpConfig any_port_cfg() {
@@ -214,6 +248,21 @@ class TestPolicy : public TransportPolicy {
     v.push_back(static_cast<std::uint8_t>(frames.size() & 0xFFu));
     return v;
   }
+  // T-208 出站侧接缝：非空**可判别**占位 body（前 4 字节 'H','A','C','K'）——
+  //   仅用于验证 `hello_ack_body` 接缝确实被调用（且**不再走 empty_body**）。
+  //   真实 `MsgHelloAck` 逐字段编码见 `PbTransportPolicy` / `test_hello_ack_body_schema`。
+  virtual std::vector<std::uint8_t> hello_ack_body(
+      bool accepted, std::uint32_t /*server_proto_version*/,
+      const std::string& /*session_id*/, std::int32_t /*server_state*/,
+      std::uint64_t /*param_version*/, std::uint32_t /*reason_code*/) const {
+    std::vector<std::uint8_t> v;
+    v.push_back(0x48);  // 'H'
+    v.push_back(0x41);  // 'A'
+    v.push_back(0x43);  // 'C'
+    v.push_back(0x4B);  // 'K'
+    v.push_back(accepted ? 0x01 : 0x00);  // 承接 `accepted`（占位；非权威编码）
+    return v;
+  }
   // T-171 入站侧接缝：测试策略返回空串（不供真实 token）；无 token 语义的
   // 既有用例不配 verifier ⇒ 恒不触达。
   virtual std::string hello_auth_token(
@@ -321,6 +370,17 @@ void test_handshake_and_loopback() {
   HG_CHECK_EQ(ack.header.type, mt(MessageType::kMsgHelloAck));
   HG_CHECK((ack.header.flags & fl(hg::hgcp::kFlagIsReply)) != 0u);
   HG_CHECK_EQ(ack.header.seq, 1u);  // 通道级 SEQ 从 1 起
+  // T-208：**内容断言**（原仅断言帧类型 ⇒ 本缺陷长期静默的判别力缺口）。
+  //   注入策略的 `hello_ack_body` 恒产出「'HACK' + accepted 字节」的非空体 ⇒
+  //   若产生点退回 `empty_body()`（变异①）此处必红。真实 `MsgHelloAck` 编码见
+  //   `test_hello_ack_body_schema`。
+  HG_CHECK(!ack.body.empty());
+  HG_REQUIRE_EQ(ack.body.size(), 5u);
+  HG_CHECK_EQ(ack.body[0], static_cast<std::uint8_t>(0x48));  // 'H'
+  HG_CHECK_EQ(ack.body[1], static_cast<std::uint8_t>(0x41));  // 'A'
+  HG_CHECK_EQ(ack.body[2], static_cast<std::uint8_t>(0x43));  // 'C'
+  HG_CHECK_EQ(ack.body[3], static_cast<std::uint8_t>(0x4B));  // 'K'
+  HG_CHECK_EQ(ack.body[4], static_cast<std::uint8_t>(0x01));  // accepted = true
 
   // 服务端 → 客户端（事件帧，不透明 body）
   const std::vector<std::uint8_t> evt = {1, 2, 3, 4};
@@ -1045,9 +1105,142 @@ void test_resume_batches() {
   HG_CHECK(s.build_resume(600, &bs) == ReplayStatus::kNothingToReplay);
 }
 
+// -----------------------------------------------------------------------------
+// T-208：`MSG_HELLO_ACK` body 的**字段级**断言（真实 `PbTransportPolicy` 编码）。
+//   本体：`server_loop.cc` 曾以 `empty_body()` 回 ACK ⇒ proto3 解出全默认值
+//   （`accepted=false` / `server_proto_version=0` / `server_state=SERVER_STATE_UNSET`）
+//   ⇒ Java `HgcpClient` 以 `accepted` 判握手 ⇒ **合法握手被判 AUTH_FAILED**（真联阻断）。
+//   本用例是**该缺口的击杀器**：断言 body 可解析且 `accepted==true` +
+//   `server_proto_version==0x0100` + `server_state` 与**注入状态源**一致 +
+//   `param_version` 随状态源变化（非硬编码常量）。
+// -----------------------------------------------------------------------------
+
+// 注入用组件状态源（可读写；`server_state` / `param_version` 由用例驱动）。
+struct ComponentStateHarness {
+  std::int32_t server_state;
+  std::uint64_t param_version;
+  int calls;
+
+  ComponentStateHarness() : server_state(1), param_version(0), calls(0) {}
+
+  static void provide(void* user, std::int32_t* st, std::uint64_t* pv) {
+    ComponentStateHarness* h = static_cast<ComponentStateHarness*>(user);
+    if (h == 0) return;
+    ++h->calls;
+    if (st != 0) *st = h->server_state;
+    if (pv != 0) *pv = h->param_version;
+  }
+};
+
+// 单次握手并取 ACK body：起循环（缺省 `PbTransportPolicy`）→ 连接 → HELLO → 解 ACK。
+bool handshake_ack_body(HgcpServerLoop* srv, std::vector<std::uint8_t>* ack_body,
+                        std::uint16_t* ack_type) {
+  const std::uint16_t port = start_loop(srv);
+  if (port == 0) return false;
+  TestClient cli(connect_client(port));
+  if (!cli.valid()) return false;
+  std::vector<Frame> in;
+  srv->pump(1000, 0, &in);  // accept
+  if (!send_hello(&cli, "")) return false;  // 未启用鉴权 ⇒ 帧级门禁放行
+  in.clear();
+  if (srv->pump(300, 0, &in) != 1) return false;
+  Frame ack;
+  if (!cli.recv_frame(1000, &ack)) return false;
+  if (ack_body != 0) *ack_body = ack.body;
+  if (ack_type != 0) *ack_type = ack.header.type;
+  cli.close();
+  srv->stop();
+  return true;
+}
+
+void test_hello_ack_body_schema() {
+  // A0) **跨侧共享 golden 向量**（`tests/golden/hello_ack_bodies.tsv`；单一事实源，T-186 先例）：
+  //     逐行断言 `PbTransportPolicy::hello_ack_body(②..⑦) == ⑧body_hex` ——
+  //     向量与**产出方**任一漂移即红（防「两侧各自漂移」正是本缺陷的根因）。
+  {
+    const std::vector<std::vector<std::string> > rows = goldenRows(HG_HELLO_ACK_GOLDEN);
+    HG_REQUIRE(!rows.empty());
+    PbTransportPolicy pol;
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+      const std::vector<std::string>& r = rows[i];
+      HG_REQUIRE_EQ(r.size(), 8u);
+      const bool accepted = (r[1] == "true");
+      const std::uint32_t spv =
+          static_cast<std::uint32_t>(std::strtoul(r[2].c_str(), 0, 10));
+      const std::string sid = (r[3] == "<empty>") ? std::string() : r[3];
+      const std::int32_t st = static_cast<std::int32_t>(std::strtol(r[4].c_str(), 0, 10));
+      const std::uint64_t pv =
+          static_cast<std::uint64_t>(std::strtoull(r[5].c_str(), 0, 10));
+      const std::uint32_t rc =
+          static_cast<std::uint32_t>(std::strtoul(r[6].c_str(), 0, 10));
+      const std::vector<std::uint8_t> body =
+          pol.hello_ack_body(accepted, spv, sid, st, pv, rc);
+      HG_CHECK(hg::hgcp::testutil::to_hex(body.empty() ? 0 : &body[0], body.size()) == r[7]);
+    }
+  }
+
+  // A) 缺省策略 = 真实 `PbTransportPolicy`；注入状态源 = READY / param_version=42。
+  {
+    HgcpServerLoop srv(any_port_cfg());
+    ComponentStateHarness h;
+    h.server_state = pbv1::SERVER_STATE_READY;  // = 3
+    h.param_version = 42u;
+    srv.set_component_state_fn(&ComponentStateHarness::provide, &h);
+
+    std::vector<std::uint8_t> body;
+    std::uint16_t type = 0;
+    HG_REQUIRE(handshake_ack_body(&srv, &body, &type));
+    HG_CHECK_EQ(type, mt(MessageType::kMsgHelloAck));
+
+    // ⚠️ 关键：body **非空**（`empty_body()` 回退 ⇒ 此处必红；变异①击杀器）。
+    HG_REQUIRE(!body.empty());
+    pbv1::MsgHelloAck a;
+    HG_REQUIRE(PbPayloadCodec::decode(body, &a));  // 可解析为真实 `MsgHelloAck`
+    HG_CHECK(a.accepted());                                    // 合法握手必为 true
+    HG_CHECK_EQ(a.server_proto_version(),
+                static_cast<std::uint32_t>(hg::hgcp::kWireVersion));  // = 0x0100
+    HG_CHECK_EQ(a.server_proto_version(), static_cast<std::uint32_t>(0x0100));
+    HG_CHECK(a.server_state() == pbv1::SERVER_STATE_READY);    // 与注入值一致
+    HG_CHECK_EQ(a.param_version(), static_cast<std::uint64_t>(42));
+    HG_CHECK_EQ(a.reason_code(), static_cast<std::uint32_t>(0));
+    HG_CHECK(h.calls >= 1);  // 状态源确实被查询
+  }
+
+  // B) `param_version` / `server_state` **随状态源变化**（非硬编码）——
+  //    注入另一组取值（NOT_READY / 7）⇒ ACK 须随动（摘掉状态源接线 ⇒ 必红）。
+  {
+    HgcpServerLoop srv(any_port_cfg());
+    ComponentStateHarness h;
+    h.server_state = pbv1::SERVER_STATE_NOT_READY;  // = 1
+    h.param_version = 7u;
+    srv.set_component_state_fn(&ComponentStateHarness::provide, &h);
+
+    std::vector<std::uint8_t> body;
+    HG_REQUIRE(handshake_ack_body(&srv, &body, 0));
+    pbv1::MsgHelloAck a;
+    HG_REQUIRE(PbPayloadCodec::decode(body, &a));
+    HG_CHECK(a.accepted());
+    HG_CHECK(a.server_state() == pbv1::SERVER_STATE_NOT_READY);
+    HG_CHECK_EQ(a.param_version(), static_cast<std::uint64_t>(7));
+  }
+
+  // C) **未注入**状态源 ⇒ 保守 = NOT_READY / 0（不得伪装 READY）。
+  {
+    HgcpServerLoop srv(any_port_cfg());
+    std::vector<std::uint8_t> body;
+    HG_REQUIRE(handshake_ack_body(&srv, &body, 0));
+    pbv1::MsgHelloAck a;
+    HG_REQUIRE(PbPayloadCodec::decode(body, &a));
+    HG_CHECK(a.accepted());  // 鉴权通过 ⇒ accepted 仍为 true（与状态源无关）
+    HG_CHECK(a.server_state() == pbv1::SERVER_STATE_NOT_READY);
+    HG_CHECK_EQ(a.param_version(), static_cast<std::uint64_t>(0));
+  }
+}
+
 // `T-032` 残余收口（2026-09-22）：`MSG_RESUME_DATA` 的 body 须按 §4.2.8.2 `MsgResumeData`
 // 编码（经 `TransportPolicy` 接缝注入）—— 字段 `from_seq`/`to_seq`/`is_last`/`frames`。
 void test_resume_data_body_schema() {
+
   // A) E2E：**缺省策略**（`PbTransportPolicy`）下 `send_resume` 的线上 body 可被真实
   //    `PbPayloadCodec` 解码为 `MsgResumeData`，且 `frames` = 各帧**原始帧字节**（可复解）。
   {
@@ -1235,6 +1428,7 @@ int main() {
   test_reconnect_severe_alarm_0x0303();
   test_resume_batches();
   test_resume_data_body_schema();
+  test_hello_ack_body_schema();
   test_auth_bad_token_rejected();
   test_auth_missing_token_rejected();
   test_auth_good_token_accepted();

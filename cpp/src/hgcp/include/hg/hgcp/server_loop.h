@@ -118,6 +118,26 @@ class HgcpServerLoop {
   // 重连严重告警接收方（T-177）：可空 = 退化为 stderr 告警行。
   void set_reconnect_alarm_sink(ReconnectAlarmSink* s) { reconnect_alarm_sink_ = s; }
 
+  // ---------------------------------------------------------------------------
+  // 组件状态源（T-208）—— `MSG_HELLO_ACK` 的 `server_state` / `param_version` 取值来源。
+  //   §4.2.8.2 `MsgHelloAck.server_state`(4:ServerState·必) / `param_version`(5:uint64·可)
+  //   须反映**服务端当前权威状态**；本层不解释字段、**不反向依赖 app 层**
+  //   （`hgcp` 不感知 `TradingApp`）⇒ 由装配侧注入回调。
+  //   契约：
+  //     · **同步**在 `pump()` 调用方线程内执行（本类无内部线程）；
+  //     · **无副作用**、不抛异常（回调内不得做 I/O）；写 `*server_state` / `*param_version`；
+  //     · `server_state` 值域 = §4.2.8.7 `ServerState`（4 值 + `UNSET`）整数，**不得新增值**；
+  //     · `param_version` = 当前已生效风控参数版本（0 = 未加载）。
+  //   未注入（缺省 null）⇒ `server_state = SERVER_STATE_NOT_READY` + `param_version = 0`
+  //     （保守：无权威来源声明就绪时**不得**报 READY）。
+  // ---------------------------------------------------------------------------
+  typedef void (*ComponentStateFn)(void* user, std::int32_t* server_state,
+                                   std::uint64_t* param_version);
+  void set_component_state_fn(ComponentStateFn fn, void* user) {
+    component_state_fn_ = fn;
+    component_state_user_ = user;
+  }
+
   // 单步事件循环：accept（单连接治理）→ 读帧（粘/半包 + 握手门禁）→ 心跳。
   // 返回本次交付的**完整入站帧数**；入站帧追加到 *inbound（可空）。
   int pump(int timeout_ms, std::int64_t now_ms, std::vector<Frame>* inbound);
@@ -157,6 +177,8 @@ class HgcpServerLoop {
   void raw_send(int fd, std::uint16_t type, std::uint16_t flags, std::uint64_t seq,
                 std::uint64_t mid, const std::vector<std::uint8_t>& body);
   void close_conn();
+  // T-208：取组件状态源（未注入 ⇒ NOT_READY / 0），供 `MSG_HELLO_ACK` 编码。
+  void component_state(std::int32_t* server_state, std::uint64_t* param_version) const;
 
   TcpConfig cfg_;
   TcpListener listener_;
@@ -169,6 +191,9 @@ class HgcpServerLoop {
   SessionReadySink* session_ready_sink_;  // 可空；T-039 事件层补发触发
   ResumeGapSink* resume_gap_sink_;        // 可空；T-039 全量重建决定点
   ReconnectAlarmSink* reconnect_alarm_sink_;  // 可空；T-177 运维告警（LOG.WARNING）
+  // T-208：组件状态源（可空；未注入 ⇒ NOT_READY / 0）。本层不反向依赖 app 层。
+  ComponentStateFn component_state_fn_;
+  void* component_state_user_;
   std::string peer_;                     // 最近 accept 的对端描述（审计用；无敏感信息）
   int accepted_;
   int duplicates_;

@@ -121,6 +121,30 @@ std::vector<std::uint8_t> PbTransportPolicy::error_body(std::uint32_t err_code) 
   return encode_error(err_code);
 }
 
+std::vector<std::uint8_t> PbTransportPolicy::hello_ack_body(
+    bool accepted, std::uint32_t server_proto_version, const std::string& session_id,
+    std::int32_t server_state, std::uint64_t param_version,
+    std::uint32_t reason_code) const {
+  // §4.2.8.2 `MsgHelloAck` 六字段**逐项**编码（号 / 类型 / 必填性以 §4.2.8 冻结为准；
+  //   本方法不改字段号与类型，只按入参填充）：
+  //   `accepted`(1:bool) / `server_proto_version`(2:uint32) / `session_id`(3:string·条件) /
+  //   `server_state`(4:ServerState) / `param_version`(5:uint64·可) /
+  //   `reason_code`(6:uint32·条件〔`accepted=false`〕)。
+  //   `server_state` 由整数值还原为 `pbv1::ServerState`（值域 = §4.2.8.7；不新增枚举值）。
+  pbv1::MsgHelloAck m;
+  m.set_accepted(accepted);
+  m.set_server_proto_version(server_proto_version);
+  m.set_session_id(session_id);
+  m.set_server_state(static_cast<pbv1::ServerState>(server_state));
+  m.set_param_version(param_version);
+  m.set_reason_code(reason_code);
+  std::vector<std::uint8_t> body;
+  if (!PbPayloadCodec::encode(m, &body)) {
+    return empty();
+  }
+  return body;
+}
+
 std::vector<std::uint8_t> PbTransportPolicy::resume_data_body(
     std::uint64_t from_seq, std::uint64_t to_seq, bool is_last,
     const std::vector<std::vector<std::uint8_t> >& frames) const {

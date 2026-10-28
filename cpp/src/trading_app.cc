@@ -253,6 +253,11 @@ TradingApp::TradingApp(const AppConfig& cfg)
   loop_.configure(cfg_.heartbeat_ms, hg::hgcp::kHeartbeatMissThreshold,
                   hg::hgcp::kEventQueueCapacity);
 
+  // ---- T-208：组件状态源注入（`MSG_HELLO_ACK.server_state` / `param_version`）----
+  //   `hgcp` 不反向依赖本类 ⇒ 经函数指针 + user 注入（本类为回调实现方）。
+  //   状态源同步求值、无副作用；见 `componentState`。
+  loop_.set_component_state_fn(&TradingApp::componentState, this);
+
   // ---- 鉴权（可选；令牌仅内存，摘要持有）----
   if (!cfg_.hgcp_auth_token.empty()) {
     auth_verifier_ = hg::hgcp::TokenVerifier::from_token(cfg_.hgcp_auth_token);
@@ -494,6 +499,38 @@ void TradingApp::emitCtpState(std::int64_t now, const std::string& reason) {
       hg::hgcp::EmitStatus::kNoLoop) {
     ++stats_.events;
   }
+}
+
+// T-208：`AppState` → §4.2.8.7 `ServerState`（**4 值 + UNSET，不新增枚举值**）。
+//   `kBlocked` / `kFailed` ⇒ `NOT_READY`（协议侧仍以 0x0401 反映「未就绪」，不得伪装 READY）。
+namespace {
+
+std::int32_t toServerState(AppState s) {
+  switch (s) {
+    case AppState::kNotReady: return pbv1::SERVER_STATE_NOT_READY;
+    case AppState::kReplaying: return pbv1::SERVER_STATE_REPLAYING;
+    case AppState::kReady: return pbv1::SERVER_STATE_READY;
+    case AppState::kStopping: return pbv1::SERVER_STATE_STOPPING;
+    case AppState::kBlocked:
+    case AppState::kFailed: return pbv1::SERVER_STATE_NOT_READY;
+    default: return pbv1::SERVER_STATE_NOT_READY;
+  }
+}
+
+}  // namespace
+
+void TradingApp::componentState(void* user, std::int32_t* server_state,
+                                std::uint64_t* param_version) {
+  TradingApp* app = static_cast<TradingApp*>(user);
+  if (app == 0) {
+    if (server_state != 0) *server_state = pbv1::SERVER_STATE_NOT_READY;
+    if (param_version != 0) *param_version = 0;
+    return;
+  }
+  // 状态源在 `pump()` 调用方线程内同步求值（无锁；本类无内部线程）——
+  //   `MSG_HELLO_ACK` 编码时读取的即当前权威状态。
+  if (server_state != 0) *server_state = toServerState(app->state_);
+  if (param_version != 0) *param_version = app->risk_state_.param_version();
 }
 
 void TradingApp::emitEngineEvent(const hg::order_engine::EngineEvent& ev) {

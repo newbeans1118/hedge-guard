@@ -28,6 +28,15 @@ std::vector<std::uint8_t> EmptyTransportPolicy::resume_data_body(
     const std::vector<std::vector<std::uint8_t> >& /*frames*/) const {
   return std::vector<std::uint8_t>();  // 占位：见 pb_transport_policy.h（真实字段编码）
 }
+std::vector<std::uint8_t> EmptyTransportPolicy::hello_ack_body(
+    bool /*accepted*/, std::uint32_t /*server_proto_version*/,
+    const std::string& /*session_id*/, std::int32_t /*server_state*/,
+    std::uint64_t /*param_version*/, std::uint32_t /*reason_code*/) const {
+  // T-208：占位实现**保持返回空 body**（= 现状，勿改为「构造空 MsgHelloAck」——
+  //   后者仍解出全默认值 = 本缺陷本体）。真实 `MsgHelloAck` 逐字段编码见
+  //   `pb_transport_policy.h`（生产缺省策略）。
+  return std::vector<std::uint8_t>();
+}
 std::string EmptyTransportPolicy::hello_auth_token(
     const std::vector<std::uint8_t>& /*hello_body*/) const {
   return std::string();  // 占位：见 pb_transport_policy.h（真实字段解析）

@@ -1,0 +1,32 @@
+﻿# T-208 —— `MSG_HELLO_ACK` body（`MsgHelloAck`）**跨侧共享 golden 向量**（单一事实源）
+#
+# 立意：本缺陷（`server_loop.cc` 以 `empty_body()` 回 ACK ⇒ proto3 解出全默认值
+#   ⇒ Java `HgcpClient` 判 `AUTH_FAILED`）长期静默的根因是**两侧测试各自自建报文**：
+#   · C++ `transport_test` 只断言帧类型、不看 body；
+#   · Java `HgcpClientGuardTest` / `HgcpClientTimeoutTest` / `ParamChangeEncoderPermissionRouteTest`
+#     各自 `MsgHelloAck.newBuilder().setAccepted(true)`，从不消费**真实 C++ 产出**。
+#   ⇒ 两侧全绿，谁也测不出。本文件把「C++ `PbTransportPolicy::hello_ack_body` 的真实输出」
+#     固化为两侧**共用**的夹具：C++ 侧断言编码与向量一致；Java 侧把向量喂 `HgcpClient`。
+#
+# 列（以 \t 分隔）：
+#   ① label                 向量名（人工可读）
+#   ② accepted              `MsgHelloAck.accepted`(1:bool·必)
+#   ③ server_proto_version  `MsgHelloAck.server_proto_version`(2:uint32·必)
+#   ④ session_id            `MsgHelloAck.session_id`(3:string·条件)；空串以 `<empty>` 记
+#   ⑤ server_state          `MsgHelloAck.server_state`(4:ServerState·必)；整数值（§4.2.8.7）
+#   ⑥ param_version         `MsgHelloAck.param_version`(5:uint64·可)
+#   ⑦ reason_code           `MsgHelloAck.reason_code`(6:uint32·条件)
+#   ⑧ body_hex              `PbTransportPolicy::hello_ack_body(②..⑦)` 的**逐字节** hex
+#
+# 复现（仓库根；用**生产代码**重算 body，勿手改 ⑧）：
+#   g++ -std=c++11 -I cpp/src/hgcp/include -I cpp/build_<tag>/src/hgcp/generated \
+#       <生成器>.cc cpp/build_<tag>/src/hgcp/libhg_hgcp.a -lprotobuf -lpthread -o /tmp/gen && /tmp/gen
+#   （`cpp/src/hgcp/tests/transport_test.cc::test_hello_ack_body_schema` 亦以本文件为判据：
+#     逐行断言 `hello_ack_body(②..⑦) == body_hex`；向量与产出方**任一漂移即红**。）
+#
+# 取值口径：`server_proto_version = 0x0100`（= C++ `kWireVersion` / Java `HgcpFrame.WIRE_VERSION`）；
+#   `server_state`：`UNSET=0`/`NOT_READY=1`/`REPLAYING=2`/`READY=3`/`STOPPING=4`（§4.2.8.7，不新增值）；
+#   `session_id` = 空串（架构未定义生成规则 ⇒ 现状裁量，见 T-208 回执）；`accepted=true` ⇒ `reason_code=0`。
+label	accepted	server_proto_version	session_id	server_state	param_version	reason_code	body_hex
+handshake_ready	true	256	<empty>	3	42	0	08011080022003282a
+handshake_not_ready	true	256	<empty>	1	7	0	080110800220012807

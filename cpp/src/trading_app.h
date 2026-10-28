@@ -147,6 +147,14 @@ class TradingApp {
   static void replayProgress(void* user, hg::flow_store::FlowState state,
                              std::uint64_t done, std::uint64_t total);
 
+  // T-208：组件状态源（`HgcpServerLoop::ComponentStateFn`）——把 `AppState` 映射为
+  //   §4.2.8.7 `ServerState` 并给出 `param_version`，供 `MSG_HELLO_ACK` 编码。
+  //   `hgcp` 不感知本类 ⇒ 经**函数指针 + user** 反向注入（本类为回调实现方）。
+  //   映射：kNotReady→NOT_READY / kReplaying→REPLAYING / kReady→READY /
+  //         kStopping→STOPPING / kBlocked/kFailed→NOT_READY（**不新增枚举值**）。
+  static void componentState(void* user, std::int32_t* server_state,
+                             std::uint64_t* param_version);
+
   void setState(AppState s, const std::string& note);
 
   const AppConfig cfg_;

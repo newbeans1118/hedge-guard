@@ -15,6 +15,9 @@
 //   · `MSG_ERROR`(err_code) ← `MsgError{err_code}`（握手门禁 `0x0107` 等）
 //   · `MSG_RESUME_DATA`    ← `MsgResumeData{from_seq, to_seq, is_last, frames}`
 //                            （补数批次；`frames` = 本批各帧原始帧字节）
+//   · `MSG_HELLO_ACK`      ← `MsgHelloAck{accepted, server_proto_version, session_id,
+//                            server_state, param_version, reason_code}`（T-208：六字段
+//                            逐项编码；空白 body 会解出全默认值 ⇒ 消费侧判握手失败）
 //
 // 接缝不变：仍是 `session.h` 的 `TransportPolicy` **单一符号**——
 //   本类只是其一个实现；帧层与承载层（`tcp`/`session`）**零改动**。
@@ -41,6 +44,12 @@ class PbTransportPolicy : public TransportPolicy {
   virtual std::vector<std::uint8_t> resume_data_body(
       std::uint64_t from_seq, std::uint64_t to_seq, bool is_last,
       const std::vector<std::vector<std::uint8_t> >& frames) const;
+  // T-208：出站 `MsgHelloAck` 逐字段编码（§4.2.8.2；六字段，入参逐项对齐）——
+  //   修复「空 body ⇒ accepted=false ⇒ 合法握手被判 AUTH_FAILED」（真联阻断级）。
+  virtual std::vector<std::uint8_t> hello_ack_body(
+      bool accepted, std::uint32_t server_proto_version, const std::string& session_id,
+      std::int32_t server_state, std::uint64_t param_version,
+      std::uint32_t reason_code) const;
   // T-171：入站 `MsgHello.auth_token` 解析（§4.2.8.2）；不可解析 ⇒ 空串。
   virtual std::string hello_auth_token(
       const std::vector<std::uint8_t>& hello_body) const;

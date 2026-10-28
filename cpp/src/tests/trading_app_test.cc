@@ -411,6 +411,22 @@ void test_start_and_not_ready() {
   Frame ack;
   HG_CHECK(h.waitFrame(mt(MessageType::kMsgHelloAck), &ack, 2000));
 
+  // T-208：**装配级**内容断言 —— 本 App **不注入**自定义策略 ⇒ `MSG_HELLO_ACK` 经**生产缺省**
+  //   `PbTransportPolicy` 编码，且 `server_state`/`param_version` 经 `TradingApp::componentState`
+  //   注入的状态源取得。修复前（`empty_body()`）此处必红：
+  //   `accepted=false` / `server_proto_version=0` / `server_state=SERVER_STATE_UNSET`。
+  //   （状态变化维度的断言见 `hgcp.transport_test::test_hello_ack_body_schema`；
+  //     本处为启动早期 `state=kNotReady` ⇒ 权威就绪态 = NOT_READY。）
+  {
+    pbv1::MsgHelloAck ha;
+    HG_CHECK(PbPayloadCodec::decode(ack.body, &ha));
+    HG_CHECK(ha.accepted());  // 合法握手必为 true（本缺陷本体）
+    HG_CHECK_EQ(ha.server_proto_version(),
+                static_cast<std::uint32_t>(hg::hgcp::kWireVersion));  // 0x0100
+    HG_CHECK(ha.server_state() == pbv1::SERVER_STATE_NOT_READY);  // 与 AppState::kNotReady 一致
+    HG_CHECK_EQ(ha.param_version(), static_cast<std::uint64_t>(0));  // 参数未加载
+  }
+
   // 参数未收齐 ⇒ 下单必须回 0x0401（且不入队：state 保持 NOT_READY）
   pbv1::CmdPlaceOrder po;
   po.set_client_order_ref("HG20261028000001");
