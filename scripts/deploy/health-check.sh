@@ -4,12 +4,16 @@
 #
 # 检查项：
 #   hg-biz     : 进程存活 + GET /api/v1/ping（公开存活探针，不返回业务数据）+ /web/index.html
-#   hg-trading : 进程存活 + HGCP 回环端口可连（CFG-20 hg.tcp.port）
+#   hg-trading : 进程存活 + HGCP 回环端口可连（CFG-20 hg.tcp.port）+ **就绪态**（日志状态行）
 #
 # 退出码：0 = 全部通过；1 = 存在 FAIL；2 = 前置缺失（配置/命令）。
 #
-# ⚠️ 骨架期说明：hg-trading 尚未实化（不监听），其进程/端口检查会 FAIL —— 这是**如实反映**
-#    组件未生产就绪，不是脚本缺陷。
+# ★ T-207 起 `hg-trading` 已实化（长驻 + 监听 + 重放 + 就绪态），本脚本**不再报告**骨架告警；
+#   就绪判定读组件自身日志状态行（`state=READY|REPLAYING|NOT_READY|FAILED|BLOCKED`）：
+#     · READY           ⇒ PASS（参数已收齐且重放/对账一致）
+#     · NOT_READY/REPLAYING ⇒ FAIL：交易指令会被 0x0401 拒绝（R-TRADE-13 «不得排队补发»）
+#     · FAILED/BLOCKED  ⇒ FAIL：须人工处置（流水损坏/对账不一致/未闭环未知在途）
+#   这是**如实反映**服务可用性：未就绪即视为不健康（前端交易入口本就禁用）。
 #
 # 用法：bash scripts/deploy/health-check.sh [biz|trading|all]（默认 all）
 # =============================================================================
@@ -57,14 +61,36 @@ check_biz() {
 
 check_trading() {
   printf -- '-- hg-trading --\n'
-  local pidfile="${HG_RUN_DIR}/hg-trading.pid" pid=""
+  local pidfile="${HG_RUN_DIR}/hg-trading.pid" pid="" log="${HG_LOG_DIR}/hg-trading.log"
   [ -f "${pidfile}" ] && pid="$(cat "${pidfile}")"
-  if pid_alive "${pid}"; then _ok "进程存活（pid=${pid}）"; else _bad "进程未运行（骨架期进程不常驻；pidfile=${pidfile}）"; fi
+  if pid_alive "${pid}"; then _ok "进程存活（pid=${pid}）"; else _bad "进程未运行（pidfile=${pidfile}）"; fi
   if port_open "${TCP_BIND}" "${TCP_PORT}"; then
     _ok "HGCP 回环端口可连 ${TCP_BIND}:${TCP_PORT}（CFG-20）"
   else
-    _bad "HGCP 回环端口不可连 ${TCP_BIND}:${TCP_PORT}（骨架未实化 ⇒ 如实反映未就绪）"
+    _bad "HGCP 回环端口不可连 ${TCP_BIND}:${TCP_PORT}（组件未监听）"
   fi
+
+  # 就绪态（日志状态行；取最后一条 state=…）
+  local state=""
+  if [ -f "${log}" ]; then
+    state="$(grep -o 'state=[A-Z_]*' "${log}" 2>/dev/null | tail -1)"
+  fi
+  case "${state}" in
+    state=READY)
+      _ok "就绪态 = READY（参数已收齐、重放/对账一致）" ;;
+    state=NOT_READY|state=REPLAYING)
+      _bad "就绪态 = ${state#state=}：交易指令将被拒（0x0401），须等 Java 参数下发/重放完成" ;;
+    state=FAILED)
+      _bad "就绪态 = FAILED：流水损坏/对账不一致 ⇒ 永不 READY，须人工处置" ;;
+    state=BLOCKED)
+      _bad "就绪态 = BLOCKED：存在未闭环『状态未知』在途单，须人工双人核验" ;;
+    state=STOPPING)
+      _bad "就绪态 = STOPPING：进程正在停机" ;;
+    "")
+      _bad "无法读取就绪态（日志缺 state 行：${log}）" ;;
+    *)
+      _bad "就绪态未识别：${state}" ;;
+  esac
 }
 
 case "${WHAT}" in

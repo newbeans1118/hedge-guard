@@ -17,7 +17,7 @@
 | 验收 | 要求 | 状态 | 说明 |
 |------|------|------|------|
 | 1 | 部署清单 / 环境依赖清单（含 DM JDBC 实测版本）/ 配置项清单齐备 | **达成** | §2 环境依赖、§3 配置项清单、§7 部署步骤、§9 脚本清单 |
-| 2 | 双组件启动顺序脚本（hg-trading → hg-biz） | **部分** | 脚本已按 §2.4.1 顺序交付（§4、§9）；**hg-trading 为工程骨架，不监听/不握手/无就绪态** ⇒ 顺序脚本可运行但「C++ 已就绪」无法在骨架期成立，真联编排承接中 |
+| 2 | 双组件启动顺序脚本（hg-trading → hg-biz） | **达成（T-207 实化；真联柜台仍待外部 SDK/前置）** | 脚本按 §2.4.1 顺序交付（§4、§9）；`hg-trading` 自 `T-207` 起**长驻 + 监听 + 重放 + 就绪态 + 优雅退出**（§4.1）；「C++ 已就绪」现由组件自身日志状态行与 `EVT_SYSTEM_STATE` 承载，脚本不伪装就绪 |
 | 3 | 健康检查脚本可用；前后端可独立升级 | **达成** | §5 健康检查（本机实测：hg-biz 3/3 PASS）；§6 独立升级（零构建链） |
 | 4 | 敏感字段零落盘在部署文档显式声明 | **达成** | §10（含装载守卫与口令策略项陷阱） |
 | 5 | DM8 实机建表跑通 + 与 DATA_MODEL 逐列一致 | **未达（环境前置缺失）** | 本环境**无 DM8 实例/无 DM 驱动**（§8.1 实测）。已交付可复跑静态核对脚本 + 结果；**不得以 SQLite 冒充 DM8**（CH-016）。另发现一处**建表脚本跨模块循环外键**（§8.4），**已由 T-179 按两阶段后置消解**（DM8 实机验证仍待环境） |
@@ -27,7 +27,7 @@
 **三条不变量（贯穿全文）**：
 1. **敏感字段零落盘**（`NFR-SEC-1` / 附录 B 红线 8）——口令/令牌只经环境变量注入，属性文件装载守卫会拒绝含 `password/token/secret` 的键。
 2. **不得以 SQLite 冒充 DM8**（`CH-016`）——SQLite 仅限 dev/test；生产部署口径恒为 DM8。
-3. **就绪语义不得伪装**——`hg-trading` 骨架期不提供 READY；脚本一律显式告警，不谎称已联调。
+3. **就绪语义不得伪装**——`hg-trading` 自 `T-207` 起**有**就绪态（`NOT_READY/REPLAYING/READY/FAILED/BLOCKED`），但 `READY` 须等 Java 参数下发 + 重放对账完成才成立；脚本与健康检查一律按组件自身状态行**如实**报告，不谎称已联调。
 
 ---
 
@@ -179,9 +179,24 @@ C++ 启动时序（§4.5.3）：
 
 **脚本**：`scripts/deploy/start-all.sh`（内含 `start-hg-trading.sh` → 等待端口 → `start-hg-biz.sh`）。
 
-> ⚠️ **诚实标注：hg-trading 当前为工程骨架**（`cpp/src/main.cc`：装配/打印六模块 + `--self-test`，**不加载配置、不重放、不监听、无握手/无 READY**）。
-> 故 `start-all.sh` 的「等待就绪」在骨架期会超时并**显式告警**，缺省**不阻断** Java 启动（便于前端/后端独立联调），
-> 真联环境应以 `HG_REQUIRE_TRADING_READY=1` 强制「未就绪不得启 Java」。**此路径不代表已完成双组件联调**；真联编排承接见 §11。
+> ✅ **T-207 起 `hg-trading` 已实化**（`cpp/src/main.cc` + `app_config.*` + `trading_app.*`）：
+> 配置装载（CLI > env > 属性文件 > 缺省）→ 打开流水目录 → 回环监听 → 等 Java 分批下发
+> `CMD_LOAD_RISK_PARAMS` → 重放/在途对账 → `READY` + `EVT_SYSTEM_STATE`；`SIGTERM` 退出码 0。
+> 故 `start-all.sh` 的「等待端口」现可在组件启动后即满足；**`READY` 仍需 Java 侧参数下发**
+> （真联环境应以 `HG_REQUIRE_TRADING_READY=1` 强制「未就绪不得启 Java」）。
+> **本路径不代表已完成 CTP 柜台联调**（真 CTP 需外部 SDK/前置，见 §4.1 与 §2.4）。
+
+### 4.1 T-207 实化后的启动/就绪/停机语义（最小说明）
+
+| 项 | 内容 |
+|----|------|
+| 配置装载 | `hg.tcp.bind/port`（CFG-20）、`hg.tcp.heartbeat_ms`/`hg.cmd_timeout_ms`/`hg.trade.confirm_timeout_ms`（CFG-28）、`hg.flow.dir`/`hg.flow.fsync_mode`/`hg.flow.retain_days`（CFG-29）、`hg.ctp.env_type`（CFG-22）+ CTP 前置/经纪/用户；优先级 **CLI > env > 属性文件（`HG_CONFIG_FILE`）> 缺省** |
+| 敏感项 | **仅 env**：`HG_CTP_PASSWORD` / `HG_CTP_AUTH_CODE` / `HG_CTP_APP_ID` / `HG_HGCP_AUTH_TOKEN`；出现在 CLI 或属性文件 ⇒ **拒绝启动**；日志只出现 `<redacted>` |
+| 拒绝启动（非 0） | `hg.tcp.bind` ≠ `127.0.0.1`、端口不在 1..65535、`fsync_mode` 非法、流水目录不可写/不可建 |
+| 状态行（日志） | `state=NOT_READY` → `state=REPLAYING` → `state=READY param_version=N`；异常分支 `state=FAILED`（流水损坏/对账不一致，**永不 READY**）、`state=BLOCKED`（存在未闭环「状态未知」在途单，须人工双人核验）；`state=STOPPING` 后退出码 0 |
+| 未就绪行为 | 下单/确认/撤单**一律回 `0x0401`**（不入队等待，`R-TRADE-13`） |
+| CTP 不可用 | **不阻塞启动**：`DEGRADED` + `EVT_CTP_STATE`，交易指令按既有 `0x2004`/`0x0401` 语义拒绝 |
+| 真联步骤 | ① 设 `HG_CTP_TRADE_FRONT`/`_MD_FRONT`/`_BROKER_ID`/`_USER_ID` 与 `HG_CTP_PASSWORD`；② `HG_CTP_ENV_TYPE=PRODUCTION` **仅上实盘时显式设置**（缺省评测前置）；③ 启动 hg-trading → 确认 `listen=` 行；④ 启 hg-biz → 观察 `state=REPLAYING` → `state=READY`；⑤ `health-check.sh trading` 复核 |
 
 ---
 
@@ -192,10 +207,10 @@ C++ 启动时序（§4.5.3）：
 | 组件 | 检查项 | 依据 |
 |------|--------|------|
 | hg-biz | 进程存活；`GET /api/v1/ping`（公开存活探针，不返回业务数据）；`GET /web/index.html`（静态托管） | `SessionAuthFilter` 公开路径 |
-| hg-trading | 进程存活；HGCP 回环端口可连 `127.0.0.1:27400` | `CFG-20` |
+| hg-trading | 进程存活；HGCP 回环端口可连 `127.0.0.1:27400`；**就绪态**（日志 `state=` 行：`READY` 通过；`NOT_READY`/`REPLAYING`/`FAILED`/`BLOCKED` 判不健康） | `CFG-20`、`ARCHITECTURE.md` §4.5.3 |
 
 - **退出码**：`0` 全通过；`1` 有 FAIL；`2` 前置缺失。
-- **本机实测（2026-10-05）**：`hg-biz` 3/3 PASS（ping 返回 `{"code":0,...,"status":"UP"}`）；`hg-trading` 2/2 FAIL（骨架未实化，如实反映）。总 `PASS=3 FAIL=2`，退出码 1。
+- **本机实测（T-207 交付时点）**：`hg-trading` 由进程级用例覆盖（`ctest app.startup_signal`）——启动后 `listen=` 可达、`SIGTERM` 退出码 **0**、`state=NOT_READY` 如实出现；无 Java 参数下发时保持 `NOT_READY`（健康检查按**不健康**报告，符合 `R-TRADE-13`「未就绪即拒单」）。`hg-biz` 侧历史实测见 §5 上一版记录（3/3 PASS，2026-10-05）。
 
 ---
 
@@ -345,7 +360,7 @@ python3 docs/DEPLOY/tools/fk-order-check.py -v     # 逐条 FK 边明细
 |---|----|------|------|
 | U-1 | DM8 实机建表跑通（验收 5） | **未达-环境前置缺失** | 环境具备后按 §8.3 补；本任务不判 DONE |
 | U-2 | DM JDBC 驱动实测版本（`RSK-03`） | **未达-驱动缺位** | 部署时提供并回填 §2.2 |
-| U-3 | 双组件真联（C++ 就绪态 → Java 连接 → 补数/参数下发） | **未达-骨架未实化** | 真联编排任务（`main.cc` 实化）；本项目多单已登记同一承接点 |
+| U-3 | 双组件真联（C++ 就绪态 → Java 连接 → 补数/参数下发） | **部分达成（T-207：C++ 侧启动编排/就绪/停机已实化；真 CTP 柜台联调待外部 SDK/前置）** | C++ 侧见 §4.1；真柜台联调需部署方提供 SDK 与前置，按 §4.1「真联步骤」执行 |
 | U-4 | SETTLE↔FUND 循环外键致 DM8 单遍建表失败（§8.4） | **已修订（T-179：后置 ALTER + 两阶段回补；待独立复核）** | 脚本侧已消解；DM8 实机验证并入 U-1 |
 | U-5 | 前端浏览器真机验证 | 未做 | 属前端任务；本席仅脚本级（curl）验证 |
 
