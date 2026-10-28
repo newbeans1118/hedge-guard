@@ -37,5 +37,9 @@ sdk/
 /CMakeCache.txt
 /Makefile
 
+# ---- 运行时状态（部署脚本生成；非交付物）----
+/run/
+*.pid
+
 # ---- 会话基建（harness 生成：worker inbox 等；非交付物）----
 dev-team/
