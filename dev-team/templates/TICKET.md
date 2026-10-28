@@ -62,6 +62,17 @@ refs: [docs/REQUIREMENTS/<模块>.md#FR-xxx-1, docs/ARCHITECTURE.md#3.2]
   - 结论：<批准 / 驳回 / 修改后批准>
   - 时间：
 
+## 门禁与变异硬性步骤
+
+<!-- 凡工单判据含「变异红」或涉及 Java 主源改动时必读；其余类型可写「不适用」 -->
+
+- **门禁基线**：`mvn -B -o clean test` 全量绿（基线以派发时点为准）+ `mvn validate` rc0
+- **★变异执行必须 clean 重建**：每次注入变异后一律 `mvn -B -o clean test`（clean 不可省），
+  **禁止直接 `mvn test` 复用上一次编译产物**——surefire 不重编译主源，变异可能未生效而假绿
+  （te-verify-t206 O-1 实证：变异后未 clean 首跑全绿，clean 后即红）。
+  变异复位后同样须 clean 重建取得绿证。
+- **复位核验**：变异结束以 `git diff` 为空或 md5 与备份一致为准，随后 clean 全量绿复证。
+
 ## 回复要求
 
 <收件人需要回什么、落到哪个文件>
