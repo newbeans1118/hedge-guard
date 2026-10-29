@@ -198,6 +198,27 @@ C++ 启动时序（§4.5.3）：
 | CTP 不可用 | **不阻塞启动**：`DEGRADED` + `EVT_CTP_STATE`，交易指令按既有 `0x2004`/`0x0401` 语义拒绝 |
 | 真联步骤 | ① 设 `HG_CTP_TRADE_FRONT`/`_MD_FRONT`/`_BROKER_ID`/`_USER_ID` 与 `HG_CTP_PASSWORD`；② `HG_CTP_ENV_TYPE=PRODUCTION` **仅上实盘时显式设置**（缺省评测前置）；③ 启动 hg-trading → 确认 `listen=` 行；④ 启 hg-biz → 观察 `state=REPLAYING` → `state=READY`；⑤ `health-check.sh trading` 复核 |
 
+### 4.2 人工核验释放（「未知在途」BLOCKED 闭环，`T-211`）
+
+**何时用**：hg-trading 在重放期发现「状态未知」在途单时停在 `state=BLOCKED`（`0x0401`，拒一切交易指令），
+**重启无效**（该单仍为 unknown）。此时需**双人复核**后经**本地管理文件**投递释放请求，由 hg-trading
+主循环低频轮询（**≥ 1 s**）消费 ⇒ 台账清零 ⇒ 状态**自动迁移 `READY`** 并补发 `EVT_SYSTEM_STATE(READY)`。
+本入口为**进程内管理入口**（形态 (b)），**不扩协议**（无新 `CMD_*`，`RECOVERY`/`BLOCKED` 不新增消息）。
+
+| 项 | 约定 | 依据 |
+|----|------|------|
+| 请求文件 | `<hg.flow.dir>/admin/release-request.json`（由既有 `CFG-29` 派生，**不新增配置键**） | `NFR-DEPLOY-4` 本地 admin 可持久化 |
+| 权限 | **必须恰为 `0600`**（组/其他零权限）；不符（或符号链接/非普通文件）⇒ **拒绝处理并告警** | `NFR-DEPLOY-4` 同族 |
+| 格式 | 平面 JSON 对象，字段逐项对齐 `flow_store::ManualReleaseRequest`：`order_id` / `client_order_ref` / `operator_a_id` / `operator_b_id` / `reason` | `recovery.h` 头注「入口留接缝」 |
+| 守卫 | **复用既有五守卫**（双人非零 + 双人不同人 + ref 匹配 + reason 非空 + 台账命中且未释放）；任一拒绝 ⇒ 台账与引擎**零变更** + 告警留痕（含拒因） | `RecoveryCoordinator::manualVerifyRelease` |
+| 归档 | 处理后**移出请求路径**：成功 ⇒ `admin/processed/`；拒绝 ⇒ `admin/failed/`（可审计；同一文件**不被重复处理**） | 幂等纪律 |
+| 投递 | `bash scripts/deploy/release-unknown-inflight.sh --order-id <id> --ref <ref> --operator-a <id> --operator-b <id> --reason "<结论>"`（生成请求文件 + `chmod 600`；**脚本不直连进程**） | 本目录脚本 |
+| 观测 | 日志 `ALERT 人工核验释放请求被拒…` / `人工核验释放成功…` / `state=READY`；`admin/{processed,failed}/` 归档可查 | — |
+
+> ⚠️ **同源能力缺口**：CTP 报单查询生产实现（`IOrderStateQuery`）**缺位**（`CtAdapter` 无 `ReqQryOrder`
+> 能力）⇒ **只要存在在途单就必然 `BLOCKED`**（`query_==nullptr ⇒ kTimeout ⇒ kUnknownKeepFrozen`）。
+> 故本人工闭环入口是当前**唯一**的运维手段；「对账」能力补齐另行立号（`T-212`，属 `ctp_adapter` 写域）。
+
 ---
 
 ## 5. 健康检查（验收 3）

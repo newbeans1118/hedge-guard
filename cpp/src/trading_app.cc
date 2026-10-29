@@ -5,8 +5,10 @@
 // （ARCH §2.4.2「无隐藏时钟」）。
 #include "trading_app.h"
 
+#include <dirent.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
 
 #include <time.h>
 
@@ -14,6 +16,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -167,6 +170,192 @@ std::int64_t systemNowMs(void* /*user*/) {
 // 待确认超时扫描节拍（R-TRADE-6；CommandHandler 亦会机会性驱动一次）。
 const std::int64_t kExpireScanPeriodMs = 200;
 
+// T-211：本地管理入口（人工核验释放）低频轮询节拍（≥ 1 s，见 trading_app.h 头注）。
+//   目的：**不得在每次 `pump` 做文件 I/O** —— 交易判定路径零同步 I/O 的精神。
+const std::int64_t kAdminPollPeriodMs = 1000;
+
+// T-211 管理文件约定（路径由既有 CFG-29 `hg.flow.dir` 派生，**不新增配置键**）。
+const char* const kAdminSubDir = "admin";
+const char* const kAdminRequestName = "release-request.json";
+const char* const kAdminProcessedSub = "processed";
+const char* const kAdminFailedSub = "failed";
+
+// T-211：读整文件（rb）。失败 ⇒ false。
+bool readWholeFile(const std::string& path, std::string* out) {
+  std::FILE* f = std::fopen(path.c_str(), "rb");
+  if (f == 0) return false;
+  char buf[4096];
+  std::size_t n = 0;
+  out->clear();
+  while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) out->append(buf, n);
+  std::fclose(f);
+  return true;
+}
+
+// T-211：跳过空白（含 UTF-8 BOM 之外的常规空白）。
+void skipWs(const std::string& s, std::size_t* i) {
+  while (*i < s.size() && (s[*i] == ' ' || s[*i] == '\t' || s[*i] == '\r' || s[*i] == '\n')) {
+    ++*i;
+  }
+}
+
+// T-211：解析一个 JSON 字符串字面量（`"…"` ⇒ 内容）。识别 `\` 转义（原样保留下一字符）。
+bool parseJsonString(const std::string& s, std::size_t* i, std::string* out) {
+  if (*i >= s.size() || s[*i] != '"') return false;
+  ++*i;
+  out->clear();
+  while (*i < s.size()) {
+    const char c = s[*i];
+    if (c == '\\') {
+      if (*i + 1 >= s.size()) return false;
+      out->push_back(s[*i + 1]);
+      *i += 2;
+      continue;
+    }
+    if (c == '"') {
+      ++*i;
+      return true;
+    }
+    out->push_back(c);
+    ++*i;
+  }
+  return false;  // 未闭合
+}
+
+// T-211：解析**平面 JSON 对象**（仅 `{ "k": <string|bare> , … }`，无嵌套）。
+//   · 值为 `"…"`（字符串）或裸词（数字/true/false，读到 `,`/`}`/空白 止）；
+//   · 未知键**不报错**（忽略由调用方决定）；语法错 ⇒ false + *why。
+//   动机：零新增依赖（不引入 JSON 库，PROJECT.md §5.1 / 红线「勿新增依赖」）。
+bool parseFlatObject(const std::string& text, std::vector<std::pair<std::string, std::string> >* kv,
+                     std::string* why) {
+  std::size_t i = 0;
+  skipWs(text, &i);
+  if (i >= text.size() || text[i] != '{') {
+    if (why != 0) *why = "JSON 顶层须为对象 {…}";
+    return false;
+  }
+  ++i;
+  skipWs(text, &i);
+  if (i < text.size() && text[i] == '}') {
+    ++i;
+    return true;  // 空对象（必需键缺失由 parseReleaseRequest 判）
+  }
+  for (;;) {
+    skipWs(text, &i);
+    std::string key;
+    if (!parseJsonString(text, &i, &key)) {
+      if (why != 0) *why = "键名须为 JSON 字符串";
+      return false;
+    }
+    skipWs(text, &i);
+    if (i >= text.size() || text[i] != ':') {
+      if (why != 0) *why = "键名后缺 ':'";
+      return false;
+    }
+    ++i;
+    skipWs(text, &i);
+    std::string val;
+    if (i < text.size() && text[i] == '"') {
+      if (!parseJsonString(text, &i, &val)) {
+        if (why != 0) *why = "字符串值未闭合";
+        return false;
+      }
+    } else {
+      // 裸词（数字 / true / false）：读到分隔符止。
+      const std::size_t b = i;
+      while (i < text.size() && text[i] != ',' && text[i] != '}') ++i;
+      val = text.substr(b, i - b);
+      // 去尾空白。
+      while (!val.empty() && (val[val.size() - 1] == ' ' || val[val.size() - 1] == '\t' ||
+                              val[val.size() - 1] == '\r' || val[val.size() - 1] == '\n')) {
+        val.resize(val.size() - 1);
+      }
+      if (val.empty()) {
+        if (why != 0) *why = "值缺失（键 " + key + "）";
+        return false;
+      }
+    }
+    kv->push_back(std::make_pair(key, val));
+    skipWs(text, &i);
+    if (i >= text.size()) {
+      if (why != 0) *why = "对象未闭合（缺 '}'）";
+      return false;
+    }
+    if (text[i] == ',') {
+      ++i;
+      continue;
+    }
+    if (text[i] == '}') {
+      ++i;
+      skipWs(text, &i);
+      break;
+    }
+    if (why != 0) *why = "键值对之间须为 ',' 或 '}'";
+    return false;
+  }
+  return true;
+}
+
+// T-211：无符号十进制解析（整串；空/非数字/溢出 ⇒ false）。
+bool parseUint64Strict(const std::string& s, std::uint64_t* out) {
+  if (s.empty()) return false;
+  for (std::size_t i = 0; i < s.size(); ++i) {
+    if (s[i] < '0' || s[i] > '9') return false;
+  }
+  errno = 0;
+  char* end = 0;
+  const unsigned long long v = std::strtoull(s.c_str(), &end, 10);
+  if (errno == ERANGE || end == 0 || *end != '\0') return false;
+  *out = static_cast<std::uint64_t>(v);
+  return true;
+}
+
+// T-211：文件权限校验 —— **必须恰为 0600**（属主 rw、组/其他零），否则拒绝处理。
+//   用 `lstat`（**不跟随符号链接**）：防经符号链接读取域外文件、绕开权限模型。
+//   lstat 失败（不存在）或非普通文件 ⇒ ok=false。
+bool checkAdminFileMode(const std::string& path, std::string* why) {
+  struct stat st;
+  if (::lstat(path.c_str(), &st) != 0) {
+    if (why != 0) *why = "无法 lstat 请求文件（errno=" + std::to_string(errno) + "）";
+    return false;
+  }
+  if (S_ISLNK(st.st_mode)) {
+    if (why != 0) *why = "请求路径为符号链接（拒绝处理，防读域外文件）";
+    return false;
+  }
+  if (!S_ISREG(st.st_mode)) {
+    if (why != 0) *why = "请求路径非普通文件";
+    return false;
+  }
+  const unsigned mode = static_cast<unsigned>(st.st_mode) & 0777u;
+  if (mode != 0600u) {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%04o", mode);
+    if (why != 0) {
+      *why = std::string("请求文件权限必须为 0600（NFR-DEPLOY-4），实得 ") + buf;
+    }
+    return false;
+  }
+  return true;
+}
+
+// T-211：把一个文件移入归档目录（同文件系统 rename）；目标重名 ⇒ 追加 `.N` 去重。
+//   成功 ⇒ true 且 *moved_to 有效。归档动作**可审计**（文件保留于 processed/failed）。
+bool archiveAdminFile(const std::string& src, const std::string& dst_dir,
+                      std::string* moved_to) {
+  const std::string::size_type slash = src.find_last_of('/');
+  const std::string base = (slash == std::string::npos) ? src : src.substr(slash + 1);
+  std::string dst = dst_dir + "/" + base;
+  for (int n = 1; n < 1000; ++n) {
+    struct stat st;
+    if (::stat(dst.c_str(), &st) != 0) break;  // 目标不存在 ⇒ 可用
+    dst = dst_dir + "/" + base + "." + std::to_string(n);
+  }
+  if (::rename(src.c_str(), dst.c_str()) != 0) return false;
+  if (moved_to != 0) *moved_to = dst;
+  return true;
+}
+
 // 停机排空：回报静默窗口（连续该时长无新回报 ⇒ 认为在途已清空）与轮询切片。
 const std::int64_t kStopQuietMs = 200;
 const long kStopSliceNs = 10L * 1000L * 1000L;  // 10 ms
@@ -194,7 +383,11 @@ AppStats::AppStats()
       ctp_events(0),
       quotes_dropped(0),
       expire_events(0),
-      replay_runs(0) {}
+      replay_runs(0),
+      admin_requests(0),
+      admin_released(0),
+      admin_rejected(0),
+      admin_polls(0) {}
 
 TradingApp::TradingApp(const AppConfig& cfg)
     : cfg_(cfg),
@@ -221,6 +414,8 @@ TradingApp::TradingApp(const AppConfig& cfg)
       ctp_logged_in_observed_(false),
       last_expire_ms_(0),
       replay_started_ms_(0),
+      admin_dir_(),
+      last_admin_poll_ms_(0),
       clock_fn_(&systemNowMs),
       clock_user_(0) {
   // ---- 重放配置（CFG-29）----
@@ -244,6 +439,13 @@ TradingApp::TradingApp(const AppConfig& cfg)
   handler_.set_replay_controller(&replay_);
   handler_.set_recovery_hook(&recovery_);
   ledger_.set_flow_store(&flow_);
+
+  // ---- T-211：本地管理入口目录（由 CFG-29 `hg.flow.dir` 派生；不新增配置键）----
+  admin_dir_ = cfg_.flow_dir;
+  if (!admin_dir_.empty() && admin_dir_[admin_dir_.size() - 1] == '/') {
+    admin_dir_.resize(admin_dir_.size() - 1);
+  }
+  admin_dir_ += std::string("/") + kAdminSubDir;
 
   // ---- 事件层（T6 装配）----
   emitter_.attach();
@@ -309,6 +511,20 @@ bool TradingApp::start(std::string* error) {
     return false;
   }
   logLine("flow shard=" + shard);
+
+  // T-211：本地管理入口目录（`<hg.flow.dir>/admin` + 归档子目录）。
+  //   目录仅为**运维投递/归档**用途，不参与交易判定；创建失败不阻断启动
+  //   （人工核验入口在流水分片不可写时更不重要，且不改变交易路径语义）——仅告警。
+  {
+    std::string derr;
+    const std::string pdir = admin_dir_ + "/" + kAdminProcessedSub;
+    const std::string fdir = admin_dir_ + "/" + kAdminFailedSub;
+    if (!ensureDir(admin_dir_, &derr) || !ensureDir(pdir, &derr) || !ensureDir(fdir, &derr)) {
+      logLine("WARN 本地管理入口目录不可用（人工核验释放入口不可用）：" + derr);
+    } else {
+      logLine("admin dir=" + admin_dir_);
+    }
+  }
 
   // ③ 建立回环监听（不接业务指令：由 system_ready() 单一门卫承载）
   const hg::hgcp::BindStatus bs = loop_.start();
@@ -419,6 +635,12 @@ int TradingApp::pump(int timeout_ms) {
   pollCtp(now);
   refreshCtpState(now);
   driveExpire(now);
+  // T-211：本地管理入口低频轮询（≥ 1 s；**不每 pump 做 I/O**）。
+  //   在 `advanceStartup()` 之前处理 ⇒ 同一步内即可完成「台账闭环 → READY 迁移」。
+  if (last_admin_poll_ms_ == 0 || now - last_admin_poll_ms_ >= kAdminPollPeriodMs) {
+    last_admin_poll_ms_ = now;
+    pollAdminRelease(now);
+  }
   advanceStartup();
   return delivered;
 }
@@ -751,6 +973,142 @@ bool TradingApp::advanceStartup() {
   }
   // kBlocked / kFailed 且门卫仍未过 ⇒ 保持现状（不回退、不宣告任何就绪）。
   return false;
+}
+
+// =============================================================================
+// T-211：本地管理入口（「未知在途」人工核验释放）
+//   形态 (b) 进程内管理入口 = 本地管理文件轮询（编排者 2026-10-29 裁定，见 trading_app.h 头注）。
+//   本节的 I/O **全部在 `trading_app.cc`**（不在 E4 扫描根），且经低频节流
+//   （`kAdminPollPeriodMs ≥ 1 s`）—— 守「交易判定路径零同步 I/O」精神。
+// =============================================================================
+
+bool TradingApp::parseReleaseRequest(const std::string& text,
+                                     hg::flow_store::ManualReleaseRequest* req,
+                                     std::string* why) {
+  if (req == 0) {
+    if (why != 0) *why = "内部错误：req 为空";
+    return false;
+  }
+  std::vector<std::pair<std::string, std::string> > kv;
+  std::string perr;
+  if (!parseFlatObject(text, &kv, &perr)) {
+    if (why != 0) *why = perr;
+    return false;
+  }
+  // 逐个取值（键存在性以 found_* 记；未知键忽略）。
+  bool has_order = false, has_ref = false, has_a = false, has_b = false, has_reason = false;
+  std::string v_order, v_ref, v_a, v_b, v_reason;
+  for (std::size_t i = 0; i < kv.size(); ++i) {
+    const std::string& k = kv[i].first;
+    if (k == "order_id") { has_order = true; v_order = kv[i].second; }
+    else if (k == "client_order_ref") { has_ref = true; v_ref = kv[i].second; }
+    else if (k == "operator_a_id") { has_a = true; v_a = kv[i].second; }
+    else if (k == "operator_b_id") { has_b = true; v_b = kv[i].second; }
+    else if (k == "reason") { has_reason = true; v_reason = kv[i].second; }
+    // 未知键 ⇒ 忽略（前向兼容；不因未知键拒绝，避免部署前滚失败）。
+  }
+  // 必需键缺失 ⇒ 解析失败（拒因精确到键名；缺 operator_b 亦在此拦下）。
+  if (!has_order) { if (why != 0) *why = "缺必需键 order_id"; return false; }
+  if (!has_ref) { if (why != 0) *why = "缺必需键 client_order_ref"; return false; }
+  if (!has_a) { if (why != 0) *why = "缺必需键 operator_a_id"; return false; }
+  if (!has_b) { if (why != 0) *why = "缺必需键 operator_b_id"; return false; }
+  if (!has_reason) { if (why != 0) *why = "缺必需键 reason"; return false; }
+  if (!parseUint64Strict(v_order, &req->order_id)) {
+    if (why != 0) *why = "order_id 非无符号整数：" + v_order;
+    return false;
+  }
+  if (!parseUint64Strict(v_a, &req->operator_a_id)) {
+    if (why != 0) *why = "operator_a_id 非无符号整数：" + v_a;
+    return false;
+  }
+  if (!parseUint64Strict(v_b, &req->operator_b_id)) {
+    if (why != 0) *why = "operator_b_id 非无符号整数：" + v_b;
+    return false;
+  }
+  req->client_order_ref = v_ref;
+  req->reason = v_reason;
+  return true;
+}
+
+void TradingApp::rejectAdminRelease(const std::string& path, const std::string& reason,
+                                    std::uint32_t alert_code) {
+  ++stats_.admin_requests;
+  ++stats_.admin_rejected;
+  const std::string archived = admin_dir_ + "/" + kAdminFailedSub;
+  std::string moved;
+  const bool ok = archiveAdminFile(path, archived, &moved);
+  logLine("ALERT 人工核验释放请求被拒（状态与台账零变更）：reason=" + reason +
+          (ok ? ("；已归档 " + moved) : std::string("；归档失败（请求文件保留在原处）")));
+  // 告警留痕（EVT_TRADING_ALERT；无连接时 emit 返回 kNoLoop，日志行仍是留痕）。
+  //   alert_code 由调用点显式给定：解析/权限类 = 0x0104（前置非法）；
+  //   五守卫拒绝 = 0x0401（系统仍未就绪，语义同 BLOCKED 告警）。
+  emitAlert(alert_code, pbv1::ALERT_LEVEL_WARNING, "手动核验释放被拒：" + reason);
+}
+
+bool TradingApp::handleAdminReleaseFile(const std::string& path, std::int64_t now) {
+  // ① 权限守卫（**必须恰 0600**；`lstat` 拒符号链接，防经链接读取域外文件）。
+  std::string why;
+  if (!checkAdminFileMode(path, &why)) {
+    rejectAdminRelease(path, "权限/类型不符：" + why,
+                       static_cast<std::uint32_t>(hg::hgcp::ErrorCode::kErrPayloadInvalid));
+    return false;
+  }
+  // ② 读全文 + 解析（解析失败 ⇒ 零变更）。
+  std::string text;
+  if (!readWholeFile(path, &text)) {
+    rejectAdminRelease(path,
+                       std::string("读取请求文件失败（errno=") + std::to_string(errno) + "）",
+                       static_cast<std::uint32_t>(hg::hgcp::ErrorCode::kErrPayloadInvalid));
+    return false;
+  }
+  hg::flow_store::ManualReleaseRequest req;
+  if (!parseReleaseRequest(text, &req, &why)) {
+    rejectAdminRelease(path, "解析失败：" + why,
+                       static_cast<std::uint32_t>(hg::hgcp::ErrorCode::kErrPayloadInvalid));
+    return false;
+  }
+  // ③ 复用既有五守卫（`RecoveryHook::manualRelease` → `RecoveryCoordinator::
+  //    manualVerifyRelease`；**不另写一套守卫**）。拒绝 ⇒ 台账/引擎零变更。
+  hg::flow_store::ManualReleaseError err = hg::flow_store::ManualReleaseError::kNone;
+  hg::order_engine::EngineEvent ev;
+  if (!recovery_.manualRelease(req, now, &err, &ev)) {
+    rejectAdminRelease(path,
+                       std::string("守卫拒绝：") + hg::flow_store::manualReleaseErrorName(err),
+                       static_cast<std::uint32_t>(hg::hgcp::ErrorCode::kErrSystemNotReady));
+    return false;
+  }
+  // ④ 成功：台账已闭环（open_count 已 -1）⇒ 归档 processed/（幂等：文件被移走，
+  //    同一文件不会被二次处理）。引擎终态化的外部通知经 **既有** `emitEngineEvent`
+  //    通道补发 EVT_ORDER_EXPIRED（与 kReleaseExpired 决策路径同形，不新开通道）。
+  ++stats_.admin_requests;
+  ++stats_.admin_released;
+  logLine("人工核验释放成功：order_id=" +
+          std::to_string(static_cast<unsigned long long>(req.order_id)) +
+          " A=" + std::to_string(static_cast<unsigned long long>(req.operator_a_id)) +
+          " B=" + std::to_string(static_cast<unsigned long long>(req.operator_b_id)) +
+          "；台账未闭环=" +
+          std::to_string(static_cast<unsigned long long>(recovery_open_count())));
+  if (ev.kind != hg::order_engine::EngineEvent::Kind::kNone) {
+    emitEngineEvent(ev);
+  }
+  const std::string archived = admin_dir_ + "/" + kAdminProcessedSub;
+  std::string moved;
+  if (!archiveAdminFile(path, archived, &moved)) {
+    logLine("WARN 释放成功但归档失败（请求文件保留在原处，须人工清理以防重复处理）：" + path);
+  }
+  // ⑤ 就绪推进**不在此处**另开通道 —— 由 `advanceStartup()` 既有路径在台账清零后
+  //    自动迁移 BLOCKED → READY 并补发 `EVT_SYSTEM_STATE(READY)`（恰 1 帧）。
+  return true;
+}
+
+std::size_t TradingApp::pollAdminRelease(std::int64_t now) {
+  if (!started_ || state_ == AppState::kStopping) return 0;
+  ++stats_.admin_polls;
+  const std::string req_path = admin_dir_ + "/" + kAdminRequestName;
+  struct stat st;
+  if (::lstat(req_path.c_str(), &st) != 0) return 0;  // 无请求文件 ⇒ 零行为
+  (void)handleAdminReleaseFile(req_path, now);
+  return 1;
 }
 
 }  // namespace app

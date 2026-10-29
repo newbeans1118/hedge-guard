@@ -13,6 +13,8 @@
 #include <netinet/in.h>
 #include <stdlib.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include <cstddef>
@@ -300,6 +302,41 @@ AppConfig baseConfig(const std::string& flow_dir, std::uint16_t port) {
   cfg.ctp_trade_front.clear();  // 不登录 CTP ⇒ DEGRADED（不阻塞启动）
   cfg.ctp_md_front.clear();
   return cfg;
+}
+
+// T-211：写文件并显式设置权限位（管理入口要求恰 0600；0644 用于负例）。
+void writeFileWithMode(const std::string& path, const std::string& text, unsigned mode) {
+  std::FILE* f = std::fopen(path.c_str(), "w");
+  HG_CHECK(f != 0);
+  if (f != 0) {
+    if (!text.empty()) std::fwrite(text.data(), 1, text.size(), f);
+    std::fclose(f);
+  }
+  HG_CHECK_EQ(::chmod(path.c_str(), static_cast<mode_t>(mode)), 0);
+}
+
+// T-211：构造释放请求 JSON（平面对象；字段名逐项对齐 `flow_store::ManualReleaseRequest`）。
+std::string releaseJson(std::uint64_t oid, const std::string& ref, std::uint64_t a,
+                        std::uint64_t b, const std::string& reason) {
+  std::string s = "{";
+  s += "\"order_id\": " + std::to_string(static_cast<unsigned long long>(oid));
+  s += ", \"client_order_ref\": \"" + ref + "\"";
+  s += ", \"operator_a_id\": " + std::to_string(static_cast<unsigned long long>(a));
+  s += ", \"operator_b_id\": " + std::to_string(static_cast<unsigned long long>(b));
+  s += ", \"reason\": \"" + reason + "\"";
+  s += "}";
+  return s;
+}
+
+// T-211：泵驱动直到 admin 处理计数达 target（预算内）；返回是否达成。
+//   · 以**注入确定性时钟**（每 `now_ms()` 调用 +1000ms）驱动 ⇒ 低频轮询节拍确定推进；
+//   · **每步经 Harness drain 客户端**（否则大量 pump 不读 socket ⇒ 服务端发送缓冲耗尽
+//     ⇒ 断连 ⇒ 可靠事件转保留队列、READY 帧不上线）。
+bool pumpUntilAdmin(Harness* h, TradingApp* app, std::uint64_t target_requests, int max_steps) {
+  for (int i = 0; i < max_steps && app->stats().admin_requests < target_requests; ++i) {
+    h->pump(1, 0);
+  }
+  return app->stats().admin_requests >= target_requests;
 }
 
 // ── 1. 配置：优先级 + 敏感项拒绝 + 启动校验 ─────────────────────────────────
@@ -693,11 +730,201 @@ void test_corrupt_flow_never_ready() {
   app.stop();
 }
 
+// ── 6. T-211：本地管理入口（「未知在途」人工核验释放）────────────────────────
+//   ① 构造 unknown 在途 ⇒ `system_ready()==false` 且状态 `BLOCKED`；
+//   ② 合法请求文件 ⇒ 台账清零 + `system_ready()==true` + 状态迁移 `READY` +
+//      `EVT_SYSTEM_STATE(READY)` **恰 1 帧**（防双发）；
+//   ③ 非法请求（缺 operator_b / 双人同人 / ref 不匹配 / 权限非 600）⇒ 零变更 + 仍 BLOCKED；
+//   ④ 重复投递同一请求 ⇒ 第二次被拒（幂等）。
+//
+//   构造 unknown 在途：当日分片写一条 `SENT`（无终态）记录 ⇒ 装配 `query_==nullptr`
+//   ⇒ `kTimeout ⇒ kUnknownKeepFrozen`（`replay.cc`）⇒ 台账登记 ⇒ 门卫第三合取 false。
+void test_release_unknown_inflight() {
+  const std::string dir = makeTempDir("hgt211release");
+  const std::uint16_t port = probeFreePort();
+  HG_CHECK(port != 0);
+
+  // 当日分片：一条 SENT 无终态 ⇒ 在途单（order_id=77 / ref=HG211-77）。
+  {
+    const std::string shard = hg::flow_store::flowShardPath(dir, todayYmd());
+    writeFileWithMode(shard, "1000|SENT|77|HG211-77|sent\n", 0600);
+  }
+
+  AppConfig cfg = baseConfig(dir, port);
+  // 心跳间隔放宽到 60s：本用例注入**确定性快进时钟**驱动低频轮询节拍（见下），
+  //   若不放宽，快进时钟会使心跳监视器误判超时 ⇒ 服务端主动断连（与轮询无关的噪声）。
+  cfg.heartbeat_ms = 60000;
+  TradingApp app(cfg);
+  // 注入确定性时钟：每 `now_ms()` 调用 +50ms ⇒ 低频轮询（1000ms 节拍）**确定推进**，
+  //   不依赖真实墙钟（真实 pump(0) 几乎不推进墙钟 ⇒ 原按墙钟的等待不可确定）。
+  TestClock clk;
+  clk.base = static_cast<std::int64_t>(::time(0)) * 1000LL;
+  clk.step = 50;
+  clk.calls = 0;
+  app.set_clock(&testClockFn, &clk);
+  std::string err;
+  HG_CHECK(app.start(&err));
+
+  Client cli;
+  HG_CHECK(cli.connect(port));
+  Harness h(&app, &cli);
+  HG_CHECK(h.sendHello());
+  Frame ack;
+  HG_CHECK(h.waitFrame(mt(MessageType::kMsgHelloAck), &ack, 2000));
+
+  HG_CHECK(h.sendCommand(mt(MessageType::kCmdLoadRiskParams), enc(makeLoadBatch(1))));
+  Frame load_ack;
+  HG_CHECK(h.waitFrame(mt(MessageType::kMsgAck), &load_ack, 2000));
+
+  // ① 构造 unknown 在途 ⇒ BLOCKED
+  int waited = 0;
+  while (app.state() != AppState::kBlocked && waited < 3000) {
+    app.pump(10);
+    waited += 10;
+  }
+  HG_CHECK(app.state() == AppState::kBlocked);
+  HG_CHECK(!app.system_ready());
+  HG_CHECK_EQ(app.recovery_open(), static_cast<std::size_t>(1));        // 登记总数
+  HG_CHECK_EQ(app.recovery_open_count(), static_cast<std::size_t>(1));  // 未闭环
+
+  const std::string req = app.admin_dir() + "/release-request.json";
+  std::uint64_t expect_requests = 0;
+
+  // ③a 权限非 600（0644）⇒ 拒绝处理，台账零变更
+  writeFileWithMode(req, releaseJson(77, "HG211-77", 101, 202, "ok"), 0644);
+  HG_CHECK(pumpUntilAdmin(&h, &app, ++expect_requests, 3000));
+  HG_CHECK_EQ(app.recovery_open_count(), static_cast<std::size_t>(1));
+  HG_CHECK(app.state() == AppState::kBlocked);
+  HG_CHECK(!app.system_ready());
+
+  // ③b 缺 operator_b（必需键缺失 ⇒ 解析失败）
+  writeFileWithMode(req,
+                    "{\"order_id\":77,\"client_order_ref\":\"HG211-77\","
+                    "\"operator_a_id\":101,\"reason\":\"ok\"}",
+                    0600);
+  HG_CHECK(pumpUntilAdmin(&h, &app, ++expect_requests, 3000));
+  HG_CHECK_EQ(app.recovery_open_count(), static_cast<std::size_t>(1));
+  HG_CHECK(app.state() == AppState::kBlocked);
+
+  // ③c 双人同人（operator_a == operator_b）
+  writeFileWithMode(req, releaseJson(77, "HG211-77", 101, 101, "ok"), 0600);
+  HG_CHECK(pumpUntilAdmin(&h, &app, ++expect_requests, 3000));
+  HG_CHECK_EQ(app.recovery_open_count(), static_cast<std::size_t>(1));
+  HG_CHECK(app.state() == AppState::kBlocked);
+
+  // ③d ref 不匹配
+  writeFileWithMode(req, releaseJson(77, "WRONG-REF", 101, 202, "ok"), 0600);
+  HG_CHECK(pumpUntilAdmin(&h, &app, ++expect_requests, 3000));
+  HG_CHECK_EQ(app.recovery_open_count(), static_cast<std::size_t>(1));
+  HG_CHECK(app.state() == AppState::kBlocked);
+  HG_CHECK(!app.system_ready());
+  HG_CHECK_EQ(app.stats().admin_released, static_cast<std::uint64_t>(0));  // 全程零释放
+
+  // ③e 符号链接（指向 0600 的真实文件）⇒ 拒绝处理（防读域外文件）
+  {
+    const std::string real_file = dir + "/real-request.json";
+    writeFileWithMode(real_file, releaseJson(77, "HG211-77", 101, 202, "sym"), 0600);
+    ::unlink(req.c_str());
+    HG_CHECK_EQ(::symlink(real_file.c_str(), req.c_str()), 0);
+    HG_CHECK(pumpUntilAdmin(&h, &app, ++expect_requests, 3000));
+    HG_CHECK_EQ(app.recovery_open_count(), static_cast<std::size_t>(1));
+    HG_CHECK(app.state() == AppState::kBlocked);
+    HG_CHECK_EQ(app.stats().admin_released, static_cast<std::uint64_t>(0));
+    // 归档失败（符号链接指向的真实文件仍在）⇒ 清理请求路径防污染后续步骤。
+    ::unlink(req.c_str());
+  }
+
+  // 失败路径告警留痕（**不得静默吞**）：每次拒绝必发 `EVT_TRADING_ALERT`
+  //   （detail 含「手动核验释放被拒」+ 拒因）；码语义分层：
+  //     权限/解析类 ⇒ 0x0104（前置非法）；五守卫拒绝 ⇒ 0x0401（系统仍未就绪）。
+  {
+    std::vector<Frame> alerts;
+    h.takeAll(mt(MessageType::kEvtTradingAlert), &alerts);
+    std::size_t reject_alerts = 0, code_0104 = 0, code_0401 = 0;
+    for (std::size_t i = 0; i < alerts.size(); ++i) {
+      pbv1::EvtTradingAlert e;
+      if (!PbPayloadCodec::decode(alerts[i].body, &e)) continue;
+      if (e.detail().find("手动核验释放被拒") == std::string::npos) continue;
+      ++reject_alerts;
+      if (e.alert_code() == 0x0104u) ++code_0104;
+      if (e.alert_code() == 0x0401u) ++code_0401;
+    }
+    HG_CHECK(reject_alerts >= static_cast<std::size_t>(5));  // 5 次拒绝各留一条
+    HG_CHECK(code_0104 >= static_cast<std::size_t>(1));      // 权限/解析类
+    HG_CHECK(code_0401 >= static_cast<std::size_t>(1));      // 守卫类
+  }
+
+  // ② 合法请求 ⇒ 台账清零 + READY + EVT_SYSTEM_STATE(READY) 恰 1 帧
+  writeFileWithMode(req, releaseJson(77, "HG211-77", 101, 202, "人工核验：CTP 无此单"), 0600);
+  HG_CHECK(pumpUntilAdmin(&h, &app, ++expect_requests, 3000));
+  waited = 0;
+  while (app.state() != AppState::kReady && waited < 50) {
+    h.pump(1, 0);
+    ++waited;
+  }
+  HG_CHECK(app.state() == AppState::kReady);
+  HG_CHECK(app.system_ready());
+  HG_CHECK_EQ(app.recovery_open_count(), static_cast<std::size_t>(0));  // 未闭环清零
+  HG_CHECK_EQ(app.recovery_open(), static_cast<std::size_t>(1));        // 登记总数不变（含已释放）
+  HG_CHECK_EQ(app.stats().admin_released, static_cast<std::uint64_t>(1));
+
+  // `EVT_SYSTEM_STATE(READY)` 恰 1 帧（全程仅启动编排补发一次）。
+  h.pump(10, 10);
+  std::vector<Frame> ss;
+  h.takeAll(mt(MessageType::kEvtSystemState), &ss);
+  std::size_t ready_frames = 0;
+  for (std::size_t i = 0; i < ss.size(); ++i) {
+    pbv1::EvtSystemState e;
+    if (PbPayloadCodec::decode(ss[i].body, &e) && e.state() == pbv1::SERVER_STATE_READY) {
+      ++ready_frames;
+    }
+  }
+  HG_CHECK_EQ(ready_frames, static_cast<std::size_t>(1));
+
+  // 释放成功时引擎终态化的外部通知经**既有** `emitEngineEvent` 通道补发
+  //   `EVT_ORDER_EXPIRED`（与 kReleaseExpired 决策路径同形，不新开通道）。
+  std::vector<Frame> exps;
+  h.takeAll(mt(MessageType::kEvtOrderExpired), &exps);
+  std::size_t expired_frames = 0;
+  for (std::size_t i = 0; i < exps.size(); ++i) {
+    pbv1::EvtOrderExpired e;
+    if (PbPayloadCodec::decode(exps[i].body, &e) && e.order_id() == 77) ++expired_frames;
+  }
+  HG_CHECK_EQ(expired_frames, static_cast<std::size_t>(1));
+
+  // ④ 重复投递同一请求 ⇒ 第二次被拒（幂等：台账已闭环 ⇒ AlreadyReleased/NotFound），
+  //    状态保持 READY、台账仍清零（幂等拒绝不二次留痕、不重复释放）。
+  const std::uint64_t rej_before = app.stats().admin_rejected;
+  writeFileWithMode(req, releaseJson(77, "HG211-77", 101, 202, "dup"), 0600);
+  HG_CHECK(pumpUntilAdmin(&h, &app, ++expect_requests, 3000));
+  HG_CHECK_EQ(app.stats().admin_rejected, rej_before + 1);
+  HG_CHECK_EQ(app.stats().admin_released, static_cast<std::uint64_t>(1));
+  HG_CHECK_EQ(app.recovery_open_count(), static_cast<std::size_t>(0));
+  HG_CHECK(app.state() == AppState::kReady);
+  HG_CHECK(app.system_ready());
+
+  // 归档可审计：处理过的请求文件已移出请求路径（幂等的物理承载）。
+  struct stat st;
+  HG_CHECK(::stat(req.c_str(), &st) != 0);  // 请求路径已无文件
+
+  // ⑥ 低频轮询节流证据（**非每 pump 做文件 I/O**）：连续 400 次 pump（时钟每步 +50ms
+  //    ⇒ 推进 20 s），节拍 1000ms ⇒ 轮询增量 ≈ 20，**远小于** 400。若去掉节流
+  //    （每次 pump 都轮询）⇒ 增量 = 400 ⇒ 本断言必红。
+  const std::uint64_t polls_before = app.stats().admin_polls;
+  const int kPumpSteps = 400;
+  for (int i = 0; i < kPumpSteps; ++i) h.pump(1, 0);
+  const std::uint64_t d_polls = app.stats().admin_polls - polls_before;
+  HG_CHECK(d_polls >= static_cast<std::uint64_t>(1));
+  HG_CHECK(d_polls <= static_cast<std::uint64_t>(kPumpSteps / 10));  // 节流确有牙
+
+  app.stop();
+}
+
 }  // namespace
 
 // 用法：`hg_app_test [case]`
 //   无参 / all ⇒ 全跑；否则只跑指定用例（ctest 一例一进程，失败定位精确）：
-//   config | secret | listen | ready | progress | corrupt
+//   config | secret | listen | ready | progress | corrupt | release
 int main(int argc, char** argv) {
   const std::string only = (argc > 1 && argv[1] != 0) ? std::string(argv[1]) : std::string("all");
   const bool all = (only == "all");
@@ -707,8 +934,9 @@ int main(int argc, char** argv) {
   if (all || only == "ready") test_params_complete_ready();
   if (all || only == "progress") test_replay_progress_required_fields();
   if (all || only == "corrupt") test_corrupt_flow_never_ready();
+  if (all || only == "release") test_release_unknown_inflight();
   if (!all && only != "config" && only != "secret" && only != "listen" && only != "ready" &&
-      only != "progress" && only != "corrupt") {
+      only != "progress" && only != "corrupt" && only != "release") {
     std::printf("[FATAL] 未知用例：%s\n", only.c_str());
     return 2;
   }

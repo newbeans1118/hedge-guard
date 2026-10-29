@@ -65,7 +65,10 @@ set_target_properties(hg_app_test PROPERTIES
 
 #   progress  —— T-210：启动自动重放 `EVT_REPLAY_PROGRESS` 条件必填字段
 #                （终态帧 finished_ts_ms != 0；中间进度帧 == 0；started_ts_ms 会话内恒定）
-set(HG_APP_CASES config secret listen ready progress corrupt)
+#   release   —— T-211：本地管理入口「未知在途」人工核验释放
+#                （unknown ⇒ BLOCKED；合法请求 ⇒ 台账清零 + READY + READY 帧恰 1；
+#                 非法请求零变更；重复投递被拒（幂等））
+set(HG_APP_CASES config secret listen ready progress corrupt release)
 foreach(_c ${HG_APP_CASES})
   add_test(NAME "app.${_c}" COMMAND hg_app_test "${_c}")
   set_tests_properties("app.${_c}" PROPERTIES

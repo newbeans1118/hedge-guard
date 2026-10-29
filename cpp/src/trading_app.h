@@ -28,6 +28,33 @@
 //
 // 所有权：全部模块对象为**本类成员**（值语义，按依赖序声明 ⇒ 逆序析构自动正确）；
 //   模块间只持裸指针引用，不取得所有权。
+//
+// ---- T-211：本地管理入口（「未知在途」人工核验释放）--------------------------------
+// 缺口：`RecoveryHook::manualRelease` / `RecoveryCoordinator::manualVerifyRelease`
+//   均已实现五守卫，但**全仓零调用点** ⇒ 一旦重放产生「状态未知」在途单，`system_ready()`
+//   第三合取项恒 false ⇒ 系统永久 `BLOCKED`（重启亦无用）。承载形态由编排者 2026-10-29
+//   裁定为 **(b) 进程内管理入口 = 本地管理文件轮询**（理由见工单：`recovery.h` 头注原意
+//   「管理面归 Java/运维侧，不扩协议」+ 部署脚本 `setsid` 后台启动致 stdin 不可行 +
+//   `NFR-DEPLOY-4`「本地 admin 配置可持久化（文件，权限 600）」同族惯例 + 本文件不在
+//   `E4` 扫描根；**不扩协议、不新增 `CMD_*`、不改线格式**）。
+//
+// 约定（**选型依据见交付回执**）：
+//   · 请求文件路径 = `<hg.flow.dir>/admin/release-request.json`（由既有 CFG-29 `hg.flow.dir`
+//     派生，**不新增配置键** —— `app_config.*` 不在本单写域；同族「本地 admin 可持久化」）；
+//   · 权限 = **必须恰为 `0600`**（属主可读写、组/其他零权限），否则拒绝处理并告警
+//     （`NFR-DEPLOY-4` 同族；权限模型不匹配 ⇒ 先报后改，不另择通道）；
+//   · 格式 = **平面 JSON 对象**，字段逐项对齐 `flow_store::ManualReleaseRequest`：
+//       `order_id` / `client_order_ref` / `operator_a_id` / `operator_b_id` / `reason`
+//     （无第三方 JSON 库 ⇒ 内置极简平面对象解析；未知键忽略，缺必需键 ⇒ 解析失败）；
+//   · 处理 = 解析后**原样调用 `RecoveryHook::manualRelease` ⇒ 复用既有五守卫**
+//     （**不另写守卫**）；成功 ⇒ 台账闭环 ⇒ `system_ready()` 第三合取恢复 ⇒ 由
+//     **`advanceStartup()` 既有补发路径**迁移 `READY` 并补发 `EVT_SYSTEM_STATE(READY)`
+//     （**恰 1 帧**，不另开通道）；失败 ⇒ 台账与引擎**零变更**、状态不变、告警留痕（含拒因）；
+//   · 幂等与归档 = 处理后**移出请求路径**至 `<admin>/processed/`（成功）或
+//     `<admin>/failed/`（拒绝）⇒ 同一文件**不被重复处理**，归档可审计；
+//   · 轮询节拍 = 主循环低频轮询（`kAdminPollPeriodMs = 1000 ms`，**≥ 1 s**）；**不在每次
+//     `pump` 做文件 I/O**（`last_admin_poll_ms_` 节流），守「交易判定路径零同步 I/O」精神。
+//   · 时钟统一取 `now_ms()`；`admin_*` 计数进 `AppStats`（诊断/测试）。
 // =============================================================================
 
 #include <cstddef>
@@ -79,6 +106,12 @@ struct AppStats {
   std::uint64_t expire_events;   // 超时失效事件
   std::uint64_t replay_runs;     // 重放执行次数
 
+  // T-211 本地管理入口（人工核验释放）计数。
+  std::uint64_t admin_requests;  // 发现并处理的请求文件数（含被拒）
+  std::uint64_t admin_released;  // 五守卫通过并完成释放
+  std::uint64_t admin_rejected;  // 解析/权限/守卫任一拒绝（状态零变更）
+  std::uint64_t admin_polls;     // 实际执行的轮询次数（**节流后**；证「非每 pump 做 I/O」）
+
   AppStats();
 };
 
@@ -116,6 +149,16 @@ class TradingApp {
   // 0x0401 单一门卫的只读投影（= CommandHandler::system_ready()）。
   bool system_ready() const { return handler_.system_ready(); }
   std::size_t recovery_open() const { return ledger_.entry_count(); }
+  // T-211：台账**未闭环**计数（= `has_unknown_open()` 的数值投影；释放后归零）。
+  //   与 `recovery_open()`（登记总数，含已释放）区分，供人工核验闭环断言。
+  std::size_t recovery_open_count() const { return ledger_.view().open_count; }
+
+  // ---- T-211 本地管理入口观测面（测试/诊断；非交易路径）----
+  const std::string& admin_dir() const { return admin_dir_; }  // = <hg.flow.dir>/admin
+  // 单次轮询（**测试可直接驱动**；`pump` 内按 `kAdminPollPeriodMs` 节流调用）。
+  // 返回本次**实际处理**的请求数（0 ⇒ 无新请求 / 未到节拍由调用方判定）。
+  // 无请求文件 ⇒ 零 I/O 开销外的行为（仅 stat 一次）；请求文件在 ⇒ 处理后必归档移走。
+  std::size_t pollAdminRelease(std::int64_t now);
 
   void set_clock(ClockFn fn, void* user);
   std::int64_t now_ms() const;
@@ -138,6 +181,20 @@ class TradingApp {
   void drainCtpOnStop(std::int64_t budget_ms);
   // 待确认指令超时扫描（R-TRADE-6 / CFG-28）。
   void driveExpire(std::int64_t now);
+
+  // T-211：本地管理入口 —— 解析一个请求文件的平面 JSON ⇒ `ManualReleaseRequest`。
+  //   成功 ⇒ true 且 *req 填充；失败 ⇒ false 且 *why 载拒因（可空）。未知键忽略。
+  //   必需键 = order_id / client_order_ref / operator_a_id / operator_b_id / reason。
+  static bool parseReleaseRequest(const std::string& text,
+                                  hg::flow_store::ManualReleaseRequest* req,
+                                  std::string* why);
+  // T-211：单请求文件的处理（权限校验 → 解析 → 五守卫 → 归档）。
+  //   返回 true = 五守卫通过并完成释放；false = 拒绝（含拒因，已归档 failed/）。
+  bool handleAdminReleaseFile(const std::string& path, std::int64_t now);
+  // T-211：拒绝路径统一收口 —— 归档 failed/ + 告警留痕（含拒因）+ 计数。
+  //   alert_code 由调用点显式给定（解析/权限类 vs 守卫类语义不同）。
+  void rejectAdminRelease(const std::string& path, const std::string& reason,
+                          std::uint32_t alert_code);
 
   void emitSystemState(int pb_server_state, const std::string& reason);
   void emitAlert(std::uint32_t alert_code, int pb_alert_level, const std::string& detail);
@@ -187,6 +244,9 @@ class TradingApp {
   //   与 `CMD_TRIGGER_REPLAY` 路径（`command_handler.cc:159` 用 `ctx.started_ms`）
   //   同口径，作为 `EvtReplayProgress.started_ts_ms` 的**唯一来源**。
   std::int64_t replay_started_ms_;
+  // T-211：本地管理入口（人工核验释放）——目录派生于 `hg.flow.dir`（CFG-29 同族）。
+  std::string admin_dir_;         // = <hg.flow.dir>/admin
+  std::int64_t last_admin_poll_ms_;  // 低频轮询节流（≥ kAdminPollPeriodMs）
 
   ClockFn clock_fn_;
   void* clock_user_;
