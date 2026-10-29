@@ -183,6 +183,10 @@ class TradingApp {
   bool ctp_login_attempted_;
   bool ctp_logged_in_observed_;  // 上次观测到的 CTP 登录态（迁移检测）
   std::int64_t last_expire_ms_;
+  // 重放会话起点（T-210）：进入 REPLAYING 时记一次 ⇒ 同一份进度流内**多帧同值**。
+  //   与 `CMD_TRIGGER_REPLAY` 路径（`command_handler.cc:159` 用 `ctx.started_ms`）
+  //   同口径，作为 `EvtReplayProgress.started_ts_ms` 的**唯一来源**。
+  std::int64_t replay_started_ms_;
 
   ClockFn clock_fn_;
   void* clock_user_;

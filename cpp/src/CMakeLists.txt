@@ -63,7 +63,9 @@ set_target_properties(hg_app_test PROPERTIES
   CXX_STANDARD_REQUIRED ON
   CXX_EXTENSIONS OFF)
 
-set(HG_APP_CASES config secret listen ready corrupt)
+#   progress  —— T-210：启动自动重放 `EVT_REPLAY_PROGRESS` 条件必填字段
+#                （终态帧 finished_ts_ms != 0；中间进度帧 == 0；started_ts_ms 会话内恒定）
+set(HG_APP_CASES config secret listen ready progress corrupt)
 foreach(_c ${HG_APP_CASES})
   add_test(NAME "app.${_c}" COMMAND hg_app_test "${_c}")
   set_tests_properties("app.${_c}" PROPERTIES

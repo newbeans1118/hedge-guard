@@ -220,6 +220,7 @@ TradingApp::TradingApp(const AppConfig& cfg)
       ctp_login_attempted_(false),
       ctp_logged_in_observed_(false),
       last_expire_ms_(0),
+      replay_started_ms_(0),
       clock_fn_(&systemNowMs),
       clock_user_(0) {
   // ---- 重放配置（CFG-29）----
@@ -638,12 +639,15 @@ void TradingApp::driveExpire(std::int64_t now) {
 }
 
 // 重放失败终态帧（FR-TRADE-15 验收 3：重放结果可审计；§4.5.3 ⑥ MISMATCH 口径）。
+//   T-210：`started_ts_ms` 取**重放会话起点**（与本文件成功路径同源、单一口径）。
+//   本函数仅由 `advanceStartup()` 的失败分支调用，而该分支恒在 `replay_started_ms_`
+//   记录之后（`replay_.run` 之前）⇒ 起点必已就绪。
 void TradingApp::emitReplayTerminal(const std::string& detail) {
   pbv1::EvtReplayProgress e;
   e.set_state(pbv1::SERVER_STATE_NOT_READY);
   e.set_replayed_records(0);
   e.set_total_records(0);
-  e.set_started_ts_ms(now_ms());
+  e.set_started_ts_ms(replay_started_ms_);
   e.set_result(pbv1::REPLAY_RESULT_MISMATCH);
   e.set_mismatch_detail(detail);
   e.set_finished_ts_ms(now_ms());
@@ -655,10 +659,21 @@ void TradingApp::emitReplayTerminal(const std::string& detail) {
   }
 }
 
+// 启动自动重放的进度回调（§4.5.3 ⑤；§4.2.8.5 条件必填）。
+//
+// 字段口径（T-210 统一，与 `CMD_TRIGGER_REPLAY` 路径同口径）：
+//   · `started_ts_ms` = **重放会话起点** `replay_started_ms_`（进入 REPLAYING 时记一次）
+//     —— 同一份进度流内**多帧同值**；**不得**逐帧取 `now_ms()`。
+//   · `finished_ts_ms` = **条件必填**：**仅终态帧**（`st == kReady`，即重放完成）填；
+//     中间进度帧（`kReplaying`）**不得**填（缺省语义 = 0/未设，接收侧不得据此拒绝）。
+//   · `mismatch_detail` = 条件必填（`result = MISMATCH`）：本回调恒产出
+//     `REPLAY_RESULT_OK`（失败终态帧由 `emitReplayTerminal` 承载）⇒ 不填，符契约。
 void TradingApp::replayProgress(void* user, hg::flow_store::FlowState st, std::uint64_t done,
-                                std::uint64_t total) {  TradingApp* app = static_cast<TradingApp*>(user);
+                                std::uint64_t total) {
+  TradingApp* app = static_cast<TradingApp*>(user);
   if (app == 0) return;
   pbv1::EvtReplayProgress e;
+  const bool finished = (st == hg::flow_store::FlowState::kReady);
   switch (st) {
     case hg::flow_store::FlowState::kReady: e.set_state(pbv1::SERVER_STATE_READY); break;
     case hg::flow_store::FlowState::kReplaying: e.set_state(pbv1::SERVER_STATE_REPLAYING); break;
@@ -666,8 +681,9 @@ void TradingApp::replayProgress(void* user, hg::flow_store::FlowState st, std::u
   }
   e.set_replayed_records(static_cast<std::int64_t>(done));
   e.set_total_records(static_cast<std::int64_t>(total));
-  e.set_started_ts_ms(app->now_ms());
+  e.set_started_ts_ms(app->replay_started_ms_);
   e.set_result(pbv1::REPLAY_RESULT_OK);
+  if (finished) e.set_finished_ts_ms(app->now_ms());
   std::vector<std::uint8_t> body;
   if (!hg::hgcp::PbPayloadCodec::encode(e, &body)) return;
   if (app->emitter_.emit(mt(hg::hgcp::MessageType::kEvtReplayProgress), body) !=
@@ -690,6 +706,9 @@ bool TradingApp::advanceStartup() {
                  std::to_string(static_cast<unsigned long long>(risk_state_.param_version())));
     ++stats_.replay_runs;
     const std::int64_t now = now_ms();
+    // T-210：重放会话起点（同一份进度流内多帧同值）——与 `CMD_TRIGGER_REPLAY` 路径
+    //   的 `ctx.started_ms` 同口径；`replayProgress` 从本成员取 `started_ts_ms`。
+    replay_started_ms_ = now;
     const hg::flow_store::ReplayReport rep =
         replay_.run(now, &TradingApp::replayProgress, this);
     const hg::order_engine::RecoveryExecOutcome rec = recovery_.execute(rep, now);

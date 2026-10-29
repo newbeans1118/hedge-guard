@@ -196,6 +196,23 @@ class Harness {
 
   const std::vector<Frame>& queue() const { return queue_; }
 
+  // T-210：把队列中某类型的帧**全部**移入 `out`（不等待；返回本次移出条数）。
+  //   与 `waitFrame`（取走首条并返回）互补 —— 本用例需逐帧比对全部进度帧字段。
+  std::size_t takeAll(std::uint16_t type, std::vector<Frame>* out) {
+    drain();
+    std::size_t n = 0;
+    for (std::size_t i = 0; i < queue_.size();) {
+      if (queue_[i].header.type == type) {
+        out->push_back(queue_[i]);
+        queue_.erase(queue_.begin() + static_cast<long>(i));
+        ++n;
+      } else {
+        ++i;
+      }
+    }
+    return n;
+  }
+
  private:
   void drain() {
     Frame f;
@@ -207,6 +224,22 @@ class Harness {
   std::uint64_t seq_;
   std::vector<Frame> queue_;
 };
+
+// T-210：确定性推进时钟 —— 每次取值 `+step`（缺省 1ms）。
+//   目的：旧实现 `replayProgress` **每帧取 `now_ms()`** ⇒ 同一重放会话内各帧
+//   `started_ts_ms` **必不同**（回归可判）；修复后取**会话起点** ⇒ 多帧同值。
+struct TestClock {
+  std::int64_t base;
+  std::int64_t step;
+  int calls;
+};
+
+std::int64_t testClockFn(void* user) {
+  TestClock* c = static_cast<TestClock*>(user);
+  const std::int64_t v = c->base + c->step * static_cast<std::int64_t>(c->calls);
+  ++c->calls;
+  return v;
+}
 
 // 最小合法全量批（品种 10 / 子账户 1 / 操作人 7；可过快照不变量）——
 // 与 command_handler_test 的夹具同形（同源字段集，避免第二套语义）。
@@ -492,6 +525,113 @@ void test_params_complete_ready() {
   app.stop();
 }
 
+// ── 5a. T-210：启动自动重放的 `EVT_REPLAY_PROGRESS` 条件必填字段（§4.2.8.5）──
+//   断言（两条都要，防「一律填」的过度修正）：
+//     ① **成功重放的终态帧** `finished_ts_ms != 0`（且 state=READY / result=OK）；
+//     ② **中间进度帧** `finished_ts_ms == 0`（缺省语义；条件不成立不得填）。
+//   附加：`started_ts_ms` 在同一重放会话内**恒定**（= 会话起点，非逐帧 now_ms）——
+//     本用例经确定性时钟使 `now_ms()` 每调用 +1ms ⇒ 旧实现（逐帧取值）必红。
+//
+//   构造：当日分片写入 3 条记录（同一 order_id 的 SENT/REPORTED/CANCELLED）⇒ 重放产生
+//     ① 入口进度帧（state=REPLAYING, done=0）
+//     ② 逐条进度帧（done % every == 0；`every=1`）共 3 帧
+//     ③ 终态帧（state=READY, done=3, total=3）
+//   为使中间帧确定可数：`replay_progress_every` 置 1（= 每条都发）。
+void test_replay_progress_required_fields() {
+  const std::string dir = makeTempDir("hgt210progress");
+  const std::uint16_t port = probeFreePort();
+  HG_CHECK(port != 0);
+
+  // 确定性时钟：now_ms() 每次 +1ms（旧实现逐帧取值 ⇒ 各帧 started_ts_ms 必不同）。
+  //   base 取整日边界 ⇒ 分片日期可**由时钟确定**（不依赖系统时间），与 app 自重放同日。
+  TestClock clk;
+  clk.base = 5000000;  // epoch ms → 1970-01-01
+  clk.step = 1;
+  clk.calls = 0;
+  const int ymd = static_cast<int>(hg::risk_engine::civilFromDays(clk.base / 86400000LL));
+
+  // 当日分片：3 条记录（order_id=77）—— 5 字段定列。
+  const std::string shard = hg::flow_store::flowShardPath(dir, ymd);
+  {
+    std::FILE* f = std::fopen(shard.c_str(), "w");
+    HG_CHECK(f != 0);
+    if (f != 0) {
+      std::fprintf(f, "1000|SENT|77|HG210-77|sent\n");
+      std::fprintf(f, "1001|REPORTED|77|HG210-77|reported\n");
+      std::fprintf(f, "1002|CANCELLED|77|HG210-77|cancelled\n");
+      std::fclose(f);
+    }
+  }
+
+  AppConfig cfg = baseConfig(dir, port);
+  cfg.replay_progress_every = 1;  // 每条都发进度帧 ⇒ 中间帧确定可数
+  TradingApp app(cfg);
+  app.set_clock(&testClockFn, &clk);
+
+  std::string err;
+  HG_CHECK(app.start(&err));
+
+  Client cli;
+  HG_CHECK(cli.connect(port));
+  Harness h(&app, &cli);
+  HG_CHECK(h.sendHello());
+  Frame ack;
+  HG_CHECK(h.waitFrame(mt(MessageType::kMsgHelloAck), &ack, 2000));
+
+  HG_CHECK(h.sendCommand(mt(MessageType::kCmdLoadRiskParams), enc(makeLoadBatch(1))));
+  Frame load_ack;
+  HG_CHECK(h.waitFrame(mt(MessageType::kMsgAck), &load_ack, 2000));
+
+  // 推进到 READY（重放产出全部进度帧 + 终态帧）。
+  int waited = 0;
+  while (app.state() != AppState::kReady && waited < 3000) {
+    app.pump(10);
+    waited += 10;
+  }
+  HG_CHECK(app.state() == AppState::kReady);
+
+  // 收集全部进度帧（可能仍留在 socket 缓冲 ⇒ 再泵几轮）。
+  std::vector<Frame> frames;
+  h.pump(5, 10);
+  h.takeAll(mt(MessageType::kEvtReplayProgress), &frames);
+  HG_CHECK(frames.size() >= static_cast<std::size_t>(2));  // 至少：中间帧 + 终态帧
+
+  std::size_t mid = 0;
+  std::size_t terminal = 0;
+  std::int64_t started_of_terminal = -1;
+  std::int64_t started_first = -1;
+  bool started_constant = true;
+  for (std::size_t i = 0; i < frames.size(); ++i) {
+    pbv1::EvtReplayProgress e;
+    HG_CHECK(PbPayloadCodec::decode(frames[i].body, &e));
+    if (started_first < 0) started_first = e.started_ts_ms();
+    if (e.started_ts_ms() != started_first) started_constant = false;
+
+    if (e.state() == pbv1::SERVER_STATE_READY) {
+      // 终态帧：条件必填 `finished_ts_ms` 必填（重放完成）；result=OK。
+      HG_CHECK(e.result() == pbv1::REPLAY_RESULT_OK);
+      HG_CHECK(e.finished_ts_ms() != 0);   // ★ 本缺陷本体：旧实现恒 0
+      HG_CHECK(e.started_ts_ms() != 0);
+      started_of_terminal = e.started_ts_ms();
+      ++terminal;
+    } else {
+      // 中间进度帧：条件不成立 ⇒ `finished_ts_ms` **不得**填（缺省 = 0）。
+      HG_CHECK(e.finished_ts_ms() == 0);   // ★ 防「一律填」的过度修正
+      ++mid;
+    }
+  }
+  HG_CHECK_EQ(terminal, static_cast<std::size_t>(1));  // 恰一帧终态
+  HG_CHECK(mid >= static_cast<std::size_t>(1));        // 至少一帧中间进度
+  // `started_ts_ms` 会话内恒定（= 重放会话起点）；旧实现逐帧 now_ms ⇒ 必红。
+  HG_CHECK(started_constant);
+  // 终态帧的 started_ts_ms 与中间帧同源（同一会话起点）。
+  HG_CHECK_EQ(started_of_terminal, started_first);
+  // 会话起点非 0（注入时钟基值 5000000 ⇒ `now_ms()` 恒 > 0）。
+  HG_CHECK(started_first != 0);
+
+  app.stop();
+}
+
 // ── 5. 流水损坏 ⇒ 永不 READY + 下单 0x0401 ─────────────────────────────────
 void test_corrupt_flow_never_ready() {
   const std::string dir = makeTempDir("hgt207corrupt");
@@ -557,7 +697,7 @@ void test_corrupt_flow_never_ready() {
 
 // 用法：`hg_app_test [case]`
 //   无参 / all ⇒ 全跑；否则只跑指定用例（ctest 一例一进程，失败定位精确）：
-//   config | secret | listen | ready | corrupt
+//   config | secret | listen | ready | progress | corrupt
 int main(int argc, char** argv) {
   const std::string only = (argc > 1 && argv[1] != 0) ? std::string(argv[1]) : std::string("all");
   const bool all = (only == "all");
@@ -565,9 +705,10 @@ int main(int argc, char** argv) {
   if (all || only == "secret") test_secret_redaction();
   if (all || only == "listen") test_start_and_not_ready();
   if (all || only == "ready") test_params_complete_ready();
+  if (all || only == "progress") test_replay_progress_required_fields();
   if (all || only == "corrupt") test_corrupt_flow_never_ready();
   if (!all && only != "config" && only != "secret" && only != "listen" && only != "ready" &&
-      only != "corrupt") {
+      only != "progress" && only != "corrupt") {
     std::printf("[FATAL] 未知用例：%s\n", only.c_str());
     return 2;
   }
