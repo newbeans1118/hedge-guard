@@ -284,6 +284,7 @@
 > 分布：`#java2` **10** ／ `#java` 3 ／ `#cpp` 1 ／ 编排者 1。**建议**：按批回写证据章并做一次全量重跑，使"全量绿"重新可复现（当前可复现基准仍停在 09-24）。**本报告不代派复核**（第 149 轮已派发）。
 | 编号 | 标题 | 负责人 | 优先级 | 证据档 |
 |------|------|--------|--------|--------|
+| T-213 | 复核遗留收口：submitOrder 剩余可下单量守卫用例（T-104 O-2）+ 证据章 M3 枚举订正（O-5） | backend-engineer#java | P1 | 新增 3 用例（executed=90 / ordered=90 各 11 拒 10 过；planQty null ⇒ 拒绝）；V4 变异由「存活」转 2 红；Java 1310/0/0/0；arch rc0；证据 `docs/TEST_RESULT.md` §T213.1 |
 | T-004 | 实现 DAO 基座并交付 CONFIG+AUTH 20 张表 DDL | backend-engineer#java | P0 | 实现 + 自测 + **PM 旁证复算**；**无第三方独立验证** |
 | T-005 | 交付 PRODUCT 模块 8 张表 DDL 与 DAO | backend-engineer#java2 | P0 | 交付报告 + **PM 旁证复算**；**无第三方独立验证** |
 | T-006 | 交付 SPOT 模块 10 张表 DDL 与 DAO | backend-engineer#java2 | P0 | 交付报告 + **PM 旁证复算**；**无第三方独立验证** |

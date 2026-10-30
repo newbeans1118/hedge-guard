@@ -180,6 +180,11 @@ public final class PlanService {
      * （{@code TradeService.submitOrder}）共用，避免两处公式漂移。负值（数据异常）**原样返回**，
      * 由调用方判定（下单侧拒绝、列表侧据此标记「已达上限」）。
      *
+     * <p><b>null 语义（口径声明）</b>：三个量任一为 {@code null} 时**按 0 计**。因此下单前置校验
+     * 由「三量皆非 null 才校验」**收紧为无条件校验**（{@code planQty} 缺失 ⇒ 剩余 0 ⇒ 拒绝）。
+     * 该收紧为 **fail-safe**：{@code t_trade_plan} 三列均 {@code NOT NULL}（且 {@code plan_qty CHECK>0}），
+     * 生产不可达；若有脏数据，宁可拒绝也不放行超额下单。
+     *
      * @param plan 交易计划（可为 {@code null}，返回 0）
      * @return 剩余可下单量
      */

@@ -175,6 +175,56 @@ class TradeServiceTest {
         assertFalse(audit.reads.isEmpty(), "本用例应读到 plan/exposure（用于权威校验）");
     }
 
+    // ================================================================ T-213（T-104 O-2）：剩余可下单量守卫
+    //
+    //   FR-PLAN-15 的「剩余可下单量」= 计划数量 − 已成交数量 − 已下达指令量（PlanService 唯一计算源）。
+    //   本组用例把**下单前置校验**锚死在该口径上：若有人把 submitOrder 的剩余量改回
+    //   「只看 planQty」或「只扣 ordered」（即与列表展示脱钩），下列用例必红。
+
+    @Test
+    @DisplayName("T-213：已成交占用计入剩余量 —— executed=90/plan=100 ⇒ volume 11 拒、10 过")
+    void submitRejectsVolumeBeyondRemainingAfterExecuted() {
+        TradePlan p = planDao.plans.get(PLAN_ID);
+        p.executedQty = new BigDecimal("90");
+        p.orderedQty = BigDecimal.ZERO;
+
+        TradeService.SubmitRequest over = request(validReason());
+        over.volume = 11;
+        assertRejected(() -> service.submitOrder(over, TRADER_ID), "剩余 10 时提交 11");
+
+        TradeService.SubmitRequest exact = request(validReason());
+        exact.volume = 10;
+        assertTrue(service.submitOrder(exact, TRADER_ID).accepted, "剩余 10 时提交 10 应受理（边界含等号）");
+    }
+
+    @Test
+    @DisplayName("T-213：在途占用计入剩余量 —— ordered=90/plan=100 ⇒ volume 11 拒、10 过")
+    void submitRejectsVolumeBeyondRemainingAfterOrdered() {
+        TradePlan p = planDao.plans.get(PLAN_ID);
+        p.executedQty = BigDecimal.ZERO;
+        p.orderedQty = new BigDecimal("90");
+
+        TradeService.SubmitRequest over = request(validReason());
+        over.volume = 11;
+        assertRejected(() -> service.submitOrder(over, TRADER_ID), "剩余 10 时提交 11");
+
+        TradeService.SubmitRequest exact = request(validReason());
+        exact.volume = 10;
+        assertTrue(service.submitOrder(exact, TRADER_ID).accepted, "剩余 10 时提交 10 应受理");
+    }
+
+    @Test
+    @DisplayName("T-213：planQty 缺失按 0 计 ⇒ 恒校验并拒绝（由「三量非 null 才校验」收紧为无条件校验）")
+    void submitTreatsNullPlanQtyAsZeroAndRejects() {
+        TradePlan p = planDao.plans.get(PLAN_ID);
+        p.planQty = null;
+        p.executedQty = BigDecimal.ZERO;
+        p.orderedQty = BigDecimal.ZERO;
+
+        assertRejected(() -> service.submitOrder(request(validReason()), TRADER_ID),
+                "planQty 缺失（数据异常）⇒ 拒绝而非放行（fail-safe）");
+    }
+
     @Test
     @DisplayName("T-173/CH-020：submitOrder 组装的 PlaceOrderCmd 六字段须与理由/计划绑定逐字一致")
     void submitOrderFillsRelatedObjectAndReasonFields() {

@@ -17872,3 +17872,44 @@ E9 通过：四项冻结-不变量全部一致（消息 40 / 错误码 62 / VER 
 - 负剩余量**不静默归零**（保留数据异常可见性）；下单侧对负值照常拒绝。
 
 —— T-104 交付席；待独立复核（本席不自评 DONE）。
+
+## T213.1 T-213 交付证据章 —— 剩余可下单量守卫用例（T-104 O-2）+ M3 枚举订正（O-5）
+
+**触发**：`T-104` 独立复核 `te-verify-t104` = 通过 / 0 缺陷 / 5 观察（报告 `/root/t104-verify.md` 255 行）。
+其中 **O-2**（中）：复核席自设变异 **V4**（仅把 `TradeService` 的剩余量改回「只看 `planQty`」）⇒ **1307 用例全绿存活** —— 即「列表展示与下单校验同源」这一交付主旨**无回归防护**，且仓内此前**从无** `submitOrder` 超额拒绝用例。
+**O-5**（低）：`§T104.1.3` 中 M3「5 红（U1/U3/U4/U7）」**计数正确但枚举漏 `U6`**（实测同形变异红项 = U1/U3/U4/**U6**/U7）。
+
+### T213.1.1 新增用例（`TradeServiceTest`，+3）
+
+| # | 用例 | 断言 |
+|---|------|------|
+| 1 | `submitRejectsVolumeBeyondRemainingAfterExecuted` | `plan=100 / executed=90 / ordered=0`（剩余 10）⇒ `volume=11` **拒绝**且零下发；`volume=10` **受理**（边界含等号） |
+| 2 | `submitRejectsVolumeBeyondRemainingAfterOrdered` | `plan=100 / executed=0 / ordered=90` ⇒ 同上下；守「只扣 ordered / 只扣 executed」任一漏项 |
+| 3 | `submitTreatsNullPlanQtyAsZeroAndRejects` | `planQty=null` ⇒ **拒绝**（fail-safe；固化 O-1 所述「三量非 null 才校验」→「恒校验」的收紧语义） |
+
+### T213.1.2 变异（clean 重建）
+
+| 变异 | 注入点 | 期望 | 实测 |
+|---|---|---|---|
+| V4 复测（复核席原变异） | `TradeService`：`remaining = planQty`（丢弃 executed/ordered） | 必红 | **2 红**（用例 1、2：`Expected BizException ... nothing was thrown`）⇒ 原「存活」缺口闭合 |
+| V3 同形 | helper 漏扣 executed | 必红 | 用例 1 红（`volume=11` 被受理） |
+
+复位后 `TradeServiceTest` **35/0**、全量 **1310/0/0/0** 复现。
+
+### T213.1.3 口径披露（`PlanService.remainingOrderableQty` javadoc）
+
+补「**null 语义**」段：三量任一为 `null` 时按 0 计 ⇒ 下单前置校验由「三量皆非 null 才校验」**收紧为无条件校验**；该收紧为 **fail-safe**（`t_trade_plan` 三列 `NOT NULL`、`plan_qty CHECK>0` ⇒ 生产不可达；脏数据宁可拒绝）。
+
+### T213.1.4 观察 O-5 订正（原文保留，以本节为准）
+
+`§T104.1.3` M3 行「**5 红**（U1/U3/U4/U7）」的**计数 5 正确、枚举漏 `U6`**；完整红项 = **U1 / U3 / U4 / U6 / U7**。
+
+### T213.1.5 门禁
+
+| 项 | 结果 |
+|----|------|
+| Java 全量 | **1310 / 0 / 0 / 0**（skip=0；基线 1307 + 3） |
+| arch 聚合 | **rc 0**（E1–E9 全 0） |
+| 前端 | 本单零 `web/**` 改动 |
+
+—— T-213 交付席；待独立复核（本席不自评 DONE）。
