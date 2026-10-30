@@ -1,6 +1,6 @@
 # `tools/arch-check` —— 架构合规检查
 
-> 承载：`docs/ARCHITECTURE.md` **§3.0.2**（工程化手段 `E1`–`E8`）与 **§3.13**（支撑：架构合规检查）。
+> 承载：`docs/ARCHITECTURE.md` **§3.0.2**（工程化手段 `E1`–`E9`）与 **§3.13**（支撑：架构合规检查）。
 > 目的：把「靠人审查」的边界纪律固化为**可执行、可 CI 化**的判据脚本。
 >
 > **`E1`–`E6` 六个判据脚本由 `T-090`~`T-093` 与既有任务交付，形态经三轮独立复核收口（`T-095`）**；
@@ -30,7 +30,8 @@
 | `check_frontend.sh` | `E6` | 前端零构建链 + 无直连扫描 |
 | `scan_hgcp_schema.py` | `E7` | HGCP 字段级 schema：`ARCHITECTURE.md §4.2.8` ↔ `proto/hgcp.proto` 一致性（`T-121`；**单文件 Python3、无第三方依赖**） |
 | `scan_contracts_payload.py` | `E8` | `java/CONTRACTS.md §3.2.1` payload 键 ↔ `proto/hgcp.proto` 字段名一致性（`T-170`；**单文件 Python3、无第三方依赖**） |
-| `arch-check.sh` | **聚合入口** | 调用 E1–E8，任一非 0 ⇒ 整体非 0（本 README §2） |
+| `scan_frozen_invariants.py` | `E9` | 冻结-不变量跨制品一致性：消息 `40` / 错误码 `62` / `VER` `0x0100` / `FR` `184`（`T-122`；**单文件 Python3、无第三方依赖**） |
+| `arch-check.sh` | **聚合入口** | 调用 E1–E9，任一非 0 ⇒ 整体非 0（本 README §2） |
 | `README.md` | — | 本文件 |
 
 **统一退出码语义（各判据脚本，`T-095` 收口）**：
@@ -69,7 +70,7 @@ bash tools/arch-check/arch-check.sh -h    # 帮助
 
 | 码 | 条件 |
 |----|------|
-| `0` | 八个脚本全部返回 `0` |
+| `0` | 九个脚本全部返回 `0` |
 | `1` | 无脚本返回 `2`，但至少一个返回 `1`（架构偏离） |
 | `2` | 至少一个脚本返回 `2`（用法/前置错误 —— 判据未能真正执行，属更严重缺口） |
 
@@ -282,6 +283,45 @@ bash tools/arch-check/arch-check.sh -h    # 帮助
 | 9 | 默认路径不存在（空目录内执行） | `SKIP` | **0** | `SKIP: 默认路径 java/CONTRACTS.md 不存在（组件未铺开）` |
 
 （各场景变异后均复位并复跑 ⇒ `0`；被变异制品 md5 复位前后逐字节一致。）
+
+### E9 `scan_frozen_invariants.py`（`T-122`）
+
+- **用法**：`scan_frozen_invariants.py [--arch <file>] [--proto <file>] [--protocol-h <file>] [--java-consts <file>] [--java-frame <file>] [--req-dir <dir>]`
+  - `--arch`：架构文档（默认 `docs/ARCHITECTURE.md`）；`--proto`：线格式定义（默认 `proto/hgcp.proto`）；
+    `--protocol-h`：C++ 协议常量（默认 `cpp/src/hgcp/include/hg/hgcp/protocol.h`）；
+    `--java-consts`：Java 类型码常量（默认 `.../bridge/HgcpConstants.java`）；
+    `--java-frame`：Java 帧常量（默认 `.../bridge/HgcpFrame.java`）；`--req-dir`：需求目录（默认 `docs/REQUIREMENTS`）
+- **立项理由**：`E7` 头注 `N4` **显式不覆盖**「冻结-不变量」（另立任务 `T-122`）。不变量无判据时，
+  「改一条枚举值 / 删一行错误码 / 改 `VER` 字面量 / 增删一条 FR」只会让**声明值与实际值**悄悄背离，
+  而既有测试与 `E1`–`E8` 全绿（`E7` 只判 §4.2.8 ↔ proto 的**字段级**一致，两处同改即一致、不变量照样漂移）。
+- **四项不变量（`ARCHITECTURE.md §4.2.8` 声明；本节一律不改动）**：消息集 `40` / 组件错误码 `62` /
+  线格式 `VER` `0x0100` / `FR` 计数 `184`。
+- **判据（逐来源机械比对，任一不符即失败）**：
+  - **① 消息集 `40`**：`proto` `enum MsgType` 有效值数（排除 `*_UNSET`）/ §4.2.8.2+3+4 表体行数 /
+    §4.2.3 标题「共 N 种」/ §4.2.8 声明行 / `HgcpConstants.MESSAGE_TYPE_COUNT` —— **五源互校**
+  - **② 错误码 `62`**：§4.3.2 表体行数（含唯一性）/ `protocol.h` `enum ErrorCode` 值数 / §4.2.8 声明行 —— 三源互校
+  - **③ `VER` `0x0100`**：`protocol.h` `kWireVersion` / `HgcpFrame.WIRE_VERSION` / §4.2.2 `VER` 行 / §4.2.8 声明行 —— 四源互校
+  - **④ `FR` `184`**：`docs/REQUIREMENTS/*.md` FR 定义标题数（`^#{2,4} *FR-<大写>-<数字>`）/
+    §1.1「N 条 FR」/「FR 覆盖统计」/ §4.2.8 声明行 —— 四源互校
+- **⚠️ 显式不覆盖（N1–N5，详见脚本头）**：字段级 schema（归 `E7`）；错误码名称/含义/触发条件（只比行数与取值集合规模）；
+  `FR` 正文与验收条件（只比定义标题条数）；`§4.2.8` 之外的**历史记录行 / 冻结登记块 / 附录 C 副本**（只锚六处现行权威面，
+  历史行内旧值**不判红**）；proto 的 `syntax`/`package`/`option` 与 wire type。
+- **自测（2026-10-30 `T-122` 实测，隔离副本）**：
+
+| # | 场景 | 期望 | 实测 `rc` | 关键输出 |
+|---|------|------|-----------|----------|
+| 1 | 现行制品（负控） | 通过 | **0** | `E9 通过：四项冻结-不变量全部一致（消息 40 / 错误码 62 / VER 0x0100 / FR 184）` |
+| 2 | 正控：`proto` 删 `EVT_TRADING_ALERT = 0x020E` | 命中 | **1** | `[① 消息集] proto enum MsgType 有效值数 = 39 ≠ 冻结值 40` |
+| 3 | 正控：`HgcpFrame.WIRE_VERSION` `0x0100` → `0x0101` | 命中 | **1** | `[③ 线格式 VER] HgcpFrame.WIRE_VERSION = 0x0101 ≠ 冻结值 0x0100` |
+| 4 | 正控：`§4.2.8` 声明行 `FR 184` → `183` | 命中 | **1** | `[④ FR 计数] ARCH §4.2.8 声明行 = 183 ≠ 冻结值 184` |
+| 5 | 正控：`protocol.h` 删 `kFlowPersistFailed = 0x3001` | 命中 | **1** | `[② 错误码] protocol.h enum ErrorCode 值数 = 61 ≠ 冻结值 62` |
+| 6 | 形态护栏：`--arch /no/such/…`（显式路径不存在） | 前置错误 | **2** | `错误：--arch 路径不存在（显式路径）` |
+| 7 | 形态护栏：`#### 4.2.8` 章节标题改名 | 前置错误 | **2** | `未找到章节锚点「§4.2.8」（^####\s+4\.2\.8\s）` |
+| 8 | 形态护栏：删除「冻结-不变量」声明行 | 前置错误 | **2** | `§4.2.8 内未找到「冻结-不变量」声明行（消息集/组件错误码/VER/FR 计数）` |
+| 9 | 默认路径不存在（空目录内执行） | `SKIP` | **0** | `SKIP: 默认路径 docs/ARCHITECTURE.md 不存在（组件未铺开）` |
+
+（各场景变异后均复位并复跑 ⇒ `0`；被变异制品逐字节复位。）
+
 
 ---
 

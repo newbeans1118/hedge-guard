@@ -17686,3 +17686,62 @@ FR-ACCT-5③ `priceStateCarryForwardLabeled`，`AcctEffectServiceTest:177-185` �
 —— T-087 执行席 te-t087；待独立复核（本席不自评 DONE）。
 
 **§T087-8 树锚回填（te-t087，2026-10-27，紧随首笔提交 3748474）**：提交 `3748474`（2 文件 +229/0：§T087 证据章 + DM8 底稿新文件）后、`rm -rf java/target` 后于工作树实测（git status 除 gitignore 的 dev-team 工单外全净；java 零改动）：三形态——① 工单 canonical `find java -type f | sort | xargs md5sum | md5sum` = **`c200ac53605beaedad0f5f37a446e620` / 781 文件**；② LC_ALL=C 规范形态 `find java -type f | LC_ALL=C sort | xargs md5sum | md5sum` = **`7cd8b575d2ccc6ac8c6139214dcc7162` / 781**；③ `git ls-files java | LC_ALL=C sort | xargs md5sum | md5sum` = 同 ②——②≡③ 互证（纯 tracked 集），① 与 ② 差异纯系排序区域设置（树锚命令形态敏感判例，与 T-086 双形态口径同族）。`7cd8b575…/781` 与 T-205 交付时点前值逐字一致 ⇒ java 侧本单零改动旁证。追加前锚：17562+124=17686 行 / `3748474` 提交前 md5 与 §T087 头锚同源（纯追加，删=0）。
+
+## T122.1 T-122 交付证据章 —— 冻结-不变量判据 E9（`scan_frozen_invariants.py`）
+
+**交付时点**：2026-10-30 ｜ **冻结点**：`docs/ARCHITECTURE.md` v1.5.25 ｜ **判据**：`E9`
+**承载**：`ARCHITECTURE.md §3.0.2` 判据表 `E9` 行（`E7` 头注 `N4` 原即「另立任务（已立号 `T-122`）」）
+
+### T122.1.1 交付面（新增 1 文件 + 5 文件接线/文档连锁）
+
+| 文件 | 变更 | 说明 |
+|------|------|------|
+| `tools/arch-check/scan_frozen_invariants.py` | 新增 | 单文件 Python3、零第三方依赖；四项冻结-不变量跨制品四源互校 |
+| `tools/arch-check/arch-check.sh` | `CHECKS` +1（E9）、计数注释 八→九 | `E1`–`E8` 条目与调用形态逐字节未动 |
+| `tools/arch-check/README.md` | 清单 + 聚合 + 新增 §3 `E9` 段 | 含自测矩阵 9 例 |
+| `docs/ARCHITECTURE.md` | §3.0.2 八→九大 + E9 行 + 状态块 + 退出码块 + E7 指针加注 + §3.13 + §8.3 + §13 `v1.5.25` | 判据接线、非 `CH-xxx` |
+| `cpp/CMakeLists.txt` / `java/pom.xml` | 注释 `E1–E8` → `E1–E9` | 仅注释，接线语句逐字节不动 |
+| `docs/TASKS.md` / `docs/BOARD.md` | 交付注记 | 待独立复核 |
+
+### T122.1.2 判据实测（现行制品，负控）
+
+```
+$ python3 tools/arch-check/scan_frozen_invariants.py
+① 消息集 : proto=40 / ARCH §4.2.8.2+3+4=40 / §4.2.3 标题=40 / §4.2.8 声明=40 / Java 常量=40
+② 错误码 : ARCH §4.3.2=62 / protocol.h enum=62 / §4.2.8 声明=62
+③ VER    : protocol.h=0x0100 / HgcpFrame=0x0100 / §4.2.2=0x0100 / §4.2.8 声明=0x0100
+④ FR     : REQUIREMENTS=184 / §1.1=184 / FR 覆盖统计=184 / §4.2.8 声明=184
+E9 通过：四项冻结-不变量全部一致（消息 40 / 错误码 62 / VER 0x0100 / FR 184）（退出码 0）
+```
+
+### T122.1.3 变异 / 形态护栏（隔离副本 `/tmp/hg-t122iso`；逐例复位后复跑 `0`）
+
+| # | 场景 | 期望 | 实测 `rc` | 关键输出 |
+|---|------|------|-----------|----------|
+| M1 | `proto` 删 `EVT_TRADING_ALERT = 0x020E` | 1 | **1** | `[① 消息集] proto enum MsgType 有效值数 = 39 ≠ 冻结值 40` |
+| M2 | `HgcpFrame.WIRE_VERSION` `0x0100`→`0x0101` | 1 | **1** | `[③ 线格式 VER] HgcpFrame.WIRE_VERSION = 0x0101 ≠ 冻结值 0x0100` |
+| M3 | `§4.2.8` 声明行 `FR 184`→`183` | 1 | **1** | `[④ FR 计数] ARCH §4.2.8 声明行 = 183 ≠ 冻结值 184` |
+| M4 | `protocol.h` 删 `kFlowPersistFailed = 0x3001` | 1 | **1** | `[② 错误码] protocol.h enum ErrorCode 值数 = 61 ≠ 冻结值 62` |
+| G1 | 显式 `--arch /no/such/ARCH.md` | 2 | **2** | `错误：--arch 路径不存在（显式路径）` |
+| G2 | `#### 4.2.8` 章节标题改名 | 2 | **2** | `未找到章节锚点「§4.2.8」（^####\s+4\.2\.8\s）` |
+| G3 | 删除「冻结-不变量」声明行 | 2 | **2** | `§4.2.8 内未找到「冻结-不变量」声明行（消息集/组件错误码/VER/FR 计数）` |
+| G4 | 空目录（默认路径不存在） | 0+SKIP | **0** | `SKIP: 默认路径 docs/ARCHITECTURE.md 不存在（组件未铺开）` |
+
+**聚合穿透**：隔离副本注入 M1 后 `bash tools/arch-check/arch-check.sh` ⇒ `rc 1`，`E9 退出码 1`（与 `E7` 同批红，因 `proto` 删值同时破坏字段级一致）。
+
+### T122.1.4 门禁（主树实测）
+
+| 项 | 结果 |
+|----|------|
+| arch 聚合 | `bash tools/arch-check/arch-check.sh` ⇒ **rc 0**，`通过(0)=9 命中(1)=0 用法/前置(2)=0`（E1–E9 全 0） |
+| mvn 接线 | `mvn -B -o -f java/pom.xml validate` ⇒ **BUILD SUCCESS**，arch-check 九判据 rc0 |
+| Java 全量 | `mvn -B -o -f java/pom.xml clean test` ⇒ **1300 / 0 / 0 / 0**（skip=0）+ BUILD SUCCESS（基线 1300 不变，本单零 Java 源码变更） |
+| 语法 | `python3 -m py_compile` 通过；`bash -n arch-check.sh` 通过；`pom.xml` XML 可解析 |
+
+### T122.1.5 边界与不覆盖
+
+- **不改** `cpp/**`（除 CMake 注释）、`java/**`（除 pom 注释）、`proto/**` 的语义。
+- **不覆盖**（脚本头 N1–N5）：字段级 schema（归 `E7`）/ 错误码语义列 / `FR` 正文 / `§4.2.8` 之外的历史记录行与附录 C 副本 / proto 非字段内容。
+- 本单为**判据接线**，非 `CH-xxx`（不触协议实质）；消息 40 / 错误码 62 / `VER 0x0100` / `FR 184` 均不变。
+
+—— T-122 交付席；待独立复核（本席不自评 DONE）。

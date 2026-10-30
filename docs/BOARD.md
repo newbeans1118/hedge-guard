@@ -100,7 +100,6 @@
 | T-117 | 修正 PRODUCT **白名单可见性 over-inclusive**（可见子查询补 `status='ENABLED'`，已移出品种不再算「可见」） | backend-engineer#java2 | P1 |
 | T-118 | 补齐**全局 / 账户级对象写面的功能权限强制点**（`createProduct`/`disableProduct`/`enableProduct`/`putUnit`/`putContract`/`putSpotMapping`/`importProducts` 现**零权限门禁**） | backend-engineer#java2 | P0 |
 | T-119 | 补齐 `putQuota` **层③**（`ACCOUNT_PRODUCT` / 账户哨兵 `0`）**写面授权门禁**（M1 = 角色近似） | backend-engineer#java | P0 |
-| T-122 | 落地「**冻结不变量**（消息 `40` / 错误码 `62` / 线格式 `VER 0x0100` / `FR 184`）」CI 判据脚本 | tech-lead | P0 |
 | T-123 | 订正判据计数注释（`cpp/CMakeLists.txt:70` / `java/pom.xml:129` 仍写「聚合 `E1`–`E6` 六判据脚本」） | backend-engineer#cpp + backend-engineer#java（跨写域） | P2 |
 | T-125 | `T-096` 复核观察收口：① 产品侧 `ORDER BY` 形状守卫补齐 ② `orderByEnsuringUnique` 大小写不敏感 | backend-engineer#java | P2 |
 | T-131 | 补齐 **PRODUCT 写面 REST 端点**（品种修改 / 停用 / 启用 / 计量单位；**服务层已实现、端点未注册**） | backend-engineer#java2 | P1 |
@@ -286,6 +285,7 @@
 > 分布：`#java2` **10** ／ `#java` 3 ／ `#cpp` 1 ／ 编排者 1。**建议**：按批回写证据章并做一次全量重跑，使"全量绿"重新可复现（当前可复现基准仍停在 09-24）。**本报告不代派复核**（第 149 轮已派发）。
 | 编号 | 标题 | 负责人 | 优先级 | 证据档 |
 |------|------|--------|--------|--------|
+| T-122 | 落地「冻结不变量（消息 40 / 错误码 62 / 线格式 VER 0x0100 / FR 184）」CI 判据脚本（E9） | tech-lead | P0 | 新增 `tools/arch-check/scan_frozen_invariants.py`（单文件 Python3 零依赖）；四项不变量**四源互校**（消息：proto/§4.2.8.2+3+4/§4.2.3/Java 常量/§4.2.8 声明；错误码：§4.3.2/protocol.h enum/§4.2.8 声明；VER：kWireVersion/WIRE_VERSION/§4.2.2/§4.2.8 声明；FR：REQUIREMENTS 标题数/§1.1/覆盖统计/§4.2.8 声明）；接线 arch-check（E1–E8 逐字节未动）+ README + ARCH v1.5.25；门禁 arch rc0(9/0/0)、mvn validate SUCCESS、Java 1300/0/0/0；变异 4 例退 1、形态护栏 3 项退 2、SKIP 退 0；证据 `docs/TEST_RESULT.md` §T122.1 |
 | T-004 | 实现 DAO 基座并交付 CONFIG+AUTH 20 张表 DDL | backend-engineer#java | P0 | 实现 + 自测 + **PM 旁证复算**；**无第三方独立验证** |
 | T-005 | 交付 PRODUCT 模块 8 张表 DDL 与 DAO | backend-engineer#java2 | P0 | 交付报告 + **PM 旁证复算**；**无第三方独立验证** |
 | T-006 | 交付 SPOT 模块 10 张表 DDL 与 DAO | backend-engineer#java2 | P0 | 交付报告 + **PM 旁证复算**；**无第三方独立验证** |

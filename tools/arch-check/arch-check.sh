@@ -3,7 +3,7 @@
 # =============================================================================
 # arch-check.sh — 架构合规**聚合入口**（docs/ARCHITECTURE.md §3.13）
 #
-# 职责：按 §3.0.2「八大工程化手段」依次调用 **E1–E8 八个判据脚本**，汇总结果并
+# 职责：按 §3.0.2「九大工程化手段」依次调用 **E1–E9 九个判据脚本**，汇总结果并
 #       给出**单一退出码**——**任一脚本非 0 ⇒ 整体非 0**（任一失败则整体失败）。
 #
 # ⚠️ 本脚本**只做「调用 + 汇总退出码」**，**不实现、不改写任何判据逻辑**：
@@ -12,6 +12,7 @@
 #   E5 `scan_java_sql.sh` + `strip_java_comments.awk`（既有）
 #   E6 `check_frontend.sh`（T-093）     E7 `scan_hgcp_schema.py`（T-121）
 #   E8 `scan_contracts_payload.py`（T-170）
+#   E9 `scan_frozen_invariants.py`（T-122）
 #
 # 调用口径：
 #   · 先 **cd 到仓库根**（由本脚本位置推导 `../..`），再以**各脚本的默认扫描根**
@@ -49,7 +50,7 @@ set -u
 usage() {
   cat <<'USAGE'
 用法：arch-check.sh
-  聚合 E1–E8 八个架构判据脚本（各用默认路径，从仓库根调用），
+  聚合 E1–E9 九个架构判据脚本（各用默认路径，从仓库根调用），
   任一脚本非 0 ⇒ 整体非 0。
   -h, --help   显示本帮助
 退出码：0 全部通过；1 存在架构偏离（无用法错误）；2 存在用法/前置错误
@@ -77,13 +78,14 @@ CHECKS=(
   "E6|check_frontend.sh|前端零构建链 + 无直连扫描"
   "E7|scan_hgcp_schema.py|HGCP 字段级 schema：ARCHITECTURE.md §4.2.8 ↔ proto/hgcp.proto"
   "E8|scan_contracts_payload.py|CONTRACTS §3.2.1 payload 键 ↔ proto 字段名（T-170）"
+  "E9|scan_frozen_invariants.py|冻结-不变量跨制品：消息 40 / 错误码 62 / VER 0x0100 / FR 184（T-122）"
 )
 
 echo "############################################################################"
 echo "# 架构合规聚合检查 arch-check（ARCHITECTURE.md §3.13；任一非 0 ⇒ 整体非 0）"
 echo "# 仓库根：${REPO_ROOT}"
 echo "# 判据脚本目录：${SCRIPT_DIR}"
-echo "# 判据：E1–E8（E7 = HGCP §4.2.8 ↔ proto/hgcp.proto，T-121；E8 = CONTRACTS §3.2.1 payload 键 ↔ proto 字段名，T-170）"
+echo "# 判据：E1–E9（E7 = HGCP §4.2.8 ↔ proto/hgcp.proto，T-121；E8 = CONTRACTS §3.2.1 payload 键 ↔ proto 字段名，T-170；E9 = 冻结-不变量跨制品，T-122）"
 echo "############################################################################"
 
 declare -a CODES=()
@@ -133,7 +135,7 @@ done
 echo "############################################################################"
 
 if [ "${max_code}" -eq 0 ]; then
-  echo "arch-check 通过：八个判据脚本全部通过（退出码 0）"
+  echo "arch-check 通过：九个判据脚本全部通过（退出码 0）"
   exit 0
 fi
 echo "arch-check 失败：存在非 0 判据（整体退出码 ${max_code}）" >&2
