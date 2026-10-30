@@ -73,6 +73,8 @@
 #       附录 C 副本）—— 只锚 `§4.2.8` 的声明行与 §1.1 / §4.2.2 / §4.2.3 /
 #       §4.3.2 / FR 覆盖统计 六处**现行权威面**；历史变更记录行内出现旧值**不判红**
 #       （属「只加不改」留痕体例）。
+#       ⚠️ **「FR 覆盖统计」行按全文取首个匹配**（该句在现行制品中全文唯一；
+#       若未来前置出现同形文本，须改为章节锚定——已由复核席登记为观察 O-2/O-3）。
 #   N5. **`proto` 的 `syntax` / `package` / `option`** 与 wire type —— 非本判据范围。
 # =============================================================================
 
@@ -203,7 +205,8 @@ def parse_section_rows(lines, heading_re, row_re, label, table_head_re, allow_re
     if start_i is None:
         raise ShapeError("%s：未找到表头行（%s）" % (label, table_head_re))
     rows = []
-    for ln in seg[start_i:]:
+    base = lines.index(seg[0]) + 1 if seg else 1   # 段内首行的全文行号
+    for off, ln in enumerate(seg[start_i:]):
         if ln.strip() == "":
             break                    # 表体块结束
         if not ln.startswith("|"):
@@ -217,7 +220,8 @@ def parse_section_rows(lines, heading_re, row_re, label, table_head_re, allow_re
             continue                 # 分隔行
         if any(r.match(ln) for r in allow):
             continue                 # 显式允许（如「小计」行）
-        raise ShapeError("%s：表体行不符合标准形态 — %s" % (label, ln.strip()[:120]))
+        raise ShapeError("%s：表体行不符合标准形态（行 ~%d）— %s"
+                         % (label, base + start_i + off, ln.strip()[:160]))
     return rows, seg
 
 
@@ -331,7 +335,7 @@ def main(argv):
         proto_msgs = parse_proto_msgs(proto_text)
         n_proto = len(proto_msgs)
 
-        msg_allow = [r"^\|\s*#\s*\|", r"^\|\s*\|\s*\|\s*\|\s*\*\*小计\*\*"]
+        msg_allow = [r"^\|\s*\|\s*\|\s*\|\s*\*\*小计\*\*"]
         seg2, _ = parse_section_rows(arch_lines, r"^#####\s+4\.2\.8\.2\s",
                                      r"^\|\s*\d+\s*\|\s*`0x[0-9A-Fa-f]+`\s*\|", "§4.2.8.2",
                                      r"^\|\s*#\s*\|\s*类型码\s*\|", msg_allow)
