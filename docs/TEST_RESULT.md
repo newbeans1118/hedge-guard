@@ -17921,3 +17921,32 @@ E9 通过：四项冻结-不变量全部一致（消息 40 / 错误码 62 / VER 
 ### T213.3 遗留观察（不阻断，登记备查）
 
 - **提交路径零写库的并发窗口**：`submitOrder` 按设计不写库（`ordered_qty` 由 C++ 受理事件回写），故「剩余 10」时连续两笔 `volume=10` 可**先后通过**前置校验。属 `FR-TRADE-1`「提交不落库」与事件驱动占用之间的**固有窗口**，最终由 C++ 侧事前风控/额度判定兜底；**不在 T-213 范围**，如需收敛另立（涉及预占或幂等键语义）。
+
+## T166.1 T-166 账实背离订正与独立复验（守卫已存在）
+
+**背景**：`T-166` 台账自 2026-10-06 起标 `TODO`，但实现已于 `2b47194`（2026-10-01，`test(T-166): 两处零承重机制守卫补齐`）落树，并在该提交中记为「编排者独立复核通过」。第 214 轮（`9b588b3`）判其「真实在办 P0」系**按状态格判定、未核代码**，构成**账实背离**。
+
+### T166.1.1 现有守卫（`HgcpClientGuardTest`，7 用例）
+
+| 用例 | 覆盖 |
+|---|---|
+| `cancelOrderCarriesOperatorIdOnTheWire` | 重解出站 `CMD_CANCEL_ORDER` 帧，断言 `operator_id` = 入参 `987654321`（**非 0**） |
+| `confirmOrderCarriesOperatorAndTokenOnTheWire` | CH-018：`operator_id` 与 `confirm_token` 分列承载 |
+| `placeOrder...`（2 例） | T-173/CH-020 六字段上 wire；`trade_reason_text` null ⇒ 空串 |
+| `duplicatePositionChangeEventIsDiscarded` | 同 `(instrument#sub, event_seq)` 重复 ⇒ 第二次整体丢弃（载荷改为 20 会被断言捕获） |
+| `duplicateFundReceiptEventIsDiscarded` | 同 `(apply_id, event_seq)` 重复 ⇒ 资金保持 1000.0000（击穿则 9999.0000） |
+| 幂等**正控** | 同 `event_seq`、不同 `business_id` ⇒ 各自生效（证明「丢弃」确由业务键匹配所致） |
+
+> 未采用 `HgcpResumeDataReplayTest.positionQty` 的覆盖式自愈路径作证据（复核席附注明确禁止）。
+
+### T166.1.2 验收变异复验（2026-10-30，clean 重建）
+
+| 变异 | 注入 | 期望 | 实测 |
+|---|---|---|---|
+| **M2** | `HgcpClient.cancelOrder`：`setOperatorId(operatorId)` → `setOperatorId(0L)` | 必红 | **1 红** — `expected: <987654321> but was: <0>`（`cancelOrderCarriesOperatorIdOnTheWire`） |
+| **M7** | `IdempotencyCache.first`：重复分支 `return false` → `return true` | 必红 | **2 红** — 持仓 `10 → 20`、资金 `1000.0000 → 9999.0000` |
+
+> 判据 ④「两变异各自必红」**已满足**（复核报告当时的「绿 27/27」「绿 15/15」已不复现）。
+> 变异均在主树注入后**逐字节复原**（`git diff --quiet java/src/main/java` = 0），全量 **1310/0/0/0** 复现。
+
+—— T-166 回写席；待独立复核（本席不自评 DONE）。
