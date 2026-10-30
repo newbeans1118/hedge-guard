@@ -431,12 +431,11 @@ public final class TradeService {
         if ("LIMIT".equals(priceType) && (req.price == null || req.price.trim().isEmpty())) {
             throw invalid("限价单必须给出价格：priceType=LIMIT；复现=补齐 price");
         }
-        if (plan.planQty != null && plan.executedQty != null && plan.orderedQty != null) {
-            BigDecimal remaining = plan.planQty.subtract(plan.executedQty).subtract(plan.orderedQty);
-            if (BigDecimal.valueOf(req.volume).compareTo(remaining) > 0) {
-                throw invalid("数量超过交易计划剩余可下单量：请求=" + req.volume + " 剩余=" + remaining
-                        + "；复现=减小 volume（FR-TRADE-1 验收3）");
-            }
+        // 剩余可下单量 = 唯一计算源（PlanService.remainingOrderableQty；与列表展示同源，T-104）
+        BigDecimal remaining = PlanService.remainingOrderableQty(plan);
+        if (BigDecimal.valueOf(req.volume).compareTo(remaining) > 0) {
+            throw invalid("数量超过交易计划剩余可下单量：请求=" + req.volume + " 剩余=" + remaining
+                    + "；复现=减小 volume（FR-TRADE-1 验收3）");
         }
 
         // ⑤ 组装并下发（不落库）

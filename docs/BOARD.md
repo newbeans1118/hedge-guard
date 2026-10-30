@@ -91,7 +91,6 @@
 | T-085 | 执行 M4 会计文档包与 CAS 24 自检报告 | test-engineer | P0 |
 | T-094 | 交付 RISK 模块剩余 10 张表 DDL 与 DAO（M3 窗口） | backend-engineer#java | P0 |
 | T-097 | `ApiRoutes` 升级为冻结 `(方法,路径)` 对 + 一致性判据改等值断言 | backend-engineer#java | P0 |
-| T-104 | `FR-PLAN-15` 处理规则两项：交易计划**剩余可下单量** + **已达上限标记**（含前端展示） | backend-engineer#java | P0 |
 | T-108 | 补齐 **AUTH 3 个**未实现 DAO 的实现类（**第 19 轮范围收窄**：CONFIG 侧 4 个已由 `T-109` 交付；`AuthorizationDao` 由 `T-016` 顺带实现，**不在本任务内**） | backend-engineer#java2 | P0 |
 | T-111 | 实现服务端敞口推导引擎并回填 `FR-SPOT-16` 验收 1（变更后重算敞口） | backend-engineer#java2 | P1 |
 | T-113 | 修正 SPOT 现货单据创建在 `subAccountId` 缺省时的错误呈现（现 NPE→500，应明确提示「子账户必填」） | backend-engineer#java2 | P1 |
@@ -285,6 +284,7 @@
 > 分布：`#java2` **10** ／ `#java` 3 ／ `#cpp` 1 ／ 编排者 1。**建议**：按批回写证据章并做一次全量重跑，使"全量绿"重新可复现（当前可复现基准仍停在 09-24）。**本报告不代派复核**（第 149 轮已派发）。
 | 编号 | 标题 | 负责人 | 优先级 | 证据档 |
 |------|------|--------|--------|--------|
+| T-104 | FR-PLAN-15 处理规则两项：交易计划剩余可下单量 + 已达上限标记（含前端展示） | backend-engineer#java | P0 | `PlanService.remainingOrderableQty/isOrderLimitReached` 为唯一计算源（计划数量 − 已成交 − 已下达）；`TradePlanHandler.View` 增 `remainingQty`/`limitReached`；`TradeService` 前置校验同源化；`plan.js` 消费服务端字段（上限标记仅 PENDING/EXECUTING）；新增 7 用例；门禁 Java 1307/0/0/0 · arch rc0 · 变异 M1/M2/M3 = 3/4/5 红；证据 `docs/TEST_RESULT.md` §T104.1 |
 | T-004 | 实现 DAO 基座并交付 CONFIG+AUTH 20 张表 DDL | backend-engineer#java | P0 | 实现 + 自测 + **PM 旁证复算**；**无第三方独立验证** |
 | T-005 | 交付 PRODUCT 模块 8 张表 DDL 与 DAO | backend-engineer#java2 | P0 | 交付报告 + **PM 旁证复算**；**无第三方独立验证** |
 | T-006 | 交付 SPOT 模块 10 张表 DDL 与 DAO | backend-engineer#java2 | P0 | 交付报告 + **PM 旁证复算**；**无第三方独立验证** |

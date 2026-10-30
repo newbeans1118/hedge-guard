@@ -41,9 +41,10 @@
  *    `router.register("GET", PlanHandler.PATH, …)`；`T-010` 补齐）。**列表 UI 已由本任务（`T-020`）铺开**。
  *
  * ⚠️ **诚实披露（未实现/受限项，集中在此，勿在正文另作承诺）**：
- *   1. **`FR-PLAN-15` 的 `remainingQty`（剩余可下单量）/ `limitReached`（已达上限标记）** 由服务端 `T-104`
- *      提供，而 `T-104` 实测为 `TODO` ⇒ **服务端尚未输出这两个字段**。本页**优先消费服务端字段**（存在即用），
- *      缺失时按 `planQty − orderedQty` **派生展示**并明确标注「派生值（待 `T-104` 服务端字段）」。
+ *   1. ✅ **`FR-PLAN-15` 的 `remainingQty` / `limitReached` 已由服务端提供**（`T-104`）：
+ *      `remainingQty` = 计划数量 − 已成交数量 − 已下达指令量（服务端唯一计算源
+ *      `PlanService.remainingOrderableQty`，与下单前置校验同源）；`limitReached` = 剩余量 ≤ 0。
+ *      本页**消费服务端字段**；仅当字段缺失（如旧版服务端）时按**同一定义**派生兜底，不再标注「待 T-104」。
  *   2. **`GET /plan` 至多返回授权子账户范围**；「审批人视角默认展示待我审批」（`FR-PLAN-4` 验收 3）本页以
  *      **状态=待审批**快捷筛选近似；**「排除本人发起」需服务端支持**（无「非本人」筛选参数）⇒ 未实现。
  *   3. **详情区块缺口**：`PlanView` **不含**套保比率计算过程（`t_hedge_ratio_calc`）、审批链记录、书面文件**正文**，
@@ -1067,13 +1068,16 @@ function renderDocCard(d, reload) {
  *   响应 data = **PageData** {items, total, page, size}。
  *   size ∈ {10,20,50,100}（默认 20）；sort=exec_deadline,asc|desc（默认升序）。
  *   ⚠️ 服务端**默认已分页**：不传 size 只返回前 20 条，故本面板**始终显式传** page/size/sort。
- *   ⚠️ `remainingQty` / `limitReached` 由 `T-104` 提供（**实测 TODO**）⇒ 缺失时按派生值展示并标注。
+ *   ✅ `remainingQty` / `limitReached` 由服务端提供（`T-104`）；缺失时按同一定义派生兜底（不改变口径）。
  * ------------------------------------------------------------------ */
 
-/** 剩余可下单量：优先取服务端 `remainingQty`；缺失时按 planQty − orderedQty 派生。 */
+/**
+ * 剩余可下单量：优先取服务端 `remainingQty`（`T-104`，唯一计算源）。
+ * 缺失时按**同一定义**兜底：计划数量 − 已成交数量 − 已下达指令量。
+ */
 function tpRemaining(r) {
   if (r && r.remainingQty !== undefined && r.remainingQty !== null) return String(r.remainingQty);
-  return F.decSub(r.planQty, r.orderedQty);
+  return F.decSub(F.decSub(r.planQty, r.executedQty), r.orderedQty);
 }
 /** 已达上限：优先取服务端 `limitReached`；缺失时按剩余量 ≤ 0 派生。 */
 function tpLimitReached(r) {
@@ -1166,7 +1170,9 @@ function renderTradePlans(box, plan, reloadPlan) {
       { title: '剩余可下单量', num: true, render: (r) => F.qty(tpRemaining(r)) + (serverFields ? '' : ' *') },
       { title: '执行期限', render: (r) => F.date(r.execDeadline) },
       { title: '状态', render: (r) => ui.statusBadge(TRADE_PLAN_STATUS[r.status] || r.status) },
-      { title: '上限标记', render: (r) => (tpLimitReached(r) ? ui.statusBadge('已达上限') : '—') },
+      // FR-PLAN-15：仅「已生效」（待执行/执行中）且量已用尽时标记；已完成/已取消另有状态徽标
+      { title: '上限标记', render: (r) => (tpLimitReached(r) && (r.status === 'PENDING' || r.status === 'EXECUTING')
+        ? ui.statusBadge('已达上限') : '—') },
       { title: '操作', render: (r) => {
         const atCap = tpLimitReached(r);
         const disabled = atCap || r.status === 'COMPLETED' || r.status === 'CANCELLED';
@@ -1175,8 +1181,9 @@ function renderTradePlans(box, plan, reloadPlan) {
     ];
     let html = ui.tableHTML(columns, pg.items);
     if (!serverFields) {
-      html += '<p class="hg-muted">＊ 剩余可下单量按 <code>planQty − orderedQty</code> <strong>派生</strong>展示；' +
-        '<code>remainingQty</code> / <code>limitReached</code> 由服务端 <strong><code>T-104</code></strong> 提供（实测 <code>TODO</code>、尚未交付）——本页消费优先取服务端字段，缺失时降级为派生值并标注。</p>';
+      html += '<p class="hg-muted">＊ 本页响应未含服务端 <code>remainingQty</code> / <code>limitReached</code>' +
+        '（旧版服务端），已按同一定义（计划数量 − 已成交数量 − 已下达指令量）<strong>派生</strong>展示；' +
+        '升级至含 <code>T-104</code> 的服务端后自动改用服务端字段。</p>';
     }
     ui.clear(body);
     body.innerHTML = html;

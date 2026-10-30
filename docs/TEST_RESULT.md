@@ -17818,3 +17818,57 @@ E9 通过：四项冻结-不变量全部一致（消息 40 / 错误码 62 / VER 
 | Java | 本笔零 `java/**` 变更；复检席已在副本内实跑 **1300/0/0/0** |
 
 —— T-122 收口席；复检已通过（P3 修复于复检后应用并自验）。
+
+## T104.1 T-104 交付证据章 —— FR-PLAN-15 剩余可下单量 + 已达上限标记
+
+**交付时点**：2026-10-30 ｜ **承载**：`FR-PLAN-15`「处理规则」两项（`PLAN.md` 查询交易计划）
+**缺口**：列表端点此前只下发 `planQty/executedQty/orderedQty` 三个原始量；剩余可下单量与上限标记**由前端自行派生**，且派生公式（`planQty − orderedQty`）与下单前置校验（`planQty − executed − ordered`）**不一致**。
+
+### T104.1.1 口径（唯一计算源）
+
+- `remainingQty` = **计划数量 − 已成交数量 − 已下达指令量**。成交回报把占用自 `ordered_qty` 转入 `executed_qty`，故**两项均须扣减**，否则已成交部分被重复计为可下单量。
+- `limitReached` = `remainingQty ≤ 0`（数据事实；「已生效」限定由前端结合 `status` 收窄展示）。
+- 计算源 = `PlanService.remainingOrderableQty` / `isOrderLimitReached`（public static）；**列表展示与 `TradeService.submitOrder` 前置校验共用**，消除公式漂移。
+
+### T104.1.2 交付面（5 文件：源码 3 + 前端 1 + 测试 1）
+
+| 文件 | 变更 |
+|------|------|
+| `service/PlanService.java` | 新增 `remainingOrderableQty(TradePlan)` / `isOrderLimitReached(TradePlan)`（唯一计算源） |
+| `web/handler/plan/TradePlanHandler.java` | `View` 增 `remainingQty`（String）/ `limitReached`（boolean），`View.of` 赋值 |
+| `service/TradeService.java` | 下单前置校验改用同源 helper（原三行内联公式删除） |
+| `web/js/pages/plan.js` | 消费服务端字段；兜底公式改为同一定义；「上限标记」列仅在 `PENDING`/`EXECUTING` 展示；披露文案由「待 T-104」改为已交付 |
+| `test/.../plan/TradePlanRemainingQtyTest.java` | 新增 7 用例 |
+
+### T104.1.3 用例与变异（clean 重建）
+
+| # | 用例 / 变异 | 期望 | 实测 |
+|---|---|---|---|
+| U1 | 100 − 30 − 20 ⇒ 50，未达上限 | 50 / false | 通过 |
+| U2 | 100 − 0 − 100 ⇒ 0（验收 2） | 0 / true | 通过 |
+| U3 | 100 − 60 − 40 ⇒ 0（合并口径，只扣 ordered 会误判） | 0 / true | 通过 |
+| U4 | 100 − 80 − 30 ⇒ −10 原样下发 | −10 / true | 通过 |
+| U5 | `executedQty/orderedQty` 为 null ⇒ 按 0 | 25 / false | 通过 |
+| U6 | COMPLETED / CANCELLED / PENDING 剩余 0 ⇒ 均为数据事实 true | 均 true | 通过 |
+| U7 | helper 语义 + null 防御 | 一致 | 通过 |
+| M1 | `View` 改用 `planQty − orderedQty`（漏扣 executed） | 必红 | **3 红**（U1/U3/U4） |
+| M2 | `limitReached` 恒 `false` | 必红 | **4 红**（U2/U3/U4/U6） |
+| M3 | helper 漏扣 `executedQty` | 必红 | **5 红**（U1/U3/U4/U7） |
+
+变异均 `clean` 重建，复位后全绿。
+
+### T104.1.4 门禁
+
+| 项 | 结果 |
+|----|------|
+| Java 全量 | `mvn -B -o -f java/pom.xml clean test` ⇒ **1307 / 0 / 0 / 0**（skip=0；基线 1300 + 7 新用例） |
+| arch 聚合 | **rc 0**（E1–E9 全 0） |
+| 前端语法 | `node --check web/js/pages/plan.js` rc0 |
+
+### T104.1.5 边界
+
+- 未改协议 / 线格式 / `DATA_MODEL` / `CONTRACTS`（`remainingQty`/`limitReached` 为 REST 视图字段，非 HGCP 线格式）。
+- 未改 `sub_account` 隔离路径（列表隔离仍走 `findPageScoped`，复用 `T-103` 既有实现）。
+- 负剩余量**不静默归零**（保留数据异常可见性）；下单侧对负值照常拒绝。
+
+—— T-104 交付席；待独立复核（本席不自评 DONE）。

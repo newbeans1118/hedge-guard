@@ -190,6 +190,22 @@ public final class TradePlanHandler implements RouteHandler {
         /** 已下达指令量。 */
         public String orderedQty;
 
+        /**
+         * **剩余可下单量**（{@code FR-PLAN-15}「处理规则」）= 计划数量 − 已成交数量 − 已下达指令量。
+         *
+         * <p>由服务端计算并下发（唯一计算源 = {@link PlanService#remainingOrderableQty}），
+         * 前端不再自行派生。负值（数据异常）原样下发，便于定位。
+         */
+        public String remainingQty;
+
+        /**
+         * **已达可下单量上限标记**（{@code FR-PLAN-15}「处理规则」末句）。
+         *
+         * <p>= {@code remainingQty ≤ 0}；「已生效」限定由前端结合 {@code status} 展示
+         * （{@code COMPLETED}/{@code CANCELLED} 不显示为可下单任务）。
+         */
+        public boolean limitReached;
+
         /** 执行期限。 */
         public String execDeadline;
 
@@ -208,6 +224,8 @@ public final class TradePlanHandler implements RouteHandler {
             view.planQty = text(plan.planQty);
             view.executedQty = text(plan.executedQty);
             view.orderedQty = text(plan.orderedQty);
+            view.remainingQty = text(PlanService.remainingOrderableQty(plan));
+            view.limitReached = PlanService.isOrderLimitReached(plan);
             view.execDeadline = plan.execDeadline == null ? null : plan.execDeadline.toString();
             view.status = plan.status;
             return view;

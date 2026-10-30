@@ -169,6 +169,40 @@ public final class PlanService {
     /** 交易计划列表默认排序字段（{@code FR-PLAN-15}「处理规则」：默认按执行期限升序）。 */
     public static final String TRADE_PLAN_DEFAULT_SORT_FIELD = "exec_deadline";
 
+    /**
+     * 交易计划**剩余可下单量**（{@code FR-PLAN-15}「处理规则」）。
+     *
+     * <p>定义 = **计划数量 − 已成交数量 − 已下达指令量**。成交回报会把占用从
+     * {@code ordered_qty} 转入 {@code executed_qty}（{@code TradeService} 回写口径），
+     * 故**两项都须扣减**，否则已成交部分会被重复计为可下单量。
+     *
+     * <p>本方法 = **唯一计算源**：列表展示（{@code TradePlanHandler.View}）与下单前置校验
+     * （{@code TradeService.submitOrder}）共用，避免两处公式漂移。负值（数据异常）**原样返回**，
+     * 由调用方判定（下单侧拒绝、列表侧据此标记「已达上限」）。
+     *
+     * @param plan 交易计划（可为 {@code null}，返回 0）
+     * @return 剩余可下单量
+     */
+    public static BigDecimal remainingOrderableQty(TradePlan plan) {
+        if (plan == null) {
+            return BigDecimal.ZERO;
+        }
+        return nz(plan.planQty).subtract(nz(plan.executedQty)).subtract(nz(plan.orderedQty));
+    }
+
+    /**
+     * 交易计划是否**已达可下单量上限**（{@code FR-PLAN-15}「处理规则」末句）。
+     *
+     * <p>判据 = {@link #remainingOrderableQty} ≤ 0。仅表示「量已用尽」这一**数据事实**；
+     * 「已生效」限定由调用方结合 {@code status}（{@code PENDING}/{@code EXECUTING}）判定展示文案。
+     *
+     * @param plan 交易计划
+     * @return 已达上限返回 {@code true}
+     */
+    public static boolean isOrderLimitReached(TradePlan plan) {
+        return remainingOrderableQty(plan).signum() <= 0;
+    }
+
     private static final Gson GSON = new Gson();
 
     private final TxTemplate tx;
