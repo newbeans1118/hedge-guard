@@ -185,9 +185,39 @@ def parse_java_int(text, name):
     return int(m.group(1), 0)
 
 
-def parse_section_rows(lines, heading_re, row_re, label):
+def parse_section_rows(lines, heading_re, row_re, label, table_head_re, allow_re=None):
+    """按章节锚点取段，并解析**首个表体块**（自表头起至首个空行止）。
+
+    纪律（与 E7/E8 同形）：表体块内以 `|` 开头的行，若既不是表头、不是分隔行、
+    不在显式允许清单（`allow_re`），又不匹配 `row_re` ⇒ 判为「表体行畸形」
+    （`ShapeError` ⇒ 退 2）。不得静默丢弃——静默丢弃正是本判据立项要消灭的失效模式。
+    """
     seg, _ = section(lines, heading_re, label)
-    rows = [ln for ln in seg if re.match(row_re, ln)]
+    allow = [re.compile(r) for r in (allow_re or [])]
+    head = re.compile(table_head_re)
+    start_i = None
+    for i, ln in enumerate(seg):
+        if head.match(ln):
+            start_i = i
+            break
+    if start_i is None:
+        raise ShapeError("%s：未找到表头行（%s）" % (label, table_head_re))
+    rows = []
+    for ln in seg[start_i:]:
+        if ln.strip() == "":
+            break                    # 表体块结束
+        if not ln.startswith("|"):
+            break                    # 非表格行（如「小计」前的说明）⇒ 表体块结束
+        if re.match(row_re, ln):
+            rows.append(ln)
+            continue
+        if head.match(ln):
+            continue                 # 表头
+        if re.match(r"^\|[\s:|-]+\|\s*$", ln):
+            continue                 # 分隔行
+        if any(r.match(ln) for r in allow):
+            continue                 # 显式允许（如「小计」行）
+        raise ShapeError("%s：表体行不符合标准形态 — %s" % (label, ln.strip()[:120]))
     return rows, seg
 
 
@@ -301,12 +331,16 @@ def main(argv):
         proto_msgs = parse_proto_msgs(proto_text)
         n_proto = len(proto_msgs)
 
+        msg_allow = [r"^\|\s*#\s*\|", r"^\|\s*\|\s*\|\s*\|\s*\*\*小计\*\*"]
         seg2, _ = parse_section_rows(arch_lines, r"^#####\s+4\.2\.8\.2\s",
-                                     r"^\|\s*\d+\s*\|\s*`0x[0-9A-Fa-f]+`\s*\|", "§4.2.8.2")
+                                     r"^\|\s*\d+\s*\|\s*`0x[0-9A-Fa-f]+`\s*\|", "§4.2.8.2",
+                                     r"^\|\s*#\s*\|\s*类型码\s*\|", msg_allow)
         seg3, _ = parse_section_rows(arch_lines, r"^#####\s+4\.2\.8\.3\s",
-                                     r"^\|\s*\d+\s*\|\s*`0x[0-9A-Fa-f]+`\s*\|", "§4.2.8.3")
+                                     r"^\|\s*\d+\s*\|\s*`0x[0-9A-Fa-f]+`\s*\|", "§4.2.8.3",
+                                     r"^\|\s*#\s*\|\s*类型码\s*\|", msg_allow)
         seg4, _ = parse_section_rows(arch_lines, r"^#####\s+4\.2\.8\.4\s",
-                                     r"^\|\s*\d+\s*\|\s*`0x[0-9A-Fa-f]+`\s*\|", "§4.2.8.4")
+                                     r"^\|\s*\d+\s*\|\s*`0x[0-9A-Fa-f]+`\s*\|", "§4.2.8.4",
+                                     r"^\|\s*#\s*\|\s*类型码\s*\|", msg_allow)
         if not (seg2 and seg3 and seg4):
             raise ShapeError("§4.2.8.2/§4.2.8.3/§4.2.8.4 至少一节未解析到 message 行")
         n_arch_msg = len(seg2) + len(seg3) + len(seg4)
@@ -324,7 +358,8 @@ def main(argv):
 
         # ---- ② 错误码 ----
         rows_432, _ = parse_section_rows(arch_lines, r"^####\s+4\.3\.2\s",
-                                         r"^\|\s*`0x[0-9A-Fa-f]{4}`\s*\|", "§4.3.2")
+                                         r"^\|\s*`0x[0-9A-Fa-f]{4}`\s*\|", "§4.3.2",
+                                         r"^\|\s*错误码\s*\|", None)
         if not rows_432:
             raise ShapeError("§4.3.2 未解析到错误码表体行")
         err_arch_codes = [re.match(r"^\|\s*`(0x[0-9A-Fa-f]{4})`", ln).group(1) for ln in rows_432]
