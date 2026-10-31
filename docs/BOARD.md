@@ -57,6 +57,7 @@
 
 | 编号 | 标题 | 负责人 | 优先级 |
 |------|------|--------|--------|
+| T-214 | `docs/TEST_PLAN/M2.md` TC-M2-26 落地指向订正（Replay 测试 M7 下全绿=零守卫力 ⇒ 改为 Convergence/Guard） | test-manager | P3 |
 | T-025 | 执行 M1 代码与架构合规审查 | code-reviewer | P0 |
 | T-036 | 实现指令生命周期管理 order_engine | backend-engineer#cpp | P0 |
 | T-037 | 实现指令流水与重放 flow_store | backend-engineer#cpp | P0 |
