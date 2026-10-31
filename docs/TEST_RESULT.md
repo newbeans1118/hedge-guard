@@ -17950,3 +17950,39 @@ E9 通过：四项冻结-不变量全部一致（消息 40 / 错误码 62 / VER 
 > 变异均在主树注入后**逐字节复原**（`git diff --quiet java/src/main/java` = 0），全量 **1310/0/0/0** 复现。
 
 —— T-166 回写席；待独立复核（本席不自评 DONE）。
+
+## T166.2 T-166 窄口径独立复核（只核 M2/M7 + 判据③）
+
+**复核席**：`te-verify-t166`（工单 `dev-team/inbox/test-engineer/te-verify-t166-task.md`）。**范围**：只核两变异与判据③，**不含** T-173/CH-018 其余字段、台账算术、文档考据。**隔离副本** `git archive HEAD`（HEAD `67413d2`）；主树只读（复核后 `git status --porcelain` 空、HEAD 未变、两注入点 md5 与 pristine 一致）。报告 `/root/te-verify-t166.md`（191 行）。
+
+### T166.2.1 基线
+
+`mvn -B -o clean test` = **1310/0/0/0** + BUILD SUCCESS（exit 0）；arch-check **E1–E9 全 rc=0**。
+
+### T166.2.2 变异复跑（隔离副本，逐字节复原）
+
+| 变异 | 注入 | md5 链 | 实测 |
+|---|---|---|---|
+| **M2** | `HgcpClient.java:787` `cancelOrder`：`.setOperatorId(operatorId)` → `0L`（裸串全文件 2 次，改用含 `CmdCancelOrder` 的 3 行锚定，命中 1） | `facb01bc…→f50087f2…→facb01bc…` | **1 红**：`cancelOrderCarriesOperatorIdOnTheWire:163`，`expected: <987654321> but was: <0>`；复原后 7/0/0/0 |
+| **M7** | `IdempotencyCache.java:77` 重复分支 `return false` → `true` | `19053252…→07445aad…→19053252…` | **2 红**：持仓 `10→20`、资金 `1000.0000→9999.0000`；正控 `distinctBusinessKeysWithSameSeqAreBothConsumed` 保持绿；复原后 7/0/0/0 |
+
+> 两变异轮 arch-check 均 E1–E9 rc=0（失败纯测试层，非门禁连带）。
+> 附加观察：M7 下 `HgcpResumeDataReplayTest` **5/5 全绿**（实证其对去重零守卫力）；`HgcpResumeConvergenceIdempotencyTest` **3/5 红** ⇒ 全仓 M7 爆炸半径实为 **5 红**，「M7 ⇒ 2 红」口径**限 `HgcpClientGuardTest` 单类**（对 T-166 为加强，非问题）。
+
+### T166.2.3 判据③「未用覆盖式自愈路径」逐项
+
+| # | 判据 | 判定 |
+|---|---|---|
+| 1 | 证据为 `HgcpClientGuardTest` 3 例，非 `HgcpResumeDataReplayTest.positionQty` | **成立**（Replay 在 M7 下全绿，结构上无守卫力） |
+| 2 | 重复载荷可区分（10/20、1000.0000/9999.0000） | **成立**（M7 红值即 20 / 9999.0000） |
+| 3 | 断言「第二次副作用未施加」，非仅终值正确 | **成立**（喂 20 后仍断言 10；并附水位不变） |
+| 4 | 正控证明丢弃由 `business_id + event_seq` 匹配所致 | **成立**（同 seq 不同业务键均生效；M7 下仍绿 ⇒ 非恒真） |
+| 5 | 全仓无把 Replay 当幂等证据的引用 | **成立**（T-166 证据链 0 处采用；`TEST_PLAN/M2.md:316` 设计落地引用已实证不承重，O-2 判非缺陷） |
+
+### T166.2.4 结论
+
+**通过（PASS）**：0 缺陷 / 5 观察。自述的每一项可核数字（1310 基线、M2 1 红+原文、M7 2 红+值、正控绿）均被独立逐字复现，无夸大无缩水。观察：O-1 前次变异在主树注入（本次改隔离副本，历史无残留）；O-2 `TEST_PLAN/M2.md:316` 落地指向建议后续订正；O-3 Replay 零守卫力；O-4 M7 全仓 5 红口径；O-5 自述仅显式判据④，判据③由本次补足。
+
+> 时点声明：md5/行号/计数为 2026-10-31T02:05–02:20Z 实测值，**以实时为准**。
+
+—— 复核席 `te-verify-t166`；编排者 2026-10-31 贴标 `DONE`。
