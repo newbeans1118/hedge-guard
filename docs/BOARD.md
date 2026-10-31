@@ -57,7 +57,6 @@
 
 | 编号 | 标题 | 负责人 | 优先级 |
 |------|------|--------|--------|
-| T-218 | `docs/TEST_PLAN/M2.md` §2.1.3 时态收口 + §10.3 引用订正（已实现 / 已闭环） | test-manager | P3 |
 | T-025 | 执行 M1 代码与架构合规审查 | code-reviewer | P0 |
 | T-036 | 实现指令生命周期管理 order_engine | backend-engineer#cpp | P0 |
 | T-037 | 实现指令流水与重放 flow_store | backend-engineer#cpp | P0 |
@@ -311,6 +310,7 @@
 |------|------|--------|---------|---------|
 | T-003 | 搭建 Java 业务组件工程骨架与 HTTP 服务基座 | backend-engineer#java | 2026-10-30 | REV-BATCH B3b 复核（席 `te-revbatch-b3b`）= **0 缺陷 / 1 观察**（2026-10-02，`ad364d0` 证据章）；观察 O-1（验收 5「显式公布」无制品内承载）按建议旁证口径闭环：`java/CONTRACTS.md` 在树 md5 `a45d77bb2478b00ea40dae27140a40fc`/1041 行 + `T-017` 机读 DONE（`te-verify-t017` 通过/0 缺陷/5 观察）+ `T-053` 机读 DONE（`te-verify-t053` 通过/0 缺陷/5 观察）⇒ 三项齐备、无需返工；当下树演进面纳入验收（BUG-004 后路由可达性、ping GET/HEAD、静态白名单、ErrorMapper、最小依赖 0 违规）；变异 2 例全红 |
 | T-166 | 事件幂等去重 + cancelOrder 操作人路径「守卫补齐」（TE-T042-001 / TE-T042-003） | test-engineer | 2026-10-01 | 实现 `2b47194`（7 用例：CH-018/T-173 守卫 + 幂等正控）；**独立复核 `te-verify-t166` = 通过 / 0 缺陷 / 5 观察**（2026-10-31；报告 `/root/te-verify-t166.md` 191 行）：M2 1 红（`expected <987654321> but was <0>`）、M7 2 红（10→20 / 1000.0000→9999.0000）、**判据③五项全成立**；隔离副本 + md5 逐字节复原；基线 Java 1310/0/0/0 · arch E1–E9 rc0；观察 O-4 全仓 M7 爆炸半径 5 红（另 3 红在 `HgcpResumeConvergenceIdempotencyTest`，「2 红」限单类） |
+| T-218 | `docs/TEST_PLAN/M2.md` §2.1.3 时态收口 + §10.3 引用订正（已实现 / 已闭环） | test-manager | 2026-10-31 | `tm-t218` 交付 `f2dd517`（1 文件 +2/−2，2 区域：§2.1.3 当前态先行、原 2026-10-05 观察降为历史并保留四项论据；§10.3「待裁定项 A」→「已闭环项 A（T-174 / 27d6c26）」）；**编排者独立核验**：`疑似未实现`/`仍会触发消费泵`/`待裁定项` 三 grep 归零，§5.5 零改动 |
 | T-217 | `docs/TEST_PLAN/M2.md` CH-007 消费侧用例状态与落点订正（TC-M2-21/37 + §2.1.3 + §9 A·E） | test-manager | 2026-10-31 | `tm-t217` 交付 `8cdc704`（1 文件 +9/−9，4 处：TC-M2-37/21 落点补 `HgcpResumeMarketQuoteDropTest.resumeBatchMarketQuoteIsDroppedAndKeyEventsStillConsumed` 并改「已实现」；§2.1.3 与 §9 A/E 标已闭环）；**编排者独立核验**：`预计 RED`/`待实现（依赖` 全文归零、步骤/预期逐字未动；T-174 交付 `27d6c26`，实测 3/3 绿 |
 | T-216 | `docs/TEST_PLAN/M2.md` TC-M2-29 落点补全（`HgcpResumeConvergenceIdempotencyTest` 补数重叠幂等） | test-manager | 2026-10-31 | `tm-t216` 交付 `f6cbbf5`（1 文件 +1/−1：TC-M2-29 落点补为 `HgcpResumeConvergenceIdempotencyTest.resumeOverlapWithAlreadyConsumedEventIsIdempotent`，其 `@DisplayName` 即 TC-M2-29，M7 下红 `expected <2> but was <3>`）；**编排者独立核验**：diff 仅 1 行、步骤/预期逐字未动、方法实存 |
 | T-215 | `docs/TEST_PLAN/M2.md` TC-M2-27 落点补全（`HgcpClientGuardTest` 资金/持仓两例） | test-manager | 2026-10-31 | `tm-t215` 交付 `44874f8`（1 文件 +1/−1：TC-M2-27 落点补为 `HgcpClientGuardTest.duplicateFundReceiptEventIsDiscarded` / `duplicatePositionChangeEventIsDiscarded`，M7 下各 1 红）；**编排者独立核验**：diff 仅 1 行、步骤/预期逐字未动、两方法实存；实际执行实例 = `tm-t215`（原注记「tm-t214 续用」因团队回收未续用） |
