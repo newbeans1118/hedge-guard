@@ -57,6 +57,7 @@
 
 | 编号 | 标题 | 负责人 | 优先级 |
 |------|------|--------|--------|
+| T-218 | `docs/TEST_PLAN/M2.md` §2.1.3 时态收口 + §10.3 引用订正（已实现 / 已闭环） | test-manager | P3 |
 | T-025 | 执行 M1 代码与架构合规审查 | code-reviewer | P0 |
 | T-036 | 实现指令生命周期管理 order_engine | backend-engineer#cpp | P0 |
 | T-037 | 实现指令流水与重放 flow_store | backend-engineer#cpp | P0 |
