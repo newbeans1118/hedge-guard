@@ -57,7 +57,6 @@
 
 | 编号 | 标题 | 负责人 | 优先级 |
 |------|------|--------|--------|
-| T-216 | `docs/TEST_PLAN/M2.md` TC-M2-29 落点补全（`HgcpResumeConvergenceIdempotencyTest` 补数重叠幂等） | test-manager | P3 |
 | T-025 | 执行 M1 代码与架构合规审查 | code-reviewer | P0 |
 | T-036 | 实现指令生命周期管理 order_engine | backend-engineer#cpp | P0 |
 | T-037 | 实现指令流水与重放 flow_store | backend-engineer#cpp | P0 |
@@ -311,6 +310,7 @@
 |------|------|--------|---------|---------|
 | T-003 | 搭建 Java 业务组件工程骨架与 HTTP 服务基座 | backend-engineer#java | 2026-10-30 | REV-BATCH B3b 复核（席 `te-revbatch-b3b`）= **0 缺陷 / 1 观察**（2026-10-02，`ad364d0` 证据章）；观察 O-1（验收 5「显式公布」无制品内承载）按建议旁证口径闭环：`java/CONTRACTS.md` 在树 md5 `a45d77bb2478b00ea40dae27140a40fc`/1041 行 + `T-017` 机读 DONE（`te-verify-t017` 通过/0 缺陷/5 观察）+ `T-053` 机读 DONE（`te-verify-t053` 通过/0 缺陷/5 观察）⇒ 三项齐备、无需返工；当下树演进面纳入验收（BUG-004 后路由可达性、ping GET/HEAD、静态白名单、ErrorMapper、最小依赖 0 违规）；变异 2 例全红 |
 | T-166 | 事件幂等去重 + cancelOrder 操作人路径「守卫补齐」（TE-T042-001 / TE-T042-003） | test-engineer | 2026-10-01 | 实现 `2b47194`（7 用例：CH-018/T-173 守卫 + 幂等正控）；**独立复核 `te-verify-t166` = 通过 / 0 缺陷 / 5 观察**（2026-10-31；报告 `/root/te-verify-t166.md` 191 行）：M2 1 红（`expected <987654321> but was <0>`）、M7 2 红（10→20 / 1000.0000→9999.0000）、**判据③五项全成立**；隔离副本 + md5 逐字节复原；基线 Java 1310/0/0/0 · arch E1–E9 rc0；观察 O-4 全仓 M7 爆炸半径 5 红（另 3 红在 `HgcpResumeConvergenceIdempotencyTest`，「2 红」限单类） |
+| T-216 | `docs/TEST_PLAN/M2.md` TC-M2-29 落点补全（`HgcpResumeConvergenceIdempotencyTest` 补数重叠幂等） | test-manager | 2026-10-31 | `tm-t216` 交付 `f6cbbf5`（1 文件 +1/−1：TC-M2-29 落点补为 `HgcpResumeConvergenceIdempotencyTest.resumeOverlapWithAlreadyConsumedEventIsIdempotent`，其 `@DisplayName` 即 TC-M2-29，M7 下红 `expected <2> but was <3>`）；**编排者独立核验**：diff 仅 1 行、步骤/预期逐字未动、方法实存 |
 | T-215 | `docs/TEST_PLAN/M2.md` TC-M2-27 落点补全（`HgcpClientGuardTest` 资金/持仓两例） | test-manager | 2026-10-31 | `tm-t215` 交付 `44874f8`（1 文件 +1/−1：TC-M2-27 落点补为 `HgcpClientGuardTest.duplicateFundReceiptEventIsDiscarded` / `duplicatePositionChangeEventIsDiscarded`，M7 下各 1 红）；**编排者独立核验**：diff 仅 1 行、步骤/预期逐字未动、两方法实存；实际执行实例 = `tm-t215`（原注记「tm-t214 续用」因团队回收未续用） |
 | T-214 | `docs/TEST_PLAN/M2.md` TC-M2-26 落地指向订正（Replay 测试 M7 下全绿=零守卫力 ⇒ 改为 Convergence/Guard） | test-manager | 2026-10-31 | `tm-t214` 交付 `8fc6092`（1 文件 +1/−1：落点改为 `HgcpResumeConvergenceIdempotencyTest.duplicateTradeFillIsConsumedOnce` + `HgcpClientGuardTest` 资金/持仓 2 例，并明示 Replay「覆盖式读最后一条、零守卫力、不可作幂等证据」）；**编排者独立核验**：diff 仅 1 行、步骤/预期/判定逐字未动、所引三方法实存；T-166 复核 O-2 闭环 |
 | T-213 | 复核遗留收口：submitOrder 剩余可下单量守卫用例（T-104 O-2）+ 证据章 M3 枚举订正（O-5） | backend-engineer#java | 2026-10-30 | 新增 3 用例（executed=90 / ordered=90 各「11 拒 / 10 过」；planQty=null ⇒ 拒绝）；**独立复核 `te-verify-t213` = 通过 / 0 缺陷 / 4 观察**（报告 `/root/t213-verify.md` 222 行）：V4 复测 **2 红**（原 1307 存活 ⇒ 盲区闭合）、V3 **6 红**、反向变异必红、V5 仅用例 3 红；`PlanService` +5 行全为 javadoc；门禁 Java 1310/0/0/0 · arch rc0 · 三例单跑各绿；观察 O-1 证据章 V3 枚举偏窄（已 §T213.2 勘误）/ O-2 提交零写库并发窗口（范围外，§T213.3）/ O-3 BOARD 区计数陈旧 / O-4 未锚定文案 |
