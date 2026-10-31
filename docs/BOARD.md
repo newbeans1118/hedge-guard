@@ -57,7 +57,6 @@
 
 | 编号 | 标题 | 负责人 | 优先级 |
 |------|------|--------|--------|
-| T-219 | BOARD↔TASKS 全量对账（TASKS→BOARD：34 缺行 + 63 错区 + T-111 去重 + BLOCKED 注记） | 编排者（team-lead） | P2 |
 | T-025 | 执行 M1 代码与架构合规审查 | code-reviewer | P0 |
 | T-036 | 实现指令生命周期管理 order_engine | backend-engineer#cpp | P0 |
 | T-037 | 实现指令流水与重放 flow_store | backend-engineer#cpp | P0 |
@@ -136,6 +135,7 @@
 
 | 编号 | 标题 | 负责人 | 开始时间 |
 |------|------|--------|---------|
+| T-219 | BOARD↔TASKS 全量对账（TASKS→BOARD：34 缺行 + 63 错区 + T-111 去重 + BLOCKED 注记） | 编排者（team-lead） | 2026-10-31 |
 | T-042 | 实现组件桥接层 TradingBridge（HGCP 客户端）（M2 主链解锁钥匙） | backend-engineer#java | 2026-09-25 |
 | T-163 | `docs/TEST_PLAN/**` 内**陈旧「路由计数」穷举订正**（已知 `docs/TEST_PLAN/INDEX.md:138` 纪律行写「47 个 `(方法, 路径)` 对 / 37 个路径」，现行 **81** 业务 / 含 `ping` **83**） | test-manager | 2026-09-24 |
 > 📌 **第 261 轮补4 +1：`T-208` 派发实施（本区 2 → 3；`TODO` 66 → 65）** —— 实例 `be-t208`（backend 插件席）；工单 `dev-team/inbox/backend-engineer#cpp/T-208-task.md`；写域 = `cpp/src/hgcp/**` + `cpp/src/trading_app.{h,cc}` + Java 侧仅新增测试；**不 commit**（编排者抽验后落盘）；**该单已完成 ⇒ 第 261 轮补5 移入「已完成，待独立复核」区（本区 3 → 2）**
