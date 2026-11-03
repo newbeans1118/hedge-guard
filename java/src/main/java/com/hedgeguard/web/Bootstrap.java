@@ -157,6 +157,7 @@ import com.hedgeguard.service.SettleService;
 import com.hedgeguard.service.TradeService;
 import com.hedgeguard.service.VarietyService;
 import com.hedgeguard.service.ViolationScreenService;
+import com.hedgeguard.service.impl.LoggingTamperAlarm;
 import com.hedgeguard.service.impl.ParamDispatchServiceImpl;
 import com.hedgeguard.service.impl.RiskIntradayPersistenceSink;
 import com.hedgeguard.service.impl.RiskRecomputeServiceImpl;
@@ -922,10 +923,11 @@ public final class Bootstrap {
 
         // T-069 审计日志/报表/证据链导出接线（TE-T069-001 修复）：三组 Routes 注册进生产装配，
         // 五个 service（含 DmAuditReportDataProvider）在此构造并注入（此前的「已声明未注册」缺口就此闭合）。
-        // 防篡改告警端口 TamperAlarm 暂接 NOOP：运维告警 sink 未交付（与 T-065/T-177 告警 sink 同姿态），
-        // 校验结论本身仍落库并可查（FR-AUDIT-10 验收 3），sink 交付后替换即通——据实披露。
+        // 防篡改告警端口 TamperAlarm 装配为 LoggingTamperAlarm（T-223，承接 te-verify-t069 终审条件 C-1）：
+        // 校验未通过时以 SEVERE 级记运维日志 sink（固定前缀 AUDIT_TAMPER），兑现 R-AUDIT-4 /
+        // FR-AUDIT-10「须告警」；校验结论本身仍落库并可查（FR-AUDIT-10 验收 3）。
         AuditLogService auditLogService = new AuditLogService(new DmAuditLogDao(tx),
-                new DmAuditLogChecksumDao(tx), authService, null, tx);
+                new DmAuditLogChecksumDao(tx), authService, new LoggingTamperAlarm(), tx);
         AuditLogRoutes.register(router, auditLogService);
         CheckTaskQueryService checkTaskQueryService = new CheckTaskQueryService(
                 new DmSettleCheckTaskDao(tx), new DmSettleCheckSignatureDao(tx), authService);
@@ -947,7 +949,7 @@ public final class Bootstrap {
         EvidenceExportRoutes.register(router, evidenceExportService);
         LOG.info("已装配审计日志/报表/证据链导出面：GET|POST /api/v1/audit/log、/api/v1/audit/log/verify、"
                 + "/api/v1/audit/report/{quarterly,annual,major-event}、/api/v1/audit/evidence/export；"
-                + "防篡改告警端口=NOOP（运维告警 sink 未交付，据实披露）；"
+                + "防篡改告警端口=LoggingTamperAlarm（运维日志 sink）；"
                 + "导出列表子账户隔离=fail-closed（R-AUDIT-9/NFR-SEC-7）");
         LOG.info("已装配核对任务查询面（T-194）：GET /api/v1/audit/check-tasks、"
                 + "GET /api/v1/audit/check-tasks/overdue（FR-AUDIT-13 验收 1/2/5；只读 R-AUDIT-6；"
