@@ -473,8 +473,10 @@ const NR_TABS = [
   ['postReport', 'risk/post-report', '事后风险报表']
 ];
 for (const [key, path, title] of NR_TABS) {
-  switchTab(key);
+  // 清空必须前置于 switchTab：renderRisk 为同步构建，若在构建后清空
+  // 会把 build 期调用洗掉，使「零调用」负控失效（TE-T070V-002）。
   HG.api._calls.length = 0;
+  switchTab(key);
   ok(textOf(root).includes(title), '未注册 Tab ' + key + '：标题渲染（' + title + '）');
   ok(textOf(root).includes('端点未注册'), '未注册 Tab ' + key + '：诚实提示文案');
   ok(textOf(root).includes('404'), '未注册 Tab ' + key + '：调用即 404 语义披露');
