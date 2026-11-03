@@ -12,6 +12,7 @@ import com.hedgeguard.dao.PermissionChangeLogDao;
 import com.hedgeguard.dao.PositionConflictDao;
 import com.hedgeguard.dao.PositionGroupDao;
 import com.hedgeguard.dao.RoleDao;
+import com.hedgeguard.dao.RolePermissionDao;
 import com.hedgeguard.dao.UnauthorizedAttemptDao;
 import com.hedgeguard.dao.UserAccountDao;
 import com.hedgeguard.dao.UserRoleDao;
@@ -24,6 +25,7 @@ import com.hedgeguard.dao.entity.PermissionChangeLog;
 import com.hedgeguard.dao.entity.PositionConflict;
 import com.hedgeguard.dao.entity.PositionGroup;
 import com.hedgeguard.dao.entity.Role;
+import com.hedgeguard.dao.entity.RolePermission;
 import com.hedgeguard.dao.entity.UnauthorizedAttempt;
 import com.hedgeguard.dao.entity.UserAccount;
 import com.hedgeguard.dao.entity.UserRole;
@@ -41,6 +43,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.logging.Logger;
@@ -105,6 +108,12 @@ public final class AuthService implements SubAccountVisibility {
     /** 子账户授权的限定类型（默认最小权限）。 */
     public static final String PERM_LIMITED = "LIMITED";
 
+    /** 功能权限类别（{@code t_role_permission.perm_category}；{@code ck_role_perm_category} 取值域）。 */
+    public static final String PERM_CATEGORY_FUNCTION = "FUNCTION";
+
+    /** 交易下单功能权限编码（{@code R-AUTH-10}：系统管理员角色不得含此项，{@code FR-AUTH-6} 验收 2）。 */
+    public static final String PERM_TRADE_PLACE_ORDER = "TRADE:PLACE_ORDER";
+
     /** 越权尝试类型：管理层/负责人试图操盘（{@code R-AUTH-13}；取值域 {@code ck_unauth_attempt_type}）。 */
     public static final String ATTEMPT_MANAGEMENT_TRADE_BLOCKED = "LEADER_TRADE";
 
@@ -163,6 +172,8 @@ public final class AuthService implements SubAccountVisibility {
     private final AuthorizationDao authorizationDao;
     private final PermissionChangeLogDao permissionChangeLogDao;
     private final PositionGroupDao positionGroupDao;
+    /** 角色功能权限 DAO（{@code ARCHITECTURE.md} §8.2③ M2 功能权限判据的取数口）。 */
+    private final RolePermissionDao rolePermissionDao;
     /** 运行配置（{@code CFG-23}/{@code CFG-23b} 可调项来源）；{@code null} 时一律取编译期默认值。 */
     private final Config config;
 
@@ -195,6 +206,50 @@ public final class AuthService implements SubAccountVisibility {
                        PermissionChangeLogDao permissionChangeLogDao,
                        PositionGroupDao positionGroupDao,
                        Config config) {
+        this(tx, userAccountDao, roleDao, userRoleDao, positionConflictDao, loginSessionDao,
+                loginLogDao, passwordHistoryDao, userSubAccountPermDao, unauthorizedAttemptDao,
+                sessionStore, authorizationDao, permissionChangeLogDao, positionGroupDao,
+                null, config);
+    }
+
+    /**
+     * 构造（含角色功能权限 DAO）。
+     *
+     * <p>功能权限链路（{@code ARCHITECTURE.md} §8.2③「M2 = 功能权限」）需要
+     * {@link RolePermissionDao}；<b>既有 15 参构造保留并委托本构造</b>（{@code rolePermissionDao=null}），
+     * 故既有调用点与断言零改动（同 {@code T-146} 对 {@code Session} 5/6 参构造的先例）。
+     * {@code rolePermissionDao} 为 {@code null} 时读面 {@link #hasFunctionPermission} 退化为
+     * <b>安全默认：恒 {@code false}</b>（不得放行）；写面 {@link #defineRole} 携带非空功能权限集合时
+     * 抛 {@link IllegalStateException}（装配缺失须显式失败，不得静默丢权限）。
+     *
+     * @param tx                     事务模板
+     * @param userAccountDao         用户 DAO
+     * @param roleDao                角色 DAO
+     * @param userRoleDao            用户角色 DAO
+     * @param positionConflictDao    岗位互斥 DAO
+     * @param loginSessionDao        登录会话 DAO
+     * @param loginLogDao            登录日志 DAO
+     * @param passwordHistoryDao     口令历史 DAO
+     * @param userSubAccountPermDao  子账户数据权限 DAO
+     * @param unauthorizedAttemptDao 越权尝试 DAO
+     * @param sessionStore           会话存储（HTTP 层共用）
+     * @param authorizationDao       授权 DAO（{@code FR-AUTH-10}）
+     * @param permissionChangeLogDao 权限变更留痕 DAO（{@code FR-AUTH-11}/{@code FR-AUTH-18}）
+     * @param positionGroupDao       岗位组 DAO（{@code FR-AUTH-6}/{@code FR-AUTH-7}）
+     * @param rolePermissionDao      角色功能权限 DAO（{@code ARCHITECTURE.md} §8.2③ M2）
+     * @param config                 运行配置（{@code CFG-23}/{@code CFG-23b}；{@code null} 取默认值）
+     */
+    public AuthService(TxTemplate tx, UserAccountDao userAccountDao, RoleDao roleDao,
+                       UserRoleDao userRoleDao, PositionConflictDao positionConflictDao,
+                       LoginSessionDao loginSessionDao,
+                       LoginLogDao loginLogDao, PasswordHistoryDao passwordHistoryDao,
+                       UserSubAccountPermDao userSubAccountPermDao,
+                       UnauthorizedAttemptDao unauthorizedAttemptDao, SessionStore sessionStore,
+                       AuthorizationDao authorizationDao,
+                       PermissionChangeLogDao permissionChangeLogDao,
+                       PositionGroupDao positionGroupDao,
+                       RolePermissionDao rolePermissionDao,
+                       Config config) {
         this.tx = tx;
         this.userAccountDao = userAccountDao;
         this.roleDao = roleDao;
@@ -209,6 +264,7 @@ public final class AuthService implements SubAccountVisibility {
         this.authorizationDao = authorizationDao;
         this.permissionChangeLogDao = permissionChangeLogDao;
         this.positionGroupDao = positionGroupDao;
+        this.rolePermissionDao = rolePermissionDao;
         this.config = config;
     }
 
@@ -649,6 +705,44 @@ public final class AuthService implements SubAccountVisibility {
             if (role != null && "Y".equals(role.hasTradingOperation)
                     && "ENABLED".equals(role.status)) {
                 return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * <b>功能权限判定</b>（{@code ARCHITECTURE.md} §8.2③「两阶段口径」的 <b>M2 = 功能权限</b>）：
+     * 经 {@code t_user_role} → {@code t_role_permission} 判定用户是否具指定功能权限编码。
+     *
+     * <p><b>判据</b>：用户任一<b>启用</b>角色（{@code t_role.status='ENABLED'}）持有
+     * {@code perm_code = permCode} 的功能权限行 ⇒ 返回 {@code true}。
+     * 依据 {@code FR-AUTH-12}「数据权限与功能权限<b>独立</b>」——本判定<b>只读</b>功能权限维度
+     * （{@code t_role_permission}），不掺子账户可见性（{@code t_user_sub_account_perm}）。
+     *
+     * <p><b>安全默认</b>：无任何命中 ⇒ {@code false}（严禁退化为"放行"）；{@code rolePermissionDao}
+     * 未装配（{@code null}）时同样恒 {@code false}——宁可拒绝，不得放行。
+     *
+     * <p><b>调用面</b>：本方法为读面判据，供 {@code T-119}（层③账户级写面断言器
+     * {@code assertCanConfigureAccountLevel}）与 {@code T-118}（全局对象写面）接入。
+     *
+     * @param userId   用户 ID
+     * @param permCode 功能权限编码（如 {@code PRODUCT:EDIT}）
+     * @return 具该功能权限返回 {@code true}；否则 {@code false}
+     */
+    public boolean hasFunctionPermission(long userId, String permCode) {
+        if (rolePermissionDao == null || permCode == null || permCode.trim().isEmpty()) {
+            return false;
+        }
+        String target = permCode.trim();
+        for (UserRole userRole : userRoleDao.findByUser(userId)) {
+            Role role = roleDao.findById(userRole.roleId);
+            if (role == null || !"ENABLED".equals(role.status)) {
+                continue;
+            }
+            for (RolePermission permission : rolePermissionDao.findByRole(role.id)) {
+                if (target.equals(permission.permCode)) {
+                    return true;
+                }
             }
         }
         return false;
@@ -1106,6 +1200,35 @@ public final class AuthService implements SubAccountVisibility {
      */
     public long defineRole(String roleCode, String roleName, int positionGroupId,
                            String hasTradingOperation, long operatorId, Long reviewerId) {
+        return defineRole(roleCode, roleName, positionGroupId, hasTradingOperation, operatorId,
+                reviewerId, null);
+    }
+
+    /**
+     * 定义角色（{@code FR-AUTH-6}）：须选岗位组；系统管理员角色<b>不得</b>含交易下单能力（{@code R-AUTH-10}）；
+     * 并落<b>功能权限集合</b>（{@code FR-AUTH-6} 输入列「功能权限集合（模块与操作）」）——经
+     * {@link RolePermissionDao} 写 {@code t_role_permission}（{@code perm_category='FUNCTION'}）。
+     *
+     * <p><b>双人复核纪律</b>：既有校验（岗位组 / 编码唯一 / {@code reviewer_id} 必填且 != {@code operator_id}）
+     * 保持不变；新增的功能权限集合在<b>落库前</b>完成全部校验（检验失败不留下角色半态）。
+     *
+     * <p><b>系统管理员禁业务操作</b>（{@code R-AUTH-10}「不得一键通办」/ {@code FR-AUTH-6} 验收 2）：
+     * 交易下单能力既可由 {@code has_trading_operation='Y'} 表达，亦可由功能权限
+     * {@code TRADE:PLACE_ORDER} 表达 ⇒ 二者<b>任一</b>出现于系统管理员角色即拒绝（析取判据，
+     * 同 {@code FR-AUTH-9} 的 {@code CH-010} 口径）。
+     *
+     * @param roleCode             角色编码（唯一）
+     * @param roleName             角色名称
+     * @param positionGroupId      岗位组
+     * @param hasTradingOperation  是否含交易下单能力（{@code 'Y'/'N'}）
+     * @param operatorId           操作人
+     * @param reviewerId           复核人（必填且 != 操作人）
+     * @param functionPermissions  功能权限集合（模块与操作编码；{@code null} / 空 = 不落功能权限行）
+     * @return 新角色 ID
+     */
+    public long defineRole(String roleCode, String roleName, int positionGroupId,
+                           String hasTradingOperation, long operatorId, Long reviewerId,
+                           List<String> functionPermissions) {
         requireNonBlank(roleCode, "role_code");
         requireNonBlank(roleName, "role_name");
         if (positionGroupId <= 0 || positionGroupDao.findById(positionGroupId) == null) {
@@ -1115,10 +1238,14 @@ public final class AuthService implements SubAccountVisibility {
         }
         boolean sysAdmin = ROLE_SYS_ADMIN.equals(roleCode);
         boolean trading = "Y".equals(hasTradingOperation);
-        if (sysAdmin && trading) {
+        // 功能权限集合规范化（去空 + 去重，保持输入顺序）——落库前定稿，供禁越界校验与落行共用
+        Set<String> perms = normalizeFunctionPermissions(functionPermissions);
+        boolean permTrading = perms.contains(PERM_TRADE_PLACE_ORDER);
+        if (sysAdmin && (trading || permTrading)) {
             throw BizException.of(ErrorCode.FUNCTION_PERMISSION_DENIED,
                     "系统管理员角色不得含交易下单能力（R-AUTH-10「不得一键通办」）；"
-                            + "复现=去除交易权限（FR-AUTH-6 验收 2）");
+                            + "复现=去除交易权限（has_trading_operation='Y' 或功能权限 "
+                            + PERM_TRADE_PLACE_ORDER + "）（FR-AUTH-6 验收 2）");
         }
         if (roleDao.findByCode(roleCode) != null) {
             throw BizException.of(ErrorCode.UNIQUE_CONFLICT,
@@ -1128,6 +1255,11 @@ public final class AuthService implements SubAccountVisibility {
             throw BizException.of(ErrorCode.POSITION_SEPARATION_CONFLICT,
                     "角色变更须双人复核：reviewer_id 必填且 != operator_id；复现=换复核人（FR-AUTH-6 验收 4）");
         }
+        if (!perms.isEmpty() && rolePermissionDao == null) {
+            throw new IllegalStateException(
+                    "角色功能权限 DAO 未装配（rolePermissionDao=null），无法落 t_role_permission；"
+                            + "复现=经含 RolePermissionDao 的构造装配，或传 functionPermissions=null");
+        }
         Role role = new Role();
         role.roleCode = roleCode;
         role.roleName = roleName;
@@ -1136,10 +1268,43 @@ public final class AuthService implements SubAccountVisibility {
         role.isBusinessRole = sysAdmin ? "N" : "Y";
         role.hasTradingOperation = trading ? "Y" : "N";
         role.status = "ENABLED";
-        roleDao.insert(role, operatorId);
+        tx.inTransaction(connection -> {
+            roleDao.insert(role, operatorId);
+            // 功能权限行与角色行同事务落库（取数面 hasFunctionPermission 立即可见，R-AUTH-9）
+            for (String permCode : perms) {
+                RolePermission rp = new RolePermission();
+                rp.roleId = role.id;
+                rp.permCode = permCode;
+                rp.permCategory = PERM_CATEGORY_FUNCTION;
+                rolePermissionDao.insert(rp, operatorId);
+            }
+            return null;
+        });
         recordChange(CHANGE_ROLE_DEF, role.id, null, null, "定义角色 " + roleCode + "（岗位组 "
-                + positionGroupId + "）", operatorId, reviewerId);
+                + positionGroupId + (perms.isEmpty() ? "" : "，功能权限 " + perms) + "）",
+                operatorId, reviewerId);
         return role.id;
+    }
+
+    /**
+     * 规范化功能权限集合：剔除空白项、去重（保持输入顺序）。
+     *
+     * @param functionPermissions 原始集合（可为 {@code null}）
+     * @return 去重后的有序集合（不可变）
+     */
+    private static Set<String> normalizeFunctionPermissions(List<String> functionPermissions) {
+        Set<String> perms = new LinkedHashSet<>();
+        if (functionPermissions == null) {
+            return perms;
+        }
+        for (String permCode : functionPermissions) {
+            if (permCode == null || permCode.trim().isEmpty()) {
+                throw BizException.of(ErrorCode.PARAM_INVALID,
+                        "功能权限编码不得为空；复现=剔除空白项（FR-AUTH-6 输入列「功能权限集合」）");
+            }
+            perms.add(permCode.trim());
+        }
+        return perms;
     }
 
     /** 查询启用的岗位组（{@code FR-AUTH-7} 的岗位组清单）。 */

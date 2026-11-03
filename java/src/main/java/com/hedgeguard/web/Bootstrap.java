@@ -77,6 +77,7 @@ import com.hedgeguard.dao.impl.DmProductionPlanLineDao;
 import com.hedgeguard.dao.impl.DmPurchaseContractDao;
 import com.hedgeguard.dao.impl.DmReportPeriodConfigDao;
 import com.hedgeguard.dao.impl.DmRoleDao;
+import com.hedgeguard.dao.impl.DmRolePermissionDao;
 import com.hedgeguard.dao.impl.DmSalesContractDao;
 import com.hedgeguard.dao.impl.DmSettleAggDiffCandidateDao;
 import com.hedgeguard.dao.impl.DmSettleAggregationCheckDao;
@@ -670,7 +671,7 @@ public final class Bootstrap {
                 new DmPasswordHistoryDao(tx), new DmUserSubAccountPermDao(tx),
                 new DmUnauthorizedAttemptDao(tx), sessionStore,
                 new DmAuthorizationDao(tx), new DmPermissionChangeLogDao(tx),
-                new DmPositionGroupDao(tx), config);
+                new DmPositionGroupDao(tx), new DmRolePermissionDao(tx), config);
 
         ConfigService configService = new ConfigService(tx,
                 new DmSubAccountDao(tx), new DmConfigItemDao(tx), new DmConfigChangeLogDao(tx),

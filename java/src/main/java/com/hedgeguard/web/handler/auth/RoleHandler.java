@@ -58,7 +58,7 @@ public final class RoleHandler implements RouteHandler {
         if ("DEFINE".equalsIgnoreCase(request.action)) {
             long id = authService.defineRole(request.roleCode, request.roleName,
                     request.positionGroupId, request.hasTradingOperation, operatorId,
-                    request.reviewerId);
+                    request.reviewerId, request.functionPermissions);
             return HttpResult.json(200, ApiResponse.ok(id, ctx.traceId()));
         }
         if ("GRANT".equalsIgnoreCase(request.action)) {
@@ -86,6 +86,14 @@ public final class RoleHandler implements RouteHandler {
 
         /** 是否含交易下单能力（DEFINE）。 */
         public String hasTradingOperation;
+
+        /**
+         * 功能权限集合（DEFINE；{@code FR-AUTH-6} 输入列「功能权限集合（模块与操作）」）。
+         *
+         * <p>可选：{@code null} / 省略 ⇒ 不落 {@code t_role_permission} 功能权限行
+         * （字段级新增，向后兼容；{@code CONTRACTS.md} §0③）。
+         */
+        public java.util.List<String> functionPermissions;
 
         /** 目标用户（GRANT）。 */
         public long userId;

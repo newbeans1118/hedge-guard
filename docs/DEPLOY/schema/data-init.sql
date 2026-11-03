@@ -179,6 +179,33 @@ WHERE NOT EXISTS (
     SELECT 1 FROM t_position_conflict c WHERE c.group_a_id = a.id AND c.group_b_id = b.id
 );
 
+-- ③-4 角色功能权限 t_role_permission（**T-108** 承接；`FR-AUTH-6` 输入列「功能权限集合」＋
+--     `ARCHITECTURE.md` §8.2③「M2 = 功能权限」判据；`AuthService.hasFunctionPermission` 取数面）
+--
+--  ⚠️ **与实现同批的硬前置**（`ARCHITECTURE.md` §8.2③）：M2 引入 `t_role_permission` 判据前
+--     须同批完成播种，否则**上线即误拒**（合法主体被判无功能权限）。本段即该前置。
+--  ⚠️ 幂等：`NOT EXISTS` 按 `uk_role_perm(role_id, perm_code)` 自然键去重，重复执行不产生重复行。
+--  ⚠️ `perm_category` 取值须落在 `ck_role_perm_category CHECK IN ('FUNCTION','DATA','QUOTA')` 域内；
+--     本段为**功能权限**（模块与操作），恒取 `'FUNCTION'`。
+--  ⚠️ 系统管理员（`SYS_ADMIN`）**不播任何功能权限**（`R-AUTH-10`：系统管理员角色权限不含业务操作，
+--     `FR-AUTH-6` 验收 2）；`TRADER` 亦不播（其交易能力由 `t_role.has_trading_operation='Y'` 表达，
+--     功能权限编码 `TRADE:PLACE_ORDER` 属 M2 交易路径、非本批范围）。
+--  ⚠️ 播种集逐条为「角色编码 → 权限编码」，按 `t_role` 已播种角色（第 ③-2 段）JOIN 取 `role_id`。
+-- -----------------------------------------------------------------------------
+INSERT INTO t_role_permission (
+    role_id, perm_code, perm_category, created_by, created_time, row_version
+)
+SELECT r.id, src.perm, 'FUNCTION', 0, CURRENT_TIMESTAMP, 0
+FROM (
+    SELECT 'FIN_RISK' AS code, 'PRODUCT:EDIT' AS perm
+    UNION ALL SELECT 'FIN_RISK', 'CONFIG:EDIT'
+    UNION ALL SELECT 'SETTLER', 'SETTLE:EDIT'
+) src
+JOIN t_role r ON r.role_code = src.code
+WHERE NOT EXISTS (
+    SELECT 1 FROM t_role_permission p WHERE p.role_id = r.id AND p.perm_code = src.perm
+);
+
 -- -----------------------------------------------------------------------------
 -- ④ CONFIG 模块任务播种（**T-009** 承接；`FR-CONFIG-14` / `FR-CONFIG-15` / `R-CONFIG-8`）
 --
