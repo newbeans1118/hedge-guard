@@ -34,7 +34,28 @@ public final class T069AuditTamperSeed {
         exec(engine, "UPDATE t_audit_log SET action_type = ? WHERE seq_in_chain = ?", actionType, seqInChain);
     }
 
-    private static void exec(InMemoryDmEngine engine, String sql, Object... args) throws SQLException {
+    /**
+     * 清空 {@code t_audit_log} 全表（模拟「全表删除」型篡改；{@code T-224}）。
+     *
+     * @param engine 内存引擎
+     * @return 实际删除行数
+     */
+    public static int deleteAllAuditLogs(InMemoryDmEngine engine) throws SQLException {
+        return exec(engine, "DELETE FROM t_audit_log");
+    }
+
+    /**
+     * 删除链序号 {@code >= seq} 的日志行（模拟「截断链尾」型篡改；{@code T-224}）。
+     *
+     * @param engine    内存引擎
+     * @param seqInChain 起始链序号（含）
+     * @return 实际删除行数
+     */
+    public static int deleteAuditLogsFromSeq(InMemoryDmEngine engine, long seqInChain) throws SQLException {
+        return exec(engine, "DELETE FROM t_audit_log WHERE seq_in_chain >= ?", seqInChain);
+    }
+
+    private static int exec(InMemoryDmEngine engine, String sql, Object... args) throws SQLException {
         try (Connection conn = engine.create();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             for (int i = 0; i < args.length; i++) {
@@ -47,7 +68,7 @@ public final class T069AuditTamperSeed {
                     ps.setString(i + 1, String.valueOf(a));
                 }
             }
-            ps.executeUpdate();
+            return ps.executeUpdate();
         }
     }
 }

@@ -199,6 +199,10 @@ public final class AuditLogService {
      * {@link TamperAlarm} 告警（验收 2）。本方法<b>不抛异常</b>（返回结论供调用方判定）；
      * 需要「阻断后续导出」的调用方应使用 {@link #assertChainIntact}。
      *
+     * <p><b>DELETE 型篡改（{@code T-224}）</b>：除逐行/衔接/批次比对外，先判定「空链」（有批次校验值
+     * 却无任何日志行）与「链尾截断」（实际末 {@code seq_in_chain} 小于最后批次末端）；命中即未通过，
+     * 空区间（{@code checkedCount=0}）不再默认通过。
+     *
      * @param fromSeq    校验范围（起，含；{@code <= 0} 视为 1）
      * @param toSeq      校验范围（止，含；{@code < fromSeq} 视为全末）
      * @param operatorId 校验人
@@ -214,12 +218,28 @@ public final class AuditLogService {
         r.verifiedBy = operatorId;
         r.verifiedTime = Clocks.now();
 
+        // 批次校验值只取一次，后续 ⓪ 与 ④ 复用（避免重复查询）。
+        List<AuditLogChecksum> batches = allBatches();
+
+        // ⓪ 空链 / 链尾截断（T-224；T-069 终审 O-1）：DELETE 型篡改的检出。
+        // 只做 UPDATE 校验时，「全表清空」「截断链尾」都会让 [from,to] 退化为空/短区间而静默通过。
+        if (max == 0L && !batches.isEmpty()) {
+            r.mismatches.add("空链：存在批次校验值但 t_audit_log 无行（疑似全表删除）");
+        }
+        if (!batches.isEmpty()) {
+            AuditLogChecksum last = batches.get(batches.size() - 1);
+            if (max < last.batchEndSeq) {
+                r.mismatches.add("链尾截断：实际末 seq=" + max
+                        + " < 最后批次 end=" + last.batchEndSeq
+                        + "（batchNo=" + last.batchNo + "）");
+            }
+        }
+
         List<AuditLog> rows = fetchRange(from, to);
         r.checkedCount = rows.size();
         if (rows.isEmpty()) {
-            r.passed = true;
-            recordVerify(r, operatorId);
-            return r;
+            // 无行不等于通过：空链/截断已在 ⓪ 记入 mismatches（T-224）。
+            return finish(r, operatorId);
         }
 
         // ① 逐行重算 row_hash + ② 链内衔接。
@@ -254,7 +274,7 @@ public final class AuditLogService {
             }
         }
         // ④ 批次校验和比对（范围被完整覆盖的批次）。
-        for (AuditLogChecksum batch : allBatches()) {
+        for (AuditLogChecksum batch : batches) {
             if (batch.batchStartSeq >= from && batch.batchEndSeq <= to) {
                 r.verifiedBatches++;
                 List<AuditLog> batchRows = fetchRange(batch.batchStartSeq, batch.batchEndSeq);
@@ -267,6 +287,16 @@ public final class AuditLogService {
             }
         }
 
+        return finish(r, operatorId);
+    }
+
+    /**
+     * 落定校验结论：{@code passed} 取决于差异清单是否为空，未通过则告警 + 写入 {@code VERIFY} 日志。
+     *
+     * <p>空链/截断与逐行/批次两条路径共用，保证「未通过必告警、必留痕」（{@code FR-AUDIT-10} 验收 2/3）；
+     * {@code checkedCount=0} 的失败结论同样落 {@code FAILED} 记录。
+     */
+    private VerifyResult finish(VerifyResult r, long operatorId) {
         r.passed = r.mismatches.isEmpty();
         if (!r.passed) {
             alarm.alert("审计日志防篡改校验未通过（FR-AUDIT-10 / R-AUDIT-4）：范围 ["
