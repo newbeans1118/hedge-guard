@@ -151,7 +151,7 @@ export const ROUTES = {
     APPLY_LIST: '/fund/apply-list'                                 // GET 出入金申请列表分页（FR-FUND-8 验收3；T-195）
   },
   // T-070：风险控制（FR-RISK-1~19）。**端点注册面不对称**——ApiRoutes 路径表登记 10 路径，
-  // 但方法注册表（BY_MODULE_ROUTES）仅 6 对、handler/ 下仅三组 Routes（Alert/LimitUsage/Rule）
+  // 但方法注册表（BY_MODULE_ROUTES）仅 7 对（去重 5 端点）、handler/ 下仅三组 Routes（Alert/LimitUsage/Rule）
   // + risk_intraday 事中面（MirrorStatus）。本键**只放可接 5 端点**（不得臆造调用）；
   // 未注册 5 路径留在 NOT_REGISTERED（见下），页面保留框架 + 「未注册」诚实提示（T-070）。
   RISK: {

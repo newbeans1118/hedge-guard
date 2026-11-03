@@ -3,7 +3,7 @@
  *
  * 形态对齐 t055_fund_probe.mjs 先例（T-021/T-071/T-055 形态）：node 级、mock DOM + mock HG.api，
  * 逐功能点断言渲染结果。覆盖（工单门禁 1 全项）：
- *   · RISK 键集与 ApiRoutes.java 方法注册表 6 对逐字对账（含参数化 dispose 函数键）；
+ *   · RISK 键集与 ApiRoutes.java 方法注册表 7 对（去重 5 端点）逐字对账（含参数化 dispose 函数键）；
  *   · 未注册 5 路径与 NOT_REGISTERED 键集逐字对账（不臆造调用断言：api 桩任何未注册路径调用即炸）；
  *   · 可接 5 端点 Tab 三态（加载 / 空 / 错误 + 重试）；
  *   · 处置动作：二次确认 + Idempotency-Key + 理由必填预检 + 强平提示 hintAccepted=Y/N 分支；
@@ -156,7 +156,7 @@ HG.router.register = function (p, fn) { registeredPaths.push(p); return realRegi
 await import('../../web/js/pages/risk.js');
 HG.router.register = realRegister;
 
-/* ================= 断言 0：RISK 键集逐字对账（== ApiRoutes BY_MODULE_ROUTES RISK 6 对） ================= */
+/* ================= 断言 0：RISK 键集逐字对账（== ApiRoutes BY_MODULE_ROUTES RISK 7 对；去重 5 端点） ================= */
 const R = HG.routes.RISK;
 ok(R.ALERT === '/risk/alert', 'RISK.ALERT 逐字一致（GET /risk/alert）');
 ok(typeof R.dispose === 'function' && R.dispose(7) === '/risk/alert/7/dispose', 'RISK.dispose 函数键 → /risk/alert/7/dispose');

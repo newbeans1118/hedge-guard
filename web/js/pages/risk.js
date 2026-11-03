@@ -2,7 +2,7 @@
  * 风险控制页面（RISK）—— 管理界面（FR-RISK-1~19；T-070）。
  *
  * ## 端点对接面（**不对称盘点**，以 java/src/main/java/com/hedgeguard/web 实测为准）
- *   ApiRoutes.java RISK **路径表**登记 10 路径，但**方法注册表**（BY_MODULE_ROUTES）仅 6 对、
+ *   ApiRoutes.java RISK **路径表**登记 10 路径，但**方法注册表**（BY_MODULE_ROUTES）仅 7 对（去重 5 端点）、
  *   handler/ 下仅三组 Routes（Alert / LimitUsage / Rule）+ risk_intraday 事中面（MirrorStatus）。
  *   ⇒ **可接 5 端点**（本页全部真实对接）：
  *     GET  /risk/alert                 告警历史查询（FR-RISK-19；筛选/分页/默认倒序/可见性隔离；since 补拉）
