@@ -69,7 +69,17 @@ import java.util.regex.Pattern;
  * （含哨兵 {@code 0} ⇒ 不加过滤；空集 ⇒ 恒假）；三层额度全景则对<b>入参子账户</b>做读取面可见性断言
  * （{@link #requireSubAccountVisible}，越权 {@code 10004}）。
  *
- * <p>CSV 导入（{@code T-012} 验收 3）：<b>全量预校验通过后一次性插入</b>；任一行不合格 →
+ * <p><b>全局共享对象写面强制</b>（{@code FR-AUTH-13} 处理规则 / {@code NFR-SEC-7} / {@code R-AUTH-8}；
+ * {@code T-118}）：品种档案（{@code createProduct}/{@code disableProduct}/{@code enableProduct}）、
+ * 换算关系（{@code putUnit}）、合约关联（{@code putContract}）、现货映射（{@code putSpotMapping}）与
+ * CSV 导入（{@code importProducts}）的目标均为<b>全局共享对象</b>（{@code R-PRODUCT-7}「品种一份」）、
+ * <b>非子账户行级归属</b> ⇒ 其写面授权归<b>功能权限</b>维度（{@code FR-AUTH-12}「数据权限与功能权限独立」；
+ * {@code CH-012}），<b>不得</b>套用子账户可见性（{@link #requireSubAccountWritable}）——
+ * 后者对全局对象无子账户可锚，套用即误拒。判据入口复用 {@link AccountLevelConfigAuthorizer}
+ * （主体 = 财务/风控岗 {@code FIN_RISK} 或系统管理员 {@code SYS_ADMIN}；失败码 {@code 10003} +
+ * {@code R-AUTH-8} 留痕），见 {@link #requireGlobalObjectWriteAuthority}。
+ *
+ * <p><b>CSV 导入</b>（{@code T-012} 验收 3）：<b>全量预校验通过后一次性插入</b>；任一行不合格 →
  * 汇总**全部**错误后抛 {@code 10019}，且<b>不产生任何部分写入</b>（不在报错前逐行落库）。
  */
 public final class VarietyService {
@@ -312,6 +322,7 @@ public final class VarietyService {
      * @return 新行主键
      */
     public long createProduct(Product product, long operatorId) {
+        requireGlobalObjectWriteAuthority(operatorId, "新增品种");
         String code = requireText(product.productCode, "product_code");
         if (!PRODUCT_CODE.matcher(code).matches()) {
             throw BizException.of(ErrorCode.PARAM_INVALID,
@@ -353,6 +364,7 @@ public final class VarietyService {
      * @return 级联移出的白名单行数
      */
     public int disableProduct(long productId, String reason, long operatorId) {
+        requireGlobalObjectWriteAuthority(operatorId, "停用品种");
         requireText(reason, "disabled_reason");
         Product product = productDao.findById(productId);
         if (product == null) {
@@ -408,6 +420,7 @@ public final class VarietyService {
      * @param operatorId 操作人
      */
     public void enableProduct(long productId, long operatorId) {
+        requireGlobalObjectWriteAuthority(operatorId, "启用品种");
         Product product = productDao.findById(productId);
         if (product == null) {
             throw BizException.of(ErrorCode.PARAM_INVALID,
@@ -439,6 +452,7 @@ public final class VarietyService {
      * @return 新行主键
      */
     public long putUnit(ProductUnit unit, long operatorId) {
+        requireGlobalObjectWriteAuthority(operatorId, "维护计量单位换算关系");
         if (unit.productId == null || productDao.findById(unit.productId) == null) {
             throw BizException.of(ErrorCode.PARAM_INVALID,
                     "品种不存在：productId=" + unit.productId + "；复现=先创建品种");
@@ -503,6 +517,7 @@ public final class VarietyService {
      * @return 新行主键
      */
     public long putContract(ProductContract contract, long operatorId) {
+        requireGlobalObjectWriteAuthority(operatorId, "维护品种合约关联");
         requireText(contract.instrumentId, "instrument_id");
         if (contract.instrumentType == null
                 || !INSTRUMENT_TYPES.contains(contract.instrumentType)) {
@@ -546,6 +561,7 @@ public final class VarietyService {
      * @return 新行主键
      */
     public long putSpotMapping(ProductSpotCategory mapping, long operatorId) {
+        requireGlobalObjectWriteAuthority(operatorId, "维护品种现货品类映射");
         requireText(mapping.spotCategoryCode, "spot_category_code");
         if (!MAPPING_DIRECTIONS.contains(mapping.mappingDirection)) {
             throw BizException.of(ErrorCode.PARAM_INVALID,
@@ -873,6 +889,7 @@ public final class VarietyService {
      * @return 成功导入行数
      */
     public int importProducts(List<String> csvLines, long operatorId) {
+        requireGlobalObjectWriteAuthority(operatorId, "CSV 导入品种");
         if (csvLines == null || csvLines.isEmpty()) {
             throw BizException.of(ErrorCode.IMPORT_VALIDATION_FAILED,
                     "导入文件为空；复现=提供含表头与数据的 CSV（表头须为 " + CSV_HEADER + "）");
@@ -1197,6 +1214,41 @@ public final class VarietyService {
         if (accountLevelConfigAuthorizer == null) {
             throw BizException.of(ErrorCode.FUNCTION_PERMISSION_DENIED,
                     "账户级（层③）配置权判定入口缺位，按安全默认拒绝（CH-012）：operatorId=" + operatorId
+                            + "；复现=核对装配注入 AccountLevelConfigAuthorizer");
+        }
+        accountLevelConfigAuthorizer.assertCanConfigureAccountLevel(operatorId);
+    }
+
+    /**
+     * <b>全局共享对象写面授权强制</b>（{@code FR-AUTH-13} 处理规则 / {@code NFR-SEC-7} /
+     * {@code R-AUTH-8}；{@code T-118}）。
+     *
+     * <p><b>为何归「功能权限」维度、而非子账户可见性</b>：本类七个写方法
+     * （{@link #createProduct} / {@link #disableProduct} / {@link #enableProduct} / {@link #putUnit} /
+     * {@link #putContract} / {@link #putSpotMapping} / {@link #importProducts}）的目标均为
+     * <b>全局共享对象</b>（{@code R-PRODUCT-7}「品种一份」：品种档案 / 换算关系 / 合约 / 现货映射不带
+     * {@code sub_account_id} 维度）⇒ 其上<b>无子账户可锚</b>。{@code FR-AUTH-13} 处理规则
+     * 「跨子账户下不得执行下单、审批、<b>改配置</b>等操作」为控制性动词，须在服务端<b>有</b>强制点；
+     * 套用 {@link #requireSubAccountWritable} 会因「无目标子账户」而结构性误拒合法主体，
+     * 故按 {@code FR-AUTH-12}「数据权限与功能权限独立」归<b>功能权限</b>维度（{@code CH-012} 口径）。
+     *
+     * <p><b>判据入口复用</b>：{@code CH-012} 已确认主体 = <b>财务/风控岗（{@code FIN_RISK}）或
+     * 系统管理员（{@code SYS_ADMIN}）</b>，与 {@code T-119} 层③ 断言器
+     * {@link AccountLevelConfigAuthorizer#assertCanConfigureAccountLevel} 的主体口径<b>一致</b>
+     * ⇒ <b>复用既有一致判据、不新造断言器</b>（避免同族口径分叉）。生产装配下即
+     * {@link AuthService} 的带留痕实现（失败码 {@code 10003}，落 {@code t_unauthorized_attempt}）。
+     *
+     * <p><b>fail-closed</b>：入口缺位（{@code null}）时一律拒绝（{@code 10003}），
+     * 绝不退化为「不校验 = 放行」（与 {@link #requireSubAccountWritable} 缺位时同姿态）。
+     *
+     * @param operatorId 调用者
+     * @param action     被拒动作名（仅用于可读拒绝信息，不改变错误码 / 留痕口径）
+     */
+    private void requireGlobalObjectWriteAuthority(long operatorId, String action) {
+        if (accountLevelConfigAuthorizer == null) {
+            throw BizException.of(ErrorCode.FUNCTION_PERMISSION_DENIED,
+                    "全局共享对象写面授权判定入口缺位，按安全默认拒绝（FR-AUTH-13 / CH-012）：action="
+                            + action + " operatorId=" + operatorId
                             + "；复现=核对装配注入 AccountLevelConfigAuthorizer");
         }
         accountLevelConfigAuthorizer.assertCanConfigureAccountLevel(operatorId);
