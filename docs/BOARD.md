@@ -3,7 +3,7 @@
 > 负责人：项目经理 ｜ 最后更新：2026-09-30（⚠️ 前值 `2026-09-22` 系陈旧头注：本页内容已含 2026-09-25 第 149 轮登记与 2026-09-30 进度审查加注）
 >
 > **状态流转**（唯一口径）：`TODO → IN_PROGRESS → DONE`；异常 `BLOCKED`（解除后回 `IN_PROGRESS`）/ `REJECTED`（门禁未过退回 `TODO` 返工）。
-> 任务清单与详情见 `docs/TASKS.md`（**228** 个任务 / **1907 人时**；⚠️ 前值「**164** 个任务」系第 147 轮快照，**第 263 轮（2026-11-03，实例 `ledger-drift`）按实时值订正任务数为 228**。**任务数以 `TASKS.md` §1 合计行（`:275`）为唯一权威**；**人时 1907 为第 147 轮快照、与 §1 合计行自述现行值 1931 及逐行实测 ≈2207 均不一致 ⇒ 已挂账、待专轮收口**（详见 `TASKS.md` §5 首部挂账注）；本行数字仅为指引，**以实时 `md5sum` / 该合计行为准**）。
+> 任务清单与详情见 `docs/TASKS.md`（**229** 个任务 / **1933 人时**（**第 263 轮：228 → 229 个 / +2 人时**（`T-230` 立号）；**同轮 `T-119` 贴 DONE，机读 210 → 211**）；⚠️ 前值「**164** 个任务」系第 147 轮快照，**第 263 轮（2026-11-03，实例 `ledger-drift`）按实时值订正任务数为 228**。**任务数以 `TASKS.md` §1 合计行（`:275`）为唯一权威**；**人时 1907 为第 147 轮快照、与 §1 合计行自述现行值 1931 及逐行实测 ≈2207 均不一致 ⇒ 已挂账、待专轮收口**（详见 `TASKS.md` §5 首部挂账注）；本行数字仅为指引，**以实时 `md5sum` / 该合计行为准**）。
 
 ## 1. 阶段状态
 
@@ -60,11 +60,12 @@
 > 📌 **T-219 全量对账订正（2026-10-31，实例 `doc-t219`）**：本区实算 = **17** 条（T-229 贴标后；原 17）（六区合计 **228** = TODO 17 / IN_PROGRESS 0 / 待复核 0 / DONE 209 / BLOCKED 0 / REJECTED 2（T-229 贴标后实测），与 `docs/TASKS.md` §1 状态列逐行对账双向对称差 = ∅；本区其余历史注记中的计数均系当时点值，按「勘误不回改历史」保留原文）。
 | 编号 | 标题 | 负责人 | 优先级 |
 |------|------|--------|--------|
+| T-230 | `AuthService.hasRoleCode` 角色有效性口径对齐（`:1701` 现只比对 `roleCode`、不校验 `role.status` ⇒ `DISABLED` 角色仍被判定持该角色；与同族 `hasTradingRole`/`hasFunctionPermission` 的 ENABLED 口径不一致）〔承接 `te-verify-t119` 观察 `OBS-T119-01`；**`T-118` 须排其后**〕 | backend-engineer#java | P1 |
 | T-113 | 修正 SPOT 现货单据创建在 `subAccountId` 缺省时的错误呈现（现 NPE→500，应明确提示「子账户必填」） | backend-engineer#java2 | P1 |
 | T-114 | 补齐 `POST /spot/exposure/recalc`（`recalcForDisplay`）的子账户可见性强制 | backend-engineer#java2 | P1 |
 | T-116 | PRODUCT 读取面**「需求面 > 实现面」缺口补齐**（`FR-PRODUCT-5` 输出列「子账户 / 最近变更时间」+ `FR-PRODUCT-8` 导出与列表筛选一致） | backend-engineer#java2 | P1 |
 | T-117 | 修正 PRODUCT **白名单可见性 over-inclusive**（可见子查询补 `status='ENABLED'`，已移出品种不再算「可见」） | backend-engineer#java2 | P1 |
-| T-118 | 补齐**全局 / 账户级对象写面的功能权限强制点**（`createProduct`/`disableProduct`/`enableProduct`/`putUnit`/`putContract`/`putSpotMapping`/`importProducts` 现**零权限门禁**）〔**第 263 轮串行排队**：依赖 `T-119` ⇒ 派发次序 `T-108`→`T-119`→本单，前置未 DONE 前不予派发〕 | backend-engineer#java2 | P0 |
+| T-118 | 补齐**全局 / 账户级对象写面的功能权限强制点**（`createProduct`/`disableProduct`/`enableProduct`/`putUnit`/`putContract`/`putSpotMapping`/`importProducts` 现**零权限门禁**）〔**第 263 轮依赖后置**：`T-119` 已 DONE；依赖改为 **`T-230`**（`hasRoleCode` 补 `role.status` 守卫，防本单继承 `OBS-T119-01`）⇒ 派发次序 `T-119`（DONE）→`T-230`→本单〕 | backend-engineer#java2 | P0 |
 | T-131 | 补齐 **PRODUCT 写面 REST 端点**（品种修改 / 停用 / 启用 / 计量单位；**服务层已实现、端点未注册**） | backend-engineer#java2 | P1 |
 | T-132 | 数值字段**「字符串化十进制」契约收口**（`GET /product/quota` 以 JSON `number` 输出 `BigDecimal`）+ 穷举同类点 | backend-engineer#java2 | P1 |
 | T-133 | 核心服务层**「零覆盖校验守卫」收口**（`VarietyService.putUnit` 已确证 + `SpotService` 8 候选守卫） | test-engineer | P1 |
@@ -91,7 +92,7 @@
 > 📌 **T-219 全量对账订正（2026-10-31，实例 `doc-t219`）**：本区实算 = **0** 条（T-229 贴标后；原 1）（六区合计 **228** = TODO 17 / IN_PROGRESS 0 / 待复核 0 / DONE 209 / BLOCKED 0 / REJECTED 2（T-229 贴标后实测），与 `docs/TASKS.md` §1 状态列逐行对账双向对称差 = ∅；本区其余历史注记中的计数均系当时点值，按「勘误不回改历史」保留原文）。
 | 编号 | 标题 | 负责人 | 开始时间 |
 |------|------|--------|---------|
-> 📌 **第 263 轮补6：`T-119` 恢复完成交付 ⇒ 移出本区（`IN_PROGRESS` 1 → 0；`待复核` 0 → 1）** —— 恢复实例 `be-t119b` 交付 **`51ab602`**（8 文件，采纳首派成果 + 修 2 失败）；**编排者抽验采信**：文件面零越界 / 亲跑 **1335/0/0/0** + arch `E1–E9 rc0` + 零告警 / **双变异独立复现**（M1 摘层③接线 ⇒ 3 红；M2 断言恒真 ⇒ 2 红）+ 逐字节复原 / 树锚 `f4883844…`/790 → `8950ab67…`/791。层③（`ACCOUNT_PRODUCT`/哨兵 0）走 `putQuota` `else` 分支 → `requireCanConfigureAccountLevel`（fail-closed）；`assertCanConfigureAccountLevel` = `FIN_RISK || SYS_ADMIN` 放行、否则 `recordAttempt` + 10003。**复核席待派**。
+> 📌 **第 263 轮补6（历史态）：`T-119` 恢复完成交付 ⇒ 移出本区（`IN_PROGRESS` 1 → 0；`待复核` 0 → 1）**〔**同轮补7 已贴 DONE ⇒ 现 DONE 区**〕 —— 恢复实例 `be-t119b` 交付 **`51ab602`**（8 文件，采纳首派成果 + 修 2 失败）；**编排者抽验采信**：文件面零越界 / 亲跑 **1335/0/0/0** + arch `E1–E9 rc0` + 零告警 / **双变异独立复现**（M1 摘层③接线 ⇒ 3 红；M2 断言恒真 ⇒ 2 红）+ 逐字节复原 / 树锚 `f4883844…`/790 → `8950ab67…`/791。层③（`ACCOUNT_PRODUCT`/哨兵 0）走 `putQuota` `else` 分支 → `requireCanConfigureAccountLevel`（fail-closed）；`assertCanConfigureAccountLevel` = `FIN_RISK || SYS_ADMIN` 放行、否则 `recordAttempt` + 10003。**复核席待派**。
 > 📌 **第 263 轮补3：`T-108` 补正闭环 ⇒ 转 `DONE` 区（本区 1 → 0；六区 16/0/0/210/0/2）** —— 补正实例 `be-t108b` 交付 **`25e496a`**（2 文件 +185/−2，仅测试面）；**编排者亲核 delta 采信**（先例 `T-197`）：独立复现三靶点均转红（`BUG-T108-01` ③-4 类别改域外值 / `M-G` 删 `trim()` / `M-H` 权限行移出事务），逐字节复原 + 全量 **1333/0/0/0** + arch `E1–E9 rc0` + 树锚 `f4883844…`/790。**待裁落定**：未升版/无需 `CH`（`AuthService` 不在 §2.2 冻结面）；`§2.2.1` 登记宜办但转 `#java` 席落笔（不阻断 DONE）。**串行下一单 `T-119` 前置（`T-108`）已满足。**
 > 📌 **第 261 轮补4 +1：`T-208` 派发实施（本区 2 → 3；`TODO` 66 → 65）** —— 实例 `be-t208`（backend 插件席）；工单 `dev-team/inbox/backend-engineer#cpp/T-208-task.md`；写域 = `cpp/src/hgcp/**` + `cpp/src/trading_app.{h,cc}` + Java 侧仅新增测试；**不 commit**（编排者抽验后落盘）；**该单已完成 ⇒ 第 261 轮补5 移入「已完成，待独立复核」区（本区 3 → 2）**
 > 📌 **第 261 轮 +1：`T-207` 派发实施（本区 2 → 3；`TODO` 66 → 65）** —— 实例 `be-t207`（backend 插件席）；工单 `dev-team/inbox/backend-engineer#cpp/T-207-task.md`；写域 = `cpp/src/main.cc` + `cpp/src/` 新增运行类 + `cpp/src/*/tests/` 新增用例 + 部署脚本；**不 commit**（编排者抽验后落盘）
@@ -241,7 +242,6 @@
 > 分布：`#java2` **10** ／ `#java` 3 ／ `#cpp` 1 ／ 编排者 1。**建议**：按批回写证据章并做一次全量重跑，使"全量绿"重新可复现（当前可复现基准仍停在 09-24）。**本报告不代派复核**（第 149 轮已派发）。
 | 编号 | 标题 | 负责人 | 优先级 | 证据档 |
 |------|------|--------|--------|--------|
-| T-119 | 补齐 `putQuota` **层③**（`ACCOUNT_PRODUCT` / 账户哨兵 `0`）**写面授权门禁**（M1 = 角色近似） | backend-engineer#java | P0 | 恢复实例 `be-t119b` 交付 `51ab602`（8 文件）；编排者抽验 1335/0/0/0 + arch E1–E9 rc0 + 双变异红；复核席**待派** |
 > 📌 **第 263 轮补6：`T-119` 恢复完成交付 ⇒ 移入本区（`IN_PROGRESS` 1 → 0、`待复核` 0 → 1）** —— 恢复实例 `be-t119b` 交付 **`51ab602`**（8 文件：采纳首派成果 + 修 2 失败）；**编排者抽验采信**：亲跑 **1335/0/0/0** + arch `E1–E9 rc0` + 零告警；**双变异独立复现**（M1 摘层③接线 ⇒ 3 红；M2 断言恒真 ⇒ 2 红）+ 逐字节复原；树锚 `f4883844…`/790 → `8950ab67…`/791。层③（`ACCOUNT_PRODUCT`/哨兵 0）走 `putQuota` `else` 分支 → `requireCanConfigureAccountLevel`（fail-closed）；`assertCanConfigureAccountLevel` = `FIN_RISK || SYS_ADMIN` 放行、否则 `recordAttempt` + 10003。**复核席待派**。
 > 📌 **第 261 轮补1：`T-207` 交付 ⇒ 移入本区（待复核 15 → 16；`IN_PROGRESS` 3 → 2）** —— 实例 `be-t207`；真 SDK 轨 60/60、桩轨 56/56、Java 1297/0/0/0、arch rc0、变异 3 例；复核席 `te-verify-t207b` 已派（工单 `dev-team/inbox/test-engineer/T-207-verify-task.md`）；交付未 commit（待复核后由编排者落盘）
 > 📌 **第 128 轮：`T-144` 交付 ⇒ 待复核（`IN_PROGRESS 1 → 0`、`待复核 15 → 16`）** —— 实例 `be-t144`。**核心 `O-2` 已闭环**：新增**真实 DAO 守卫** `AuthResetPasswordRealDaoTest`（真实 `DmUserAccountDao` + 引擎），**「改回两步写」必红**（红在 `must_change_password` 断言 `expected:<Y> but was:<N>`）⇒ **补上了那条「无守卫的修复」**。含 `O-4` 断言收紧、`O-1` 死代码清理。**★首次遵守取样纪律**（取样 01:31:01 晚于最后落笔 01:28:37）。**★遗留一项待复核席独立判定**：弱口令路径抛**裸 `IllegalArgumentException`**（靠全局 `ErrorMapper` 映射 `10001`）而**同端点兄弟断言均为 `BizException`** ⇒ 类型不一致 + **宽映射或掩盖编程错误**；编排者倾向在服务层转显式 `BizException`（保持 `PasswordHasher` 纯工具），**但交由复核席独立判定**。 |
@@ -250,10 +250,12 @@
 
 
 ### DONE
+> 📌 **第 263 轮补7：`T-119` 独立复核 = 有条件通过（0 阻断 / 0 功能缺陷 / 1 潜伏观察 `OBS-T119-01`）⇒ 核心闭环成立、转 `DONE`（六区 `TODO` 15→15、`IN_PROGRESS` 1→0、`待复核` 1→0、`DONE` 210→211；同轮新立 `T-230` ⇒ `TODO` 16）** —— 复核席 `te-verify-t119`（报告 `/root/t119-verify.md` md5 `88667754…`/218 行）：门禁 `1335/0/0/0` + arch `E1–E9 rc0` + 自建探针 6/6 + 自设变异 4 组全击杀；树锚 `8950ab67…`/791。**观察 `OBS-T119-01`**：`hasRoleCode` 不校验 `role.status`（`DISABLED` 仍放行）⇒ **另立 `T-230`** 承接、`T-118` 排其后。
 
 > 📌 **T-219 全量对账订正（2026-10-31，实例 `doc-t219`）**：本区实算 = **209** 条（T-229 贴标后；原 208）（六区合计 **228** = TODO 17 / IN_PROGRESS 0 / 待复核 0 / DONE 209 / BLOCKED 0 / REJECTED 2（T-229 贴标后实测），与 `docs/TASKS.md` §1 状态列逐行对账双向对称差 = ∅；本区其余历史注记中的计数均系当时点值，按「勘误不回改历史」保留原文）。
 | 编号 | 标题 | 负责人 | 完成时间 | 验收证据 |
 |------|------|--------|---------|---------|
+| T-119 | 补齐 `putQuota` **层③**（`ACCOUNT_PRODUCT` / 账户哨兵 `0`）**写面授权门禁**（M1 = 角色近似） | backend-engineer#java | 2026-11-04 | 恢复实例 `be-t119b` 交付 `51ab602`；复核 `te-verify-t119` 有条件通过/0 功能缺陷/1 潜伏观察 ⇒ 核心闭环成立转 DONE；观察 `OBS-T119-01` 另立 `T-230` 承接；编排者抽验 1335/0/0/0 + arch E1–E9 rc0 + 双变异红 |
 | T-108 | 补齐 **AUTH** 未实现 DAO + **功能权限链路**（写面 `defineRole` 7 参重载 + 读面 `hasFunctionPermission` + `DmRolePermissionDao` + `t_role_permission` 播种） | backend-engineer#java2 | 2026-11-04 | 交付 `1deb5d2`（8 文件）+ 补正 `25e496a`（2 文件）；复核 `te-verify-t108` 有条件通过/1 低缺陷 ⇒ 补正闭环；编排者亲核 delta 采信：三靶点独立复现转红 + 1333/0/0/0 + arch E1–E9 rc0 + 树锚 `f4883844…`/790 |
 | T-229 | 修正 RISK 端点注册面「6 对」笔误（TE-T070V-001） | frontend-engineer | 2026-11-03 | `c61779e` 仅 3 文件 +4/−4（注释）；`te-verify-t229` 通过/0 阻断（7 对/10 路径/104/0/「6 对」残留 0）；行内裸管道已修 |
 | T-226 | TASKS §1/§2 状态全量对账（DONE 面） | 编排者（team-lead） | 2026-11-03 | 交付 `76523ff`+`8d2f32c`（155 行状态面，结构异常 0）；`te-verify-t226` 有条件通过/0 阻断（条件 T-070 剔除已执行）；T-070 后经 `te-verify-t070` + 用户授权闭环；收口复算 228/207/0/0/0 |
