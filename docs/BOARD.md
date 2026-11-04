@@ -65,7 +65,6 @@
 | T-116 | PRODUCT 读取面**「需求面 > 实现面」缺口补齐**（`FR-PRODUCT-5` 输出列「子账户 / 最近变更时间」+ `FR-PRODUCT-8` 导出与列表筛选一致） | backend-engineer#java2 | P1 |
 | T-117 | 修正 PRODUCT **白名单可见性 over-inclusive**（可见子查询补 `status='ENABLED'`，已移出品种不再算「可见」） | backend-engineer#java2 | P1 |
 | T-118 | 补齐**全局 / 账户级对象写面的功能权限强制点**（`createProduct`/`disableProduct`/`enableProduct`/`putUnit`/`putContract`/`putSpotMapping`/`importProducts` 现**零权限门禁**）〔**第 263 轮串行排队**：依赖 `T-119` ⇒ 派发次序 `T-108`→`T-119`→本单，前置未 DONE 前不予派发〕 | backend-engineer#java2 | P0 |
-| T-119 | 补齐 `putQuota` **层③**（`ACCOUNT_PRODUCT` / 账户哨兵 `0`）**写面授权门禁**（M1 = 角色近似）〔**第 263 轮串行排队**：依赖 `T-108` ⇒ 派发次序 `T-108`→本单→`T-118`，`T-108` 未 DONE 前不予派发〕 | backend-engineer#java | P0 |
 | T-131 | 补齐 **PRODUCT 写面 REST 端点**（品种修改 / 停用 / 启用 / 计量单位；**服务层已实现、端点未注册**） | backend-engineer#java2 | P1 |
 | T-132 | 数值字段**「字符串化十进制」契约收口**（`GET /product/quota` 以 JSON `number` 输出 `BigDecimal`）+ 穷举同类点 | backend-engineer#java2 | P1 |
 | T-133 | 核心服务层**「零覆盖校验守卫」收口**（`VarietyService.putUnit` 已确证 + `SpotService` 8 候选守卫） | test-engineer | P1 |
@@ -92,6 +91,8 @@
 > 📌 **T-219 全量对账订正（2026-10-31，实例 `doc-t219`）**：本区实算 = **0** 条（T-229 贴标后；原 1）（六区合计 **228** = TODO 17 / IN_PROGRESS 0 / 待复核 0 / DONE 209 / BLOCKED 0 / REJECTED 2（T-229 贴标后实测），与 `docs/TASKS.md` §1 状态列逐行对账双向对称差 = ∅；本区其余历史注记中的计数均系当时点值，按「勘误不回改历史」保留原文）。
 | 编号 | 标题 | 负责人 | 开始时间 |
 |------|------|--------|---------|
+| T-119 | 补齐 `putQuota` **层③**（`ACCOUNT_PRODUCT` / 账户哨兵 `0`）**写面授权门禁**（M1 = 角色近似）—— 串行第二单（`T-108` 前置已 DONE） | backend-engineer#java | 2026-11-04 |
+> 📌 **第 263 轮补4：`T-119`（P0）派发实施（本区 0 → 1；`TODO` 16 → 15）** —— 实例 `be-t119`（backend-engineer#java 席）；工单 `dev-team/inbox/backend-engineer#java/T-119-task.md`；**串行第二单**（依赖链 `T-108`→**本单**→`T-118`）；`T-108`（前置：功能权限链路 + `t_role` 播种）**已 DONE** 于 2026-11-04 ⇒ 前置满足。**写域** = `AuthService.java`（`assertCanConfigureAccountLevel`）+ `VarietyService.java`（层③接线）+ `VarietyT112VisibilityTest`（改判 2 条）+ 测试。**硬前置**：`CH-012` 已确认（主体=财务/风控岗 或 SYS_ADMIN；码 10003）。`T-118` 维持本区 `TODO`、不加串行排队注（其前置为本单，本单未 DONE 前不予派发）。
 > 📌 **第 263 轮补3：`T-108` 补正闭环 ⇒ 转 `DONE` 区（本区 1 → 0；六区 16/0/0/210/0/2）** —— 补正实例 `be-t108b` 交付 **`25e496a`**（2 文件 +185/−2，仅测试面）；**编排者亲核 delta 采信**（先例 `T-197`）：独立复现三靶点均转红（`BUG-T108-01` ③-4 类别改域外值 / `M-G` 删 `trim()` / `M-H` 权限行移出事务），逐字节复原 + 全量 **1333/0/0/0** + arch `E1–E9 rc0` + 树锚 `f4883844…`/790。**待裁落定**：未升版/无需 `CH`（`AuthService` 不在 §2.2 冻结面）；`§2.2.1` 登记宜办但转 `#java` 席落笔（不阻断 DONE）。**串行下一单 `T-119` 前置（`T-108`）已满足。**
 > 📌 **第 261 轮补4 +1：`T-208` 派发实施（本区 2 → 3；`TODO` 66 → 65）** —— 实例 `be-t208`（backend 插件席）；工单 `dev-team/inbox/backend-engineer#cpp/T-208-task.md`；写域 = `cpp/src/hgcp/**` + `cpp/src/trading_app.{h,cc}` + Java 侧仅新增测试；**不 commit**（编排者抽验后落盘）；**该单已完成 ⇒ 第 261 轮补5 移入「已完成，待独立复核」区（本区 3 → 2）**
 > 📌 **第 261 轮 +1：`T-207` 派发实施（本区 2 → 3；`TODO` 66 → 65）** —— 实例 `be-t207`（backend 插件席）；工单 `dev-team/inbox/backend-engineer#cpp/T-207-task.md`；写域 = `cpp/src/main.cc` + `cpp/src/` 新增运行类 + `cpp/src/*/tests/` 新增用例 + 部署脚本；**不 commit**（编排者抽验后落盘）
