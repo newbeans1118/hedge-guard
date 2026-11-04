@@ -1701,7 +1701,9 @@ public final class AuthService implements SubAccountVisibility, AccountLevelConf
     private boolean hasRoleCode(long userId, String roleCode) {
         for (UserRole userRole : userRoleDao.findByUser(userId)) {
             Role role = roleDao.findById(userRole.roleId);
-            if (role != null && roleCode.equals(role.roleCode)) {
+            // 口径与 hasTradingRole / hasFunctionPermission 对齐：只认【启用】角色（T-230 / OBS-T119-01）
+            if (role != null && roleCode.equals(role.roleCode)
+                    && "ENABLED".equals(role.status)) {
                 return true;
             }
         }

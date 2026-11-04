@@ -298,6 +298,98 @@ class AuthAdminServiceTest {
         assertEquals(2, permDao.rows.size(), "审计岗可被授跨子账户只读");
     }
 
+    // ------------------------------------------------------------ T-230 角色有效性口径（OBS-T119-01）
+
+    /**
+     * {@code T-230}：{@code AuthService.hasRoleCode} 须与同族 {@code hasTradingRole}（{@code :714}）/
+     * {@code hasFunctionPermission}（{@code :747}）口径一致——<b>只认 {@code status='ENABLED'} 的角色</b>。
+     *
+     * <p><b>反向锁定（断言翻转即红）</b>：改前 {@code hasRoleCode} 不校验 {@code role.status}，
+     * 用户所绑角色置 {@code DISABLED} 后仍被放行；本组用例在真实 {@link AuthService} 的三条调用点
+     * （层③ {@code :791} / {@code grantRole :578} / {@code assignSubAccountPerm :1538}）上把该放行
+     * 钉成<b>拒绝</b>，并逐一核对 {@code ENABLED} 正分支零回归。
+     *
+     * <p>真实 {@code hasRoleCode} 路径（经 {@code t_user_role → t_role}）由 {@link FakeRoleDao} /
+     * {@link FakeUserRoleDao} 驱动，禁用经直接改 {@code Role.status} 模拟（当前全仓无
+     * {@code disableRole} 应用路径，属纵深防御/前向一致性）。
+     */
+    @Test
+    @DisplayName("T-230 层③（:791）：DISABLED 角色不得授予账户级配置权；无角色/角色不存在 ⇒ 拒；ENABLED 零回归")
+    void accountLevelConfigAuthorityIgnoresDisabledRole() {
+        // ① 无角色 ⇒ 拒（安全默认）
+        assertEquals(ErrorCode.FUNCTION_PERMISSION_DENIED,
+                assertThrows(BizException.class,
+                        () -> service.assertCanConfigureAccountLevel(1L)).errorCode(),
+                "无任何角色 ⇒ 层③ 拒 10003（fail-closed）");
+        // ② 角色存在但用户未绑定该角色 ⇒ 拒
+        roleDao.put(role(11L, AuthService.ROLE_FIN_RISK, 4, "N"));
+        assertEquals(ErrorCode.FUNCTION_PERMISSION_DENIED,
+                assertThrows(BizException.class,
+                        () -> service.assertCanConfigureAccountLevel(1L)).errorCode(),
+                "角色存在但未绑定 ⇒ 拒");
+        // ③ 绑定指向不存在的角色 id ⇒ 拒（role==null 分支，不得 NPE）
+        userRoleDao.put(userRole(2L, 999L));
+        assertEquals(ErrorCode.FUNCTION_PERMISSION_DENIED,
+                assertThrows(BizException.class,
+                        () -> service.assertCanConfigureAccountLevel(2L)).errorCode(),
+                "绑定角色已不存在 ⇒ 拒（不 NPE）");
+        // ④ 绑定 FIN_RISK 但角色被【禁用】⇒ 拒（改前为放行，断言翻转即红）
+        userRoleDao.put(userRole(1L, 11L));
+        roleDao.byId.get(11L).status = "DISABLED";
+        assertEquals(ErrorCode.FUNCTION_PERMISSION_DENIED,
+                assertThrows(BizException.class,
+                        () -> service.assertCanConfigureAccountLevel(1L)).errorCode(),
+                "DISABLED 角色不得授予账户级配置权（口径对齐 hasTradingRole/hasFunctionPermission）");
+        assertFalse(attemptDao.rows.isEmpty(), "越权尝试须留痕（R-AUTH-8）");
+        // ⑤ 角色启用后放行（正分支零回归）
+        roleDao.byId.get(11L).status = "ENABLED";
+        service.assertCanConfigureAccountLevel(1L);
+    }
+
+    @Test
+    @DisplayName("T-230 grantRole（:578）：DISABLED 的 SYS_ADMIN 不再被当系统管理员（不误伤业务角色授予）")
+    void grantRoleSysAdminCheckIgnoresDisabledRole() {
+        service.createUser("lisi", "李四", "NP-001", "财务部", "N", "Hg#2026Trading01", 9L);
+        // 用户所持 SYS_ADMIN 被【禁用】⇒ 不得再被当作系统管理员 ⇒ 授予业务角色不被 10005 误拒
+        roleDao.put(role(1L, AuthService.ROLE_SYS_ADMIN, 1, "N"));
+        userRoleDao.put(userRole(1L, 1L));
+        roleDao.byId.get(1L).status = "DISABLED";
+        roleDao.put(role(20L, AuthService.ROLE_AUDITOR, 6, "N"));   // 目标业务角色
+        service.grantRole(1L, 20L, 9L, 8L);
+        assertTrue(userRoleDao.rows.stream().anyMatch(r -> r.roleId == 20L),
+                "禁用 SYS_ADMIN 不构成系统管理员 ⇒ 授予业务角色成功（改前 targetIsSysAdmin=true ⇒ 10005 误拒）");
+
+        // 正分支零回归：SYS_ADMIN 启用时，持该角色的用户授业务角色仍被 10005 拒（R-AUTH-10）
+        service.createUser("wangwu", "王五", "NP-002", "财务部", "N", "Hg#2026Trading01", 9L);
+        long sysAdminUserId = userDao.findByUsername("wangwu").id;
+        userRoleDao.put(userRole(sysAdminUserId, 1L));
+        roleDao.byId.get(1L).status = "ENABLED";
+        assertEquals(ErrorCode.POSITION_SEPARATION_CONFLICT,
+                assertThrows(BizException.class,
+                        () -> service.grantRole(sysAdminUserId, 20L, 9L, 8L)).errorCode(),
+                "启用 SYS_ADMIN 仍不得持有业务角色（R-AUTH-10）");
+    }
+
+    @Test
+    @DisplayName("T-230 assignSubAccountPerm（:1538）：DISABLED 的 AUDITOR 不得被授跨子账户只读；ENABLED 零回归")
+    void crossReadonlyGrantIgnoresDisabledRole() {
+        service.createUser("lisi", "李四", "NP-001", "财务部", "N", "Hg#2026Trading01", 9L);
+        roleDao.put(role(20L, AuthService.ROLE_AUDITOR, 6, "N"));
+        userRoleDao.put(userRole(1L, 20L));
+        roleDao.byId.get(20L).status = "DISABLED";
+        assertEquals(ErrorCode.POSITION_SEPARATION_CONFLICT,
+                assertThrows(BizException.class,
+                        () -> service.assignSubAccountPerm(1L, 0, AuthService.PERM_CROSS_READONLY,
+                                LocalDate.of(2026, 1, 1), null, 9L, 8L)).errorCode(),
+                "禁用审计岗不得被授跨子账户只读（改前放行 ⇒ 断言翻转即红）");
+        assertTrue(permDao.rows.isEmpty(), "被拒时不得落授权行");
+        // 正分支零回归：启用后放行（FR-AUTH-13 验收 2）
+        roleDao.byId.get(20L).status = "ENABLED";
+        service.assignSubAccountPerm(1L, 0, AuthService.PERM_CROSS_READONLY,
+                LocalDate.of(2026, 1, 1), null, 9L, 8L);
+        assertEquals(1, permDao.rows.size(), "启用审计岗可被授跨子账户只读（零回归）");
+    }
+
     // ------------------------------------------------------------ FR-AUTH-11/18/15④
 
     @Test
