@@ -60,7 +60,6 @@
 > 📌 **T-219 全量对账订正（2026-10-31，实例 `doc-t219`）**：本区实算 = **17** 条（T-229 贴标后；原 17）（六区合计 **228** = TODO 17 / IN_PROGRESS 0 / 待复核 0 / DONE 209 / BLOCKED 0 / REJECTED 2（T-229 贴标后实测），与 `docs/TASKS.md` §1 状态列逐行对账双向对称差 = ∅；本区其余历史注记中的计数均系当时点值，按「勘误不回改历史」保留原文）。
 | 编号 | 标题 | 负责人 | 优先级 |
 |------|------|--------|--------|
-| T-231 | `AuthService.roleCodesOf` 角色有效性口径对齐（`:1690` 无 `role.status` 守卫 ⇒ 停用角色可代签；承接 `te-verify-t230` 观察 `O-1`） | backend-engineer#java | P1 |
 | T-113 | 修正 SPOT 现货单据创建在 `subAccountId` 缺省时的错误呈现（现 NPE→500，应明确提示「子账户必填」） | backend-engineer#java2 | P1 |
 | T-114 | 补齐 `POST /spot/exposure/recalc`（`recalcForDisplay`）的子账户可见性强制 | backend-engineer#java2 | P1 |
 | T-116 | PRODUCT 读取面**「需求面 > 实现面」缺口补齐**（`FR-PRODUCT-5` 输出列「子账户 / 最近变更时间」+ `FR-PRODUCT-8` 导出与列表筛选一致） | backend-engineer#java2 | P1 |
@@ -86,6 +85,7 @@
 > 📌 **`T-040` 归属变更（`CH-006` 定界，2026-09-20）**：`T-040` 由 `backend-engineer#cpp` **改派 `backend-engineer#java`**，原因 = 用户技术栈裁决「HTTP / WebSocket 全部在 Java 端实现」，架构 v1.4 已废弃原「通道 B（C++ 侧 `websocketpp`）」并明确 **C++ 只做事件源、Java 做 WebSocket 服务端**（见 §4 顶部说明与 `R-3`/`R-17`）。依赖随之由 `T-029, T-031` 改为 **`T-028, T-042`**；人时 **16 人时由 `#cpp` 移入 `#java`（总量不变）**。
 
 ### IN_PROGRESS
+> 📌 **第 263 轮补14：`T-231` 派发实施（本区 0 → 1；`TODO` 15 → 14）** —— 实例 `be-t231`（backend-engineer#java 席）；工单 `dev-team/inbox/backend-engineer#java/T-231-task.md`；**本批 3 P0（T-108/T-119/T-118）已全部闭环 ⇒ 共享树空闲，按排队派发**。**内容**：`roleCodesOf`（`:1690`）补 `role.status` ENABLED 过滤（喂 `SettleCheckService.verifySignature:412` 代签判据）。
 > 📌 **第 263 轮补11（历史态）：`T-118` 派发实施（本区 0 → 1；`TODO` 16 → 15）**〔**同轮补12 交付 ⇒ 移入待复核区**〕 —— 实例 `be-t118`（backend-engineer#java2 席）；工单 `dev-team/inbox/backend-engineer#java2/T-118-task.md`；**本批 3 个 P0 收尾单**（链 `T-108`→`T-119`→`T-230` 均 DONE）。**内容**：`VarietyService` 七写方法（`createProduct`/`disableProduct`/`enableProduct`/`putUnit`/`putContract`/`putSpotMapping`/`importProducts`）接入账户级配置权断言（**复用既有 `AccountLevelConfigAuthorizer`**，判据 = `CH-012` 主体，`10003` + `R-AUTH-8` 留痕）。
 > 📌 **第 263 轮补8（历史态）：`T-230` 派发实施（本区 0 → 1；`TODO` 16 → 15）**〔**同轮补9 交付 ⇒ 移入待复核区**〕 —— 实例 `be-t230`；承接 `te-verify-t119` 观察 `OBS-T119-01`：`hasRoleCode` 补 `role.status` ENABLED 守卫。
 
@@ -93,6 +93,7 @@
 > 📌 **T-219 全量对账订正（2026-10-31，实例 `doc-t219`）**：本区实算 = **0** 条（T-229 贴标后；原 1）（六区合计 **228** = TODO 17 / IN_PROGRESS 0 / 待复核 0 / DONE 209 / BLOCKED 0 / REJECTED 2（T-229 贴标后实测），与 `docs/TASKS.md` §1 状态列逐行对账双向对称差 = ∅；本区其余历史注记中的计数均系当时点值，按「勘误不回改历史」保留原文）。
 | 编号 | 标题 | 负责人 | 开始时间 |
 |------|------|--------|---------|
+| T-231 | `AuthService.roleCodesOf` 角色有效性口径对齐（补 `role.status` ENABLED 过滤；承接 `te-verify-t230` 观察 O-1） | backend-engineer#java | 2026-11-04 |
 > 📌 **第 263 轮补6（历史态）：`T-119` 恢复完成交付 ⇒ 移出本区（`IN_PROGRESS` 1 → 0；`待复核` 0 → 1）**〔**同轮补7 已贴 DONE ⇒ 现 DONE 区**〕 —— 恢复实例 `be-t119b` 交付 **`51ab602`**（8 文件，采纳首派成果 + 修 2 失败）；**编排者抽验采信**：文件面零越界 / 亲跑 **1335/0/0/0** + arch `E1–E9 rc0` + 零告警 / **双变异独立复现**（M1 摘层③接线 ⇒ 3 红；M2 断言恒真 ⇒ 2 红）+ 逐字节复原 / 树锚 `f4883844…`/790 → `8950ab67…`/791。层③（`ACCOUNT_PRODUCT`/哨兵 0）走 `putQuota` `else` 分支 → `requireCanConfigureAccountLevel`（fail-closed）；`assertCanConfigureAccountLevel` = `FIN_RISK || SYS_ADMIN` 放行、否则 `recordAttempt` + 10003。**复核席待派**。
 > 📌 **第 263 轮补3：`T-108` 补正闭环 ⇒ 转 `DONE` 区（本区 1 → 0；六区 16/0/0/210/0/2）** —— 补正实例 `be-t108b` 交付 **`25e496a`**（2 文件 +185/−2，仅测试面）；**编排者亲核 delta 采信**（先例 `T-197`）：独立复现三靶点均转红（`BUG-T108-01` ③-4 类别改域外值 / `M-G` 删 `trim()` / `M-H` 权限行移出事务），逐字节复原 + 全量 **1333/0/0/0** + arch `E1–E9 rc0` + 树锚 `f4883844…`/790。**待裁落定**：未升版/无需 `CH`（`AuthService` 不在 §2.2 冻结面）；`§2.2.1` 登记宜办但转 `#java` 席落笔（不阻断 DONE）。**串行下一单 `T-119` 前置（`T-108`）已满足。**
 > 📌 **第 261 轮补4 +1：`T-208` 派发实施（本区 2 → 3；`TODO` 66 → 65）** —— 实例 `be-t208`（backend 插件席）；工单 `dev-team/inbox/backend-engineer#cpp/T-208-task.md`；写域 = `cpp/src/hgcp/**` + `cpp/src/trading_app.{h,cc}` + Java 侧仅新增测试；**不 commit**（编排者抽验后落盘）；**该单已完成 ⇒ 第 261 轮补5 移入「已完成，待独立复核」区（本区 3 → 2）**
