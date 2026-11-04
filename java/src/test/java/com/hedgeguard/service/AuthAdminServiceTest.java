@@ -390,6 +390,85 @@ class AuthAdminServiceTest {
         assertEquals(1, permDao.rows.size(), "启用审计岗可被授跨子账户只读（零回归）");
     }
 
+    // ------------------------------------------------------------ T-231 角色有效性口径（roleCodesOf 双调用面）
+
+    /**
+     * {@code T-231} <b>授权面</b>核对：{@code roleCodesOf} 经 {@code Bootstrap:766} 注入
+     * {@link SettleCheckService} 的 {@code RoleLookup}，作 {@code DC-022}「不可代签」判据
+     * （{@code SettleCheckService:412}）。
+     *
+     * <p>接线取<b>真实</b> {@link AuthService#roleCodesOf(long)}（{@code service::roleCodesOf}）——即生产
+     * {@code Bootstrap} 的注入形态；用户所持 {@code FIN_RISK} 置 {@code DISABLED} 后，RISK 应签角色
+     * 的签署须<b>被拒</b>（改前 held 仍含 {@code FIN_RISK} ⇒ 放行 ⇒ 停用角色可代签）。
+     */
+    @Test
+    @DisplayName("T-231 授权面（SettleCheck:412）：DISABLED 的 FIN_RISK 不得代签 RISK；ENABLED 零回归")
+    void settleSignRejectsDisabledRoleCode() {
+        service.createUser("lisi", "李四", "NP-001", "财务部", "N", "Hg#2026Trading01", 9L);
+        roleDao.put(role(11L, AuthService.ROLE_FIN_RISK, 4, "N"));
+        userRoleDao.put(userRole(1L, 11L));
+        SettleCheckFakes.CheckTasks tasks = new SettleCheckFakes.CheckTasks();
+        SettleCheckFakes.CheckSignatures sigs = new SettleCheckFakes.CheckSignatures();
+        SettleCheckFakes.Attempts attempts = new SettleCheckFakes.Attempts();
+        // 生产注入形态：visibility / RoleLookup / TradingRoleChecker 全部取真实 AuthService
+        SettleCheckService scs = new SettleCheckService(FakeTx.newTemplate(), service,
+                service::roleCodesOf, service::hasTradingRole,
+                key -> SettleCheckService.KEY_SIGN_ROLES.equals(key) ? "RISK,TRADE,FINANCE" : null,
+                null, tasks, sigs, attempts);
+        SettleCheckService.GenerateCheckInput gen = new SettleCheckService.GenerateCheckInput();
+        gen.checkType = SettleCheckService.CHECK_MONTHLY;
+        gen.periodKey = "2026-09";
+        gen.subAccountId = 0;
+        gen.snapshotHash = "H1";
+        long taskId = scs.generateCheckTask(gen, 9L).id;
+
+        // ① DISABLED ⇒ 拒（改前 held 含 FIN_RISK ⇒ 放行 ⇒ 断言翻转即红）
+        roleDao.byId.get(11L).status = "DISABLED";
+        SettleCheckService.SignCheckInput in = new SettleCheckService.SignCheckInput();
+        in.taskId = taskId;
+        in.signRole = SettleCheckService.ROLE_RISK;
+        in.snapshotHash = "H1";
+        assertEquals(ErrorCode.FUNCTION_PERMISSION_DENIED,
+                assertThrows(BizException.class,
+                        () -> scs.sign(in, 1L, "10.0.0.1")).errorCode(),
+                "停用 FIN_RISK 的角色代码不得进入 held ⇒ RISK 代签须拒（DC-022 判据①，T-231）");
+        assertFalse(attempts.rows.isEmpty(), "代签须留痕（R-AUTH-8）");
+
+        // ② ENABLED ⇒ 放行（正分支零回归）
+        roleDao.byId.get(11L).status = "ENABLED";
+        assertEquals(SettleCheckService.STATUS_PARTIAL_SIGNED,
+                scs.sign(in, 1L, "10.0.0.1").status, "启用后同账号同任务可签（零回归）");
+    }
+
+    /**
+     * {@code T-231} <b>展示面</b>核对：{@code UserHandler:72} 用户列表的 {@code roleCodes} 字段
+     * （{@code FR-AUTH-5} 验收 2「列表展示角色」）。收窄口径 = 列表只展示该用户的<b>生效角色</b>，
+     * 与授权面同源——停用角色不再出现，<b>非静默信息丢失</b>：展示的即「用户实际拥有的有效角色」。
+     */
+    @Test
+    @DisplayName("T-231 展示面（UserHandler:72）：列表 roleCodes 只展示生效角色；DISABLED 不出现、ENABLED 出现")
+    void userListShowsOnlyEnabledRoleCodes() {
+        service.createUser("lisi", "李四", "NP-001", "财务部", "N", "Hg#2026Trading01", 9L);
+        roleDao.put(role(10L, AuthService.ROLE_TRADER, 1, "Y"));
+        userRoleDao.put(userRole(1L, 10L));
+        UserHandler handler = new UserHandler(service);
+
+        // ① ENABLED ⇒ 展示（正分支）
+        String enabled = new String(handler.handle(ctx("")).body,
+                java.nio.charset.StandardCharsets.UTF_8);
+        assertTrue(enabled.contains("\"roleCodes\":[\"TRADER\"]"),
+                "启用角色的代码应出现在列表 roleCodes：" + enabled);
+
+        // ② DISABLED ⇒ 不出现（改前仍展示 ⇒ 断言翻转即红）
+        roleDao.byId.get(10L).status = "DISABLED";
+        String disabled = new String(handler.handle(ctx("")).body,
+                java.nio.charset.StandardCharsets.UTF_8);
+        assertFalse(disabled.contains("\"TRADER\""),
+                "停用角色不应出现在列表 roleCodes（展示面口径 = 生效角色）：" + disabled);
+        assertTrue(disabled.contains("\"roleCodes\":[]"),
+                "无生效角色时 roleCodes 须为空数组（非省略、非全量）：" + disabled);
+    }
+
     // ------------------------------------------------------------ FR-AUTH-11/18/15④
 
     @Test

@@ -1682,16 +1682,39 @@ public final class AuthService implements SubAccountVisibility, AccountLevelConf
     }
 
     /**
-     * 取某用户的角色编码集合（{@code FR-AUTH-5} 验收 2：列表展示角色）。
+     * 取某用户的角色编码集合。
+     *
+     * <p><b>取数口径（{@code T-231} 收紧；与同族 {@link #hasRoleCode} / {@link #hasTradingRole} /
+     * {@link #hasFunctionPermission} 对齐）</b>：只收 <b>{@code t_role.status='ENABLED'}</b> 的角色代码；
+     * 角色不存在（{@code role==null}）或状态非 {@code ENABLED}（含 {@code DISABLED} / {@code null} /
+     * 取值域外）一律<b>排除</b>（fail-closed；依据 {@code te-verify-t230} 观察 {@code O-1}）。
+     *
+     * <p><b>双调用面（不可混同）</b>：
+     * <ul>
+     *   <li><b>授权面</b>——经 {@code Bootstrap} 注入 {@link SettleCheckService} 的
+     *       {@code RoleLookup}（{@code Bootstrap:766} / {@code SettleCheckService:412}），作
+     *       {@code DC-022}「不可代签」判据：停用角色的代码不得进入 {@code held} 集合，
+     *       否则停用角色仍可代签（授权面须<b>拒</b>）。</li>
+     *   <li><b>展示面</b>——{@code UserHandler:72} 用户列表的 {@code roleCodes} 字段
+     *       （{@code FR-AUTH-5} 验收 2「列表展示角色」）：收窄 = <b>只展示生效角色</b>，
+     *       与「授权有效性」口径一致（停用角色不再计入该用户的<b>生效</b>角色，
+     *       展示面的角色列即用户实际拥有的有效角色）。</li>
+     * </ul>
+     * 两面共用本方法<b>是刻意收口</b>（同一「生效角色」语义单一来源，避免展示面与授权面各写一套而漂移）；
+     * 非静默混同——展示面语义即「生效角色」，停用角色不出现在列表属预期，非信息丢失。
      *
      * @param userId 用户
-     * @return 角色编码列表（无角色 ⇒ 空集）
+     * @return 启用角色的编码列表（无启用角色 ⇒ 空集；<b>不含停用/状态缺失角色</b>）
      */
     public List<String> roleCodesOf(long userId) {
         List<String> codes = new ArrayList<>();
         for (UserRole userRole : userRoleDao.findByUser(userId)) {
             Role role = roleDao.findById(userRole.roleId);
-            if (role != null) {
+            // 口径与同族 hasRoleCode / hasTradingRole / hasFunctionPermission 对齐：只认【启用】角色
+            // （T-231 / te-verify-t230 观察 O-1）。status 非 "ENABLED"（含 null / 取值域外）一律排除
+            // ⇒ fail-closed。本方法经 Bootstrap 注入 SettleCheckService 的 RoleLookup，兼作
+            // DC-022 代签判据（授权面）；停用角色的代码不得进入 held 集合，否则停用角色仍可代签。
+            if (role != null && "ENABLED".equals(role.status)) {
                 codes.add(role.roleCode);
             }
         }

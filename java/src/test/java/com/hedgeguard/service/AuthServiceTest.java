@@ -408,6 +408,75 @@ class AuthServiceTest {
                         () -> service.assertSubAccountWritable(3L, 7)).errorCode());
     }
 
+    // ------------------------------------------------------------ T-231 角色有效性口径（roleCodesOf）
+
+    /**
+     * {@code T-231}：{@code AuthService.roleCodesOf(long)} 须与同族 {@link AuthService#hasTradingRole}
+     * / {@code hasFunctionPermission} / {@code hasRoleCode} 口径一致——<b>只收 {@code status='ENABLED'}
+     * 的角色</b>（承接 {@code te-verify-t230} 观察 {@code O-1}）。
+     *
+     * <p><b>反向锁定（断言翻转即红）</b>：改前 {@code roleCodesOf} 只判 {@code role != null}，
+     * 用户所绑角色置 {@code DISABLED} 后其 {@code roleCode} <b>仍出现在返回列表</b>；本组用例把该
+     * fail-open 钉成<b>不出现</b>。取数路径（{@code t_user_role → t_role}）由 {@link FakeRoleDao} /
+     * {@link FakeUserRoleDao} 驱动；禁用经直接改 {@code Role.status} 模拟（当前全仓无
+     * {@code disableRole} 应用路径，属纵深防御 / 前向一致性）。
+     */
+    @Test
+    @DisplayName("T-231：DISABLED 角色代码不出现在 roleCodesOf；ENABLED 不受影响；多角色只收启用者")
+    void roleCodesOfIgnoresDisabledRole() {
+        addUser(1L, "trader01", "ENABLED");
+        roleDao.put(role(10L, AuthService.ROLE_TRADER, 1, "Y"));
+        roleDao.put(role(11L, AuthService.ROLE_FIN_RISK, 4, "N"));
+        userRoleDao.put(userRole(100L, 1L, 10L));
+        userRoleDao.put(userRole(101L, 1L, 11L));
+
+        // ① 基线（两角色均启用）⇒ 两者皆收（先证取值面正确，再谈收窄）
+        assertEquals(2, service.roleCodesOf(1L).size(), "两启用角色应各收一条");
+
+        // ② 其一置 DISABLED ⇒ 其代码【不出现】（改前含之 ⇒ 断言翻转即红）
+        roleDao.findByCode(AuthService.ROLE_FIN_RISK).status = "DISABLED";
+        List<String> held = service.roleCodesOf(1L);
+        assertFalse(held.contains(AuthService.ROLE_FIN_RISK),
+                "DISABLED 角色的代码不得出现在 roleCodesOf：" + held
+                        + "（改前 fail-open ⇒ 其代码在列表中 ⇒ 停用角色仍可代签，T-231 / O-1）");
+        assertTrue(held.contains(AuthService.ROLE_TRADER), "ENABLED 角色不受影响：" + held);
+
+        // ③ ENABLED 复原 ⇒ 重新出现（正分支零回归）
+        roleDao.findByCode(AuthService.ROLE_FIN_RISK).status = "ENABLED";
+        assertEquals(2, service.roleCodesOf(1L).size(), "启用复原后应重新收取（零回归）");
+    }
+
+    @Test
+    @DisplayName("T-231：status==null（O-2 null 变体）⇒ 排除（fail-closed）；角色不存在 ⇒ 跳过不 NPE")
+    void roleCodesOfIsFailClosedOnNullStatus() {
+        addUser(1L, "trader01", "ENABLED");
+        roleDao.put(role(10L, AuthService.ROLE_TRADER, 1, "Y"));
+        userRoleDao.put(userRole(100L, 1L, 10L));
+
+        // ① status==null ⇒ 排除（改前 null 亦收 ⇒ 断言翻转即红；顺带补 T-230 观察 O-2 的 null 变体）
+        roleDao.findByCode(AuthService.ROLE_TRADER).status = null;
+        List<String> held = service.roleCodesOf(1L);
+        assertTrue(held.isEmpty(),
+                "status==null 须按 fail-closed 排除（不得放行）：" + held);
+        assertFalse(held.contains(AuthService.ROLE_TRADER),
+                "status==null 的角色代码不得出现：" + held);
+
+        // ② 取值域外的状态（"enabled" 小写）同样排除——口径为逐字 "ENABLED"，不做大小写宽松匹配
+        roleDao.findByCode(AuthService.ROLE_TRADER).status = "enabled";
+        assertFalse(service.roleCodesOf(1L).contains(AuthService.ROLE_TRADER),
+                "非逐字 \"ENABLED\"（含大小写变体）须排除（与 hasRoleCode 同口径）");
+
+        // ③ 用户绑定指向【不存在】的角色 id ⇒ 跳过（role==null 分支，不得 NPE、不得计入）
+        roleDao.findByCode(AuthService.ROLE_TRADER).status = "ENABLED";
+        userRoleDao.put(userRole(200L, 1L, 999L));
+        List<String> mixed = service.roleCodesOf(1L);
+        assertEquals(1, mixed.size(), "指向不存在角色的绑定须静默跳过，只余启用角色：" + mixed);
+        assertEquals(AuthService.ROLE_TRADER, mixed.get(0));
+
+        // ④ 无任何角色 ⇒ 空集（安全默认）
+        assertTrue(service.roleCodesOf(404L).isEmpty(), "无角色用户 ⇒ 空集（非 null）");
+    }
+
     // ------------------------------------------------------------ 口令变更
 
     @Test
