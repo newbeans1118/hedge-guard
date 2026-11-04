@@ -2,6 +2,9 @@ package com.hedgeguard.service;
 
 import com.hedgeguard.common.Clocks;
 import com.hedgeguard.common.Config;
+import com.hedgeguard.dao.PageQuery;
+import com.hedgeguard.dao.PageResult;
+import com.hedgeguard.dao.RolePermissionDao;
 import com.hedgeguard.dao.entity.PositionGroup;
 import com.hedgeguard.dao.entity.Role;
 import com.hedgeguard.dao.entity.RolePermission;
@@ -23,6 +26,7 @@ import com.hedgeguard.dao.pool.DataSourcePool;
 import com.hedgeguard.dao.pool.PoolConfig;
 import com.hedgeguard.dao.testsupport.InMemoryDmEngine;
 import com.hedgeguard.dao.testsupport.T108FunctionPermissionSeed;
+import com.hedgeguard.dao.testsupport.TransactionAwareInMemory;
 import com.hedgeguard.dao.tx.TxTemplate;
 import com.hedgeguard.web.BizException;
 import com.hedgeguard.web.ErrorCode;
@@ -129,6 +133,15 @@ class T108FunctionPermissionLinkTest {
             assertEquals(T108FunctionPermissionSeed.CATEGORY_FUNCTION, row[2],
                     "perm_category 须为 FUNCTION：" + Arrays.toString(row));
         }
+        // BUG-T108-01 守护：类别须自 SQL 骨架真解析（非硬编码副本）并落在 DDL CHECK 域内。
+        // 把 ③-4 段 SELECT 骨架第三列 'FUNCTION' 改成域外值（如 'BOGUS_CATEGORY'）⇒ 本段必红。
+        String category = T108FunctionPermissionSeed.categoryLiteral();
+        assertTrue(T108FunctionPermissionSeed.CATEGORY_CHECK_DOMAIN.contains(category),
+                "③-4 段 perm_category 字面量须落在 ck_role_perm_category CHECK 域 "
+                        + T108FunctionPermissionSeed.CATEGORY_CHECK_DOMAIN + "：实际=" + category
+                        + "（域外值上线即因 CHECK 违例失败）");
+        assertEquals(T108FunctionPermissionSeed.CATEGORY_FUNCTION, category,
+                "③-4 段为功能权限，类别字面量须恒为 FUNCTION：实际=" + category);
         assertTrue(rows.stream().anyMatch(r -> "FIN_RISK".equals(r[0])
                         && PERM_PRODUCT_EDIT.equals(r[1])),
                 "解析出的源行须含 FIN_RISK → " + PERM_PRODUCT_EDIT
@@ -269,6 +282,84 @@ class T108FunctionPermissionLinkTest {
         assertTrue(roleDao.findByCode("AUDITOR") == null, "校验失败不得留下角色半态");
     }
 
+    // ------------------------------------------- 写面规范化（OBS-3 / M-G 守护：trim 有牙）
+
+    @Test
+    @DisplayName("写面规范化：权限编码前后空白被 trim ⇒ 落库/判定按去空值（OBS-3 / M-G 守护）")
+    void functionPermissionCodeIsTrimmedBeforePersist() {
+        long groupId = seedGroup("FIN_RISK");
+        // 输入含前后空白，且与去空后同值 —— 若 normalizeFunctionPermissions 缺 trim()，
+        // 二者将成两个不同键 ⇒ 落 2 行 ⇒ 本用例红（对应复核席 M-G 由存活转红）。
+        long roleId = service.defineRole("AUDITOR", "审计岗", (int) groupId, "N", 9L, 8L,
+                Arrays.asList(" CONFIG:EDIT ", "CONFIG:EDIT"));
+
+        List<RolePermission> rows = rolePermissionDao.findByRole(roleId);
+        assertEquals(1, rows.size(),
+                "含前后空白的编码须 trim 后与去空值去重 ⇒ 恰 1 行（缺 trim ⇒ 2 行）");
+        assertEquals("CONFIG:EDIT", rows.get(0).permCode,
+                "落库编码须为去空后值（缺 trim ⇒ 残留前后空白）");
+
+        long userId = seedUser("lisi", "NP-001");
+        seedUserRole(userId, roleId);
+        assertTrue(service.hasFunctionPermission(userId, "CONFIG:EDIT"),
+                "去空后编码须可被读面取到（写面与读面同用 trim 口径）");
+    }
+
+    // ------------------------------------------- 写面同事务（OBS-2 / M-H 守护：无半态）
+
+    @Test
+    @DisplayName("写面同事务：权限行插入失败 ⇒ 角色行整笔回滚、t_role 无半态（OBS-2 / M-H 守护）")
+    void permissionInsertFailureRollsBackWholeTransaction() throws Exception {
+        // 事务感知包装：裸 InMemoryDmEngine 的 rollback 为 no-op ⇒ 须用 TransactionAwareInMemory
+        // 才能真验「同事务、失败无半态」（否则缺陷被放行为假绿；TE-T077-001 先例）。
+        InMemoryDmEngine awareEngine = new InMemoryDmEngine();
+        awareEngine.executeScript(new String(
+                Files.readAllBytes(repoRoot().resolve(SCHEMA)), StandardCharsets.UTF_8));
+        TransactionAwareInMemory aware = new TransactionAwareInMemory(awareEngine);
+        TxTemplate awareTx = new TxTemplate(new DataSourcePool(aware, new PoolConfig(0, 4, 500, 2)));
+        DmPositionGroupDao awareGroupDao = new DmPositionGroupDao(awareTx);
+        DmRoleDao awareRoleDao = new DmRoleDao(awareTx);
+        DmRolePermissionDao realPermissionDao = new DmRolePermissionDao(awareTx);
+
+        PositionGroup group = new PositionGroup();
+        group.groupCode = "FIN_RISK";
+        group.groupName = "FIN_RISK";
+        group.frontMidBack = "MID";
+        group.isConflictEnforced = "Y";
+        group.status = "ENABLED";
+        awareGroupDao.insert(group, 0L);
+
+        // 注入：权限行插入必失败（角色行在此之前已插入 ⇒ 须被整笔回滚）
+        AuthService failing = new AuthService(awareTx, new DmUserAccountDao(awareTx), awareRoleDao,
+                new DmUserRoleDao(awareTx), new DmPositionConflictDao(awareTx),
+                new DmLoginSessionDao(awareTx), new DmLoginLogDao(awareTx), null,
+                new DmUserSubAccountPermDao(awareTx), new DmUnauthorizedAttemptDao(awareTx),
+                new SessionStore.InMemory(), new DmAuthorizationDao(awareTx),
+                new DmPermissionChangeLogDao(awareTx), awareGroupDao,
+                new FailingInsertRolePermissionDao(realPermissionDao), Config.empty());
+
+        assertThrows(IllegalStateException.class, () -> failing.defineRole("AUDITOR", "审计岗",
+                        (int) group.id, "N", 9L, 8L, Collections.singletonList(PERM_PRODUCT_EDIT)),
+                "权限行插入失败须向外传播（不得静默吞）");
+        assertTrue(awareRoleDao.findByCode("AUDITOR") == null,
+                "权限行插入失败 ⇒ 同事务的角色行须整笔回滚、t_role 无半态");
+        assertEquals(0, aware.pendingCount(), "事务须已了结（rollback 后未决快照归零）");
+
+        // 阴性对照（证非空判）：同一装配下不注入失败时角色行正常落库
+        AuthService ok = new AuthService(awareTx, new DmUserAccountDao(awareTx), awareRoleDao,
+                new DmUserRoleDao(awareTx), new DmPositionConflictDao(awareTx),
+                new DmLoginSessionDao(awareTx), new DmLoginLogDao(awareTx), null,
+                new DmUserSubAccountPermDao(awareTx), new DmUnauthorizedAttemptDao(awareTx),
+                new SessionStore.InMemory(), new DmAuthorizationDao(awareTx),
+                new DmPermissionChangeLogDao(awareTx), awareGroupDao, realPermissionDao,
+                Config.empty());
+        long okId = ok.defineRole("AUDITOR", "审计岗", (int) group.id, "N", 9L, 8L,
+                Collections.singletonList(PERM_PRODUCT_EDIT));
+        assertNotNull(awareRoleDao.findByCode("AUDITOR"),
+                "对照：不注入失败时角色行正常落库（证回滚断言非空判）");
+        assertEquals(1, realPermissionDao.findByRole(okId).size(), "对照：权限行亦正常落库");
+    }
+
     // ------------------------------------------------------------ 种子构造（真实 DAO）
 
     private long seedGroup(String code) {
@@ -316,6 +407,58 @@ class T108FunctionPermissionLinkTest {
         ur.grantedBy = 0L;
         ur.grantedTime = Clocks.now();
         new DmUserRoleDao(tx).insert(ur, 0L);
+    }
+
+    /**
+     * 注入型 {@link RolePermissionDao}：读面/其余全部方法委托真实 DAO，仅 {@link #insert} 抛
+     * {@link IllegalStateException} —— 用于验证「权限行插入失败 ⇒ 同事务的角色行整笔回滚」。
+     *
+     * <p>为何抛 {@code IllegalStateException}：{@code TxTemplate} 对 {@code RuntimeException} 亦触发回滚
+     * 并将异常原样上抛（{@code TxTemplate:75-77}），故读面可见、且被目标用例断言捕获。
+     */
+    private static final class FailingInsertRolePermissionDao implements RolePermissionDao {
+
+        private final RolePermissionDao delegate;
+
+        FailingInsertRolePermissionDao(RolePermissionDao delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public int insert(RolePermission entity, long operatorId) {
+            throw new IllegalStateException("注入：t_role_permission 插入失败（验证同事务回滚）");
+        }
+
+        @Override
+        public int updateById(RolePermission entity, long operatorId) {
+            return delegate.updateById(entity, operatorId);
+        }
+
+        @Override
+        public RolePermission findById(Long id) {
+            return delegate.findById(id);
+        }
+
+        @Override
+        public PageResult<RolePermission> findPage(PageQuery query, String where,
+                                                   List<Object> whereArgs) {
+            return delegate.findPage(query, where, whereArgs);
+        }
+
+        @Override
+        public long count(String where, List<Object> whereArgs) {
+            return delegate.count(where, whereArgs);
+        }
+
+        @Override
+        public List<RolePermission> findByRole(long roleId) {
+            return delegate.findByRole(roleId);
+        }
+
+        @Override
+        public List<RolePermission> findByPermCode(String permCode) {
+            return delegate.findByPermCode(permCode);
+        }
     }
 
     private static Path repoRoot() {

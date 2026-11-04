@@ -29,6 +29,18 @@ public final class T108FunctionPermissionSeed {
     /** 功能权限类别（本段恒取 {@code 'FUNCTION'}）。 */
     public static final String CATEGORY_FUNCTION = "FUNCTION";
 
+    /**
+     * {@code ck_role_perm_category} 的 CHECK 取值域（值域来源：
+     * {@code docs/DEPLOY/schema/m1_config_auth.sql} 的
+     * {@code CHECK (perm_category IN ('FUNCTION','DATA','QUOTA'))}）。
+     *
+     * <p><b>为何需要</b>：{@code BUG-T108-01} 的靶点 = ③-4 段 {@code perm_category} 字面量若被改成
+     * 域外值（如 {@code 'BOGUS_CATEGORY'}），上线将因 CHECK 违例失败。用例须断言「解析出的类别
+     * <b>∈ 本域</b>」才具守护力（{@link #categoryLiteral()} 从 SQL 真解析，非硬编码副本）。
+     */
+    public static final List<String> CATEGORY_CHECK_DOMAIN =
+            List.of("FUNCTION", "DATA", "QUOTA");
+
     private T108FunctionPermissionSeed() {
     }
 
@@ -53,12 +65,16 @@ public final class T108FunctionPermissionSeed {
      * 解析 ③-4 段的「角色 → 权限」源行。
      *
      * <p>口径：源行以 {@code SELECT '} / {@code UNION ALL SELECT '} 起；取该行前两个单引号字面量
-     * （角色编码、权限编码）；类别取本段骨架硬编码值 {@link #CATEGORY_FUNCTION}。
+     * （角色编码、权限编码）；类别取<b>该段 {@code SELECT} 骨架第三列的字面量</b>
+     * （形如 {@code SELECT r.id, src.perm, 'FUNCTION', 0, …}），<b>真解析 SQL</b>、不再硬编码 —
+     * 若把播种类别改成域外值，本方法解析出的即为域外值，守护断言（{@link #CATEGORY_CHECK_DOMAIN}）
+     * 随之转红（{@code BUG-T108-01} 靶点）。
      *
      * @return 每行 {@code [roleCode, permCode, permCategory]}
      * @throws Exception 读取失败
      */
     public static List<String[]> seedRows() throws Exception {
+        String category = categoryLiteral();
         List<String[]> rows = new ArrayList<>();
         for (String rawLine : seedBlock().split("\n")) {
             String line = rawLine.trim();
@@ -70,9 +86,33 @@ public final class T108FunctionPermissionSeed {
             if (literals.size() < 2) {
                 throw new AssertionError("③-4 源行须含角色编码与权限编码：" + line);
             }
-            rows.add(new String[]{literals.get(0), literals.get(1), CATEGORY_FUNCTION});
+            rows.add(new String[]{literals.get(0), literals.get(1), category});
         }
         return rows;
+    }
+
+    /**
+     * 从 ③-4 段 {@code INSERT … SELECT} 骨架解析 {@code perm_category} 列字面量。
+     *
+     * <p>骨架为 {@code SELECT r.id, src.perm, '<CATEGORY>', 0, CURRENT_TIMESTAMP, 0 …}；本方法定位
+     * 该 {@code SELECT r.id,} 行后取其单引号字面量（恰为第三列类别值）。<b>若脚本把类别改成域外值，
+     * 本方法按原样返回该值</b>（不裁剪、不校正）⇒ 调用方据此可判越域。
+     *
+     * @return 段内 {@code perm_category} 字面量
+     * @throws Exception 读取失败
+     */
+    public static String categoryLiteral() throws Exception {
+        for (String rawLine : seedBlock().split("\n")) {
+            String line = rawLine.trim();
+            if (!line.startsWith("SELECT r.id")) {
+                continue;
+            }
+            List<String> literals = quoteLiterals(line);
+            if (!literals.isEmpty()) {
+                return literals.get(0);
+            }
+        }
+        throw new AssertionError("③-4 段缺 SELECT r.id 骨架（无法解析 perm_category 字面量）");
     }
 
     /**
