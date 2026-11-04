@@ -4,8 +4,10 @@ import java.sql.Connection;
 import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 /**
  * {@code T-024} M1 端到端验收用的<b>最小播种件</b>（建在 {@code dao} 命名空间内）。
@@ -72,6 +74,65 @@ public final class M1E2eSeed {
                 userId, subAccountId, permType, grantedBy, LocalDate.of(2026, 1, 1), grantedBy);
     }
 
+    /**
+     * 写入一个岗位组行（{@code t_position_group}；{@code t_role.position_group_id} 的外键载体）。
+     *
+     * <p>{@code T-119} 新增：账户级（层③）写面授权判据为<b>角色近似</b>（{@code FIN_RISK} /
+     * {@code SYS_ADMIN}），端到端用例须先有角色行方可复现合法主体。
+     *
+     * @param engine 内存假 JDBC 引擎
+     * @param id     主键（显式）
+     * @param code   岗位组编码
+     * @param name   岗位组名
+     * @param fmb    前中后台（{@code FRONT}/{@code MID}/{@code BACK}/{@code MANAGE}/{@code SYSTEM}）
+     * @throws SQLException 写入失败
+     */
+    public static void positionGroup(InMemoryDmEngine engine, long id, String code, String name,
+                                     String fmb) throws SQLException {
+        exec(engine, "INSERT INTO t_position_group (id, group_code, group_name, front_mid_back,"
+                        + " is_conflict_enforced, status, created_by)"
+                        + " VALUES (?, ?, ?, ?, 'Y', 'ENABLED', ?)",
+                id, code, name, fmb, 0L);
+    }
+
+    /**
+     * 写入一个角色行（{@code t_role}）。
+     *
+     * @param engine              内存假 JDBC 引擎
+     * @param id                  主键（显式）
+     * @param code                角色编码
+     * @param name                角色名
+     * @param positionGroupId     岗位组
+     * @param isBusinessRole      是否业务角色（{@code SYS_ADMIN} 取 {@code 'N'}，{@code R-AUTH-10}）
+     * @param hasTradingOperation {@code Y} / {@code N}
+     * @throws SQLException 写入失败
+     */
+    public static void role(InMemoryDmEngine engine, long id, String code, String name,
+                            long positionGroupId, String isBusinessRole, String hasTradingOperation)
+            throws SQLException {
+        exec(engine, "INSERT INTO t_role (id, role_code, role_name, position_group_id, is_preset,"
+                        + " is_business_role, has_trading_operation, status, created_by)"
+                        + " VALUES (?, ?, ?, ?, 'Y', ?, ?, 'ENABLED', ?)",
+                id, code, name, positionGroupId, isBusinessRole, hasTradingOperation, 0L);
+    }
+
+    /**
+     * 写入一个用户角色绑定行（{@code t_user_role}）。
+     *
+     * @param engine   内存假 JDBC 引擎
+     * @param id       主键（显式）
+     * @param userId   用户
+     * @param roleId   角色
+     * @param grantedBy 授予人
+     * @throws SQLException 写入失败
+     */
+    public static void userRole(InMemoryDmEngine engine, long id, long userId, long roleId,
+                                long grantedBy) throws SQLException {
+        exec(engine, "INSERT INTO t_user_role (id, user_id, role_id, granted_by, granted_time,"
+                        + " created_by) VALUES (?, ?, ?, ?, ?, ?)",
+                id, userId, roleId, grantedBy, LocalDate.of(2026, 1, 1).atStartOfDay(), grantedBy);
+    }
+
     private static void exec(InMemoryDmEngine engine, String sql, Object... args) throws SQLException {
         try (Connection conn = engine.create();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -84,6 +145,8 @@ public final class M1E2eSeed {
                     ps.setLong(idx, (Long) a);
                 } else if (a instanceof LocalDate) {
                     ps.setDate(idx, Date.valueOf((LocalDate) a));
+                } else if (a instanceof LocalDateTime) {
+                    ps.setTimestamp(idx, Timestamp.valueOf((LocalDateTime) a));
                 } else if (a == null) {
                     ps.setNull(idx, Types.NULL);
                 } else {

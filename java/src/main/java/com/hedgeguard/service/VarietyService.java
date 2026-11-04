@@ -127,9 +127,15 @@ public final class VarietyService {
     private final SubInstrumentQuotaDao subInstrumentQuotaDao;
     private final ProductChangeLogDao productChangeLogDao;
     private final SubAccountVisibility subAccountVisibility;
+    private final AccountLevelConfigAuthorizer accountLevelConfigAuthorizer;
 
     /**
-     * 构造。
+     * 构造（不含账户级配置权入口；层③ 写面按 <b>fail-closed</b> 处理）。
+     *
+     * <p>既有 10 参构造<b>保留并委托</b> 11 参构造（{@code accountLevelConfigAuthorizer=null}），
+     * 语义：<b>层③ 账户级额度写入一律拒绝</b>（{@code 10003}）——入口缺位即不校验决不允许退化为放行
+     * （与 {@link SubAccountVisibility} 缺位时同姿态）。生产装配（{@code Bootstrap}）与端到端用例
+     * 须走 11 参构造注入真实 {@link AuthService}。
      *
      * @param tx                     事务模板
      * @param productDao             品种 DAO
@@ -149,6 +155,35 @@ public final class VarietyService {
                           SubInstrumentQuotaDao subInstrumentQuotaDao,
                           ProductChangeLogDao productChangeLogDao,
                           SubAccountVisibility subAccountVisibility) {
+        this(tx, productDao, productUnitDao, productContractDao, productSpotCategoryDao,
+                subProductWhitelistDao, productQuotaDao, subInstrumentQuotaDao, productChangeLogDao,
+                subAccountVisibility, null);
+    }
+
+    /**
+     * 构造（含账户级写面授权入口）。
+     *
+     * @param tx                          事务模板
+     * @param productDao                  品种 DAO
+     * @param productUnitDao              计量单位 DAO
+     * @param productContractDao          合约关联 DAO
+     * @param productSpotCategoryDao      现货品类映射 DAO
+     * @param subProductWhitelistDao      子账户白名单 DAO
+     * @param productQuotaDao             层①/层③额度 DAO
+     * @param subInstrumentQuotaDao       层②合约额度 DAO
+     * @param productChangeLogDao         品种变更留痕 DAO
+     * @param subAccountVisibility        子账户可见性取数 / 写面断言入口（{@code NFR-SEC-7}；{@code T-112}）
+     * @param accountLevelConfigAuthorizer 账户级（层③）配置权断言入口（{@code CH-012}；{@code T-119}）；
+     *                                    {@code null} ⇒ 层③ 写入 fail-closed 拒绝
+     */
+    public VarietyService(TxTemplate tx, ProductDao productDao, ProductUnitDao productUnitDao,
+                          ProductContractDao productContractDao,
+                          ProductSpotCategoryDao productSpotCategoryDao,
+                          SubProductWhitelistDao subProductWhitelistDao, ProductQuotaDao productQuotaDao,
+                          SubInstrumentQuotaDao subInstrumentQuotaDao,
+                          ProductChangeLogDao productChangeLogDao,
+                          SubAccountVisibility subAccountVisibility,
+                          AccountLevelConfigAuthorizer accountLevelConfigAuthorizer) {
         this.tx = tx;
         this.productDao = productDao;
         this.productUnitDao = productUnitDao;
@@ -159,6 +194,7 @@ public final class VarietyService {
         this.subInstrumentQuotaDao = subInstrumentQuotaDao;
         this.productChangeLogDao = productChangeLogDao;
         this.subAccountVisibility = subAccountVisibility;
+        this.accountLevelConfigAuthorizer = accountLevelConfigAuthorizer;
     }
 
     // ------------------------------------------------------------ 品种档案
@@ -707,6 +743,11 @@ public final class VarietyService {
         // 层③（ACCOUNT_PRODUCT）有效目标是账户哨兵 0、非子账户行级归属 ⇒ 本层不适用（见类 javadoc）。
         if (scopeSubAccount > 0) {
             requireSubAccountWritable(operatorId, scopeSubAccount);
+        } else {
+            // 层③（ACCOUNT_PRODUCT / 账户哨兵 0）的写面授权门禁（CH-012 / FR-PRODUCT-11 验收 5；T-119）。
+            // ⚠️ 不得套用子账户可见性（assertSubAccountWritable 对哨兵 0 结构性互斥 ⇒ 误拒）；
+            // 层③ 属「功能权限」维度 ⇒ 走账户级配置权断言（M1 角色近似：FIN_RISK / SYS_ADMIN）。
+            requireCanConfigureAccountLevel(operatorId);
         }
         if (productDao.findById(productId) == null) {
             throw BizException.of(ErrorCode.PARAM_INVALID,
@@ -1136,6 +1177,29 @@ public final class VarietyService {
                             + "；复现=核对装配注入 SubAccountVisibility");
         }
         subAccountVisibility.assertSubAccountWritable(operatorId, subAccountId);
+    }
+
+    /**
+     * 账户级（层③）配置权强制（{@code CH-012} / {@code FR-PRODUCT-11} 验收 5；{@code T-119}）。
+     *
+     * <p>层③（{@code ACCOUNT_PRODUCT}、行级落账户哨兵 {@code 0}）非子账户行级归属 ⇒ 写面授权按
+     * <b>功能权限</b>维度判定（{@code FR-AUTH-12}「数据权限与功能权限独立」），
+     * <b>不得</b>套用 {@link #requireSubAccountWritable}（对 {@code target=0} 结构性互斥 ⇒ 误拒，
+     * 见 {@code ARCHITECTURE.md} §8.2③）。判据由
+     * {@link AccountLevelConfigAuthorizer#assertCanConfigureAccountLevel} 给出（生产装配下即
+     * {@link AuthService} 的带留痕实现；M1 角色近似：财务/风控岗 {@code FIN_RISK} 或系统管理员
+     * {@code SYS_ADMIN}）。<b>fail-closed</b>：入口缺位（{@code null}）时一律拒绝（{@code 10003}），
+     * 绝不退化为"不校验 = 放行"。
+     *
+     * @param operatorId 调用者
+     */
+    private void requireCanConfigureAccountLevel(long operatorId) {
+        if (accountLevelConfigAuthorizer == null) {
+            throw BizException.of(ErrorCode.FUNCTION_PERMISSION_DENIED,
+                    "账户级（层③）配置权判定入口缺位，按安全默认拒绝（CH-012）：operatorId=" + operatorId
+                            + "；复现=核对装配注入 AccountLevelConfigAuthorizer");
+        }
+        accountLevelConfigAuthorizer.assertCanConfigureAccountLevel(operatorId);
     }
 
     private static String requireText(String value, String field) {

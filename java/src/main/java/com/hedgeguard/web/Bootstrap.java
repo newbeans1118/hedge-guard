@@ -682,7 +682,7 @@ public final class Bootstrap {
                 productDao, new DmProductUnitDao(tx), productContractDao,
                 productSpotCategoryDao, new DmSubProductWhitelistDao(tx),
                 new DmProductQuotaDao(tx), new DmSubInstrumentQuotaDao(tx),
-                new DmProductChangeLogDao(tx), authService);
+                new DmProductChangeLogDao(tx), authService, authService);
 
         SpotService spotService = new SpotService(tx,
                 new DmPurchaseContractDao(tx), new DmSalesContractDao(tx), productSpotCategoryDao,

@@ -175,6 +175,11 @@ class M1EndToEndAcceptanceTest {
         M1E2eSeed.user(engine, U_A, "userA", "张三", "NP-A");
         M1E2eSeed.user(engine, U_B, "userB", "李四", "NP-B");
         M1E2eSeed.user(engine, U_AUDIT, "audit", "审计岗", "NP-AUDIT");
+        // 账户级（层③）额度配置权主体播种（T-119 / CH-012）：系统管理员角色 + admin 绑定。
+        // 未播种角色 ⇒ 层③ 写入全拒（误拒）⇒ 与实现同批播种（ARCHITECTURE.md §8.2③ 硬前置）。
+        M1E2eSeed.positionGroup(engine, 1L, "SYS_ADMIN", "系统管理员", "SYSTEM");
+        M1E2eSeed.role(engine, 1L, "SYS_ADMIN", "系统管理员", 1L, "N", "N");
+        M1E2eSeed.userRole(engine, 1L, U_ADMIN, 1L, U_ADMIN);
 
         TxTemplate tx = new TxTemplate(new DataSourcePool(engine, new PoolConfig(0, 4, 500, 2)));
         sessionStore = new SessionStore.InMemory();
@@ -540,6 +545,44 @@ class M1EndToEndAcceptanceTest {
         assertTrue(engine.table("t_unauthorized_attempt").rows.size() >= 1, "越权尝试应留痕");
     }
 
+    @Test
+    @DisplayName("验收2g：层③账户级额度写面授权（T-119 / CH-012）——无权主体拒 403/10003 + 留痕，授权主体放行")
+    void accountLevelQuotaWriteRequiresConfigAuthority() {
+        // 无权：A 用户（仅持有限子账户写授权，非财务/风控岗、非系统管理员）写层③ ⇒ 功能权限不足。
+        // 旧口径（T-112）为「层③ 不在子账户可见性强制面内 ⇒ 放行」；CH-012 + T-119 已推翻该设计决定：
+        // 层③ 属「功能权限」维度，零授权主体不得写账户级（影响全体子账户加总口径）额度行。
+        int before = engine.table("t_product_quota").rows.size();
+        HttpResult denied = call("POST", ApiRoutes.full("/product/quota"), null, S_A,
+                quotaBody("ACCOUNT_PRODUCT", 0, null, "7000", "TON"));
+        assertEquals(403, denied.status, "层③ 无权主体须拒：" + body(denied));
+        assertEquals(10003, code(denied), "功能权限不足码（沿用 10003，非 10004）：" + body(denied));
+        assertEquals(before, engine.table("t_product_quota").rows.size(),
+                "层③ 被拒时不得产生任何额度行（零写入）");
+        assertTrue(engine.table("t_unauthorized_attempt").rows.size() >= 1, "越权尝试须留痕（R-AUTH-8）");
+
+        // 授权：系统管理员（SYS_ADMIN，CH-012 已确认主体）写层③ ⇒ 成功且落哨兵 0。
+        // ⚠️ 生效起点须避开 setUp 主链路已写的同键行（(ACCOUNT_PRODUCT, 0, productId, 2026-01-01)，
+        //    见 buildWorldAndRunMainChain 的层③「5000」行）——否则撞 uk_product_quota
+        //    (limit_layer, sub_account_id, product_id, effective_from) ⇒ 500/10022。
+        //    本用例只验证【授权门禁】，非唯一约束；故按冻结语义改用未占用起点，不动 uk。
+        String authorizedFrom = "2026-02-01";
+        HttpResult allowed = call("POST", ApiRoutes.full("/product/quota"), null, S_ADMIN,
+                quotaBodyAt("ACCOUNT_PRODUCT", 0, null, "8000", "TON", authorizedFrom));
+        assertEquals(200, allowed.status, "授权主体写层③ 不得被误拒：" + body(allowed));
+        // 授权写入确落库：新增一条层③行，归属账户哨兵 0、起点为本用例专属日、额度 8000。
+        Map<String, Object> written = null;
+        for (Map<String, Object> r : engine.table("t_product_quota").rows) {
+            if ("ACCOUNT_PRODUCT".equals(r.get("limit_layer"))
+                    && LocalDate.parse(authorizedFrom).equals(r.get("effective_from"))) {
+                written = r;
+            }
+        }
+        assertNotNull(written, "授权主体写层③ 应新增一条额度行：" + authorizedFrom);
+        assertEquals(0, ((Number) written.get("sub_account_id")).intValue(), "层③ 归属账户哨兵 0");
+        assertEquals(0, ((java.math.BigDecimal) written.get("quota_limit"))
+                .compareTo(new java.math.BigDecimal("8000")), "授权写入额度应为 8000");
+    }
+
     // ------------------------------------------------------------ 工具：装配
 
     private void registerBusinessRoutes(Router router, TxTemplate tx) {
@@ -566,7 +609,7 @@ class M1EndToEndAcceptanceTest {
                 productDao, new DmProductUnitDao(tx), productContractDao,
                 productSpotCategoryDao, new DmSubProductWhitelistDao(tx),
                 new DmProductQuotaDao(tx), new DmSubInstrumentQuotaDao(tx),
-                new DmProductChangeLogDao(tx), authService);
+                new DmProductChangeLogDao(tx), authService, authService);
 
         SpotService spotService = new SpotService(tx,
                 new DmPurchaseContractDao(tx), new DmSalesContractDao(tx), productSpotCategoryDao,
@@ -612,11 +655,16 @@ class M1EndToEndAcceptanceTest {
 
     private String quotaBody(String layer, int subAccountId, String instrument,
                              String limit, String unit) {
+        return quotaBodyAt(layer, subAccountId, instrument, limit, unit, "2026-01-01");
+    }
+
+    private String quotaBodyAt(String layer, int subAccountId, String instrument,
+                               String limit, String unit, String effectiveFrom) {
         return "{\"limitLayer\":\"" + layer + "\",\"subAccountId\":" + subAccountId
                 + ",\"productId\":" + productId
                 + (instrument == null ? "" : ",\"instrumentId\":\"" + instrument + "\"")
                 + ",\"quotaLimit\":\"" + limit + "\",\"quotaUnit\":\"" + unit + "\","
-                + "\"effectiveFrom\":\"2026-01-01\"}";
+                + "\"effectiveFrom\":\"" + effectiveFrom + "\"}";
     }
 
     private String exposureBody(int subAccountId, String qty) {

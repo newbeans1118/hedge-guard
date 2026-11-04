@@ -74,7 +74,11 @@ class VarietyServiceTest {
                 // （3=白名单/层①/层②写入目标；9=removeWhitelist「无行」用例需先通过写入断言）。
                 // 原注入哨兵 0（跨账户只读）在 T-115 后不再授予写权限；越权/fail-closed 语义
                 // 由 VarietyT112VisibilityTest 覆盖。
-                uid -> Arrays.asList(3, 9));
+                uid -> Arrays.asList(3, 9),
+                // T-119：层③（账户级）写面授权替身——本类为业务规则用例（非越权用例），
+                // 注入「恒放行」的账户级配置权入口；越权/拒绝语义由 VarietyT112VisibilityTest
+                // 与 M1EndToEndAcceptanceTest 覆盖。
+                uid -> { });
     }
 
     // ------------------------------------------------------------ 品种档案

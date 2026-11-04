@@ -71,7 +71,7 @@ import java.util.logging.Logger;
  *       跨子账户只读（{@code CROSS_READONLY}）<b>不得写</b>（{@code FR-AUTH-13} 验收 3）。</li>
  * </ol>
  */
-public final class AuthService implements SubAccountVisibility {
+public final class AuthService implements SubAccountVisibility, AccountLevelConfigAuthorizer {
 
     private static final Logger LOG = Logger.getLogger(AuthService.class.getName());
 
@@ -80,6 +80,14 @@ public final class AuthService implements SubAccountVisibility {
 
     /** 交易岗角色编码。 */
     public static final String ROLE_TRADER = "TRADER";
+
+    /**
+     * 财务/风控岗角色编码（{@code DATA_MODEL.md} §2.2 预置六类业务角色）。
+     *
+     * <p><b>账户级（层③）配置权主体之一</b>（{@code CH-012} / {@code FR-PRODUCT-11} 验收 5；
+     * {@code T-119}）——见 {@link #assertCanConfigureAccountLevel(long)}。
+     */
+    public static final String ROLE_FIN_RISK = "FIN_RISK";
 
     /** 系统管理员角色编码（{@code R-AUTH-10}：不得拥有业务角色）。 */
     public static final String ROLE_SYS_ADMIN = "SYS_ADMIN";
@@ -746,6 +754,49 @@ public final class AuthService implements SubAccountVisibility {
             }
         }
         return false;
+    }
+
+    /**
+     * <b>账户级（层③）配置写面授权断言</b>（{@code CH-012} / {@code FR-PRODUCT-11} 验收 5；
+     * {@code ARCHITECTURE.md} §8.2③「账户级写面授权点」；{@code T-119}）。
+     *
+     * <p><b>为何单列一条断言、不复用子账户可见性</b>：层③（{@code ACCOUNT_PRODUCT}）的有效目标是
+     * <b>账户哨兵 {@code 0}</b>、<b>非子账户行级归属</b>（{@code DATA_MODEL.md} §4.3
+     * {@code ck_product_quota_layer_sentinel}）⇒ 其权限维度为 {@code AUTH.md} §2 的<b>「功能权限」</b>
+     * （{@code FR-AUTH-12}「数据权限与功能权限独立」），<b>不得</b>套用
+     * {@link #assertSubAccountWritable}——后者放行判据为「{@code id ≠ 哨兵} <b>且</b> {@code id == 目标}」，
+     * 以 {@code target = 0} 调用时两条件<b>结构性互斥</b> ⇒ <b>必然误拒</b>
+     * （合法账户级配置谁都写不了）。同时 {@code CROSS_READONLY}（跨子账户只读）<b>绝不能</b>作写面门禁
+     * （{@code FR-AUTH-13} 处理规则「跨子账户下不得…改配置」；{@code R-AUTH-5} 查看权限 ≠ 操作权限）。
+     *
+     * <p><b>判据（M1 = 角色近似；两阶段口径）</b>：调用者持下列<b>任一</b>角色即放行——
+     * <b>财务/风控岗（{@link #ROLE_FIN_RISK}）</b> 或 <b>系统管理员（{@link #ROLE_SYS_ADMIN}）</b>。
+     * 依据 {@code CH-012} 已确认口径（用户 2026-09-21 确认：「主体 = 财务/风控岗 <b>或</b> 系统管理员
+     * （含 {@code SYS_ADMIN}，{@code R-AUTH-10} 不排除）」；M1 角色近似 → M2 换
+     * {@link #hasFunctionPermission(long, String)} 的功能权限编码判据，<b>同一强制点换判据、不推翻 M1</b>）。
+     * 角色判定复用既有私有 {@link #hasRoleCode(long, String)}（经 {@code t_user_role → t_role}）。
+     *
+     * <p><b>失败语义（fail-closed）</b>：无上述任一角色 ⇒ 拒绝
+     * {@link ErrorCode#FUNCTION_PERMISSION_DENIED}（{@code 10003}，<b>沿用既有码、不新造</b>；
+     * {@code CH-012} ③），并落 {@code t_unauthorized_attempt}（{@code R-AUTH-8} 越权尝试必留痕）——
+     * 留痕类型取既有 {@link #ATTEMPT_SUB_ACCOUNT_DENIED}（{@code PERMISSION_DENIED}，取值域
+     * {@code ck_unauth_attempt_type} 内）表达「功能权限不足的越权尝试」，
+     * <b>不新增 {@code ATTEMPT_*} 常量</b>（避免动 CHECK 取值域）。
+     *
+     * @param userId 用户 ID（调用者）
+     * @throws BizException 不具账户级配置权时 {@code 10003}
+     */
+    @Override
+    public void assertCanConfigureAccountLevel(long userId) {
+        if (hasRoleCode(userId, ROLE_FIN_RISK) || hasRoleCode(userId, ROLE_SYS_ADMIN)) {
+            return;
+        }
+        recordAttempt(userId, ATTEMPT_SUB_ACCOUNT_DENIED,
+                "账户级（层③）额度配置权：需财务/风控岗（" + ROLE_FIN_RISK + "）或系统管理员（"
+                        + ROLE_SYS_ADMIN + "）", "10003");
+        throw BizException.of(ErrorCode.FUNCTION_PERMISSION_DENIED,
+                "无权配置账户级（层③ ACCOUNT_PRODUCT）额度：userId=" + userId
+                        + "；复现=由财务/风控岗或系统管理员执行（CH-012 / FR-PRODUCT-11 验收 5）");
     }
 
     /**
