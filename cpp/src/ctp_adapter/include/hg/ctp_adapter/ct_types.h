@@ -132,6 +132,27 @@ std::int64_t nowMillis();
 //   InstrumentID）⇒ 无法「按 OrderRef 直接过滤」。本组类型故以 `order_sys_id` 为主键
 //   （已知则窄查），否则退化为「拉取候选集 + 客户端按 `client_order_ref` 选行」。
 // -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// CTP `OrderRef` 承载上限（T-212 D-1 安全失败闸门）
+//
+// 来源（实测，非推断）：官方 v6.7.13
+//   `sdk/v6.7.13_20260225_api/.../ThostFtdcUserApiDataType.h:60`
+//   `typedef char TThostFtdcOrderRefType[13];` ⇒ **12 个可用字节** + '\0'。
+//
+// 为何查询侧要以此常量做「安全失败」而非「截断后比较」：
+//   · 流水侧 `BizNoGenerator.orderRef()` 产出 `HG<yyyyMMdd><seq6>` = **16 字符**
+//     （`java/src/main/java/com/hedgeguard/dao/BizNoGenerator.java`），
+//     `mapping::setField` 复制 `min(size, n-1)` = 12 字节且**无告警** ⇒ 写侧静默截断为
+//     `HG<yyyyMMdd>0`（**同日 seq 1..99 全部撞到同一串**，实测）。
+//   · 若把 ref 截断到 12 再与 CTP 回填行比较 ⇒ 同日 100 笔同 ref ⇒ 选行错配（取到别人的
+//     报单状态）⇒ 比「误判未到达」更危险（会把在途单按另一笔的终态/在途状态修正）。
+//   · 若用**完整 16 字符**比较 ⇒ 与 CTP 回填的 12 字符永不相等 ⇒ 误判 `kNotFound`
+//     = 「未实际到达」⇒ 释放冻结额度（`NFR-REL-1`「重复下单 → 超额下单」失效模式）。
+//   ⇒ 故超长 ref **不发起查询**，直接 `kUnavailable`（未知 ⇒ 调用方保守冻结）。
+//   根因（写侧 16 字符 vs char[13]）跨 Java/协议，**不在本单写域**，由编排者另议。
+// -----------------------------------------------------------------------------
+static const std::size_t kCtOrderRefCapacity = 12;
+
 struct CtOrderQueryReq {
   std::string client_order_ref;  // = CTP OrderRef（选行依据；流水侧可得的稳定键）
   std::string order_sys_id;      // 交易所报单编号（已知则窄查；可空）

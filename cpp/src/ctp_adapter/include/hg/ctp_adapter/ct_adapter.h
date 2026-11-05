@@ -68,11 +68,22 @@ class CtAdapter : public CtCallbackSink {
   //   `order_sys_id`（已知）/ `client_order_ref`（否则）选行 → 归一化结论。
   // 未登录 / 请求被拒 ⇒ outcome=kUnavailable；有界等待超时 ⇒ outcome=kTimeout
   //   （**保守**：状态未知，调用方须冻结不释放）。
+  // ⚠️ D-1（安全失败）：`client_order_ref` 超过 `kCtOrderRefCapacity`（12 字节 =
+  //   `TThostFtdcOrderRefType[13]` 的可用上限）且无 `order_sys_id` 时，**不发起**查询，
+  //   直接 outcome=kUnavailable 并在 `ctp_error_msg` 说明 —— 因为 CTP 回填的 `OrderRef`
+  //   必然是被 `setField` 静默截断的 12 字节值，与流水侧 16 字符 ref 不可比：按整串比 ⇒
+  //   误判 kNotFound（释放冻结）；按截断比 ⇒ 同日 100 笔撞同一串（选行错配）。
+  //   **禁止**新增「截断后比较」的调用方。
+  // ⚠️ 性能（D-2 披露）：本方法是**同步有界等待**，重放期由装配线程**逐单串行**调用
+  //   （**未并发化**，与 `ARCHITECTURE.md` §4.5.3「并发查询」的性能目标存在已知缺口）；
+  //   每笔最坏耗时 = `timeout_ms`，累计上限由装配层 `CtOrderStateQueryBridge` 的
+  //   **总预算**（`NFR-REL-1` 60 s）兜底，见 `order_state_query_bridge.h`。
   // 线程说明：由 T4/装配线程调用（重放启动期）；回调侧 T2 仅投递查询回复。
   CtOrderQueryReply queryOrder(const CtOrderQueryReq& req, std::int64_t timeout_ms);
 
   // 异步发起（回填 request_id）；非阻塞，供需要自行掌控等待节奏的调用方/测试。
-  // 返回 kCtOk 表示请求已交 CTP；未登录 ⇒ kCtNotConnected；网关拒收 ⇒ 背压/未连接。
+  // 返回 kCtOk 表示请求已交 CTP；未登录 ⇒ kCtNotConnected；网关拒收 ⇒ 背压/未连接；
+  // 超长 `client_order_ref`（> 12 字节 `OrderRef` 上限）⇒ kCtUnsupportedOperation（D-1）。
   CtCode requestOrderQuery(const CtOrderQueryReq& req, int* request_id);
   // 非阻塞取一条查询回复（诊断/测试；按到达序，**不**按 request_id 过滤）。
   bool pollOrderQueryReply(CtOrderQueryReply* out);

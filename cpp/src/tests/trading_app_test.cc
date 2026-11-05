@@ -920,11 +920,42 @@ void test_release_unknown_inflight() {
   app.stop();
 }
 
+// ── 8. T-212：在途对账查询接缝的**生产装配**接线（补正 O-2）─────────────────
+//   守护点：`replay_.set_order_query(&order_query_)` 真的接上了、且接的是**本装配的**
+//   CTP 查询桥接（指针身份），且单笔上限/总预算口径正确。
+//   变异（删 `set_order_query` / 传 0）⇒ `replay_query_wired()` 必为 false ⇒ 本用例必红。
+//   说明：「桥接 → 适配层 → 重放」的**行为**面（kTimeout ⇒ unknown_count++ 且
+//   frozen_released==0）由 `ctp_adapter.ct_order_query_test` 的端到端用例守护。
+void test_order_query_wiring() {
+  const std::string dir = makeTempDir("hgt212wiring");
+  const std::uint16_t port = probeFreePort();
+  HG_CHECK(port != 0);
+
+  AppConfig cfg = baseConfig(dir, port);  // CTP 前置地址清空 ⇒ 不登录（DEGRADED，不阻塞启动）
+  TradingApp app(cfg);
+  std::string err;
+  HG_CHECK(app.start(&err));
+
+  // ① 接线存在且**身份**为本装配的桥接件（不是别人/不是空）。
+  HG_CHECK(app.replay_query_wired());
+  // ② 桥接件自身已接 CTP 适配器（旧装配若传 0 指针 ⇒ 必红）。
+  HG_CHECK(app.order_query().ctWired());
+  // ③ 口径：单笔上限 = HG.REPLAY.QUERY_TIMEOUT_MS（缺省 20000）；
+  //        总预算 = kReplayQueryTotalBudgetMs（60000 = NFR-REL-1，独立于单笔上限）。
+  HG_CHECK_EQ(app.order_query().perOrderTimeoutMs(), cfg.replay_query_timeout_ms);
+  HG_CHECK_EQ(app.order_query().perOrderTimeoutMs(), static_cast<std::int64_t>(20000));
+  HG_CHECK_EQ(app.order_query().totalBudgetMs(),
+              hg::app::kReplayQueryTotalBudgetMs);
+  HG_CHECK_EQ(app.order_query().totalBudgetMs(), static_cast<std::int64_t>(60000));
+
+  app.stop();
+}
+
 }  // namespace
 
 // 用法：`hg_app_test [case]`
 //   无参 / all ⇒ 全跑；否则只跑指定用例（ctest 一例一进程，失败定位精确）：
-//   config | secret | listen | ready | progress | corrupt | release
+//   config | secret | listen | ready | progress | corrupt | release | order_query
 int main(int argc, char** argv) {
   const std::string only = (argc > 1 && argv[1] != 0) ? std::string(argv[1]) : std::string("all");
   const bool all = (only == "all");
@@ -935,8 +966,10 @@ int main(int argc, char** argv) {
   if (all || only == "progress") test_replay_progress_required_fields();
   if (all || only == "corrupt") test_corrupt_flow_never_ready();
   if (all || only == "release") test_release_unknown_inflight();
+  if (all || only == "order_query") test_order_query_wiring();
   if (!all && only != "config" && only != "secret" && only != "listen" && only != "ready" &&
-      only != "progress" && only != "corrupt" && only != "release") {
+      only != "progress" && only != "corrupt" && only != "release" &&
+      only != "order_query") {
     std::printf("[FATAL] 未知用例：%s\n", only.c_str());
     return 2;
   }

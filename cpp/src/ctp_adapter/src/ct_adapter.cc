@@ -36,6 +36,17 @@ bool validQuery(const CtOrderQueryReq& req) {
   return !req.client_order_ref.empty() || !req.order_sys_id.empty();
 }
 
+// T-212 D-1：CTP `OrderRef` 超长（> `TThostFtdcOrderRefType[13]` 的 12 可用字节）且**无**
+//   `order_sys_id` 可窄查时，按 ref 选行不可能成立（CTP 回填的是被 `setField` 静默截断的
+//   12 字节值）⇒ 必须**安全失败**（kUnavailable ⇒ 调用方保守冻结），**禁止**：
+//   · 按完整 16 字符比较 ⇒ `matchesQuery` 恒 false ⇒ 误判 kNotFound ⇒ 释放冻结额度；
+//   · 把 ref 截断到 12 再比较 ⇒ `HG<yyyyMMdd><seq6>` 截断后同日 seq 1..99 全为
+//     `HG<yyyyMMdd>0` ⇒ 选行错配（取到别人报单的状态）⇒ 比误释更危险。
+//   详见 `ct_types.h` 的 `kCtOrderRefCapacity` 注释（含实测来源与撞车证据）。
+bool orderRefTooLongForCtp(const CtOrderQueryReq& req) {
+  return req.order_sys_id.empty() && req.client_order_ref.size() > kCtOrderRefCapacity;
+}
+
 }  // namespace
 
 std::int64_t nowMillis() {
@@ -235,6 +246,8 @@ CtFundAck CtAdapter::reqFundTransfer(const CtFundReq& req) {
 CtCode CtAdapter::requestOrderQuery(const CtOrderQueryReq& req, int* request_id) {
   if (request_id != 0) *request_id = 0;
   if (!validQuery(req)) return kCtUnsupportedOperation;
+  // T-212 D-1：超长 ref ⇒ **不发起**（安全失败；见 orderRefTooLongForCtp 注释）。
+  if (orderRefTooLongForCtp(req)) return kCtUnsupportedOperation;
   if (!trade_logged_in_) return kCtNotConnected;  // 未登录 ⇒ 状态未知（保守）
   const int rid = nextRequestId();
   const int rc = trade_->reqQueryOrder(req, rid);
@@ -271,6 +284,18 @@ CtOrderQueryReply CtAdapter::queryOrder(const CtOrderQueryReq& req,
     result.ctp_error_msg = "query needs client_order_ref or order_sys_id";
     return result;
   }
+  // T-212 D-1（P1 修复）：发起前置的**长度校验** —— 超长 ref 一律安全失败。
+  //   流水侧 ref = `HG<yyyyMMdd><seq6>`（16 字符）> CTP `OrderRef` 的 12 字节上限 ⇒
+  //   CTP 回填行只可能带被静默截断的 12 字节值 ⇒ 无论「按完整串比较」还是「截断后比较」
+  //   都不安全（前者误判 kNotFound ⇒ 释放冻结；后者同日 100 笔撞同一串 ⇒ 选行错配）。
+  //   ⇒ 不发查询、直接 kUnavailable（状态未知 ⇒ 桥接件映射 kTimeout ⇒ 保守冻结）。
+  //   注意：**禁止**把 ref 截断到 12 再比较（理由见 orderRefTooLongForCtp 注释）。
+  if (orderRefTooLongForCtp(req)) {
+    result.ctp_error_msg =
+        "client_order_ref exceeds CTP OrderRef 12 bytes; refusing query to avoid false "
+        "kNotFound（T-212 D-1）";
+    return result;
+  }
   if (!trade_logged_in_) {
     result.ctp_error_msg = "CTP not logged in";
     return result;
@@ -289,6 +314,11 @@ CtOrderQueryReply CtAdapter::queryOrder(const CtOrderQueryReq& req,
 
   std::unique_lock<std::mutex> lock(query_mutex_);
   // 串行查询假设（重放期单线程逐单对账）：丢弃与本请求无关的陈旧回复，限制内存。
+  // ⚠️ D-2 披露：本等待是**有界串行**的 —— 同一时刻只允许一笔在飞查询，重放期由装配线程
+  //   逐单调用（**未并发化**；`ARCHITECTURE.md` §4.5.3 性能要求写的是「并发查询」，
+  //   缺口已登记）。每笔最坏 = timeout_ms，累计上限由 `CtOrderStateQueryBridge` 的
+  //   总预算（`NFR-REL-1` 60 s，超预算后剩余单直接保守 kTimeout）兜底。
+  //   回调到达即由 `onQueryOrderReply` 的 `query_cv_.notify_all()` 唤醒（不必等满预算）。
   for (std::deque<CtOrderQueryReply>::iterator it = query_replies_.begin();
        it != query_replies_.end();) {
     if (it->request_id != rid) {

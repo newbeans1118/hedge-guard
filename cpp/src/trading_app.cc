@@ -395,7 +395,7 @@ TradingApp::TradingApp(const AppConfig& cfg)
     : cfg_(cfg),
       ct_(),
       flow_(),
-      order_query_(&ct_, cfg.replay_query_timeout_ms),
+      order_query_(&ct_, cfg.replay_query_timeout_ms, kReplayQueryTotalBudgetMs),
       replay_(),
       risk_state_(),
       risk_(),
@@ -436,6 +436,10 @@ TradingApp::TradingApp(const AppConfig& cfg)
   replay_.set_runtime_config(fc);
   // T-212：在途对账接缝接入「CTP 报单查询」生产实现（异步 SPI → 同步结论）。
   //   未登录/查询超时 ⇒ 桥接件回 kTimeout（状态未知、冻结不释放、告警）——保守。
+  //   D-2 披露：查询为**逐单串行**（未并发化，与 §4.5.3「并发查询」目标存在已知缺口）；
+  //   总预算由桥接件的独立常量 `kReplayQueryTotalBudgetMs`（60000 ms = `NFR-REL-1`）
+  //   兜底 —— 与单笔上限 `cfg.replay_query_timeout_ms`（`HG.REPLAY.QUERY_TIMEOUT_MS`）
+  //   分开取值：前者封本次对账累计耗时，后者封单笔等待；预算耗尽后剩余单不再发起查询。
   replay_.set_order_query(&order_query_);
   replay_.set_alert_sink(&g_replay_alert);
 

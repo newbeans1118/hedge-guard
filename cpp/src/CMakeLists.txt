@@ -68,7 +68,9 @@ set_target_properties(hg_app_test PROPERTIES
 #   release   —— T-211：本地管理入口「未知在途」人工核验释放
 #                （unknown ⇒ BLOCKED；合法请求 ⇒ 台账清零 + READY + READY 帧恰 1；
 #                 非法请求零变更；重复投递被拒（幂等））
-set(HG_APP_CASES config secret listen ready progress corrupt release)
+#   order_query —— T-212 补正（O-2）：在途对账查询接缝的**生产装配**接线
+#                （`replay_.set_order_query(&order_query_)` 身份核对 + 单笔/总预算口径）
+set(HG_APP_CASES config secret listen ready progress corrupt release order_query)
 foreach(_c ${HG_APP_CASES})
   add_test(NAME "app.${_c}" COMMAND hg_app_test "${_c}")
   set_tests_properties("app.${_c}" PROPERTIES

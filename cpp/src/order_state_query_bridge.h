@@ -23,9 +23,16 @@
 //   《在途单（order_id/ref/ts）》、不含流水终态；冲突面仍由 `ReplayController` 的
 //   kConflict 分支保留（当前无来源，属**已知覆盖残留**，随流水终态透传另立任务）。
 //
-// 线程：只在重放启动期由装配线程同步调用（逐单对账）；不属交易热路径。
+// 线程 / 性能（**诚实披露**）：
+//   · 只在重放启动期由装配线程同步调用（**逐单串行**；不属交易热路径）；
+//   · 与 `ARCHITECTURE.md` §4.5.3「并发查询」的性能目标存在**已知缺口**：本实现未并发化，
+//     单笔最坏 = `HG.REPLAY.QUERY_TIMEOUT_MS`（缺省 20 s），逐单累加可达数十秒；
+//   · 兜底 = **总预算** `kReplayQueryTotalBudgetMs`（60000 ms，对齐 §9 `NFR-REL-1`）：
+//     每单 `timeout = min(单笔上限, 剩余预算)`，预算耗尽后剩余单**不再发起查询**，
+//     直接返回 `kTimeout`（状态未知 ⇒ 保守冻结不释放）。
 // =============================================================================
 
+#include <chrono>
 #include <cstdint>
 #include <string>
 
@@ -35,10 +42,29 @@
 namespace hg {
 namespace app {
 
+// 重放·在途对账的**总预算**（D-2 修复；来源 `ARCHITECTURE.md` §9 `NFR-REL-1` 60 s）。
+//
+// 缺口与取舍（诚实披露）：
+//   · `ARCHITECTURE.md` §4.5.3「性能要求」的目标是「在途报单**并发查询**（按报单号）」，
+//     本实现为**逐单串行**（未并发化）⇒ 单笔上限 `HG.REPLAY.QUERY_TIMEOUT_MS`（缺省
+//     20 s）× N 线性累加：实测 3 笔全不应答 = **60001 ms**，已超 `NFR-REL-1` 的 60 s。
+//   · 故在装配层加**总预算**兜底（不改变单笔语义）：每单
+//     `timeout = min(单笔上限, 剩余总预算)`；**总预算耗尽后剩余单不再发起查询**，
+//     直接按 `kTimeout`（状态未知 ⇒ 保守冻结，**不释放**）返回。
+//   · 并发化（真正的 §4.5.3 目标）随「在途对账并发化」另立任务；本常量只封上界。
+static const std::int64_t kReplayQueryTotalBudgetMs = 60000;
+
 class CtOrderStateQueryBridge : public hg::flow_store::IOrderStateQuery {
  public:
-  CtOrderStateQueryBridge(hg::ctp_adapter::CtAdapter* ct, std::int64_t timeout_ms)
-      : ct_(ct), timeout_ms_(timeout_ms < 0 ? 0 : timeout_ms) {}
+  // `timeout_ms` = 单笔上限（= `HG.REPLAY.QUERY_TIMEOUT_MS`，缺省 20000）；
+  // `total_budget_ms` = 本次对账总预算（缺省 60000，见上方常量与 `NFR-REL-1`）。
+  CtOrderStateQueryBridge(hg::ctp_adapter::CtAdapter* ct, std::int64_t timeout_ms,
+                          std::int64_t total_budget_ms = kReplayQueryTotalBudgetMs)
+      : ct_(ct),
+        timeout_ms_(timeout_ms < 0 ? 0 : timeout_ms),
+        budget_ms_(total_budget_ms <= 0 ? 0 : total_budget_ms),
+        budget_started_(false),
+        budget_deadline_() {}
 
   virtual hg::flow_store::OrderQueryResult query(
       const hg::flow_store::InflightOrder& order, std::string* detail) {
@@ -47,12 +73,26 @@ class CtOrderStateQueryBridge : public hg::flow_store::IOrderStateQuery {
       return hg::flow_store::OrderQueryResult::kTimeout;
     }
 
+    // D-2：总预算耗尽 ⇒ 不再发起查询（保守：状态未知 ⇒ 冻结不释放）。
+    std::int64_t budget_left_ms = 0;
+    if (!reserveBudget(&budget_left_ms)) {
+      if (detail != 0) {
+        *detail = "replay query total budget (" + std::to_string(budget_ms_) +
+                  " ms, NFR-REL-1) exhausted; no query issued; state unknown; frozen held";
+      }
+      return hg::flow_store::OrderQueryResult::kTimeout;
+    }
+
     hg::ctp_adapter::CtOrderQueryReq req;
     // 流水侧仅有 `order_id` / `client_order_ref`（= CTP OrderRef）⇒ 以 OrderRef 选行。
     // （`CThostFtdcQryOrderField` 无 OrderRef，无法服务端窄查，见 ct_types.h 头注。）
+    // D-1：ref 超过 CTP `OrderRef` 12 字节上限时由 `CtAdapter::queryOrder` **安全失败**
+    //   （kUnavailable ⇒ 本件映射 kTimeout ⇒ 保守冻结），此处不做任何截断/改写。
     req.client_order_ref = order.client_order_ref;
 
-    const hg::ctp_adapter::CtOrderQueryReply reply = ct_->queryOrder(req, timeout_ms_);
+    // 本笔实际等待上限 = min(单笔上限, 剩余总预算)。
+    const std::int64_t per_order_ms = (timeout_ms_ < budget_left_ms) ? timeout_ms_ : budget_left_ms;
+    const hg::ctp_adapter::CtOrderQueryReply reply = ct_->queryOrder(req, per_order_ms);
     if (detail != 0) *detail = describe(reply);
 
     switch (reply.outcome) {
@@ -80,7 +120,37 @@ class CtOrderStateQueryBridge : public hg::flow_store::IOrderStateQuery {
     }
   }
 
+  // ---- 观测面（装配自检 / 单测；非交易路径）--------------------------------
+  bool ctWired() const { return ct_ != 0; }        // CTP 适配器已接
+  std::int64_t totalBudgetMs() const { return budget_ms_; }  // 总预算口径（NFR-REL-1）
+  std::int64_t perOrderTimeoutMs() const { return timeout_ms_; }
+  // 剩余总预算（未启动窗口 ⇒ 返回完整预算；已耗尽 ⇒ 0）。
+  std::int64_t remainingBudgetMs() const {
+    if (!budget_started_) return budget_ms_;
+    const std::int64_t left = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  budget_deadline_ - std::chrono::steady_clock::now())
+                                  .count();
+    return left <= 0 ? 0 : left;
+  }
+
  private:
+  // 预约本笔查询的等待额度：预算窗口在**首次查询**时启动（构造到重放之间可能间隔很久，
+  //   故不取构造时刻）；窗口耗尽后返回 false ⇒ 调用方不再发起查询（保守 kTimeout）。
+  //   同一进程内若发生第二次重放，窗口**沿用**（已耗尽 ⇒ 全部保守 kTimeout，安全方向）。
+  bool reserveBudget(std::int64_t* remaining_ms) {
+    const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+    if (!budget_started_) {
+      budget_started_ = true;
+      budget_deadline_ = now + std::chrono::milliseconds(budget_ms_);
+    }
+    const std::int64_t left = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  budget_deadline_ - now)
+                                  .count();
+    if (left <= 0) return false;
+    if (remaining_ms != 0) *remaining_ms = left;
+    return true;
+  }
+
   static std::string describe(const hg::ctp_adapter::CtOrderQueryReply& r) {
     std::string s;
     s += "ctp_query outcome=";
@@ -95,8 +165,9 @@ class CtOrderStateQueryBridge : public hg::flow_store::IOrderStateQuery {
          std::to_string(r.volume_traded) + "/" + std::to_string(r.volume_left);
     if (r.ctp_error_id != 0) {
       s += " ctp_error_id=" + std::to_string(r.ctp_error_id);
-      if (!r.ctp_error_msg.empty()) s += " msg=" + r.ctp_error_msg;
     }
+    // 诊断留痕：错误文本不依赖 error_id（D-1 的「拒绝查询」无 CTP 错误码但有明确原因）。
+    if (!r.ctp_error_msg.empty()) s += " msg=" + r.ctp_error_msg;
     return s;
   }
 
@@ -125,7 +196,10 @@ class CtOrderStateQueryBridge : public hg::flow_store::IOrderStateQuery {
   CtOrderStateQueryBridge& operator=(const CtOrderStateQueryBridge&);
 
   hg::ctp_adapter::CtAdapter* ct_;
-  std::int64_t timeout_ms_;
+  std::int64_t timeout_ms_;   // 单笔等待上限（HG.REPLAY.QUERY_TIMEOUT_MS）
+  std::int64_t budget_ms_;    // 本次对账总预算（NFR-REL-1 = 60 s；D-2）
+  bool budget_started_;       // 预算窗口是否已启动（首次查询时启动）
+  std::chrono::steady_clock::time_point budget_deadline_;
 };
 
 }  // namespace app

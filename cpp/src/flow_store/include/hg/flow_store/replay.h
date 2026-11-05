@@ -201,6 +201,8 @@ class ReplayController {
   // 对账查询/告警接缝（可空持有；缺省 null ⇒ 在途一律按 kTimeout 保守处理）。
   void set_order_query(IOrderStateQuery* query);
   void set_alert_sink(IReplayAlertSink* alert);
+  // 对账查询接缝的**只读投影**（装配自检：生产装配必须非空；T-212 O-2）。
+  IOrderStateQuery* orderQuery() const { return query_; }
 
   // 执行启动重放（§4.5.3 ②→⑦）：清理保留期 → 逐日分片排序 → 结构校验逐行解析
   // → 状态还原 → 在途对账。进度回调（可空）在状态迁移与每 progress_every 条时

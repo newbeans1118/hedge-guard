@@ -161,6 +161,16 @@ class TradingApp {
   // 无请求文件 ⇒ 零 I/O 开销外的行为（仅 stat 一次）；请求文件在 ⇒ 处理后必归档移走。
   std::size_t pollAdminRelease(std::int64_t now);
 
+  // ---- T-212 在途对账查询接缝观测面（装配自检；非交易路径）----
+  // `true` ⇒ 生产装配确已把**本装配的** CTP 查询桥接接上重放控制器
+  //   （`replay_.set_order_query(&order_query_)`，指针身份一并核对）。
+  //   用途：让「接线真的接上了」有测试守护（删接线 ⇒ 本断言必红）。
+  bool replay_query_wired() const {
+    return replay_.orderQuery() != 0 && replay_.orderQuery() == &order_query_;
+  }
+  // 桥接件只读投影（自检：CTP 适配器已接、单笔上限、总预算口径）。
+  const CtOrderStateQueryBridge& order_query() const { return order_query_; }
+
   void set_clock(ClockFn fn, void* user);
   std::int64_t now_ms() const;
 
