@@ -28,8 +28,10 @@
 //   文档化单线程访问；队列为 SPSC 无锁）。`quoteQueue` 由 T3 写 / T8 读，不在 T4 路径。
 // =============================================================================
 
+#include <condition_variable>
 #include <cstddef>
 #include <deque>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -61,6 +63,20 @@ class CtAdapter : public CtCallbackSink {
   CtSubscribeAck subscribeMarket(const std::vector<std::string>& instruments);
   CtFundAck reqFundTransfer(const CtFundReq& req);
 
+  // ---- 报单状态查询（§4.5.3 ⑤；T-212 生产实现）-----------------------------
+  // 同步结论：发起 `ReqQryOrder` → **有界等待** `OnRspQryOrder` 回调 → 按
+  //   `order_sys_id`（已知）/ `client_order_ref`（否则）选行 → 归一化结论。
+  // 未登录 / 请求被拒 ⇒ outcome=kUnavailable；有界等待超时 ⇒ outcome=kTimeout
+  //   （**保守**：状态未知，调用方须冻结不释放）。
+  // 线程说明：由 T4/装配线程调用（重放启动期）；回调侧 T2 仅投递查询回复。
+  CtOrderQueryReply queryOrder(const CtOrderQueryReq& req, std::int64_t timeout_ms);
+
+  // 异步发起（回填 request_id）；非阻塞，供需要自行掌控等待节奏的调用方/测试。
+  // 返回 kCtOk 表示请求已交 CTP；未登录 ⇒ kCtNotConnected；网关拒收 ⇒ 背压/未连接。
+  CtCode requestOrderQuery(const CtOrderQueryReq& req, int* request_id);
+  // 非阻塞取一条查询回复（诊断/测试；按到达序，**不**按 request_id 过滤）。
+  bool pollOrderQueryReply(CtOrderQueryReply* out);
+
   // ---- SPI 回调侧（CtCallbackSink 实现；只做序列化 + 入队 + 轻量状态位）-------
   virtual void onFrontConnected(bool market);
   virtual void onFrontDisconnected(bool market, int reason);
@@ -68,6 +84,8 @@ class CtAdapter : public CtCallbackSink {
                             int error_id, const std::string& error_msg);
   virtual void onOrderEvent(const CtOrderEvent& event);
   virtual void onQuoteEvent(const CtQuoteEvent& event);
+  // T-212：查询回复只做「归一化 + 入队 + 唤醒等待方」（不做重活）。
+  virtual void onQueryOrderReply(const CtOrderQueryReply& reply);
 
   // ---- 队列消费面（消费者：orderEventQueue → T4；quoteQueue → T8）-----------
   RingBuffer<CtOrderEvent, kOrderEventQueueCapacity + 1>* orderEventQueue();
@@ -94,6 +112,8 @@ class CtAdapter : public CtCallbackSink {
   int nextRequestId();
   void retainOrder(const CtOrderReq& req);
   void retainFund(const CtFundReq& req);
+  // 查询回复是否命中本次请求（已知 order_sys_id 优先，否则按 client_order_ref）。
+  static bool matchesQuery(const CtOrderQueryReq& req, const CtOrderQueryReply& reply);
 
   CtTradeGateway* trade_;
   CtMdGateway* md_;
@@ -108,6 +128,10 @@ class CtAdapter : public CtCallbackSink {
   QuoteQueue* quote_events_;
   std::deque<CtOrderReq> retained_orders_;
   std::deque<CtFundReq> retained_funds_;
+  // T-212：查询回复通道（T2 回调写 / T4 或装配线程读；ctp_adapter 允许互斥体）。
+  std::mutex query_mutex_;
+  std::condition_variable query_cv_;
+  std::deque<CtOrderQueryReply> query_replies_;
   std::size_t order_event_overflow_;
   CtConfig cfg_;
 };

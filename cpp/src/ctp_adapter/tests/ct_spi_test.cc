@@ -86,6 +86,52 @@ void trade_spi_enqueues_on_rtn_order() {
   HG_CHECK_EQ(out.volume_left, 0);
 }
 
+void trade_spi_enqueues_query_reply() {
+  FakeTradeGateway trade;
+  FakeMdGateway md;
+  CtAdapter adapter(&trade, &md, false);
+  CtSpiImpl spi(&adapter);
+
+  // 非空行：逐行归一化（末行 bIsLast ⇒ stream_end）。
+  CThostFtdcOrderField f;
+  std::memset(&f, 0, sizeof(f));
+  setField(f.OrderRef, sizeof(f.OrderRef), "REF-Q");
+  setField(f.OrderSysID, sizeof(f.OrderSysID), "S-Q");
+  setField(f.InstrumentID, sizeof(f.InstrumentID), "rb2601");
+  f.OrderStatus = THOST_FTDC_OST_AllTraded;
+  f.VolumeTotalOriginal = 2;
+  f.VolumeTraded = 2;
+  f.VolumeTotal = 0;
+  spi.OnRspQryOrder(&f, 0, 4242, true);
+
+  hg::ctp_adapter::CtOrderQueryReply r;
+  HG_CHECK(adapter.pollOrderQueryReply(&r));
+  HG_CHECK_EQ(r.request_id, 4242);
+  HG_CHECK(r.outcome == hg::ctp_adapter::CtOrderQueryOutcome::kFound);
+  HG_CHECK(r.state == hg::ctp_adapter::CtOrderState::kFilled);
+  HG_CHECK_EQ(r.order_sys_id, std::string("S-Q"));
+  HG_CHECK_EQ(r.volume_traded, 2);
+  HG_CHECK(r.stream_end);
+
+  // 空结果集结束（pOrder==NULL && bIsLast）⇒ kNotFound 终态。
+  spi.OnRspQryOrder(0, 0, 4243, true);
+  hg::ctp_adapter::CtOrderQueryReply nf;
+  HG_CHECK(adapter.pollOrderQueryReply(&nf));
+  HG_CHECK(nf.outcome == hg::ctp_adapter::CtOrderQueryOutcome::kNotFound);
+  HG_CHECK(nf.stream_end);
+
+  // 错误应答 ⇒ kUnavailable 终态（状态未知，保守）。
+  CThostFtdcRspInfoField info;
+  std::memset(&info, 0, sizeof(info));
+  info.ErrorID = 15;
+  spi.OnRspQryOrder(0, &info, 4244, true);
+  hg::ctp_adapter::CtOrderQueryReply er;
+  HG_CHECK(adapter.pollOrderQueryReply(&er));
+  HG_CHECK(er.outcome == hg::ctp_adapter::CtOrderQueryOutcome::kUnavailable);
+  HG_CHECK_EQ(er.ctp_error_id, 15);
+  HG_CHECK(er.stream_end);
+}
+
 void trade_spi_reports_order_error() {
   FakeTradeGateway trade;
   FakeMdGateway md;
@@ -202,6 +248,7 @@ void real_sdk_version_is_linked() {
 int main() {
   trade_spi_enqueues_on_rtn_trade();
   trade_spi_enqueues_on_rtn_order();
+  trade_spi_enqueues_query_reply();
   trade_spi_reports_order_error();
   trade_spi_enqueues_fund_receipt();
   trade_spi_login_and_front_state();

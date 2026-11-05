@@ -50,12 +50,19 @@ void toInputOrder(const CtConfig& cfg, const CtOrderReq& src,
 void toInputOrderAction(const CtCancelReq& src, CThostFtdcInputOrderActionField* dst);
 void toReqTransfer(const CtConfig& cfg, const CtFundReq& src,
                    CThostFtdcReqTransferField* dst);
+// T-212：报单查询（`ReqQryOrder`；`CThostFtdcQryOrderField` **无 OrderRef** ⇒ 以
+//   OrderSysID / ExchangeID / InstrumentID 为过滤，选行交适配层 `queryOrder`）。
+void toQryOrder(const CtConfig& cfg, const CtOrderQueryReq& src,
+                CThostFtdcQryOrderField* dst);
 
 // ---- 回调映射（CThostFtdc* → 归一化事件）----------------------------------
 CtOrderEvent fromOrder(const CThostFtdcOrderField& src, std::int64_t now_ms);
 CtOrderEvent fromTrade(const CThostFtdcTradeField& src, std::int64_t now_ms);
 CtOrderEvent fromOrderError(const CtOrderEvent& base, const CThostFtdcRspInfoField& info);
 CtQuoteEvent fromDepth(const CThostFtdcDepthMarketDataField& src, std::int64_t now_ms);
+// T-212：`OnRspQryOrder` 单行 → 归一化查询回复（状态经 `ctOrderStateFromStatus`）。
+CtOrderQueryReply fromQryOrder(const CThostFtdcOrderField& src, int request_id,
+                               bool stream_end);
 
 }  // namespace mapping
 }  // namespace ctp_adapter

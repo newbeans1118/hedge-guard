@@ -126,6 +126,42 @@ void fund_transfer_mapping_in_and_out_differ() {
   HG_CHECK(field(fin.TradeCode) != field(fout.TradeCode));
 }
 
+void query_order_mapping() {
+  CtConfig cfg = loginCfg();
+  hg::ctp_adapter::CtOrderQueryReq req;
+  req.client_order_ref = "REF-Q";
+  req.order_sys_id = "SYS-Q";
+  req.exchange_id = "SHFE";
+  req.instrument_id = "rb2601";
+  CThostFtdcQryOrderField q;
+  hg::ctp_adapter::mapping::toQryOrder(cfg, req, &q);
+  // 实测：CThostFtdcQryOrderField 无 OrderRef ⇒ 只承载 sys_id / exchange / instrument。
+  HG_CHECK_EQ(field(q.BrokerID), std::string("9999"));
+  HG_CHECK_EQ(field(q.InvestorID), std::string("investor01"));
+  HG_CHECK_EQ(field(q.OrderSysID), std::string("SYS-Q"));
+  HG_CHECK_EQ(field(q.ExchangeID), std::string("SHFE"));
+  HG_CHECK_EQ(field(q.InstrumentID), std::string("rb2601"));
+
+  // OnRspQryOrder 单行 → 归一化回复（状态 '0' 全部成交）。
+  CThostFtdcOrderField o;
+  std::memset(&o, 0, sizeof(o));
+  setField(o.OrderRef, sizeof(o.OrderRef), "REF-Q");
+  setField(o.OrderSysID, sizeof(o.OrderSysID), "SYS-Q");
+  setField(o.InstrumentID, sizeof(o.InstrumentID), "rb2601");
+  o.OrderStatus = THOST_FTDC_OST_AllTraded;
+  o.VolumeTotalOriginal = 4;
+  o.VolumeTraded = 4;
+  o.VolumeTotal = 0;
+  const hg::ctp_adapter::CtOrderQueryReply r =
+      hg::ctp_adapter::mapping::fromQryOrder(o, 9090, true);
+  HG_CHECK_EQ(r.request_id, 9090);
+  HG_CHECK(r.outcome == hg::ctp_adapter::CtOrderQueryOutcome::kFound);
+  HG_CHECK(r.state == hg::ctp_adapter::CtOrderState::kFilled);
+  HG_CHECK_EQ(r.client_order_ref, std::string("REF-Q"));
+  HG_CHECK_EQ(r.volume_traded, 4);
+  HG_CHECK(r.stream_end);
+}
+
 void callback_mapping_normalizes_events() {
   CThostFtdcOrderField order;
   std::memset(&order, 0, sizeof(order));
@@ -201,6 +237,7 @@ int main() {
   market_order_mapping();
   cancel_mapping();
   fund_transfer_mapping_in_and_out_differ();
+  query_order_mapping();
   callback_mapping_normalizes_events();
   fixed_field_helper_trims_nul_and_truncates();
   return hg::ctp_adapter::testutil::report("ct_mapping_test");

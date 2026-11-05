@@ -121,6 +121,13 @@ class CtpTradeGateway : public CtTradeGateway {
     return api_->ReqOrderAction(&action, request_id);
   }
 
+  virtual int reqQueryOrder(const CtOrderQueryReq& req, int request_id) {
+    if (api_ == 0) return -1;
+    CThostFtdcQryOrderField query;
+    mapping::toQryOrder(cfg_, req, &query);
+    return api_->ReqQryOrder(&query, request_id);
+  }
+
   virtual int reqFundTransfer(const CtFundReq& req, int request_id) {
     if (api_ == 0) return -1;
     CThostFtdcReqTransferField transfer;

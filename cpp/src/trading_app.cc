@@ -90,9 +90,11 @@ bool ensureDir(const std::string& path, std::string* error) {
   return true;
 }
 
-// CTP 侧在途单查询接缝缺位（生产查询归 T-041/T-039 装配；见回执披露）⇒
-// 本装配不注入 query ⇒ ReplayController 对在途单一律按 kTimeout 保守处理
-// （状态未知、冻结不释放、台账登记、需人工核验）——「保守优于冒进」。
+// T-212：在途对账的 CTP 报单查询能力由 `CtOrderStateQueryBridge`（`order_query_`，
+// 定义见 `order_state_query_bridge.h`）生产实现，装配处 `replay_.set_order_query(&order_query_)`。
+//   查询不可用/超时（未登录、CTP 未应答）⇒ 该桥返回 kTimeout ⇒ ReplayController 按
+//   「状态未知」保守处理（冻结不释放、台账登记、告警、需人工核验）——「保守优于冒进」。
+//   T-211 的 `manualRelease` 仍是「未知在途」的**人工闭环**手段（与本单互不阻塞）。
 class ReplayAlertToLog : public hg::flow_store::IReplayAlertSink {
  public:
   virtual void onInflightUnknown(const hg::flow_store::InflightOrder& order) {
@@ -393,6 +395,7 @@ TradingApp::TradingApp(const AppConfig& cfg)
     : cfg_(cfg),
       ct_(),
       flow_(),
+      order_query_(&ct_, cfg.replay_query_timeout_ms),
       replay_(),
       risk_state_(),
       risk_(),
@@ -431,7 +434,9 @@ TradingApp::TradingApp(const AppConfig& cfg)
   fc.replay_query_timeout_ms = cfg_.replay_query_timeout_ms;
   fc.replay_progress_every = cfg_.replay_progress_every;
   replay_.set_runtime_config(fc);
-  replay_.set_order_query(0);  // CTP 查询接缝缺位 ⇒ 在途按 kTimeout 保守处理（披露）
+  // T-212：在途对账接缝接入「CTP 报单查询」生产实现（异步 SPI → 同步结论）。
+  //   未登录/查询超时 ⇒ 桥接件回 kTimeout（状态未知、冻结不释放、告警）——保守。
+  replay_.set_order_query(&order_query_);
   replay_.set_alert_sink(&g_replay_alert);
 
   // ---- 交易路径 / 重放 / 恢复 三接缝（单一门卫 system_ready()）----

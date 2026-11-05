@@ -99,6 +99,18 @@ void toReqTransfer(const CtConfig& cfg, const CtFundReq& src,
   dst->TradeAmount = src.amount;
 }
 
+void toQryOrder(const CtConfig& cfg, const CtOrderQueryReq& src,
+                CThostFtdcQryOrderField* dst) {
+  // ⚠️ `CThostFtdcQryOrderField` 无 OrderRef（官方 v6.7.13 实测）⇒ 只能以
+  //    OrderSysID / ExchangeID / InstrumentID 过滤；按 OrderRef 选行由适配层完成。
+  std::memset(dst, 0, sizeof(*dst));
+  setField(dst->BrokerID, sizeof(dst->BrokerID), cfg.broker_id);
+  setField(dst->InvestorID, sizeof(dst->InvestorID), cfg.user_id);
+  setField(dst->ExchangeID, sizeof(dst->ExchangeID), src.exchange_id);
+  setField(dst->OrderSysID, sizeof(dst->OrderSysID), src.order_sys_id);
+  setField(dst->InstrumentID, sizeof(dst->InstrumentID), src.instrument_id);
+}
+
 CtOrderEvent fromOrder(const CThostFtdcOrderField& src, std::int64_t now_ms) {
   CtOrderEvent event;
   event.kind = CtOrderEventKind::kOrderReturn;
@@ -152,6 +164,23 @@ CtQuoteEvent fromDepth(const CThostFtdcDepthMarketDataField& src, std::int64_t n
   event.update_millisec = src.UpdateMillisec;
   event.local_recv_ts_ms = now_ms;
   return event;
+}
+
+CtOrderQueryReply fromQryOrder(const CThostFtdcOrderField& src, int request_id,
+                               bool stream_end) {
+  CtOrderQueryReply reply;
+  reply.request_id = request_id;
+  reply.outcome = CtOrderQueryOutcome::kFound;
+  reply.state = ctOrderStateFromStatus(src.OrderStatus);
+  reply.stream_end = stream_end;
+  reply.client_order_ref = field(src.OrderRef);
+  reply.order_sys_id = field(src.OrderSysID);
+  reply.order_local_id = field(src.OrderLocalID);
+  reply.instrument_id = field(src.InstrumentID);
+  reply.volume_total = src.VolumeTotalOriginal;
+  reply.volume_traded = src.VolumeTraded;
+  reply.volume_left = src.VolumeTotal;  // 官方字段：剩余可成交量
+  return reply;
 }
 
 }  // namespace mapping

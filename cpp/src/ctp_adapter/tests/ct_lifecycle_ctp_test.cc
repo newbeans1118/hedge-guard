@@ -34,6 +34,7 @@ class NullSink : public CtCallbackSink {
   virtual void onLoginReply(bool, bool, const std::string&, int, const std::string&) {}
   virtual void onOrderEvent(const hg::ctp_adapter::CtOrderEvent&) {}
   virtual void onQuoteEvent(const hg::ctp_adapter::CtQuoteEvent&) {}
+  virtual void onQueryOrderReply(const hg::ctp_adapter::CtOrderQueryReply&) {}
 };
 
 // ① 两个官方 .so 均已链接并载入（版本串来自 .so 的静态函数实现）。

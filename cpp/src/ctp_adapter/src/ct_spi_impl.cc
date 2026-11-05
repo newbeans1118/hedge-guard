@@ -86,11 +86,42 @@ void CtSpiImpl::OnRspOrderAction(CThostFtdcInputOrderActionField* pInputOrderAct
   sink_->onOrderEvent(mapping::fromOrderError(base, *pRspInfo));
 }
 
+void CtSpiImpl::OnRspQryOrder(CThostFtdcOrderField* pOrder,
+                              CThostFtdcRspInfoField* pRspInfo, int nRequestID,
+                              bool bIsLast) {
+  if (!sink_) return;
+  // 错误应答：回一条「不可用」结论（状态未知，保守），并标记流结束。
+  if (pRspInfo != 0 && pRspInfo->ErrorID != 0) {
+    CtOrderQueryReply reply;
+    reply.request_id = nRequestID;
+    reply.outcome = CtOrderQueryOutcome::kUnavailable;
+    reply.state = CtOrderState::kUnknown;
+    reply.stream_end = true;
+    reply.ctp_error_id = pRspInfo->ErrorID;
+    reply.ctp_error_msg = mapping::field(pRspInfo->ErrorMsg);
+    sink_->onQueryOrderReply(reply);
+    return;
+  }
+  // 空集结束（无任何行）：回「未找到」终态。
+  if (pOrder == 0) {
+    if (bIsLast) {
+      CtOrderQueryReply reply;
+      reply.request_id = nRequestID;
+      reply.outcome = CtOrderQueryOutcome::kNotFound;
+      reply.state = CtOrderState::kUnknown;
+      reply.stream_end = true;
+      sink_->onQueryOrderReply(reply);
+    }
+    return;
+  }
+  // 非空行：逐行归一化（末行 stream_end=true）。
+  sink_->onQueryOrderReply(mapping::fromQryOrder(*pOrder, nRequestID, bIsLast));
+}
+
 void CtSpiImpl::OnRtnOrder(CThostFtdcOrderField* pOrder) {
   if (!sink_ || pOrder == 0) return;
   sink_->onOrderEvent(mapping::fromOrder(*pOrder, nowMillis()));
 }
-
 void CtSpiImpl::OnRtnTrade(CThostFtdcTradeField* pTrade) {
   if (!sink_ || pTrade == 0) return;
   sink_->onOrderEvent(mapping::fromTrade(*pTrade, nowMillis()));

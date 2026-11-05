@@ -70,7 +70,8 @@ endif()
 set(CTP_ADAPTER_UNIT_TESTS
   ct_queues_test
   ct_adapter_test
-  ct_lifecycle_test)          # SDK 无关：Release-before-Init 守卫（两轨均跑）
+  ct_lifecycle_test           # SDK 无关：Release-before-Init 守卫（两轨均跑）
+  ct_order_query_test)        # T-212：报单状态查询 + 装配桥接（两轨均跑；注入假网关）
 
 if(CTP_FOUND)
   # 字段映射 + 真实 SPI + 真实生命周期 ⇒ 依赖真实 CTP 头/库，仅 SDK 轨注册。
@@ -93,3 +94,12 @@ foreach(_t ${CTP_ADAPTER_UNIT_TESTS})
     FIXTURES_REQUIRED hg_arch_check
     TIMEOUT 180)
 endforeach()
+
+# T-212：报单查询单测额外依赖「装配桥接件」（`cpp/src/order_state_query_bridge.h`，
+# 实现 `flow_store::IOrderStateQuery`）⇒ 需 flow_store 头 + `cpp/src` 头目录。
+# 仅该**测试目标**加此依赖，**不**改变 `hg_ctp_adapter` 模块自身的依赖面（§3.1）。
+if(TARGET ctp_adapter_ct_order_query_test)
+  target_link_libraries(ctp_adapter_ct_order_query_test PRIVATE hg::flow_store)
+  target_include_directories(ctp_adapter_ct_order_query_test PRIVATE
+    "${CMAKE_SOURCE_DIR}/src")
+endif()

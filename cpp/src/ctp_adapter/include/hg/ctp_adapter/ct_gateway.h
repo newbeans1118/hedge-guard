@@ -34,6 +34,9 @@ class CtCallbackSink {
                             int error_id, const std::string& error_msg) = 0;
   virtual void onOrderEvent(const CtOrderEvent& event) = 0;
   virtual void onQuoteEvent(const CtQuoteEvent& event) = 0;
+  // 报单状态查询结果（`OnRspQryOrder` 逐行回调；末行 `stream_end=true`）。
+  // 实现只做「归一化 + 投递查询回复」（T-212；§4.5.3 ⑤）。
+  virtual void onQueryOrderReply(const CtOrderQueryReply& reply) = 0;
 };
 
 // 交易网关：封装官方分离式交易接口 `CThostFtdcTraderApi`。
@@ -47,6 +50,8 @@ class CtTradeGateway {
   virtual int reqLogout(int request_id) = 0;
   virtual int reqOrderInsert(const CtOrderReq& req, int request_id) = 0;
   virtual int reqOrderAction(const CtCancelReq& req, int request_id) = 0;
+  // 报单状态查询（异步 SPI：发起 ⇒ `OnRspQryOrder` 回调；§4.5.3 ⑤；T-212）。
+  virtual int reqQueryOrder(const CtOrderQueryReq& req, int request_id) = 0;
   virtual int reqFundTransfer(const CtFundReq& req, int request_id) = 0;
   virtual const char* apiVersion() const = 0;
   virtual const char* backendName() const = 0;

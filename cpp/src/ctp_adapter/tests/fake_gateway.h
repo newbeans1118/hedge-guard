@@ -17,11 +17,21 @@ class FakeTradeGateway : public CtTradeGateway {
   FakeTradeGateway()
       : connect_ok(true),
         rc(0),
+        sink_(0),
+        query_rc(0),
+        query_suppress(false),
+        query_found(true),
+        query_error(false),
+        query_extra_row(false),
+        query_status('3'),
+        query_total(2),
+        query_traded(0),
         connect_calls(0),
         logins(0),
         logouts(0),
         inserts(0),
         actions(0),
+        queries(0),
         transfers(0) {}
 
   virtual bool connect(const CtConfig& /*cfg*/, std::string* error) {
@@ -51,6 +61,54 @@ class FakeTradeGateway : public CtTradeGateway {
     last_cancel = req;
     return rc;
   }
+  // 报单查询：把「异步 SPI 回调」在请求内同步合成（模拟 CTP 在 OnRspQryOrder 回填），
+  // 使适配层「发起 + 有界等待 + 选行」可被单测断言（T-212）。
+  virtual int reqQueryOrder(const CtOrderQueryReq& req, int request_id) {
+    ++queries;
+    last_query = req;
+    if (query_rc != 0) return query_rc;
+    if (sink_ == 0 || query_suppress) return 0;  // 静默：用于「有界等待超时」用例
+    if (query_error) {  // 错误应答（流结束但状态未知 ⇒ 保守 kUnavailable）
+      CtOrderQueryReply er;
+      er.request_id = request_id;
+      er.outcome = CtOrderQueryOutcome::kUnavailable;
+      er.stream_end = true;
+      er.ctp_error_id = 15;
+      er.ctp_error_msg = "fake query error";
+      er.client_order_ref = req.client_order_ref;
+      sink_->onQueryOrderReply(er);
+      return 0;
+    }
+    if (!query_found) {  // CTP 无此报单（空结果集，bIsLast 到达）
+      CtOrderQueryReply end;
+      end.request_id = request_id;
+      end.outcome = CtOrderQueryOutcome::kNotFound;
+      end.stream_end = true;
+      end.client_order_ref = req.client_order_ref;
+      end.order_sys_id = req.order_sys_id;
+      sink_->onQueryOrderReply(end);
+      return 0;
+    }
+    CtOrderQueryReply row;
+    row.request_id = request_id;
+    row.outcome = CtOrderQueryOutcome::kFound;
+    row.state = ctOrderStateFromStatus(query_status);
+    row.stream_end = true;  // 单行结果集（末行即流结束）
+    row.client_order_ref = req.client_order_ref;
+    row.order_sys_id = query_order_sys_id;
+    row.instrument_id = req.instrument_id;
+    row.volume_total = query_total;
+    row.volume_traded = query_traded;
+    row.volume_left = query_total - query_traded;
+    if (query_extra_row) {  // 先投一条「非目标」行（stream_end=false），验证按 ref 选行
+      CtOrderQueryReply other = row;
+      other.client_order_ref = "OTHER-REF";
+      other.stream_end = false;
+      sink_->onQueryOrderReply(other);
+    }
+    sink_->onQueryOrderReply(row);
+    return 0;
+  }
   virtual int reqFundTransfer(const CtFundReq& req, int /*request_id*/) {
     ++transfers;
     last_fund = req;
@@ -59,17 +117,32 @@ class FakeTradeGateway : public CtTradeGateway {
   virtual const char* apiVersion() const { return "fake-trade"; }
   virtual const char* backendName() const { return "fake"; }
 
+  // 绑定回调出口（合成查询回复用；测试在构造 CtAdapter 后调用）。
+  void set_sink(CtCallbackSink* sink) { sink_ = sink; }
+
   // 可调开关 + 观测计数
   bool connect_ok;
   int rc;  // CTP Req* 返回值语义：0 受理 / >0 队列满 / <0 连接失败
+  CtCallbackSink* sink_;  // 查询回复回调出口（非拥有）
+  int query_rc;          // 查询请求返回值（0 受理 / <0 失败）
+  bool query_suppress;   // true ⇒ 不合成回复（驱动「有界等待超时」）
+  bool query_found;      // false ⇒ 合成「未找到」终态
+  bool query_error;      // true ⇒ 合成「错误应答」终态（kUnavailable）
+  bool query_extra_row;  // true ⇒ 先投一条非目标行（验证选行）
+  char query_status;     // 合成行的 CTP OrderStatus（默认 '3'=未成交在队列 ⇒ kLive）
+  int query_total;       // 合成行原始数量
+  int query_traded;      // 合成行已成交数量
+  std::string query_order_sys_id;  // 合成行 OrderSysID
   int connect_calls;
   int logins;
   int logouts;
   int inserts;
   int actions;
+  int queries;
   int transfers;
   CtOrderReq last_order;
   CtCancelReq last_cancel;
+  CtOrderQueryReq last_query;
   CtFundReq last_fund;
 };
 

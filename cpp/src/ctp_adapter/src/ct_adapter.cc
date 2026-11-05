@@ -32,12 +32,33 @@ bool validFund(const CtFundReq& req) {
   return true;
 }
 
+bool validQuery(const CtOrderQueryReq& req) {
+  return !req.client_order_ref.empty() || !req.order_sys_id.empty();
+}
+
 }  // namespace
 
 std::int64_t nowMillis() {
   const std::chrono::system_clock::duration d =
       std::chrono::system_clock::now().time_since_epoch();
   return std::chrono::duration_cast<std::chrono::milliseconds>(d).count();
+}
+
+CtOrderState ctOrderStateFromStatus(char status) {
+  // CTP OrderStatus 单字符（官方 v6.7.13《API 接口说明》OrderStatus 取值）。
+  switch (status) {
+    case '0':  // 全部成交
+      return CtOrderState::kFilled;
+    case '5':  // 已撤
+      return CtOrderState::kCancelled;
+    case '1':  // 部分成交还在队列中
+    case '2':  // 部分成交不在队列中
+    case '3':  // 未成交还在队列中
+    case '4':  // 未成交不在队列中（保守：不判拒，视为仍在途 ⇒ 冻结不释放）
+      return CtOrderState::kLive;
+    default:  // 'a' 未知 / 'b' 未触发 / 'c' 已触发 / 空 ⇒ 不可判定
+      return CtOrderState::kUnknown;
+  }
 }
 
 CtAdapter::CtAdapter()
@@ -206,6 +227,138 @@ CtFundAck CtAdapter::reqFundTransfer(const CtFundReq& req) {
   ack.code = (rc == 0) ? kCtOk : ((rc > 0) ? kCtBackpressure : kCtNotConnected);
   if (ack.code != kCtOk) retainFund(req);
   return ack;
+}
+
+// -----------------------------------------------------------------------------
+// 报单状态查询（§4.5.3 ⑤；T-212）—— 异步 SPI → 同步结论的桥接
+// -----------------------------------------------------------------------------
+CtCode CtAdapter::requestOrderQuery(const CtOrderQueryReq& req, int* request_id) {
+  if (request_id != 0) *request_id = 0;
+  if (!validQuery(req)) return kCtUnsupportedOperation;
+  if (!trade_logged_in_) return kCtNotConnected;  // 未登录 ⇒ 状态未知（保守）
+  const int rid = nextRequestId();
+  const int rc = trade_->reqQueryOrder(req, rid);
+  if (rc != 0) return (rc > 0) ? kCtBackpressure : kCtNotConnected;
+  if (request_id != 0) *request_id = rid;
+  return kCtOk;
+}
+
+bool CtAdapter::matchesQuery(const CtOrderQueryReq& req,
+                             const CtOrderQueryReply& reply) {
+  if (!req.order_sys_id.empty()) return reply.order_sys_id == req.order_sys_id;
+  if (!req.client_order_ref.empty()) {
+    return reply.client_order_ref == req.client_order_ref;
+  }
+  return false;
+}
+
+bool CtAdapter::pollOrderQueryReply(CtOrderQueryReply* out) {
+  std::lock_guard<std::mutex> guard(query_mutex_);
+  if (query_replies_.empty()) return false;
+  if (out != 0) *out = query_replies_.front();
+  query_replies_.pop_front();
+  return true;
+}
+
+CtOrderQueryReply CtAdapter::queryOrder(const CtOrderQueryReq& req,
+                                        std::int64_t timeout_ms) {
+  CtOrderQueryReply result;
+  result.outcome = CtOrderQueryOutcome::kUnavailable;
+  result.client_order_ref = req.client_order_ref;
+  result.order_sys_id = req.order_sys_id;
+
+  if (!validQuery(req)) {
+    result.ctp_error_msg = "query needs client_order_ref or order_sys_id";
+    return result;
+  }
+  if (!trade_logged_in_) {
+    result.ctp_error_msg = "CTP not logged in";
+    return result;
+  }
+
+  int rid = 0;
+  const CtCode code = requestOrderQuery(req, &rid);
+  if (code != kCtOk) {
+    result.ctp_error_msg = "query request not accepted";
+    return result;
+  }
+  result.request_id = rid;
+  result.outcome = CtOrderQueryOutcome::kTimeout;  // 默认（无结果即保守超时）
+
+  const std::int64_t bounded_ms = (timeout_ms < 0) ? 0 : timeout_ms;
+
+  std::unique_lock<std::mutex> lock(query_mutex_);
+  // 串行查询假设（重放期单线程逐单对账）：丢弃与本请求无关的陈旧回复，限制内存。
+  for (std::deque<CtOrderQueryReply>::iterator it = query_replies_.begin();
+       it != query_replies_.end();) {
+    if (it->request_id != rid) {
+      it = query_replies_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  const std::chrono::steady_clock::time_point deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(bounded_ms);
+  bool timed_out = false;
+  CtOrderQueryReply matched;
+  bool have_match = false;
+
+  for (;;) {
+    // 排空当前已到达、属于本请求的回复（按到达序）。
+    for (;;) {
+      CtOrderQueryReply r;
+      bool found = false;
+      for (std::deque<CtOrderQueryReply>::iterator it = query_replies_.begin();
+           it != query_replies_.end(); ++it) {
+        if (it->request_id == rid) {
+          r = *it;
+          query_replies_.erase(it);
+          found = true;
+          break;
+        }
+      }
+      if (!found) break;
+
+      if (r.outcome == CtOrderQueryOutcome::kFound && matchesQuery(req, r)) {
+        matched = r;
+        have_match = true;
+      }
+      if (r.stream_end) {
+        lock.unlock();
+        if (have_match) return matched;
+        // 流结束仍无命中：区分「CTP 无此单」(kNotFound) 与「错误应答」(kUnavailable，
+        // 状态未知 ⇒ 保守，**不得**误判为未到达而释放/补发 EXPIRED)。
+        CtOrderQueryReply end;
+        end.request_id = rid;
+        end.outcome = (r.outcome == CtOrderQueryOutcome::kUnavailable)
+                          ? CtOrderQueryOutcome::kUnavailable
+                          : CtOrderQueryOutcome::kNotFound;
+        end.ctp_error_id = r.ctp_error_id;
+        end.ctp_error_msg = r.ctp_error_msg;
+        end.client_order_ref = req.client_order_ref;
+        end.order_sys_id = req.order_sys_id;
+        return end;
+      }
+    }
+
+    if (timed_out) {
+      // 最后一轮排空（上方）已完成仍无终态 ⇒ 保守超时。
+      lock.unlock();
+      return result;
+    }
+    if (query_cv_.wait_until(lock, deadline) == std::cv_status::timeout) {
+      timed_out = true;
+    }
+  }
+}
+
+void CtAdapter::onQueryOrderReply(const CtOrderQueryReply& reply) {
+  {
+    std::lock_guard<std::mutex> guard(query_mutex_);
+    query_replies_.push_back(reply);
+  }
+  query_cv_.notify_all();
 }
 
 // -----------------------------------------------------------------------------

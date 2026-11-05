@@ -119,6 +119,80 @@ struct CtConfig {
 std::int64_t nowMillis();
 
 // -----------------------------------------------------------------------------
+// 报单状态查询（§4.5.3 ⑤；T-212）—— 生产侧在途对账能力
+//
+// 背景：`ReplayController` 的 `IOrderStateQuery` 接缝是**同步**语义，而 CTP 报单查询
+//   是**异步 SPI**（`ReqQryOrder` 发起 → `OnRspQryOrder` 回调，一次查询可返回多行、
+//   末行 `bIsLast=true`）。本组类型承载「归一化查询请求 / 结论 / 单行结果」，由
+//   `CtAdapter::queryOrder` 完成「发起 + 有界等待 + 按 OrderRef/OrderSysID 选行」，把
+//   异步 SPI 桥接为同步结论（见 `ct_adapter.h` 的查询三方法）。
+//
+// ⚠️ 实测约束：官方 v6.7.13 `CThostFtdcQryOrderField` **无 `OrderRef` 字段**（仅
+//   BrokerID / InvestorID / ExchangeID / OrderSysID / InsertTimeStart / InsertTimeEnd /
+//   InstrumentID）⇒ 无法「按 OrderRef 直接过滤」。本组类型故以 `order_sys_id` 为主键
+//   （已知则窄查），否则退化为「拉取候选集 + 客户端按 `client_order_ref` 选行」。
+// -----------------------------------------------------------------------------
+struct CtOrderQueryReq {
+  std::string client_order_ref;  // = CTP OrderRef（选行依据；流水侧可得的稳定键）
+  std::string order_sys_id;      // 交易所报单编号（已知则窄查；可空）
+  std::string exchange_id;       // 可选（缩小候选集）
+  std::string instrument_id;     // 可选（缩小候选集）
+  CtOrderQueryReq() {}
+};
+
+// 归一化报单状态（CTP `OrderStatus` → 对账语义；`ctOrderStateFromStatus` 实现映射）。
+enum class CtOrderState : std::uint8_t {
+  kLive = 0,       // 仍在途（排队中 / 部分成交但未终态）
+  kFilled = 1,     // 全部成交
+  kCancelled = 2,  // 已撤
+  kRejected = 3,   // 已拒
+  kUnknown = 4     // 状态不可判定（CTP 'a' 未知 / 空）
+};
+
+// 查询结论类别（与 `flow_store::OrderQueryResult` 语义一一对应，映射在装配层完成）。
+enum class CtOrderQueryOutcome : std::uint8_t {
+  kFound = 0,        // CTP 返回该报单（状态见 state）
+  kNotFound = 1,     // CTP 无此报单（未实际到达）
+  kUnavailable = 2,  // 未登录 / 请求被拒 / 错误应答（状态未知，保守）
+  kTimeout = 3       // 有界等待超时（状态未知，保守）
+};
+
+// 单行查询结果 / 查询结论载体。
+struct CtOrderQueryReply {
+  int request_id;              // CTP RequestID（用于把回调结果对回发起请求）
+  CtOrderQueryOutcome outcome;  // 结论类别
+  CtOrderState state;           // 报单归一化状态（outcome==kFound 时有效）
+  bool stream_end;              // 该 request_id 的结果集已结束（bIsLast）
+  std::string client_order_ref;
+  std::string order_sys_id;
+  std::string order_local_id;
+  std::string instrument_id;
+  int volume_total;
+  int volume_traded;
+  int volume_left;
+  int ctp_error_id;
+  std::string ctp_error_msg;
+
+  CtOrderQueryReply()
+      : request_id(0),
+        outcome(CtOrderQueryOutcome::kNotFound),
+        state(CtOrderState::kUnknown),
+        stream_end(false),
+        volume_total(0),
+        volume_traded(0),
+        volume_left(0),
+        ctp_error_id(0) {}
+};
+
+// CTP `OrderStatus`（单字符）→ 归一化状态。SDK 无关（用字符字面量，不依赖 CTP 宏），
+// 两轨共用；`ct_mapping` 与单测假件均经此映射，保证「同一状态码只映射一次」。
+//   '0' 全部成交 → kFilled；'5' 已撤 → kCancelled；
+//   '1' 部分成交排队 / '2' 部分成交不在队列 / '3' 未成交排队 / '4' 未成交不在队列
+//       → kLive（**保守**：非终态一律视为仍在途，宁可冻结不释放）；
+//   其它（'a' 未知 / 空 / 未识别）→ kUnknown（由调用方保守处理为 kTimeout）。
+CtOrderState ctOrderStateFromStatus(char status);
+
+// -----------------------------------------------------------------------------
 // 请求报文（T4 → 适配层）
 // -----------------------------------------------------------------------------
 struct CtOrderReq {

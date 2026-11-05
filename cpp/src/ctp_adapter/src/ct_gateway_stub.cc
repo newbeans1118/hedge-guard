@@ -29,6 +29,7 @@ class StubTradeGateway : public CtTradeGateway {
   virtual int reqLogout(int /*request_id*/) { return -1; }
   virtual int reqOrderInsert(const CtOrderReq& /*req*/, int /*request_id*/) { return -1; }
   virtual int reqOrderAction(const CtCancelReq& /*req*/, int /*request_id*/) { return -1; }
+  virtual int reqQueryOrder(const CtOrderQueryReq& /*req*/, int /*request_id*/) { return -1; }
   virtual int reqFundTransfer(const CtFundReq& /*req*/, int /*request_id*/) { return -1; }
   virtual const char* apiVersion() const { return kStubVersion; }
   virtual const char* backendName() const { return kStubVersion; }

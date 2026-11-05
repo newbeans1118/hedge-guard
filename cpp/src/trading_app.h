@@ -76,6 +76,7 @@
 #include "hg/order_engine/trade_gateway.h"
 #include "hg/risk_engine/risk_engine.h"
 #include "hg/risk_state/risk_state.h"
+#include "order_state_query_bridge.h"
 
 namespace hg {
 namespace app {
@@ -219,6 +220,8 @@ class TradingApp {
   // ---- 装配（声明序 = 依赖序；析构逆序 ⇒ 依赖后建先毁）----
   hg::ctp_adapter::CtAdapter ct_;
   hg::flow_store::FlowStore flow_;
+  // T-212：在途对账查询桥接（异步 CTP 查询 → 同步 `IOrderStateQuery`）；纯装配接线。
+  CtOrderStateQueryBridge order_query_;
   hg::flow_store::ReplayController replay_;
   hg::risk_state::RiskState risk_state_;
   hg::risk_engine::RiskEngine risk_;

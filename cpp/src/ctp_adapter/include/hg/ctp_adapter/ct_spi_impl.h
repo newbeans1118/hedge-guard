@@ -46,6 +46,10 @@ class CtSpiImpl : public CThostFtdcTraderSpi {
   virtual void OnRspOrderAction(CThostFtdcInputOrderActionField* pInputOrderAction,
                                 CThostFtdcRspInfoField* pRspInfo, int nRequestID,
                                 bool bIsLast) override;
+  // 报单状态查询应答（§4.5.3 ⑤；T-212）：逐行归一化 + 投递查询回复。
+  virtual void OnRspQryOrder(CThostFtdcOrderField* pOrder,
+                             CThostFtdcRspInfoField* pRspInfo, int nRequestID,
+                             bool bIsLast) override;
   virtual void OnRtnOrder(CThostFtdcOrderField* pOrder) override;
   virtual void OnRtnTrade(CThostFtdcTradeField* pTrade) override;
   virtual void OnErrRtnOrderInsert(CThostFtdcInputOrderField* pInputOrder,
