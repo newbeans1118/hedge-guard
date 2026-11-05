@@ -14,6 +14,13 @@
 > 📌 **本 README 不写死 `ARCHITECTURE.md` 的 md5/行数锚点**（该制品**同轮被多次追加**、且为活跃制品）
 > —— 引用一律**以实时 `md5sum` 为准**。
 > 本 README 只作**操作说明**，**不作口径权威**；`E7` 的判据定义与**不覆盖清单**以**脚本头注释**为准。
+>
+> ⚠️ **`E6` 判据 ③（`T-138`「跨模块引用 × 实际导出」）的架构承载登记 = 待放行提案**：
+> 本单写域为 `tools/arch-check/**`，故**只改本 README + 脚本头注释并在此披露**，**未自行改动**
+> `docs/ARCHITECTURE.md`（按 `v1.5.21/22/23/24` 先例「勘误级免 `CH`、只改 README 并披露」的姿态）。
+> 待技术负责人放行的 `§3.0.2` `E6` 行连锁为：`E6` 行题名「前端零构建链 + 无直连扫描」→ 补「**+ 跨模块引用 × 实际导出**」、
+> 判据列补 `③`、不覆盖列补「只判调用形态 / 只判前两段 / spread·计算属性名漏判」、退出码列补
+> 「**`node` 缺失 ⇒ `2`**」；§3.13 职责不含 `E1`–`E9` 计数变更（仍九个判据脚本，`E6` 增内部判据 ③）。
 
 ---
 
@@ -27,7 +34,8 @@
 | `scan_lock_free.sh` | `E4` | 交易路径无锁 / 无同步 I/O 扫描 |
 | `scan_java_sql.sh` | `E5` | Java「dao 之外不得出现 SQL」扫描 |
 | `strip_java_comments.awk` | `E5` | Java 注释预处理器（`scan_java_sql.sh` 调用） |
-| `check_frontend.sh` | `E6` | 前端零构建链 + 无直连扫描 |
+| `check_frontend.sh` | `E6` | 前端零构建链 + 无直连扫描 + **跨模块引用 × 实际导出**（判据 ③ 由 `T-138` 追加） |
+| `scan_hg_exports.mjs` | `E6` | 判据 ③ 实现：`HG.<mod>.<member>(` 引用 ↔ 各模块实际导出集合对账（`T-138`；**单文件 Node ESM、无第三方依赖**，由 `check_frontend.sh` 调用） |
 | `scan_hgcp_schema.py` | `E7` | HGCP 字段级 schema：`ARCHITECTURE.md §4.2.8` ↔ `proto/hgcp.proto` 一致性（`T-121`；**单文件 Python3、无第三方依赖**） |
 | `scan_contracts_payload.py` | `E8` | `java/CONTRACTS.md §3.2.1` payload 键 ↔ `proto/hgcp.proto` 字段名一致性（`T-170`；**单文件 Python3、无第三方依赖**） |
 | `scan_frozen_invariants.py` | `E9` | 冻结-不变量跨制品一致性：消息 `40` / 错误码 `62` / `VER` `0x0100` / `FR` `184`（`T-122`；**单文件 Python3、无第三方依赖**） |
@@ -167,14 +175,43 @@ bash tools/arch-check/arch-check.sh -h    # 帮助
 ### E6 `check_frontend.sh`
 
 - **用法**：`check_frontend.sh [--root <dir>]`（默认 `web`）
-- **判据**：`①` 存在 `package.json`/`node_modules`/`dist`/`*.bundle.js`/`*.min.js`；`②` 源码出现 `jdbc`/`127.0.0.1:<端口>`/`dsn` ⇒ 失败。
-- **已知未覆盖**：`localhost:<端口>` 与 `ws://` 绝对地址；**间接**直连（常量拼接 IP）；判 `②` 按**原文**（未剔注释）。
+- **判据**：`①` 存在 `package.json`/`node_modules`/`dist`/`*.bundle.js`/`*.min.js`；`②` 源码出现 `jdbc`/`127.0.0.1:<端口>`/`dsn`；
+  `③`（`T-138`）`<root>/**/*.js` 中 `HG.<mod>.<member>(` 的 `<mod>` 未定义 **或** `<member>` 不在该模块实际导出集合内 ⇒ 失败。
+- **判据 ③ 的实现在 `scan_hg_exports.mjs`**（单文件 Node ESM、零第三方依赖、由本脚本调用）：
+  先剔注释并把字符串/模板**原文**置换为空格（`${…}` 内代码保留）⇒ 收集 `HG.<mod> = {…}` / `HG.<mod> = HG.<mod> || {…}` /
+  `HG.<mod> = IDENT`（同文件回溯 `const IDENT = {…}`）/ `HG.<mod>.<name> = …`（动态挂载）⇒ 与调用引用比对。
+  ⚠️ **`node` 缺失 ⇒ 返 `2`（前置错误），不得静默 `SKIP` 返 `0`**（判据未能真正执行，属更严重缺口）。
+- **已知未覆盖**：`localhost:<端口>` 与 `ws://` 绝对地址；**间接**直连（常量拼接 IP）；判 `②` 按**原文**（未剔注释）；
+  判 `③` **只判调用形态**（纯属性读取不判）、**只判前两段**（`HG.routes.PLAN.doc(` 不校验 `PLAN.doc`）、
+  导出体内 **spread / 计算属性名** 使该模块标 `partial` 而**漏判**（打印 `NOTE`）、不校验「成员确为函数」。
+  判 `②` 与判 `③` 的口径**故意不对称**（③ 剔注释，否则 `T-134` 的根因留痕注释本身会被误判）。
 
 | # | 命令 | 期望 | 实测 `rc` | 关键输出 |
 |---|------|------|-----------|----------|
 | 1 | 夹具 `e6/hit1/package.json` 存在 → `check_frontend.sh --root …/e6/hit1` | 命中 | **1** | `BUILD-CHAIN: …/e6/hit1/package.json` → `E6 失败…（退出码 1）` |
 | 2 | 夹具 `e6/hit2/x.js` 含 `jdbc:dm://127.0.0.1:5236/HG` → `--root …/e6/hit2` | 命中 | **1** | `…/e6/hit2/x.js:1:` → `E6 失败…（退出码 1）` |
 | 3 | `(cd /hgtmp/st/e6/empty && bash …/check_frontend.sh)`（默认路径 `web` 不存在） | `SKIP` | **0** | `SKIP: … web … 退出码 0` |
+
+#### E6 判据 ③（`T-138`）正 / 负控三态实测（`2026-11-04` 本机实跑；隔离副本 `/tmp/t138iso`）
+
+> 立项理由：`T-134` 交付方报请（前端基座**加载即崩** —— `HG.session.roleLabel` 从未导出却被调用 ⇒
+> `TypeError` ⇒ `main()` 中断、整站 SPA 从不初始化），`T-017` 验证盲区 = 「跨模块引用存在、目标未导出」
+> 时既有 `E6`（仅 ①②）**不拦截**。形体 **S2** = 并入 `E6`（非新立 `E10`），`arch-check.sh` 的注册表与
+> 调用形态**零改动**（`E6` 仍为 `bash check_frontend.sh`、无入参、默认根）。
+
+| # | 场景 | 命令 | 期望 | 实测 `rc` | 关键输出 |
+|---|------|------|------|-----------|----------|
+| 1 | **正控**：现行树 | `bash tools/arch-check/check_frontend.sh` | 通过 | **0** | `导出模块: api(11) … ws(4)` / `跨模块调用: 300 处` / `（未发现引用未导出成员）` |
+| 2 | **负控**：隔离副本注入 1 处未导出引用（`app.js` 追加 `HG.session.roleLabel()`） | `check_frontend.sh --root /tmp/t138iso/neg/web` | 命中 | **1** | `01. UNEXPORTED: /tmp/t138iso/neg/web/js/app.js:180: HG.session.roleLabel( —— 模块 session 未导出成员 roleLabel（实际导出：ALL, bootstrap, …）` → `共 1 处（退出码 1）` |
+| 3 | **负控**：`node` 自 `PATH` 剥离（`env PATH=/tmp/t138iso/bin /bin/bash …`，该目录**仅**含 `dirname/find/grep/sed/sort/head/cat`） | 同上 | 前置错误 | **2** | `错误：判据 ③ 所需运行时 node 不存在（PATH=/tmp/t138iso/bin）—— 判据无法执行` → `E6 用法/前置错误（退出码 2）` |
+| 4 | **反退化**：摘除新增对账（取 `HEAD` 版 `check_frontend.sh`）跑**同一**负控夹具 | `bash /tmp/t138iso/check_frontend_HEAD.sh --root /tmp/t138iso/neg/web` | 漏判 | **0** | `E6 通过：前端零构建链、无直连字样（退出码 0）` ⇒ **证明 `rc1` 由新判据产生（有牙）** |
+| 5 | 同族（形态验证）：注释中的 `HG.session.roleLabel()`（`app.js:92` 根因留痕注释） | 场景 1 内已覆盖 | **不**命中 | **0** | 场景 1 的 `rc 0` 即证据 —— 注释已剔，**未**误报 `T-134` 的留痕注释 |
+| 6 | 同族（形态验证）：未定义命名空间 `HG.nosuchns.foo()` + 模板串内 `${HG.ws.nothere(…)}` | `scan_hg_exports.mjs --root /tmp/t138iso/neg2/web` | 命中 2 处 | **1** | `HG.nosuchns.foo( —— 命名空间 HG.nosuchns 未被任何模块定义` / `HG.ws.nothere( —— 模块 ws 未导出成员 nothere`；同文件 `HG.ws.debounce(` 与 `${…}` 内代码均正确判为合规 |
+
+> **聚合传播实测**：判据 ③ 反例经 `bash tools/arch-check/arch-check.sh` 传入 ⇒ 整体 `rc 1`
+> （`命中(1)=1`、`E6 退出码 1`）；`node` 缺失 ⇒ 整体 `rc 2`（`用法/前置错误(2)=1`）。
+> **调用形态零改动**：`arch-check.sh` / 其余八个判据脚本在本轮 `git diff` 中**零字节变动**。
+
 
 ### E7 `scan_hgcp_schema.py`（`T-121`）
 
