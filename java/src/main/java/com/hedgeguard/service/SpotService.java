@@ -1903,10 +1903,32 @@ public final class SpotService {
         return value == null || value.trim().isEmpty();
     }
 
-    private static void requireSubAccount(int subAccountId) {
+    /**
+     * 入参级子账户必填校验（{@code FR-SPOT-1} 验收 2「未选择子账户即提交被拒绝，提示"子账户必填"」；
+     * {@code R-SPOT-2}；{@code T-113}）。
+     *
+     * <p><b>为何以 {@link Integer} 承载</b>：实体字段 {@code subAccountId} 一律为 {@code Integer}
+     * （{@code PurchaseContract#subAccountId} 等），JSON 缺该字段 ⇒ {@code null}。原 {@code int} 形参
+     * 在调用点自动拆箱 ⇒ {@code NullPointerException} ⇒ 经 {@code ErrorMapper} 归为 {@code 10022}/
+     * HTTP 500（内部错误），既不可判定也与需求不符。<b>{@code null} 是"未填必填项"，不是内部故障</b>，
+     * 故在此显式判定并按 {@link ErrorCode#PARAM_INVALID}（{@code 10001} / HTTP 400）拒绝；
+     * 不得改用 {@code 10004}（那是"无权访问他人子账户"的数据权限语义，与"没填"无关）。
+     *
+     * <p><b>调用顺序</b>：本校验必须在 {@link #requireSubAccountWritable} /
+     * {@link #requireSubAccountVisible} <b>之前</b>——缺失入参属调用方可自行修复的报错，
+     * 不应先落成"权限不足"，否则前端无法给出"子账户必填"的指引。
+     *
+     * @param subAccountId 目标子账户（{@code null} = 未填；{@code ≤ 0} = 非真实子账户）
+     */
+    private static void requireSubAccount(Integer subAccountId) {
+        if (subAccountId == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "子账户必填（FR-SPOT-1 验收 2 / R-SPOT-2）：请求未携带 subAccountId"
+                            + "；复现=给出真实子账户 ID（> 0）后重新提交");
+        }
         if (subAccountId <= 0) {
             throw BizException.of(ErrorCode.PARAM_INVALID,
-                    "子账户必须为真实子账户（> 0；哨兵值 0 仅用于账户级作用域列）：实际=" + subAccountId
+                    "子账户必填，且须为真实子账户（> 0；哨兵值 0 仅用于账户级作用域列）：实际=" + subAccountId
                             + "；复现=传入真实子账户 ID（DATA_MODEL.md §0.2）");
         }
     }
