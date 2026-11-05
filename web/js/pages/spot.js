@@ -71,6 +71,13 @@ const SAMPLE_MIN = 30; // FR-SPOT-13 验收 3 / R-SPOT-8：最小方差法样本
  * 保证任一时刻至多 1 个活跃订阅（见 renderExposure 尾部）。 */
 let exposureSessionOff = null;
 
+/* T-145 / NFR-USE-1：实货敞口逐页拼接的上限口径（size × 页数 = 行上限）。
+ * 达到上限而服务端 total 仍更大时，页面**必须显式提示已截断**（禁止静默截断——
+ * 否则用户看到不完整数据而不自知，属「静默错值」族）。 */
+const EXPOSURE_PAGE_SIZE = 100;
+const EXPOSURE_MAX_PAGES = 50;
+const EXPOSURE_ROW_LIMIT = EXPOSURE_PAGE_SIZE * EXPOSURE_MAX_PAGES;
+
 /* ------------------------------------------------------------------ *
  * 通用：品种加载（一次拉全量，多下拉共享）+ 子账户 / 品种 下拉
  * ------------------------------------------------------------------ */
@@ -1200,30 +1207,42 @@ function renderExposure(root, ctx) {
     ui.renderLoading(body, '正在加载实货敞口…');
     detailCard.classList.add('hg-hidden');
     try {
-      const rows = await fetchRows();
-      renderRows(rows);
+      const page = await fetchRows();
+      renderRows(page.rows, page);
     } catch (err) {
       ui.renderError(body, err, load);
     }
   }
 
+  /**
+   * 逐页拼接实货敞口（`GET /spot/exposure` 的 PageData 信封，size=100 逐页取，不参与业务判定）。
+   * 返回 `{ rows, total, truncated, partial, limit }`：
+   *   · `truncated` —— 已取满 EXPOSURE_MAX_PAGES 页（=5000 行）且服务端 `total` 仍更大
+   *     ⇒ 调用方**必须**显式提示已截断（T-145：不得静默截断）；
+   *   · `partial`   —— 未达页上限但分页提前结束（如服务端返回空页）而 `total` 仍更大
+   *     ⇒ 同样显式提示「未取全」，避免静默短量。
+   */
   async function fetchRows() {
     const cur = HG.session.currentId();
     // 可见集由服务端按会话身份强制（NFR-SEC-7）；cur 仅作收窄过滤，不能扩大可见集。
-    // 响应为 PageData 分页信封：按 size=100 逐页拼接，避免截断（不参与业务判定）。
-    const base = { size: 100 };
+    const base = { size: EXPOSURE_PAGE_SIZE };
     if (cur !== null) base.subAccountId = cur;
     const out = [];
     let page = 1;
-    for (let guard = 0; guard < 50; guard++) {
+    let pagesFetched = 0;
+    let total = 0;
+    for (let guard = 0; guard < EXPOSURE_MAX_PAGES; guard++) {
       const data = await HG.api.get(R.EXPOSURE, Object.assign({ page: page }, base));
       const items = normalizeRows(data);
+      pagesFetched += 1;
       out.push.apply(out, items);
-      const total = data && typeof data.total === 'number' ? data.total : out.length;
+      total = data && typeof data.total === 'number' ? data.total : out.length;
       if (!items.length || out.length >= total) break;
       page += 1;
     }
-    return out;
+    const truncated = pagesFetched >= EXPOSURE_MAX_PAGES && total > out.length;
+    const partial = !truncated && total > out.length;
+    return { rows: out, total: total, truncated: truncated, partial: partial, limit: EXPOSURE_ROW_LIMIT };
   }
 
   function normalizeRows(data) {
@@ -1231,7 +1250,29 @@ function renderExposure(root, ctx) {
     return (data && data.items) || [];
   }
 
-  function renderRows(rows) {
+  /**
+   * T-145：未取全数据的显式提示（超上限截断 / 分页提前结束），不得静默。
+   * 锚标 `data-exposure-incomplete="truncated|partial"` 供探针断言（含 total / shown 实测值）。
+   */
+  function incompleteNotice(meta) {
+    const kind = meta.truncated ? 'truncated' : 'partial';
+    const limit = F.esc(String(meta.limit));
+    const total = F.esc(String(meta.total));
+    const shown = F.esc(String(meta.rows.length));
+    const text = meta.truncated
+      ? '<strong>数据量超上限，已截断至 ' + limit + ' 行</strong>：服务端共有 ' + total + ' 行，' +
+        '当前仅加载前 ' + shown + ' 行。<strong>请缩小筛选范围</strong>（如切换为单一子账户，或按品种收窄）后重试。'
+      : '<strong>数据未取全</strong>：服务端共有 ' + total + ' 行，当前仅加载 ' + shown +
+        ' 行（分页提前结束）。请重试或缩小筛选范围。';
+    const node = ui.banner(text, 'warn');
+    node.setAttribute('data-exposure-incomplete', kind);
+    node.setAttribute('data-exposure-total', String(meta.total));
+    node.setAttribute('data-exposure-shown', String(meta.rows.length));
+    node.setAttribute('role', 'alert');
+    return node;
+  }
+
+  function renderRows(rows, meta) {
     if (!rows.length) { ui.renderEmpty(body, '当前视图下没有敞口快照。请由现货数据计算后查询（见上方说明）。'); return; }
     const mapped = rows.filter((r) => Number(r.productId) > 0);
     const unmapped = rows.filter((r) => Number(r.productId) === 0);
@@ -1266,7 +1307,9 @@ function renderExposure(root, ctx) {
       ], unmapped);
     }
     ui.clear(body);
-    body.innerHTML = html;
+    // T-145：截断/未取全提示置于表格之前（显式告知，非静默）
+    if (meta && (meta.truncated || meta.partial)) body.appendChild(incompleteNotice(meta));
+    body.appendChild(ui.el('div', { html: html }));
     Array.prototype.forEach.call(body.querySelectorAll('[data-detail]'), (b) => b.addEventListener('click', () => loadDetail(b.getAttribute('data-detail'))));
     Array.prototype.forEach.call(body.querySelectorAll('[data-recalc]'), (b) => b.addEventListener('click', () => doRecalc(b.getAttribute('data-recalc'))));
   }
