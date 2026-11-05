@@ -32,22 +32,36 @@
  *          `HG.routes = ROUTES`，`ROUTES` 定义在 `core/routes.js`）
  *        · `HG.<mod>.<name> = …` ⇒ **动态挂载**的成员（如
  *          `HG.pages._riskAlertConn = conn;`）亦计入导出集合
- *   ④ 扫描**跨模块调用引用** `HG.<mod>.<member>(`（**只判前两段**，见「未覆盖」），
+ *   ④ 扫描**跨模块调用引用** `HG.<mod>.<member>(`（**两段式**，覆盖边界见「未覆盖」第 1 条），
  *      与 ③ 的集合比对：模块未定义、或成员未导出 ⇒ 命中，打印 `文件:行` 与缺失符号
  *
  * ⚠️ 已知未覆盖 / 取舍（**不得沉默略过**）：
+ *   · **覆盖边界（三段式完全不判、不计数）**：本判据仅覆盖两段式 `HG.<mod>.<member>(`；三段式 `HG.a.b.c(`
+ *     完全不判、且不计入统计（深层成员为对象属性 / 动态挂载，静态不可判定，强判会误红——实测
+ *     `HG.api.PAGE_SIZES`（`api` 导出的数组常量，非方法）/ `HG.pages._riskAlertConn`（动态挂载的 WebSocket 实例，
+ *     非方法）的第三段 `.forEach` / `.close` 均不在模块导出集合内；真实树三段式共 17 处：
+ *     `HG.api.PAGE_SIZES.forEach(` 8、`HG.routes.PLAN.*(` 7、`HG.pages._*.close(` 2，均不计入「跨模块调用 300 处」统计）
  *   · **只判调用形态** `HG.<mod>.<member>(`。纯属性读取（`HG.api.BASE`、
  *     `HG.pages._x && HG.pages._x.close`）**不判** —— 「读未定义属性」得 `undefined`
  *     （不抛错），T-134 的实际失效面是**调用**（`TypeError: … is not a function`）。
  *     读面误用由页面单测 / 代码审查兜底。
- *   · **只判前两段**：`HG.routes.PLAN.doc(` 只校验 `routes.PLAN` 已导出；
- *     `PLAN.doc` 等**第三段及更深**的成员不校验（需目标对象的**值级**求值，
- *     静态不可得 —— `ROUTES` 是常量表，可后续另立判据）。
- *   · 导出集合是**文本级**静态解析，非 AST：导出对象体内出现 **spread**
- *     （`...base`）或**计算属性名**（`[k]: v`）时该模块标 `partial` ——
- *     对其**漏判**（打印 `NOTE` 披露，不判红），因无法枚举键集合。
- *   · 正则字面量**未做专门处理**：若某正则体内含 `//` 或 `/*` 会被误认作注释
- *     （本仓库 `web/js` 现存两处正则均不含这两种序列）。
+ *   · 导出集合是**文本级**静态解析，非 AST —— 以下三类情形令该模块降级 `partial`：
+ *     对 `partial` 模块的引用**一律不判**（打印 `NOTE` 披露，且 `partial` 行给出**具体归因**）：
+ *       ① **非字面量赋值**（`HG.<mod> = factory()` / `= createX()` / `= SOME_EXTERNAL`）
+ *          ⇒ **导出集合整体不可静态确定**（整模块 `partial(0+)`，不只是个别键）；
+ *       ② 导出对象体内 **spread**（`...base`）⇒ 键集合不可枚举；
+ *       ③ 导出对象体内 **计算属性名**（`[k]: v`）⇒ 键集合不可枚举；
+ *     另：既非标识符亦非引号键的残余形态（如数字键 `{ 5: x }`）亦降级 `partial`，
+ *     归因打印 `未解析键`。
+ *   · getter 简写 `{ get limit() {} }` 的键被记为 `get`、生成器（`*gen() {}`）不被识别
+ *     ⇒ 该类成员**漏判 / 误红**（真实树暴露 0 例；**本单不修**，挂账）。
+ *   · `Object.assign(HG.<mod>, { … })` 形态**不被识别为导出定义** ⇒ 引用其成员会**误红**
+ *     （真实树暴露 0 例；**本单不修**，挂账）。
+ *   · 正则字面量**未做专门处理**：仓库内存在 **≥24 处**正则字面量（未逐一校验；
+ *     粗测 `web/**` 15 个文件、约 60 余处，含 `/` 除法误计）。若某正则体内含 `//` 或 `/*`
+ *     会被误认作注释 —— 含 `//` 时**该行余部**被剔除；含 `/*` 时**其后内容被整段吞掉**
+ *     （无配对 `*\/` 则吞至**文件末尾**）。本判据**不校验被吞内容**，仅在「块注释未闭合」
+ *     时向 **stderr 打 `WARN`**（不改退出码、不改判定结果）。
  *   · 不校验「引用的成员**确实是函数**」（只校验「名字在导出集合里」）。
  *
  * 自测（T-138 实测，见 tools/arch-check/README.md §3 E6 段）：
@@ -133,8 +147,9 @@ if (files.length === 0) {
  *   plain = 仅剔注释（字符串/模板**原文保留**，用于取引号键名）
  *   code  = 剔注释 + 把字符串与模板**原文内容**置换为空格（`${…}` 内代码保留）
  *           引号/反引号本体保留，便于识别字符串边界。
+ * `file` 仅用于 **stderr `WARN`**（块注释未闭合 ⇒ 余部被整段剔除）；不改退出码。
  */
-function strip(src) {
+function strip(src, file) {
   const n = src.length;
   const plain = src.split('');
   const code = src.split('');
@@ -156,6 +171,14 @@ function strip(src) {
       if (c === '/' && src[i + 1] === '*') {
         const k = src.indexOf('*/', i + 2);
         const j = k < 0 ? n : k + 2;
+        if (k < 0) {
+          // 无配对 `*/` ⇒ 余部整段被剔除。最常见成因 = **正则字面量内含 `/*`**（未做专门处理）。
+          // 仅告警到 stderr（**不改判定结果、不改退出码**），避免「静默吞掉一个文件」。
+          let ln = 1;
+          for (let p = 0; p < i; p += 1) if (src[p] === '\n') ln += 1;
+          process.stderr.write(`WARN: ${file}:${ln}: 块注释未闭合 ⇒ 自此处起余部整段剔除`
+            + '（若源于正则字面量内的 `/*`，其后内容不参与判据；本判据不校验被吞内容）\n');
+        }
         blank(plain, i, j); blank(code, i, j); i = j; continue;
       }
       if (c === "'" || c === '"') {
@@ -223,14 +246,19 @@ function splitTopLevel(text, start, end) {
 }
 
 /** 取对象字面量 `{…}` 的顶层键集合。`open`/`close` 为 `code` 中的下标。 */
+const R_NONLITERAL = '非字面量赋值';
+const R_SPREAD = 'spread';
+const R_COMPUTED = '计算属性名';
+const R_UNPARSED = '未解析键';
+
 function keysOfLiteral(code, plain, open, close) {
   const keys = [];
-  let partial = false;
+  const reasons = new Set();
   for (const [s, e] of splitTopLevel(code, open + 1, close)) {
     let i = s;
     while (i < e && /\s/.test(code[i])) i += 1;
     if (i >= e) continue;                                  // 尾逗号 / 空段
-    if (code.startsWith('...', i)) { partial = true; continue; }   // spread 不可枚举
+    if (code.startsWith('...', i)) { reasons.add(R_SPREAD); continue; }   // spread 不可枚举
     const q = plain[i];
     if (q === "'" || q === '"') {
       let j = i + 1; let out = '';
@@ -240,26 +268,26 @@ function keysOfLiteral(code, plain, open, close) {
       }
       keys.push(out); continue;
     }
-    if (code[i] === '[') { partial = true; continue; }      // 计算属性名不可枚举
+    if (code[i] === '[') { reasons.add(R_COMPUTED); continue; }    // 计算属性名不可枚举
     const m = IDENT_RE.exec(code.slice(i, e));
-    if (m) keys.push(m[0]); else partial = true;
+    if (m) keys.push(m[0]); else reasons.add(R_UNPARSED);
   }
-  return { keys, partial };
+  return { keys, partial: reasons.size > 0, reasons };
 }
 
 /* ------------------------- 定义收集（HG.<mod> = …） ------------------------ */
 
-const mods = new Map();   // name -> { keys:Set<string>, partial:boolean, sources:Set<string> }
+const mods = new Map();   // name -> { keys:Set<string>, partial:boolean, reasons:Set<string>, sources:Set<string> }
 
 function modOf(name, file) {
   let m = mods.get(name);
-  if (!m) { m = { keys: new Set(), partial: false, sources: new Set() }; mods.set(name, m); }
+  if (!m) { m = { keys: new Set(), partial: false, reasons: new Set(), sources: new Set() }; mods.set(name, m); }
   if (file) m.sources.add(file);
   return m;
 }
 
 /**
- * 解析 `=` 右侧的导出来源；返回 { keys, partial } 或 null（不可静态确定）。
+ * 解析 `=` 右侧的导出来源；返回 { keys, partial, reasons } 或 null（不可静态确定）。
  * `i` = `code` 中右值起始下标（已跳过空白）。
  */
 function resolveRhs(ctx, i, depth) {
@@ -296,7 +324,7 @@ const sources = files.map((file) => {
     process.stderr.write(`错误：文件不可读：${file}（${e.message}）\n`);
     process.exit(2);
   }
-  const { plain, code } = strip(raw);
+  const { plain, code } = strip(raw, file);
   const lineStarts = [0];
   for (let i = 0; i < raw.length; i += 1) if (raw[i] === '\n') lineStarts.push(i + 1);
   const ctx = { file, raw, plain, code, lineStarts };
@@ -317,9 +345,10 @@ function collectDefs(ctx) {
     let i = rhsStart;
     while (i < code.length && /\s/.test(code[i])) i += 1;
     const res = resolveRhs(ctx, i, 0);
-    if (!res) { mod.partial = true; continue; }
+    // 右侧非字面量（工厂 / 函数调用 / 外部引用 / 无法回溯的标识符）⇒ 导出集合整体不可确定
+    if (!res) { mod.partial = true; mod.reasons.add(R_NONLITERAL); continue; }
     for (const k of res.keys) mod.keys.add(k);
-    if (res.partial) mod.partial = true;
+    if (res.partial) { mod.partial = true; for (const r of res.reasons) mod.reasons.add(r); }
   }
 }
 
@@ -353,7 +382,8 @@ for (const ctx of sources) {
     }
     if (mod.keys.has(member)) continue;
     if (mod.partial) {
-      notes.push({ at, sym, reason: `模块 ${modName} 的导出集合不可静态枚举（spread/计算属性名）⇒ 该引用不判` });
+      const why = [...mod.reasons].sort().join(' / ');
+      notes.push({ at, sym, reason: `模块 ${modName} 的导出集合不可静态确定（${why}）⇒ 该引用不判` });
       continue;
     }
     const list = [...mod.keys].sort();
@@ -367,8 +397,15 @@ for (const ctx of sources) {
 const inventory = [...mods.keys()].sort()
   .map((k) => `${k}(${mods.get(k).keys.size}${mods.get(k).partial ? '+' : ''})`)
   .join(' ');
+const partialList = [...mods.keys()].sort()
+  .filter((k) => mods.get(k).partial)
+  .map((k) => `${k}(${[...mods.get(k).reasons].sort().join('+')})`)
+  .join(' ');
 process.stdout.write(`导出模块    : ${inventory}\n`);
-process.stdout.write(`跨模块调用  : ${refCount} 处（判据范围 = HG.<mod>.<member>( 的前两段）\n`);
+process.stdout.write(`partial 降级: ${partialList || '（无）'}\n`);
+process.stdout.write('              归因三类：① 非字面量赋值（工厂 / 函数调用 / 外部引用）'
+  + ' ② 导出体内 spread  ③ 导出体内计算属性名（残余形态另记「未解析键」）\n');
+process.stdout.write(`跨模块调用  : ${refCount} 处（仅两段式 HG.<mod>.<member>(；三段式 HG.a.b.c( 不判、不计入）\n`);
 
 for (const n of notes) {
   process.stdout.write(`NOTE: ${n.at}: ${n.sym} —— ${n.reason}\n`);

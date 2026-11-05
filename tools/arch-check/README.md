@@ -15,12 +15,11 @@
 > —— 引用一律**以实时 `md5sum` 为准**。
 > 本 README 只作**操作说明**，**不作口径权威**；`E7` 的判据定义与**不覆盖清单**以**脚本头注释**为准。
 >
-> ⚠️ **`E6` 判据 ③（`T-138`「跨模块引用 × 实际导出」）的架构承载登记 = 待放行提案**：
-> 本单写域为 `tools/arch-check/**`，故**只改本 README + 脚本头注释并在此披露**，**未自行改动**
-> `docs/ARCHITECTURE.md`（按 `v1.5.21/22/23/24` 先例「勘误级免 `CH`、只改 README 并披露」的姿态）。
-> 待技术负责人放行的 `§3.0.2` `E6` 行连锁为：`E6` 行题名「前端零构建链 + 无直连扫描」→ 补「**+ 跨模块引用 × 实际导出**」、
-> 判据列补 `③`、不覆盖列补「只判调用形态 / 只判前两段 / spread·计算属性名漏判」、退出码列补
-> 「**`node` 缺失 ⇒ `2`**」；§3.13 职责不含 `E1`–`E9` 计数变更（仍九个判据脚本，`E6` 增内部判据 ③）。
+> ✅ **`E6` 判据 ③（`T-138`「跨模块引用 × 实际导出」）的架构承载已登记**（`T-138` 补正轮，
+> `2026-11-05`）：`docs/ARCHITECTURE.md` **§3.0.2 `E6` 行**已补登题名「+ 跨模块 API 引用 × 实际导出」/
+> 判据列 `③` / 未覆盖清单 / 退出码「`node` 缺失 ⇒ `2`」，**§13 增 `v1.5.26` 行**、文件头版本串同步
+> （`v1.5.21/22/23/24` 先例「勘误级免 `CH`」；本单为**判据接线/修订**，非 `CH-xxx`，沿 `v1.5.20`/`v1.5.25`）。
+> §3.13「9 个判据脚本」计数**不变** —— 判据 ③ 是 `E6` 的**内部实现**，非新增判据脚本。
 
 ---
 
@@ -182,9 +181,24 @@ bash tools/arch-check/arch-check.sh -h    # 帮助
   `HG.<mod> = IDENT`（同文件回溯 `const IDENT = {…}`）/ `HG.<mod>.<name> = …`（动态挂载）⇒ 与调用引用比对。
   ⚠️ **`node` 缺失 ⇒ 返 `2`（前置错误），不得静默 `SKIP` 返 `0`**（判据未能真正执行，属更严重缺口）。
 - **已知未覆盖**：`localhost:<端口>` 与 `ws://` 绝对地址；**间接**直连（常量拼接 IP）；判 `②` 按**原文**（未剔注释）；
-  判 `③` **只判调用形态**（纯属性读取不判）、**只判前两段**（`HG.routes.PLAN.doc(` 不校验 `PLAN.doc`）、
-  导出体内 **spread / 计算属性名** 使该模块标 `partial` 而**漏判**（打印 `NOTE`）、不校验「成员确为函数」。
+  判 `③` **只判调用形态**（纯属性读取不判）、不校验「成员确为函数」；
   判 `②` 与判 `③` 的口径**故意不对称**（③ 剔注释，否则 `T-134` 的根因留痕注释本身会被误判）。
+- 判 `③` 的**覆盖边界与挂账**（与 `check_frontend.sh` 判据 ③ 注释、`scan_hg_exports.mjs` 头注**逐字一致**）：
+  - **覆盖边界（三段式完全不判、不计数）**：本判据仅覆盖两段式 `HG.<mod>.<member>(`；三段式 `HG.a.b.c(`
+    完全不判、且不计入统计（深层成员为对象属性 / 动态挂载，静态不可判定，强判会误红——实测
+    `HG.api.PAGE_SIZES`（`api` 导出的数组常量，非方法）/ `HG.pages._riskAlertConn`（动态挂载的 WebSocket 实例，
+    非方法）的第三段 `.forEach` / `.close` 均不在模块导出集合内；真实树三段式共 17 处：
+    `HG.api.PAGE_SIZES.forEach(` 8、`HG.routes.PLAN.*(` 7、`HG.pages._*.close(` 2，均不计入「跨模块调用 300 处」统计）
+  - **`partial` 降级（打印 `NOTE` + `partial 降级:` 行给出具体归因，**不判红**）**，归因分三类：
+    ① **非字面量赋值**（`HG.x = factory()` / 工厂 / 函数调用 / 外部引用）⇒ 导出集合整体不可静态确定
+    ⇒ **整模块** `partial(0+)`（非仅个别键）；② 导出体内 **spread**；③ 导出体内**计算属性名**；
+    残余形态（既非标识符亦非引号键，如数字键）记 `未解析键`。
+  - **挂账未修（真实树暴露 0 例，`T-138` 补正轮明确不修）**：getter 简写 `{ get limit() {} }` 的键被记为
+    `get` ⇒ 引用 `HG.m.limit(` **误红**；生成器 `*gen() {}` 不被识别 ⇒ 该模块 `partial` 而**漏判**；
+    `Object.assign(HG.x, {…})` 不被认作导出定义 ⇒ 引用 `HG.x.m(` **误红**。
+  - **正则字面量未做专门处理**：仓库内存在 **≥24 处**正则字面量（未逐一校验）。正则体内含 `//` 会剔除该行余部；
+    含 `/*` 会**吞掉其后内容**（无配对 `*/` 则吞至文件末尾），本判据**不校验被吞内容**，仅对
+    「块注释未闭合」向 **stderr 打 `WARN`**（不改退出码、不改判定结果）。
 
 | # | 命令 | 期望 | 实测 `rc` | 关键输出 |
 |---|------|------|-----------|----------|
@@ -201,16 +215,28 @@ bash tools/arch-check/arch-check.sh -h    # 帮助
 
 | # | 场景 | 命令 | 期望 | 实测 `rc` | 关键输出 |
 |---|------|------|------|-----------|----------|
-| 1 | **正控**：现行树 | `bash tools/arch-check/check_frontend.sh` | 通过 | **0** | `导出模块: api(11) … ws(4)` / `跨模块调用: 300 处` / `（未发现引用未导出成员）` |
+| 1 | **正控**：现行树 | `bash tools/arch-check/check_frontend.sh` | 通过 | **0** | `导出模块: api(11) … ws(4)` / `partial 降级: （无）` / `跨模块调用: 300 处（仅两段式 HG.<mod>.<member>(；三段式 HG.a.b.c( 不判、不计入）` / `（未发现引用未导出成员）` |
 | 2 | **负控**：隔离副本注入 1 处未导出引用（`app.js` 追加 `HG.session.roleLabel()`） | `check_frontend.sh --root /tmp/t138iso/neg/web` | 命中 | **1** | `01. UNEXPORTED: /tmp/t138iso/neg/web/js/app.js:180: HG.session.roleLabel( —— 模块 session 未导出成员 roleLabel（实际导出：ALL, bootstrap, …）` → `共 1 处（退出码 1）` |
 | 3 | **负控**：`node` 自 `PATH` 剥离（`env PATH=/tmp/t138iso/bin /bin/bash …`，该目录**仅**含 `dirname/find/grep/sed/sort/head/cat`） | 同上 | 前置错误 | **2** | `错误：判据 ③ 所需运行时 node 不存在（PATH=/tmp/t138iso/bin）—— 判据无法执行` → `E6 用法/前置错误（退出码 2）` |
 | 4 | **反退化**：摘除新增对账（取 `HEAD` 版 `check_frontend.sh`）跑**同一**负控夹具 | `bash /tmp/t138iso/check_frontend_HEAD.sh --root /tmp/t138iso/neg/web` | 漏判 | **0** | `E6 通过：前端零构建链、无直连字样（退出码 0）` ⇒ **证明 `rc1` 由新判据产生（有牙）** |
 | 5 | 同族（形态验证）：注释中的 `HG.session.roleLabel()`（`app.js:92` 根因留痕注释） | 场景 1 内已覆盖 | **不**命中 | **0** | 场景 1 的 `rc 0` 即证据 —— 注释已剔，**未**误报 `T-134` 的留痕注释 |
 | 6 | 同族（形态验证）：未定义命名空间 `HG.nosuchns.foo()` + 模板串内 `${HG.ws.nothere(…)}` | `scan_hg_exports.mjs --root /tmp/t138iso/neg2/web` | 命中 2 处 | **1** | `HG.nosuchns.foo( —— 命名空间 HG.nosuchns 未被任何模块定义` / `HG.ws.nothere( —— 模块 ws 未导出成员 nothere`；同文件 `HG.ws.debounce(` 与 `${…}` 内代码均正确判为合规 |
 
+> **`T-138` 补正轮复跑（`2026-11-05`；隔离夹具 `/tmp/t138c`）** —— 三态与覆盖边界逐条实测：
+> 正控（现行树）`rc 0`（`partial 降级: （无）`、`跨模块调用: 300 处`）；负控注入 `HG.session.roleLabel()` ⇒ `rc 1`
+> （精确打印 `a.js:5`）；`node` 剥离 ⇒ `rc 2`（`check_frontend.sh`）。
+> **`partial` 三类归因区分实测**（夹具 `part/web/js/p.js`：`HG.factoryMod = makeFactory()` / `{a:1,...base}` / `{a:1,[k]:2}`）⇒
+> `partial 降级: computedMod(计算属性名) factoryMod(非字面量赋值) spreadMod(spread)`，三处引用各打 `NOTE` 且**不判红**（`rc 0`）。
+> **挂账三形态实测**（夹具 `edge/web/js/e.js`；真实树暴露 0）⇒ getter `{ get limit() {} }` 键记 `get`、`HG.getterMod.limit(` **误红**；
+> 生成器 `*gen(){}` ⇒ `genMod(0+)`（`未解析键`）**漏判**；`Object.assign(HG.assignMod,{…})` ⇒ `HG.assignMod.helper(` **误红**（`rc 1`）。
+> **正则吞并实测**（夹具 `re/web/js/r.js` 含 `/[/*]x/g`）⇒ 其后内容整段被剔除、`HG.y` 与其调用**均不入统计**（`跨模块调用: 0 处`），
+> 同时 stderr 打出 `WARN: …/r.js:3: 块注释未闭合 ⇒ 自此处起余部整段剔除` ⇒ **不再静默**（`rc` 仍 `0`）。
+> **调用形态零改动（复跑复核）**：`arch-check.sh` 及 `E1`–`E5`/`E7`–`E9` 脚本 `git diff` = 0 行；`scan_hg_exports.mjs` 仍**不进** `CHECKS` 注册表。
+
 > **聚合传播实测**：判据 ③ 反例经 `bash tools/arch-check/arch-check.sh` 传入 ⇒ 整体 `rc 1`
 > （`命中(1)=1`、`E6 退出码 1`）；`node` 缺失 ⇒ 整体 `rc 2`（`用法/前置错误(2)=1`）。
 > **调用形态零改动**：`arch-check.sh` / 其余八个判据脚本在本轮 `git diff` 中**零字节变动**。
+
 
 
 ### E7 `scan_hgcp_schema.py`（`T-121`）
