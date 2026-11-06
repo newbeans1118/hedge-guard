@@ -3,6 +3,18 @@
 // =============================================================================
 // 在途报单查询桥接件（T-212；ARCHITECTURE.md §4.5.3 ⑤⑥）
 //
+// T-233 变更（根因收口·方案 B）：查询键由「只用 `client_order_ref`」改为「**`order_sys_id` 优先**」。
+//   · 根因：流水侧 ref = `HG<yyyyMMdd><seq6>`（16 字符）> CTP `TThostFtdcOrderRefType[13]`
+//     （12 可用字节）⇒ `mapping::setField` 静默截断 ⇒ CTP 回填的 `OrderRef` 只有前 12 字符
+//     ⇒ 按整串比较恒不命中 ⇒ 误判 `kNotFound` ⇒ `replay.cc` 走 `kReleaseExpired` 释放冻结额度。
+//   · T-212 只做**安全失败**（ref > 12 ⇒ `kUnavailable` ⇒ `kTimeout` 冻结），功能面仍退化：
+//     生产态在途对账恒 `kTimeout`、CTP 终态不可采纳、只能人工释放。
+//   · T-233 修法：流水 REPORTED 记录带回 CTP `OrderSysID`（`FlowRecord::order_sys_id`），
+//     重放还原进 `InflightOrder::order_sys_id`，本件**优先**以它窄查（`CThostFtdcQryOrderField`
+//     唯一可用于服务端过滤的键）；只有 sys_id 缺失/空白时才回退 ref，并保留 T-212 安全失败闸门。
+//   · 配套（Java 侧）：`t_trade_order.order_sys_id` 由 `EVT_ORDER_REPORT` 按 `client_order_ref`
+//     回填，供运维/审计按交易所报单号核验；`client_order_ref` 格式与唯一性**零改动**。
+//
 // 职责：把 `ctp_adapter` 的**异步 SPI 查询能力**（`CtAdapter::queryOrder`：发起
 //   `ReqQryOrder` → 有界等待 `OnRspQryOrder` 回调 → 归一化结论）适配为 `flow_store`
 //   重放控制器所需的**同步接缝** `hg::flow_store::IOrderStateQuery`。
@@ -84,11 +96,20 @@ class CtOrderStateQueryBridge : public hg::flow_store::IOrderStateQuery {
     }
 
     hg::ctp_adapter::CtOrderQueryReq req;
-    // 流水侧仅有 `order_id` / `client_order_ref`（= CTP OrderRef）⇒ 以 OrderRef 选行。
-    // （`CThostFtdcQryOrderField` 无 OrderRef，无法服务端窄查，见 ct_types.h 头注。）
-    // D-1：ref 超过 CTP `OrderRef` 12 字节上限时由 `CtAdapter::queryOrder` **安全失败**
-    //   （kUnavailable ⇒ 本件映射 kTimeout ⇒ 保守冻结），此处不做任何截断/改写。
-    req.client_order_ref = order.client_order_ref;
+    // T-233：**sys_id 优先**。`OrderSysID` 是 `CThostFtdcQryOrderField` 唯一可用于服务端窄查的键；
+    //   流水侧 `client_order_ref` = `HG<yyyyMMdd><seq6>`（16 字符）超出 CTP `OrderRef` 的 12 可用
+    //   字节（`TThostFtdcOrderRefType[13]`），`setField` 静默截断 ⇒ 按整串比较恒不命中 ⇒ 会误判
+    //   「未到达」并释放冻结（危险方向）。故：
+    //     · sys_id 可用（非空且含非空格字符）⇒ 只按 sys_id 查，**不传 ref**（避免回退到不安全路径）；
+    //     · sys_id 不可用 ⇒ 回退 ref，并由 `CtAdapter::queryOrder` 的 T-212 安全失败闸门兜底
+    //       （ref > 12 字节 ⇒ kUnavailable ⇒ 本件映射 kTimeout ⇒ 保守冻结，**绝不** kNotFound）。
+    //   ⚠️ 空白（全空格）的 OrderSysID 视同缺失：CTP 未分配前可能回填空串/空格填充值，
+    //      拿它窄查必然不命中 ⇒ 若当成有效值会绕过安全失败闸门 ⇒ 误释放冻结。
+    if (usableOrderSysId(order.order_sys_id)) {
+      req.order_sys_id = order.order_sys_id;
+    } else {
+      req.client_order_ref = order.client_order_ref;
+    }
 
     // 本笔实际等待上限 = min(单笔上限, 剩余总预算)。
     const std::int64_t per_order_ms = (timeout_ms_ < budget_left_ms) ? timeout_ms_ : budget_left_ms;
@@ -134,6 +155,15 @@ class CtOrderStateQueryBridge : public hg::flow_store::IOrderStateQuery {
   }
 
  private:
+  // T-233：CTP `OrderSysID` 是否可用于窄查（非空且至少一个非空格字符）。
+  //   CTP 在交易所尚未接受报单时可能回填空白值；把它当有效键会绕过 T-212 安全失败闸门。
+  static bool usableOrderSysId(const std::string& sys_id) {
+    for (std::size_t i = 0; i < sys_id.size(); ++i) {
+      if (sys_id[i] != ' ' && sys_id[i] != '\t') return true;
+    }
+    return false;
+  }
+
   // 预约本笔查询的等待额度：预算窗口在**首次查询**时启动（构造到重放之间可能间隔很久，
   //   故不取构造时刻）；窗口耗尽后返回 false ⇒ 调用方不再发起查询（保守 kTimeout）。
   //   同一进程内若发生第二次重放，窗口**沿用**（已耗尽 ⇒ 全部保守 kTimeout，安全方向）。

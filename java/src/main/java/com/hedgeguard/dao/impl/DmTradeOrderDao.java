@@ -20,7 +20,7 @@ public final class DmTradeOrderDao extends AbstractDmDao<TradeOrder, Long> imple
 
     /** 业务列（不含主键与通用审计字段）。 */
     private static final String[] COLUMNS = {
-            "sub_account_id", "client_order_ref", "order_id", "trade_plan_id", "hedge_plan_id",
+            "sub_account_id", "client_order_ref", "order_id", "order_sys_id", "trade_plan_id", "hedge_plan_id",
             "exposure_id", "product_id", "instrument_id", "instrument_type", "direction",
             "offset_flag", "price_type", "limit_price", "volume", "operator_id", "strategy_id",
             "leg_no", "trade_reason_id", "status", "reject_rule_id", "reject_code", "reject_reason",
@@ -58,6 +58,7 @@ public final class DmTradeOrderDao extends AbstractDmDao<TradeOrder, Long> imple
         bind(ps, i++, e.subAccountId);
         bind(ps, i++, e.clientOrderRef);
         bind(ps, i++, e.orderId);
+        bind(ps, i++, e.orderSysId);
         bind(ps, i++, e.tradePlanId);
         bind(ps, i++, e.hedgePlanId);
         bind(ps, i++, e.exposureId);
@@ -94,6 +95,7 @@ public final class DmTradeOrderDao extends AbstractDmDao<TradeOrder, Long> imple
         e.subAccountId = nullableInt(rs, "sub_account_id");
         e.clientOrderRef = string(rs, "client_order_ref");
         e.orderId = nullableLong(rs, "order_id");
+        e.orderSysId = string(rs, "order_sys_id");
         e.tradePlanId = nullableLong(rs, "trade_plan_id");
         e.hedgePlanId = nullableLong(rs, "hedge_plan_id");
         e.exposureId = nullableLong(rs, "exposure_id");

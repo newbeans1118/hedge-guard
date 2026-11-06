@@ -87,6 +87,9 @@ class FakeQuery : public IOrderStateQuery {
   int calls = 0;
   std::vector<std::pair<std::uint64_t, OrderQueryResult> > table;
   std::string detail_out;
+  // T-233：记录重放传入的窄查键（sys_id 为空时回退 ref），供「流水 → InflightOrder」贯通断言。
+  std::vector<std::string> sys_ids;
+  std::vector<std::string> refs;
 
   int callsFor(std::uint64_t oid) const {
     // 本假件单次 run 只查在途；calls 即总查询数（调用序由测试断言）。
@@ -95,6 +98,8 @@ class FakeQuery : public IOrderStateQuery {
   }
   OrderQueryResult query(const InflightOrder& o, std::string* detail) override {
     ++calls;
+    sys_ids.push_back(o.order_sys_id);
+    refs.push_back(o.client_order_ref);
     for (std::size_t i = 0; i < table.size(); ++i) {
       if (table[i].first == o.order_id) {
         if (detail != nullptr) *detail = detail_out;
@@ -318,6 +323,107 @@ void test_inflight_adopt_terminal() {
   HG_CHECK(rep.decisions[0].detail.find("trade_id=T99") != std::string::npos);
 }
 
+// ---- 6b. T-233：detail 内 `sys_id=` 前缀编解码（行格式 5 字段不变）----------
+void test_detail_sys_id_codec() {
+  using hg::flow_store::splitDetailSysId;
+  std::string sys;
+  std::string rest;
+  HG_CHECK(splitDetailSysId("sys_id=S-1;order report", &sys, &rest));
+  HG_CHECK_EQ(sys, std::string("S-1"));
+  HG_CHECK_EQ(rest, std::string("order report"));
+  // 无前缀 ⇒ 不命中，detail 原样保留，sys 清空（旧文件/旧记录兼容路径）
+  HG_CHECK(!splitDetailSysId("order report", &sys, &rest));
+  HG_CHECK(sys.empty());
+  HG_CHECK_EQ(rest, std::string("order report"));
+  // 前缀缺 ';' ⇒ 视为普通 detail（不得吞掉原文）
+  HG_CHECK(!splitDetailSysId("sys_id=broken", &sys, &rest));
+  HG_CHECK(sys.empty());
+  HG_CHECK_EQ(rest, std::string("sys_id=broken"));
+  // 空白 sys_id **原样保留**（CTP 可能回填空格填充值；修剪会使查询与回填行比较不相等）
+  HG_CHECK(splitDetailSysId("sys_id=   ;x", &sys, &rest));
+  HG_CHECK_EQ(sys, std::string("   "));
+  HG_CHECK_EQ(rest, std::string("x"));
+  // 空前缀值（`sys_id=;d`）⇒ 命中但值为空
+  HG_CHECK(splitDetailSysId("sys_id=;d", &sys, &rest));
+  HG_CHECK(sys.empty());
+  HG_CHECK_EQ(rest, std::string("d"));
+}
+
+// ---- 6c. T-233：REPORTED 记录带回 OrderSysID ⇒ 重放把它传进 InflightOrder ----
+//   （承重项：桥接件的 sys_id 窄查键来自流水，若不通则功能面仍恒 kTimeout）
+void test_inflight_carries_order_sys_id_from_flow() {
+  const std::string d = dirOf("sysid");
+  mkclean(d);
+  const char* kRef16 = "HG20261105000088";  // 生产形态 16 字符（CTP OrderRef 只 12 字节）
+  {
+    FlowStore fs;
+    HG_CHECK(fs.open(hg::flow_store::flowShardPath(d, 20261105)));
+    FlowRecord placed;
+    placed.kind = FlowKind::kPlaced;
+    placed.order_id = 88;
+    placed.client_order_ref = kRef16;
+    placed.ts_ms = 1767225600000LL;
+    placed.detail = "accepted pending confirm";
+    HG_CHECK(fs.append(placed));
+    FlowRecord sent;
+    sent.kind = FlowKind::kSent;
+    sent.order_id = 88;
+    sent.client_order_ref = kRef16;
+    sent.ts_ms = 1767225600001LL;
+    sent.detail = "submitted to CTP";
+    HG_CHECK(fs.append(sent));
+    FlowRecord reported;
+    reported.kind = FlowKind::kReported;
+    reported.order_id = 88;
+    reported.client_order_ref = kRef16;
+    reported.ts_ms = 1767225600002LL;
+    reported.detail = "order report";
+    reported.order_sys_id = "S-9001";  // T-233：交易所在 OnRtnOrder 回填的报单编号
+    HG_CHECK(fs.append(reported));
+    fs.close();
+  }
+
+  // 落盘行仍是 5 字段（4 个 '|'），sys_id 编码在 detail 字段内 ⇒ 旧读者不会因字段数变化拒读。
+  {
+    FILE* f = std::fopen(hg::flow_store::flowShardPath(d, 20261105).c_str(), "rb");
+    HG_ABORT_IF(f == nullptr);
+    std::string all;
+    char buf[512];
+    std::size_t n = 0;
+    while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) all.append(buf, n);
+    std::fclose(f);
+    int pipes = 0;
+    for (std::size_t i = 0; i < all.size(); ++i) {
+      if (all[i] == '|') ++pipes;
+    }
+    HG_CHECK_EQ(pipes, 12);  // 3 行 × 4 个字段分隔符
+    HG_CHECK(all.find("|sys_id=S-9001;order report\n") != std::string::npos);
+  }
+
+  ReplayController rc;
+  FlowRuntimeConfig cfg;
+  cfg.flow_dir = d;
+  rc.set_runtime_config(cfg);
+  FakeQuery q;
+  q.table.push_back(std::make_pair<std::uint64_t, OrderQueryResult>(88, OrderQueryResult::kFilled));
+  q.detail_out = "ctp_query outcome=FOUND state=FILLED order_sys_id=S-9001";
+  rc.set_order_query(&q);
+  const ReplayReport rep = rc.run(1770000000000LL, nullptr, nullptr);
+
+  HG_CHECK(rep.verdict == ReplayVerdict::kOk);
+  HG_CHECK_EQ(rep.orders.size(), static_cast<std::size_t>(1));
+  HG_CHECK_EQ(rep.orders[0].order_sys_id, std::string("S-9001"));  // 还原态带窄查键
+  HG_CHECK_EQ(q.calls, 1);
+  HG_CHECK_EQ(q.sys_ids.size(), static_cast<std::size_t>(1));
+  HG_CHECK_EQ(q.sys_ids[0], std::string("S-9001"));   // 传给查询实现的正是 sys_id
+  HG_CHECK_EQ(q.refs[0], std::string(kRef16));        // ref 仍透传（审计留痕用）
+  // 正常应答 ⇒ 采纳 CTP 终态：unknown_count 归零、frozen_released 不增（验收 4）
+  HG_CHECK(rep.decisions[0].kind == ReplayDecision::kAdoptTerminal);
+  HG_CHECK_EQ(rep.unknown_count, static_cast<std::size_t>(0));
+  HG_CHECK_EQ(rep.frozen_released, static_cast<std::size_t>(0));
+  HG_CHECK_EQ(rep.frozen_held, static_cast<std::size_t>(0));
+}
+
 // ---- 7. 结构损坏 ⇒ 整文件拒（验收 3 / §4.5.1 不得带病运行）----------------
 void test_corrupt_variants_reject() {
   const char* cases[] = {
@@ -465,6 +571,8 @@ int main() {
   test_inflight_not_found_release();
   test_inflight_timeout_unknown_alert();
   test_inflight_adopt_terminal();
+  test_detail_sys_id_codec();                 // T-233
+  test_inflight_carries_order_sys_id_from_flow();  // T-233
   test_corrupt_variants_reject();
   test_torn_tail_rejects();
   test_reconcile_conflict_mismatch();

@@ -518,6 +518,178 @@ void replay_overlong_ref_is_unknown_not_released() {
 
 }  // namespace
 
+// ---- T-233：查询键由 ref 改为 **OrderSysID 优先** ---------------------------
+// 根因复述：流水 ref = `HG<yyyyMMdd><seq6>`（16 字符）> CTP `OrderRef` 12 字节 ⇒ 静默截断
+//   ⇒ 按 ref 整串比较恒不命中 ⇒ 误判「未到达」并释放冻结（T-212 只能安全失败、功能面退化）。
+//   修法：流水 REPORTED 带回 CTP `OrderSysID`（唯一可服务端窄查的键）⇒ 桥接件优先用它。
+
+// ③ 同 ref 多单：`client_order_ref` 前 12 字节相同（CTP 侧完全同形），仅 `OrderSysID` 可区分。
+//   若按 ref 选行 ⇒ 必然串单（取到别人报单的状态）；按 sys_id 选行 ⇒ 各归各位。
+class SysIdMultiRowGateway : public hg::ctp_adapter::testutil::FakeTradeGateway {
+ public:
+  SysIdMultiRowGateway() {}
+  virtual int reqQueryOrder(const CtOrderQueryReq& req, int request_id) {
+    ++queries;
+    last_query = req;
+    if (sink_ == 0) return 0;
+    // CTP 一次 `ReqQryOrder` 的结果集可含多行；两笔报单的 OrderRef 在 CTP 侧同为 12 字节。
+    const char* kTrunc12 = "HG2026110500";
+    CtOrderQueryReply a;
+    a.request_id = request_id;
+    a.outcome = CtOrderQueryOutcome::kFound;
+    a.state = CtOrderState::kFilled;  // 报单 S-A 已全部成交
+    a.client_order_ref = kTrunc12;
+    a.order_sys_id = "S-A";
+    a.volume_total = 1;
+    a.volume_traded = 1;
+    a.volume_left = 0;
+    a.stream_end = false;
+    sink_->onQueryOrderReply(a);
+    CtOrderQueryReply b;
+    b.request_id = request_id;
+    b.outcome = CtOrderQueryOutcome::kFound;
+    b.state = CtOrderState::kLive;  // 报单 S-B 仍在途
+    b.client_order_ref = kTrunc12;
+    b.order_sys_id = "S-B";
+    b.volume_total = 2;
+    b.volume_traded = 0;
+    b.volume_left = 2;
+    b.stream_end = true;
+    sink_->onQueryOrderReply(b);
+    return 0;
+  }
+};
+
+// ① sys_id 命中 ⇒ 正确终态（且**不传 ref**，不撞 T-212 闸门）。
+void bridge_narrows_by_order_sys_id() {
+  hg::ctp_adapter::testutil::FakeTradeGateway trade;
+  hg::ctp_adapter::testutil::FakeMdGateway md;
+  CtAdapter adapter(&trade, &md, false);
+  trade.set_sink(&adapter);
+  bringOnline(&adapter);
+  trade.query_status = '0';  // 全部成交
+  trade.query_order_sys_id = "S-HIT";
+  trade.query_total = 3;
+  trade.query_traded = 3;
+
+  hg::app::CtOrderStateQueryBridge bridge(&adapter, 50);
+  InflightOrder io = inflight(kProdRef16);  // 生产形态 16 字符 ref
+  io.order_sys_id = "S-HIT";
+  std::string detail;
+  const OrderQueryResult qr = bridge.query(io, &detail);
+
+  HG_CHECK(qr == OrderQueryResult::kFilled);
+  HG_CHECK_EQ(trade.queries, 1);
+  HG_CHECK_EQ(trade.last_query.order_sys_id, std::string("S-HIT"));
+  HG_CHECK(trade.last_query.client_order_ref.empty());  // sys_id 优先时不得同时带 ref
+  HG_CHECK(detail.find("order_sys_id=S-HIT") != std::string::npos);
+}
+
+// ③ 同 ref 两单不串单：S-A（已成交）与 S-B（在途）各按 sys_id 取到自己的状态。
+void bridge_same_ref_orders_distinguished_by_sys_id() {
+  SysIdMultiRowGateway trade;
+  hg::ctp_adapter::testutil::FakeMdGateway md;
+  CtAdapter adapter(&trade, &md, false);
+  trade.set_sink(&adapter);
+  bringOnline(&adapter);
+
+  hg::app::CtOrderStateQueryBridge bridge(&adapter, 50);
+  InflightOrder a = inflight("HG20261105000001");  // 16 字符
+  a.order_id = 2001;
+  a.order_sys_id = "S-A";
+  InflightOrder b = inflight("HG20261105000002");  // 16 字符；前 12 字节与 a 相同
+  b.order_id = 2002;
+  b.order_sys_id = "S-B";
+
+  std::string detail;
+  const OrderQueryResult qa = bridge.query(a, &detail);
+  const OrderQueryResult qb = bridge.query(b, &detail);
+
+  HG_CHECK(qa == OrderQueryResult::kFilled);   // a 未被 b 的在途状态污染
+  HG_CHECK(qb == OrderQueryResult::kLive);     // b 未被 a 的成交状态污染
+  HG_CHECK_EQ(trade.queries, 2);
+  HG_CHECK_EQ(trade.last_query.order_sys_id, std::string("S-B"));
+}
+
+// ② 边界：sys_id 为空白（CTP 未分配时的空格填充值）⇒ **视同缺失**，回退 ref +
+//   T-212 安全失败闸门（16 字符 ⇒ kUnavailable ⇒ kTimeout；**绝不** kNotFound）。
+//   若把空白 sys_id 当有效键 ⇒ 绕过闸门 ⇒ 空结果集被误判「未到达」⇒ 释放冻结（危险方向）。
+void bridge_blank_sys_id_falls_back_to_safe_failure() {
+  hg::ctp_adapter::testutil::FakeTradeGateway trade;
+  hg::ctp_adapter::testutil::FakeMdGateway md;
+  CtAdapter adapter(&trade, &md, false);
+  trade.set_sink(&adapter);
+  bringOnline(&adapter);
+  trade.query_found = false;  // 即便 CTP 侧「看起来没有此单」，也不得判 kNotFound
+
+  hg::app::CtOrderStateQueryBridge bridge(&adapter, 50);
+  InflightOrder io = inflight(kProdRef16);
+  io.order_sys_id = "    ";  // 全空格
+  std::string detail;
+  const OrderQueryResult qr = bridge.query(io, &detail);
+
+  HG_CHECK(qr == OrderQueryResult::kTimeout);
+  HG_CHECK(qr != OrderQueryResult::kNotFound);
+  HG_CHECK(detail.find("UNAVAILABLE") != std::string::npos);
+  HG_CHECK_EQ(trade.queries, 0);  // 未发起查询（安全失败闸门生效）
+}
+
+// ⑦b 端到端：流水带回**空白** OrderSysID ⇒ 重放仍按安全失败处理（unknown_count=1、释放 0 笔）。
+void replay_blank_sys_id_is_unknown_not_released() {
+  const std::string d = "/tmp/t233-e2e-blank-sysid";
+  const std::string cmd = std::string("rm -rf '") + d + "'; mkdir -p '" + d + "'";
+  HG_CHECK(std::system(cmd.c_str()) == 0);
+
+  {
+    hg::flow_store::FlowStore fs;
+    HG_CHECK(fs.open(hg::flow_store::flowShardPath(d, 20261105)));
+    hg::flow_store::FlowRecord placed;
+    placed.kind = hg::flow_store::FlowKind::kPlaced;
+    placed.order_id = 5151;
+    placed.client_order_ref = kProdRef16;
+    placed.ts_ms = 1767225600000LL;
+    placed.detail = "accepted pending confirm";
+    HG_CHECK(fs.append(placed));
+    hg::flow_store::FlowRecord sent;
+    sent.kind = hg::flow_store::FlowKind::kSent;
+    sent.order_id = 5151;
+    sent.client_order_ref = kProdRef16;
+    sent.ts_ms = 1767225600001LL;
+    sent.detail = "submitted to CTP";
+    HG_CHECK(fs.append(sent));
+    hg::flow_store::FlowRecord reported;
+    reported.kind = hg::flow_store::FlowKind::kReported;
+    reported.order_id = 5151;
+    reported.client_order_ref = kProdRef16;
+    reported.ts_ms = 1767225600002LL;
+    reported.detail = "order report";
+    reported.order_sys_id = "   ";  // CTP 未分配时的空格填充值
+    HG_CHECK(fs.append(reported));
+    fs.close();
+  }
+
+  hg::ctp_adapter::testutil::FakeTradeGateway trade;
+  hg::ctp_adapter::testutil::FakeMdGateway md;
+  CtAdapter adapter(&trade, &md, false);
+  trade.set_sink(&adapter);
+  bringOnline(&adapter);
+  trade.query_found = false;
+
+  hg::app::CtOrderStateQueryBridge bridge(&adapter, 50, 60000);
+  hg::flow_store::ReplayController rc;
+  hg::flow_store::FlowRuntimeConfig cfg;
+  cfg.flow_dir = d;
+  rc.set_runtime_config(cfg);
+  rc.set_order_query(&bridge);
+  const hg::flow_store::ReplayReport rep = rc.run(1770000000000LL, nullptr, nullptr);
+
+  HG_CHECK(rep.verdict == hg::flow_store::ReplayVerdict::kOk);
+  HG_CHECK_EQ(rep.unknown_count, static_cast<std::size_t>(1));
+  HG_CHECK_EQ(rep.frozen_released, static_cast<std::size_t>(0));
+  HG_CHECK_EQ(rep.frozen_held, static_cast<std::size_t>(1));
+  HG_CHECK_EQ(trade.queries, 0);  // 空白 sys_id + 超长 ref ⇒ 未发起查询
+}
+
 int main() {
   order_status_mapping();
   adapter_query_reports_filled();
@@ -538,5 +710,10 @@ int main() {
   adapter_wakes_up_on_reply_arrival();
   bridge_enforces_total_query_budget();
   replay_overlong_ref_is_unknown_not_released();
+  // T-233：sys_id 优先（根因收口·方案 B）
+  bridge_narrows_by_order_sys_id();
+  bridge_same_ref_orders_distinguished_by_sys_id();
+  bridge_blank_sys_id_falls_back_to_safe_failure();
+  replay_blank_sys_id_is_unknown_not_released();
   return hg::ctp_adapter::testutil::report("ct_order_query_test");
 }

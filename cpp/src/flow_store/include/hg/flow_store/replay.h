@@ -100,6 +100,11 @@ struct InflightOrder {
   std::uint64_t order_id = 0;
   std::string client_order_ref;
   std::int64_t sent_ts_ms = 0;
+  // T-233：CTP 报单编号（`OrderSysID`；流水 REPORTED 记录带回则非空）。
+  //   `IOrderStateQuery` 实现**优先**用它做窄查；为空时才回退 `client_order_ref`，
+  //   而 ref 在 CTP 侧被静默截断（16 字符 > `TThostFtdcOrderRefType[13]`）⇒ 调用方必须
+  //   安全失败（`kTimeout`，**绝不** `kNotFound`），见 `order_state_query_bridge.h`。
+  std::string order_sys_id;
 
   InflightOrder() {}
 };
@@ -147,6 +152,9 @@ const char* replayVerdictName(ReplayVerdict v);
 struct ReplayOrderState {
   std::uint64_t order_id = 0;
   std::string client_order_ref;
+  // T-233：从流水 REPORTED/FILLED 等记录的第 5 字段 `sys_id=<v>;` 前缀还原的 CTP 报单编号；
+  //   缺省空（无回报 ⇒ 无源）⇒ 在途对账只能用 ref（须安全失败）。
+  std::string order_sys_id;
   FlowKind last_kind = FlowKind::kPlaced;   // 流水末条类别
   bool sent = false;                        // 出现过 SENT
   bool terminal = false;                    // 出现过终态类别

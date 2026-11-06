@@ -30,7 +30,36 @@ std::string sanitize(const std::string& in) {
   return out;
 }
 
+// T-233：把 FlowRecord::order_sys_id 编码进第 5 字段（`sys_id=<value>;<detail>`）。
+// 值为空 ⇒ 原样返回 detail（与 T-233 之前的文件逐字节同形，5 字段不变）。
+std::string composeDetail(const FlowRecord& rec) {
+  if (rec.order_sys_id.empty()) return rec.detail;
+  std::string out;
+  out.reserve(rec.order_sys_id.size() + rec.detail.size() + 9);
+  out += "sys_id=";
+  out += rec.order_sys_id;
+  out += ';';
+  out += rec.detail;
+  return out;
+}
+
 }  // namespace
+
+bool splitDetailSysId(const std::string& detail, std::string* order_sys_id, std::string* rest) {
+  static const char kPrefix[] = "sys_id=";
+  const std::size_t pfx = sizeof(kPrefix) - 1;  // 去掉结尾 '\0'
+  if (detail.size() > pfx && detail.compare(0, pfx, kPrefix) == 0) {
+    const std::size_t semi = detail.find(';', pfx);
+    if (semi != std::string::npos) {
+      if (order_sys_id != 0) order_sys_id->assign(detail, pfx, semi - pfx);
+      if (rest != 0) rest->assign(detail, semi + 1, std::string::npos);
+      return true;
+    }
+  }
+  if (order_sys_id != 0) order_sys_id->clear();
+  if (rest != 0) *rest = detail;
+  return false;
+}
 
 const char* flowKindName(FlowKind k) {
   switch (k) {
@@ -89,7 +118,7 @@ bool FlowStore::append(const FlowRecord& rec) {
                                static_cast<unsigned long long>(rec.order_id),
                                sanitize(rec.client_order_ref).c_str());
   if (hn <= 0 || static_cast<std::size_t>(hn) >= sizeof(head)) return false;
-  const std::string tail = sanitize(rec.detail) + "\n";
+  const std::string tail = sanitize(composeDetail(rec)) + "\n";
   const std::size_t total = static_cast<std::size_t>(hn) + tail.size();
   // 单条记录一次性落盘：先拼缓冲，再单次 ::write（O_APPEND 下写原子性以单次调用保证）。
   // 缓冲用 std::string（写路径允许分配；判定热路径的零分配纪律不约束 T7 流水）。

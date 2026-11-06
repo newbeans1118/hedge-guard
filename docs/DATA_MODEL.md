@@ -1989,6 +1989,7 @@ ALTER TABLE t_product_quota ADD CONSTRAINT ck_product_quota_layer_sentinel CHECK
 | `🔴子` `sub_account_id` | `INT` | NOT NULL, FK → `t_sub_account(id)` | **子账户标识（必填；随指令显式携带，不得由会话/计划间接推导）**，`R-TRADE-1` |
 | `client_order_ref` | `VARCHAR(32)` | **NOT NULL, UNIQUE** | Java 侧生成的**幂等键**（格式 `HG<yyyyMMdd><seq>`）；对应 `CMD_PLACE_ORDER.client_order_ref` |
 | `order_id` | `BIGINT` | NULL, UNIQUE | **C++ 侧指令号**（`EVT_ORDER_ACCEPTED.order_id`）；未受理时为 `NULL` |
+| `order_sys_id`（**T-233 补列**） | `VARCHAR(32)` | NULL | **CTP 报单编号（`OrderSysID`）**：由 `EVT_ORDER_REPORT`（`OnRtnOrder` / `OnRspOrderInsert` 回报面）按 `client_order_ref` 关联**回填**；首次回报确定后**不再改写**（后到回报携带异值 ⇒ 告警留痕、不覆盖）。用途 = 崩溃重放的**在途对账窄查**（`CThostFtdcQryOrderField.OrderSysID` 为唯一可用于服务端过滤的字段）。**不得**改用 `client_order_ref` 选行：流水侧 ref = `HG<yyyyMMdd><seq6>`（16 字符）> CTP `TThostFtdcOrderRefType[13]`（12 可用字节）⇒ CTP 回填值被 `setField` 静默截断为 12 字节，整串比较恒不命中（误判"未到达"⇒ 释放冻结，T-233 根因）；未收到回报前为 `NULL` |
 | `trade_plan_id` | `BIGINT` | **NOT NULL**, FK → `t_trade_plan(id)` | **交易计划 ID（必填；`0` 视为缺失 → 协议拒绝 `0x1020`）** |
 | `hedge_plan_id` | `BIGINT` | NOT NULL, FK → `t_hedge_plan(id)` | 套保计划（冗余，便于追溯链快速跳转） |
 | `exposure_id` | `BIGINT` | NOT NULL, FK → `t_exposure(id)` | **实货敞口 ID** |
@@ -2028,6 +2029,7 @@ ALTER TABLE t_product_quota ADD CONSTRAINT ck_product_quota_layer_sentinel CHECK
 | `idx_trade_order_exposure` | `exposure_id` | 普通 | **反向追溯：敞口 → 指令**（`FR-AUDIT-2`） |
 | `idx_trade_order_instrument_time` | `instrument_id, submit_time` | 普通 | 按合约查当日指令（异常下单行为分析） |
 | `idx_trade_order_strategy` | `strategy_id, leg_no` | 普通 | 取期权策略各腿指令（`FR-TRADE-13`） |
+| `idx_trade_order_sys_id`（**T-233 补索引**） | `order_sys_id` | 普通 | **按 CTP 报单编号反查指令**（重放在途对账窄查、外部对账按交易所报单号核对；`NULL` 行不占索引项） |
 | `idx_trade_order_pending` | `status, expire_time` | 普通 | **待确认超时巡检（失效处理）** |
 
 **备注**：
@@ -2036,6 +2038,12 @@ ALTER TABLE t_product_quota ADD CONSTRAINT ck_product_quota_layer_sentinel CHECK
   若人工确认超时，写入 `status='EXPIRED'`。
 - **`order_id` 可空**（C++ 未受理时无号）+ `UNIQUE`：DM 的唯一约束**允许多个 `NULL`**
   （标准 SQL 语义），故不会冲突。
+- **`order_sys_id` 为回报面回填列（T-233）**：写入方唯一 = `TradeService.onOrderReport`
+  （`EVT_ORDER_REPORT`）。回填规则：① 事件携带非空 `orderSysId` 且本列为 `NULL` ⇒ 写入；
+  ② 本列已有值且与事件值**一致** ⇒ 幂等（不重复更新）；③ 本列已有值且与事件值**不一致** ⇒
+  **不覆盖**并落结构化告警（同一指令的交易所报单号不可变，异值意味着事件/流水串号，须人工核验）；
+  ④ 回填失败（更新影响行数 ≠ 1）⇒ 抛错，**不得静默**。该列**不参与**幂等键
+  （幂等键仍是 `client_order_ref` 唯一约束），故 `client_order_ref` 格式与唯一性**零改动**。
 
 ---
 

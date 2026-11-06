@@ -288,6 +288,10 @@ bool OrderEngine::appendFlow(flow_store::FlowKind kind, const OrderRecord& rec,
   fr.client_order_ref = rec.input.client_order_ref;
   fr.ts_ms = now_ms;
   fr.detail = detail;
+  // T-233：把已知的交易所报单号（`OrderSysID`）随流水落盘 —— 崩溃重放的**在途对账窄查键**。
+  //   流水侧 ref = 16 字符 > CTP `OrderRef` 12 字节 ⇒ 只能靠 sys_id 选行；未收到回报时为空
+  //   （`FlowStore::append` 对空值不写前缀，行格式 5 字段不变）。
+  fr.order_sys_id = rec.order_sys_id;
   return flow_->append(fr);
 }
 

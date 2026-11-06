@@ -49,8 +49,30 @@ struct FlowRecord {
   std::int64_t ts_ms = 0;
   std::string detail;  // 生命周期明细 / 指令要素摘要
 
+  // ---- T-233：CTP 报单编号（`OrderSysID`）-----------------------------------
+  // 为什么需要它：流水侧 `client_order_ref` = `HG<yyyyMMdd><seq6>` = 16 字符，**超出** CTP
+  //   `TThostFtdcOrderRefType[13]` 的 12 可用字节 ⇒ `mapping::setField` 静默截断 ⇒ CTP 回填的
+  //   `OrderRef` 与流水 ref 永不相等 ⇒ 重放期按 ref 选行恒不命中 ⇒ 误判「未到达」而释放冻结。
+  //   `OrderSysID` 是 `CThostFtdcQryOrderField` **唯一**可用于服务端窄查的键（该结构无 OrderRef）。
+  //
+  // 落盘编码（**不改行格式**，仍是 5 个 `|` 分隔字段，向后兼容旧文件）：
+  //   `order_sys_id` 非空时，写入的第 5 字段为 `sys_id=<OrderSysID>;<detail>`；
+  //   为空时不写前缀（与 T-233 之前的文件逐字节同形）。读侧由 splitDetailSysId 还原。
+  //   约定由本头声明、`FlowStore::append` 编码、重放解析共用一处，禁止各自私拼。
+  std::string order_sys_id;
+
   FlowRecord() {}
 };
+
+// 拆解 `detail` 字段内嵌的 `sys_id=<value>;` 前缀（T-233）。
+//
+// 入参 `detail` = 流水第 5 字段原文；出参：
+//   · `order_sys_id` = 前缀值（无前缀 ⇒ 清空）；
+//   · `rest`        = 去掉前缀后的原始 detail（无前缀 ⇒ 与入参相同）。
+// 返回值 = 是否命中前缀（`rest` 与 `order_sys_id` 无论命中与否都会被赋值）。
+// ⚠️ 语义：值**原样**返回（不 trim）——CTP `OrderSysID` 可能带尾部空格填充，
+//   查询时须原样回传，否则与 CTP 回填行比较不相等（会被误判 kNotFound ⇒ 危险方向）。
+bool splitDetailSysId(const std::string& detail, std::string* order_sys_id, std::string* rest);
 
 // append-only 本地文件流水（§3.5「本地文件（非数据库）」，E1/E2 合规）。
 // 单写者（T4 交易线程）；**非线程安全**（与「T4 独占维护」一致，§4.4.1）。
@@ -70,6 +92,8 @@ class FlowStore {
   // 行格式（T-037 重放契约）：`<ts_ms>|<KIND>|<order_id>|<ref>|<detail>\n`
   //   · `ref`/`detail` 内的 `|` 与换行符被替换（`|`→`/`、`\n`/`\r`→空格），
   //     保证一行一记录、五字段定列；
+  //   · `rec.order_sys_id` 非空时，第 5 字段编码为 `sys_id=<value>;<detail>`（T-233，
+  //     见 FlowRecord::order_sys_id 注释；字段数不变，旧文件可直接读）；
   //   · 编码 = UTF-8 透传（detail 来自指令要素摘要，ASCII 为主）。
   bool append(const FlowRecord& rec);
 

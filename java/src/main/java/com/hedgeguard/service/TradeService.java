@@ -1031,12 +1031,66 @@ public final class TradeService {
             row.reportTime = Clocks.now();
             row.eventSeq = e.eventSeq;
             tradeOrderReportDao.insert(row, 0L);
+            boolean touchOrder = false;
             if (e.mappedOrderStatus != null) {
                 order.status = e.mappedOrderStatus;
-                tradeOrderDao.updateById(order, 0L);
+                touchOrder = true;
+            }
+            // T-233：CTP `OrderSysID` 回填（重放在途对账的窄查键；见 DATA_MODEL §2.6 TB-TRADE-1 备注）
+            if (backfillOrderSysId(order, e.orderSysId, e.orderId)) {
+                touchOrder = true;
+            }
+            if (touchOrder && tradeOrderDao.updateById(order, 0L) != 1) {
+                // 回填/状态更新失败不得静默（T-233 验收 2）：抛错由事件消费侧重试并告警
+                throw BizException.of(ErrorCode.REFERENCE_CONFLICT,
+                        "委托回报回填 t_trade_order 失败（EVT_ORDER_REPORT）：orderId=" + e.orderId
+                                + " ref=" + order.clientOrderRef + " orderSysId=" + e.orderSysId
+                                + "；影响行数≠1（行不存在或并发状态冲突）");
             }
             return null;
         });
+    }
+
+    /**
+     * {@code T-233}：从回报事件回填 {@code t_trade_order.order_sys_id}（CTP {@code OrderSysID}）。
+     *
+     * <p><b>为何必须有这一列</b>：流水侧 {@code client_order_ref} = {@code HG<yyyyMMdd><seq6>}（16 字符）
+     * 超出 CTP {@code TThostFtdcOrderRefType[13]} 的 12 可用字节，{@code mapping::setField} 静默截断
+     * ⇒ 重放期按 ref 选行恒不命中 ⇒ 误判「未到达」并释放冻结额度（T-212 只能安全失败、功能面退化）。
+     * {@code OrderSysID} 是 {@code CThostFtdcQryOrderField} 唯一可用于服务端窄查的键。
+     *
+     * <p><b>回填规则</b>（{@code DATA_MODEL.md} §2.6 TB-TRADE-1 备注）：空 ⇒ 写入；等值 ⇒ 幂等不改；
+     * 异值 ⇒ <b>不覆盖</b> + 结构化告警（交易所报单号不可变，异值 = 串号，须人工核验）；
+     * 事件无 sys_id ⇒ 不改。返回 {@code true} 表示实体的该字段被写入、调用方须落库。
+     *
+     * @param order       已解析的父指令行（{@code t_trade_order}）
+     * @param eventSysId  回报事件携带的 {@code orderSysId}（可空）
+     * @param eventOrderId 事件携带的 C++ 指令号（仅告警留痕用）
+     * @return 是否修改了 {@code order.orderSysId}
+     */
+    private boolean backfillOrderSysId(TradeOrder order, String eventSysId, Long eventOrderId) {
+        if (eventSysId == null || eventSysId.trim().isEmpty()) {
+            return false;  // 无源可填：不臆造、不改写（回填面只认非空回报值）
+        }
+        final String incoming = eventSysId;
+        if (order.orderSysId == null || order.orderSysId.trim().isEmpty()) {
+            order.orderSysId = incoming;  // 首次回报确定交易所报单号
+            return true;
+        }
+        if (order.orderSysId.equals(incoming)) {
+            return false;  // 幂等：后续回报携带同一 OrderSysID（常见于多次状态回报）
+        }
+        // 异值：不覆盖（同一指令的 OrderSysID 不可变；异值意味着回报串号/流水错配）
+        String msg = "T-233 EVT_ORDER_REPORT orderSysId 冲突（已保留既有值，未覆盖）：orderId="
+                + eventOrderId + " ref=" + order.clientOrderRef + " existing=" + order.orderSysId
+                + " incoming=" + incoming + "；须人工核验回报归属（同一指令的交易所报单号不可变）";
+        LOG.warning(msg);
+        synchronized (residualEvents) {
+            if (residualEvents.size() < RESIDUAL_LIST_CAP) {
+                residualEvents.add(msg);
+            }
+        }
+        return false;
     }
 
     /**

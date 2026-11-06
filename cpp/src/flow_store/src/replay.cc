@@ -186,7 +186,13 @@ bool parseLine(const std::string& line, std::size_t line_no, const std::string& 
     return false;
   }
   rec->client_order_ref.assign(line, starts[3], len[3]);
-  rec->detail.assign(line, starts[4], std::string::npos);
+  // T-233：第 5 字段可能带 `sys_id=<OrderSysID>;` 前缀（由 FlowStore::append 编码）；
+  //   拆出后 detail 恢复为原始明细，字段数仍是 5（旧文件无前缀 ⇒ order_sys_id 为空）。
+  {
+    std::string raw_detail;
+    raw_detail.assign(line, starts[4], std::string::npos);
+    splitDetailSysId(raw_detail, &rec->order_sys_id, &rec->detail);
+  }
   return true;
 }
 
@@ -404,6 +410,8 @@ ReplayReport ReplayController::run(std::int64_t now_ms, ProgressFn progress, voi
         a->st.last_kind = rec.kind;
         a->st.last_ts_ms = rec.ts_ms;
         if (!rec.client_order_ref.empty()) a->st.client_order_ref = rec.client_order_ref;
+        // T-233：任何记录带回的 OrderSysID 都收下（回报面最先到达的那条即确定值；后续同值幂等）。
+        if (!rec.order_sys_id.empty()) a->st.order_sys_id = rec.order_sys_id;
         if (rec.kind == FlowKind::kSent) a->st.sent = true;
         if (isTerminalKind(rec.kind)) a->st.terminal = true;
 
@@ -436,6 +444,7 @@ ReplayReport ReplayController::run(std::int64_t now_ms, ProgressFn progress, voi
       io.order_id = orders[k].st.order_id;
       io.client_order_ref = orders[k].st.client_order_ref;
       io.sent_ts_ms = orders[k].st.last_ts_ms;
+      io.order_sys_id = orders[k].st.order_sys_id;  // T-233
     }
   }
 
@@ -447,6 +456,7 @@ ReplayReport ReplayController::run(std::int64_t now_ms, ProgressFn progress, voi
     io.order_id = st.order_id;
     io.client_order_ref = st.client_order_ref;
     io.sent_ts_ms = st.last_ts_ms;
+    io.order_sys_id = st.order_sys_id;  // T-233：对账窄查优先键（空则回退 ref + 安全失败）
 
     std::string qdetail;
     OrderQueryResult qr = OrderQueryResult::kTimeout;
