@@ -42,9 +42,10 @@ CREATE TABLE t_trade_order (
     sub_account_id        INT                        NOT NULL,
     client_order_ref      VARCHAR(32)                NOT NULL,
     order_id              BIGINT                     NULL,
-    -- T-233：CTP 报单编号（OrderSysID）。由 EVT_ORDER_REPORT 按 client_order_ref 回填，
-    -- 供重放在途对账按 OrderSysID 窄查（client_order_ref = 16 字符 > CTP OrderRef 12 字节可用上限，
-    -- 整串比较恒不命中 ⇒ 会误判「未到达」并释放冻结）；未回报前为 NULL，不参与任何唯一约束。
+    -- T-233：CTP 报单编号（OrderSysID）。由 EVT_ORDER_REPORT 按 order_id 解析父指令行后回填
+    -- （回报事件载荷无 clientOrderRef 字段），供重放在途对账按 OrderSysID 窄查
+    -- （client_order_ref = 16 字符 > CTP OrderRef 12 字节可用上限，整串比较恒不命中 ⇒ 会误判
+    -- 「未到达」并释放冻结）；未回报前为 NULL，不参与任何唯一约束。
     order_sys_id          VARCHAR(32)                NULL,
     trade_plan_id         BIGINT                     NOT NULL,
     hedge_plan_id         BIGINT                     NOT NULL,
@@ -107,7 +108,7 @@ COMMENT ON TABLE  t_trade_order                  IS '交易指令（拟发往 CT
 COMMENT ON COLUMN t_trade_order.sub_account_id   IS '子账户标识（必填；随指令显式携带，不得由会话/计划间接推导）';
 COMMENT ON COLUMN t_trade_order.client_order_ref IS 'Java 侧幂等键（HG<yyyyMMdd><seq>）；对应 CMD_PLACE_ORDER.client_order_ref';
 COMMENT ON COLUMN t_trade_order.order_id         IS 'C++ 侧指令号（未受理为 NULL）；DM UNIQUE 允许多 NULL';
-COMMENT ON COLUMN t_trade_order.order_sys_id     IS 'CTP 报单编号（OrderSysID）：EVT_ORDER_REPORT 按 client_order_ref 回填，供重放在途对账窄查；未回报前 NULL（T-233）';
+COMMENT ON COLUMN t_trade_order.order_sys_id     IS 'CTP 报单编号（OrderSysID）：由 EVT_ORDER_REPORT 按 order_id 解析父指令行后回填（事件无 clientOrderRef），供重放在途对账窄查；未回报前 NULL（T-233）';
 COMMENT ON COLUMN t_trade_order.trade_plan_id    IS '交易计划 ID（必填；0 视为缺失 → 协议拒绝 0x1020）';
 COMMENT ON COLUMN t_trade_order.hedge_plan_id    IS '套保计划（冗余，便于追溯链快速跳转）';
 COMMENT ON COLUMN t_trade_order.exposure_id      IS '实货敞口 ID';

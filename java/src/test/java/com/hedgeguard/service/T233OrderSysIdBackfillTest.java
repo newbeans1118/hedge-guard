@@ -40,6 +40,7 @@ import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -49,7 +50,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * {@code T-233}（{@code client_order_ref} 16 字符 vs CTP {@code OrderRef} 12 字节根因收口·方案 B）
  * <b>Java 回填面</b>验收：{@code t_trade_order.order_sys_id} 由 {@code EVT_ORDER_REPORT}
- * （{@code OnRtnOrder} / {@code OnRspOrderInsert} 回报面）按 {@code client_order_ref} 关联回填。
+ * （{@code OnRtnOrder} / {@code OnRspOrderInsert} 回报面）**按 {@code order_id} 解析父指令行**
+ * 后回填（{@code OrderReportEvent} 载荷**无** {@code clientOrderRef} 字段，字面「按 ref 关联」
+ * 不可实现；口径见 {@code m2_trade.sql} 列注释与 {@code order_state_query_bridge.h} 头注）。
  *
  * <p>形态：<b>真实 DDL + 真实 DAO + 内存假 JDBC 引擎</b>（{@link InMemoryDmEngine}；禁假 DAO 覆盖接线面），
  * 行断言直读 {@code engine.table("t_trade_order").rows}。
@@ -60,7 +63,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   <li><b>幂等</b>：后续回报携带同一 {@code orderSysId} ⇒ 不重复更新（{@code row_version} 不变）；</li>
  *   <li><b>异值不覆盖</b>：交易所报单号不可变 ⇒ 保留既有值 + 结构化告警（LOG + {@code residualEvents}）；</li>
  *   <li><b>无源不臆造</b>：空白 {@code orderSysId} ⇒ 该列保持 {@code NULL}；</li>
- *   <li><b>回填失败不静默</b>：更新影响行数 ≠ 1 ⇒ 抛 {@link BizException}（{@code REFERENCE_CONFLICT}）；</li>
+ *   <li><b>回填失败不静默</b>：本次确实回填 {@code order_sys_id} 且更新影响行数 ≠ 1 ⇒ 抛
+ *       {@link BizException}（{@code REFERENCE_CONFLICT}）；</li>
+ *   <li><b>不扩大行为变更（D-3）</b>：仅状态更新（非回填）时影响行数 ≠ 1 保持 T-233 之前语义
+ *       （返回值忽略，不抛错）；</li>
  *   <li><b>父指令缺失</b>：{@code orderId} 在 {@code t_trade_order} 无对应行 ⇒ 抛错（不静默跳过）。</li>
  * </ul>
  */
@@ -118,7 +124,7 @@ class T233OrderSysIdBackfillTest {
     // ================================================================ 验收 2：正常回填
 
     @Test
-    @DisplayName("首次回报携带 OrderSysID ⇒ 按 client_order_ref 关联回填 t_trade_order.order_sys_id")
+    @DisplayName("首次回报携带 OrderSysID ⇒ 按 order_id 解析父指令行后回填 t_trade_order.order_sys_id")
     void firstReportBackfillsOrderSysId() {
         seedOrder();
         assertNull(orderRow().get("order_sys_id"), "前置：未回报前应为 NULL");
@@ -208,6 +214,40 @@ class T233OrderSysIdBackfillTest {
         // ⚠️ InMemoryDmEngine 的 rollback 是 no-op（工程指南陷阱 6）⇒ 此处只断言「主表未被写」，
         //    事务回滚语义不在本用例断言范围（真实 DM 由部署方复跑）。
         assertNull(orderRow().get("order_sys_id"), "更新失败时主表不得留下回填值");
+    }
+
+    @Test
+    @DisplayName("D-3 收窄：状态更新（非回填）影响行数≠1 ⇒ 维持 T-233 之前语义（不抛错）")
+    void statusOnlyUpdateFailureKeepsOriginalBehavior() {
+        seedOrder();
+        // 首次回报写入 sys_id（真实 DAO，成功）⇒ 后续同值回报不再构成「回填」
+        service.onOrderReport(report("S-9001", "SUBMITTED", 0, 0, 1));
+        assertEquals(2L, ((Number) orderRow().get("row_version")).longValue());
+
+        // 第二次回报：同值 sys_id（幂等 ⇒ 不构成回填）+ 状态映射 ⇒ 只剩状态更新这一路，
+        // 用「updateById 恒返回 0」的装饰器驱动该路失败。
+        TradeService guarded = buildService(failingUpdateDao(realOrderDao));
+        TradeService.OrderReportEvent e = report("S-9001", "PARTIAL_FILLED", 1, 0, 2);
+        e.mappedOrderStatus = "PARTIAL_FILLED";
+
+        assertDoesNotThrow(() -> guarded.onOrderReport(e),
+                "状态更新路径不得因影响行数≠1 抛错（T-233 前语义；授权只覆盖回填失败）");
+        assertEquals(2, reportRows().size(), "回报行仍应落库");
+        assertEquals("SENT_CTP", orderRow().get("status"), "更新未生效（装饰器），状态保持原值");
+        assertEquals(2L, ((Number) orderRow().get("row_version")).longValue(), "主表未被改写");
+    }
+
+    @Test
+    @DisplayName("回填 + 状态更新合并写失败 ⇒ 仍抛错（收窄后回填路径仍有牙）")
+    void backfillWithStatusUpdateStillFailsLoudly() {
+        seedOrder();
+        TradeService guarded = buildService(failingUpdateDao(realOrderDao));
+        TradeService.OrderReportEvent e = report("S-9001", "ALL_FILLED", 1, 0, 1);
+        e.mappedOrderStatus = "ALL_FILLED";
+
+        BizException ex = assertThrows(BizException.class, () -> guarded.onOrderReport(e));
+        assertEquals(ErrorCode.REFERENCE_CONFLICT, ex.errorCode());
+        assertNull(orderRow().get("order_sys_id"), "失败时主表不得留下回填值");
     }
 
     @Test

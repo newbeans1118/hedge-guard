@@ -18,6 +18,7 @@
 //   ⑦ **端到端**：重放收到 kTimeout ⇒ `unknown_count++` 且 `frozen_released == 0`
 //      （16 字符生产形态 ref 下，绝不把可能仍在途的报单判为「未实际到达」而释放冻结）。
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <string>
 #include <thread>
@@ -690,6 +691,210 @@ void replay_blank_sys_id_is_unknown_not_released() {
   HG_CHECK_EQ(trade.queries, 0);  // 空白 sys_id + 超长 ref ⇒ 未发起查询
 }
 
+// ②b O-1（安全面）：sys_id 含 `|` / `;` / 空格 / 超长 ⇒ **不可用**（不得进入窄查）。
+//   若把这类值当有效键：`;`/`|` 会在流水 `sys_id=<v>;` 编码中被截断/改写（窄查键与交易所
+//   分配号不一致）⇒ CTP 不命中 ⇒ 误判「未到达」⇒ 释放冻结（危险方向）。
+//   A) 生产形态 16 字符 ref ⇒ 回退 ref ⇒ T-212 闸门拒发 ⇒ 保守 kTimeout；
+//   B) 12 字节内 ref ⇒ 确实回退到 ref（`order_sys_id` 未进请求），证明非法值被丢弃。
+void bridge_illegal_sys_id_falls_back_to_safe_failure() {
+  const char* kIllegal[] = {"S|A", "S;A", "S A", "123456789012345678901"};  // 含 | ; 空格 / 21 字节
+  {
+    hg::ctp_adapter::testutil::FakeTradeGateway trade;
+    hg::ctp_adapter::testutil::FakeMdGateway md;
+    CtAdapter adapter(&trade, &md, false);
+    trade.set_sink(&adapter);
+    bringOnline(&adapter);
+    trade.query_found = false;
+
+    hg::app::CtOrderStateQueryBridge bridge(&adapter, 50);
+    for (int i = 0; i < 4; ++i) {
+      InflightOrder io = inflight(kProdRef16);
+      io.order_sys_id = kIllegal[i];
+      std::string detail;
+      const OrderQueryResult qr = bridge.query(io, &detail);
+      HG_CHECK(qr == OrderQueryResult::kTimeout);   // 保守：状态未知
+      HG_CHECK(qr != OrderQueryResult::kNotFound);  // 绝不误判「未到达」
+    }
+    HG_CHECK_EQ(trade.queries, 0);  // 非法 sys_id + 超长 ref ⇒ 未发起查询（闸门生效）
+  }
+  {
+    hg::ctp_adapter::testutil::FakeTradeGateway trade;
+    hg::ctp_adapter::testutil::FakeMdGateway md;
+    CtAdapter adapter(&trade, &md, false);
+    trade.set_sink(&adapter);
+    bringOnline(&adapter);
+    trade.query_status = '3';  // 在途
+
+    hg::app::CtOrderStateQueryBridge bridge(&adapter, 50);
+    for (int i = 0; i < 4; ++i) {
+      InflightOrder io = inflight("REF12BYTES01");  // 12 字节内 ⇒ 允许按 ref 查
+      io.order_sys_id = kIllegal[i];
+      std::string detail;
+      const OrderQueryResult qr = bridge.query(io, &detail);
+      HG_CHECK(qr == OrderQueryResult::kLive);
+      HG_CHECK(trade.last_query.order_sys_id.empty());  // 非法值**未**进入请求
+      HG_CHECK_EQ(trade.last_query.client_order_ref, std::string("REF12BYTES01"));  // 回退 ref
+    }
+    HG_CHECK_EQ(trade.queries, 4);
+  }
+}
+
+// ⑦c 端到端：流水带回**非法** sys_id（含 `;` / `|`）⇒ 编码侧不写入前缀 ⇒ 重放视同缺失
+//   ⇒ 安全失败（unknown_count=2、frozen_released=0、未发起查询），且流水行仍 5 字段。
+void replay_illegal_sys_id_is_unknown_not_released() {
+  const std::string d = "/tmp/t233-e2e-illegal-sysid";
+  const std::string cmd = std::string("rm -rf '") + d + "'; mkdir -p '" + d + "'";
+  HG_CHECK(std::system(cmd.c_str()) == 0);
+  const char* kRefs[] = {kProdRef16, "HG20261105000002"};
+  const char* kIllegal[] = {"S;A", "S|A"};
+
+  {
+    hg::flow_store::FlowStore fs;
+    HG_CHECK(fs.open(hg::flow_store::flowShardPath(d, 20261105)));
+    for (int i = 0; i < 2; ++i) {
+      const std::uint64_t oid = static_cast<std::uint64_t>(6100 + i);
+      const std::int64_t base = 1767225600000LL + 10 * i;
+      hg::flow_store::FlowRecord placed;
+      placed.kind = hg::flow_store::FlowKind::kPlaced;
+      placed.order_id = oid;
+      placed.client_order_ref = kRefs[i];
+      placed.ts_ms = base;
+      placed.detail = "accepted pending confirm";
+      HG_CHECK(fs.append(placed));
+      hg::flow_store::FlowRecord sent;
+      sent.kind = hg::flow_store::FlowKind::kSent;
+      sent.order_id = oid;
+      sent.client_order_ref = kRefs[i];
+      sent.ts_ms = base + 1;
+      sent.detail = "submitted to CTP";
+      HG_CHECK(fs.append(sent));
+      hg::flow_store::FlowRecord reported;
+      reported.kind = hg::flow_store::FlowKind::kReported;
+      reported.order_id = oid;
+      reported.client_order_ref = kRefs[i];
+      reported.ts_ms = base + 2;
+      reported.detail = "order report";
+      reported.order_sys_id = kIllegal[i];  // 非法：编码侧不得写入 `sys_id=` 前缀
+      HG_CHECK(fs.append(reported));
+    }
+    fs.close();
+  }
+
+  // 落盘：不得出现 `sys_id=`（否则值会被 `;` 截断 / `|` 改写）；仍 6 行 × 5 字段。
+  {
+    FILE* f = std::fopen(hg::flow_store::flowShardPath(d, 20261105).c_str(), "rb");
+    HG_CHECK(f != nullptr);
+    if (f != nullptr) {
+      std::string all;
+      char buf[512];
+      std::size_t n = 0;
+      while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) all.append(buf, n);
+      std::fclose(f);
+      HG_CHECK(all.find("sys_id=") == std::string::npos);
+      int pipes = 0;
+      for (std::size_t i = 0; i < all.size(); ++i) {
+        if (all[i] == '|') ++pipes;
+      }
+      HG_CHECK_EQ(pipes, 24);  // 6 行 × 4 个字段分隔符
+    }
+  }
+
+  hg::ctp_adapter::testutil::FakeTradeGateway trade;
+  hg::ctp_adapter::testutil::FakeMdGateway md;
+  CtAdapter adapter(&trade, &md, false);
+  trade.set_sink(&adapter);
+  bringOnline(&adapter);
+  trade.query_found = false;
+
+  hg::app::CtOrderStateQueryBridge bridge(&adapter, 50, 60000);
+  hg::flow_store::ReplayController rc;
+  hg::flow_store::FlowRuntimeConfig cfg;
+  cfg.flow_dir = d;
+  rc.set_runtime_config(cfg);
+  rc.set_order_query(&bridge);
+  const hg::flow_store::ReplayReport rep = rc.run(1770000000000LL, nullptr, nullptr);
+
+  HG_CHECK(rep.verdict == hg::flow_store::ReplayVerdict::kOk);
+  HG_CHECK_EQ(rep.unknown_count, static_cast<std::size_t>(2));
+  HG_CHECK_EQ(rep.frozen_released, static_cast<std::size_t>(0));  // 核心：不误释冻结
+  HG_CHECK_EQ(rep.frozen_held, static_cast<std::size_t>(2));
+  for (std::size_t i = 0; i < rep.orders.size(); ++i) {
+    HG_CHECK(rep.orders[i].order_sys_id.empty());  // 非法值未进还原态
+  }
+  HG_CHECK_EQ(trade.queries, 0);  // 非法 sys_id + 超长 ref ⇒ 未发起查询
+}
+
+// ⑦d O-7 端到端：**按 sys_id 命中** ⇒ 采纳 CTP 终态（unknown_count=0 / frozen_released=0）。
+//   与 ⑦b/⑦c（安全失败）互补：本用例走的是「sys_id 真实可用」的正向路径，经
+//   `ReplayController → CtOrderStateQueryBridge → CtAdapter → FakeTradeGateway` 全链，
+//   网关按 `OrderSysID` 选行（**不**按 order_id/ref 旁路）。
+//   变异（桥接件回退 ref / 不传 sys_id）⇒ 命中失败 ⇒ 本用例必红（kTimeout ⇒ unknown=1）。
+void replay_sys_id_hit_adopts_terminal_end_to_end() {
+  const std::string d = "/tmp/t233-e2e-sysid-hit";
+  const std::string cmd = std::string("rm -rf '") + d + "'; mkdir -p '" + d + "'";
+  HG_CHECK(std::system(cmd.c_str()) == 0);
+
+  {
+    hg::flow_store::FlowStore fs;
+    HG_CHECK(fs.open(hg::flow_store::flowShardPath(d, 20261105)));
+    hg::flow_store::FlowRecord placed;
+    placed.kind = hg::flow_store::FlowKind::kPlaced;
+    placed.order_id = 4242;
+    placed.client_order_ref = kProdRef16;
+    placed.ts_ms = 1767225600000LL;
+    placed.detail = "accepted pending confirm";
+    HG_CHECK(fs.append(placed));
+    hg::flow_store::FlowRecord sent;
+    sent.kind = hg::flow_store::FlowKind::kSent;
+    sent.order_id = 4242;
+    sent.client_order_ref = kProdRef16;
+    sent.ts_ms = 1767225600001LL;
+    sent.detail = "submitted to CTP";
+    HG_CHECK(fs.append(sent));
+    hg::flow_store::FlowRecord reported;
+    reported.kind = hg::flow_store::FlowKind::kReported;
+    reported.order_id = 4242;
+    reported.client_order_ref = kProdRef16;
+    reported.ts_ms = 1767225600002LL;
+    reported.detail = "order report";
+    reported.order_sys_id = "S-E2E";  // 交易所在 OnRtnOrder 回填的报单编号
+    HG_CHECK(fs.append(reported));
+    fs.close();
+  }
+
+  hg::ctp_adapter::testutil::FakeTradeGateway trade;
+  hg::ctp_adapter::testutil::FakeMdGateway md;
+  CtAdapter adapter(&trade, &md, false);
+  trade.set_sink(&adapter);
+  bringOnline(&adapter);
+  trade.query_status = '0';           // 全部成交（终态）
+  trade.query_order_sys_id = "S-E2E";  // 网关仅对匹配的 OrderSysID 选行
+  trade.query_total = 2;
+  trade.query_traded = 2;
+
+  hg::app::CtOrderStateQueryBridge bridge(&adapter, 50, 60000);
+  hg::flow_store::ReplayController rc;
+  hg::flow_store::FlowRuntimeConfig cfg;
+  cfg.flow_dir = d;
+  rc.set_runtime_config(cfg);
+  rc.set_order_query(&bridge);
+  const hg::flow_store::ReplayReport rep = rc.run(1770000000000LL, nullptr, nullptr);
+
+  HG_CHECK(rep.verdict == hg::flow_store::ReplayVerdict::kOk);
+  HG_CHECK_EQ(rep.orders.size(), static_cast<std::size_t>(1));
+  HG_CHECK_EQ(rep.orders[0].order_sys_id, std::string("S-E2E"));  // 流水 → 还原态贯通
+  HG_CHECK_EQ(trade.queries, 1);
+  HG_CHECK_EQ(trade.last_query.order_sys_id, std::string("S-E2E"));  // 窄查键 = sys_id
+  HG_CHECK(trade.last_query.client_order_ref.empty());               // 未回退不安全路径
+  HG_CHECK_EQ(rep.decisions.size(), static_cast<std::size_t>(1));
+  HG_CHECK(rep.decisions[0].kind == hg::flow_store::ReplayDecision::kAdoptTerminal);
+  HG_CHECK(rep.decisions[0].ctp_result == OrderQueryResult::kFilled);
+  HG_CHECK(rep.decisions[0].detail.find("FILLED") != std::string::npos);
+  HG_CHECK_EQ(rep.unknown_count, static_cast<std::size_t>(0));
+  HG_CHECK_EQ(rep.frozen_released, static_cast<std::size_t>(0));
+  HG_CHECK_EQ(rep.frozen_held, static_cast<std::size_t>(0));
+}
+
 int main() {
   order_status_mapping();
   adapter_query_reports_filled();
@@ -715,5 +920,9 @@ int main() {
   bridge_same_ref_orders_distinguished_by_sys_id();
   bridge_blank_sys_id_falls_back_to_safe_failure();
   replay_blank_sys_id_is_unknown_not_released();
+  // T-233 补正（复核 D-2/D-3 + O-1/O-7）
+  bridge_illegal_sys_id_falls_back_to_safe_failure();
+  replay_illegal_sys_id_is_unknown_not_released();
+  replay_sys_id_hit_adopts_terminal_end_to_end();
   return hg::ctp_adapter::testutil::report("ct_order_query_test");
 }

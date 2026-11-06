@@ -12,8 +12,9 @@
 //   · T-233 修法：流水 REPORTED 记录带回 CTP `OrderSysID`（`FlowRecord::order_sys_id`），
 //     重放还原进 `InflightOrder::order_sys_id`，本件**优先**以它窄查（`CThostFtdcQryOrderField`
 //     唯一可用于服务端过滤的键）；只有 sys_id 缺失/空白时才回退 ref，并保留 T-212 安全失败闸门。
-//   · 配套（Java 侧）：`t_trade_order.order_sys_id` 由 `EVT_ORDER_REPORT` 按 `client_order_ref`
-//     回填，供运维/审计按交易所报单号核验；`client_order_ref` 格式与唯一性**零改动**。
+//   · 配套（Java 侧）：`t_trade_order.order_sys_id` 由 `EVT_ORDER_REPORT` **按 `order_id`
+//     解析父指令行**后回填（回报事件载荷**无** `clientOrderRef` 字段），供运维/审计按
+//     交易所报单号核验；`client_order_ref` 格式与唯一性**零改动**。
 //
 // 职责：把 `ctp_adapter` 的**异步 SPI 查询能力**（`CtAdapter::queryOrder`：发起
 //   `ReqQryOrder` → 有界等待 `OnRspQryOrder` 回调 → 归一化结论）适配为 `flow_store`
@@ -49,6 +50,7 @@
 #include <string>
 
 #include "hg/ctp_adapter/ct_adapter.h"
+#include "hg/flow_store/flow_store.h"  // validOrderSysId（T-233 O-1 唯一合法性口径）
 #include "hg/flow_store/replay.h"
 
 namespace hg {
@@ -100,11 +102,13 @@ class CtOrderStateQueryBridge : public hg::flow_store::IOrderStateQuery {
     //   流水侧 `client_order_ref` = `HG<yyyyMMdd><seq6>`（16 字符）超出 CTP `OrderRef` 的 12 可用
     //   字节（`TThostFtdcOrderRefType[13]`），`setField` 静默截断 ⇒ 按整串比较恒不命中 ⇒ 会误判
     //   「未到达」并释放冻结（危险方向）。故：
-    //     · sys_id 可用（非空且含非空格字符）⇒ 只按 sys_id 查，**不传 ref**（避免回退到不安全路径）；
-    //     · sys_id 不可用 ⇒ 回退 ref，并由 `CtAdapter::queryOrder` 的 T-212 安全失败闸门兜底
+    //     · sys_id **合法**（`validOrderSysId`：`[A-Za-z0-9_-]`、1..20 字节）⇒ 只按 sys_id 查，
+    //       **不传 ref**（避免回退到不安全路径）；
+    //     · sys_id 为空/非法 ⇒ 回退 ref，并由 `CtAdapter::queryOrder` 的 T-212 安全失败闸门兜底
     //       （ref > 12 字节 ⇒ kUnavailable ⇒ 本件映射 kTimeout ⇒ 保守冻结，**绝不** kNotFound）。
-    //   ⚠️ 空白（全空格）的 OrderSysID 视同缺失：CTP 未分配前可能回填空串/空格填充值，
-    //      拿它窄查必然不命中 ⇒ 若当成有效值会绕过安全失败闸门 ⇒ 误释放冻结。
+    //   ⚠️ 空白（全空格）/含 `;`/`|`/超长的 OrderSysID 一律视同缺失：CTP 未分配前可能回填空串或
+    //      空格填充值，而 `;`/`|` 会破坏流水 `sys_id=<v>;` 编码的值边界 ⇒ 拿它窄查必然不命中
+    //      ⇒ 若当成有效值会绕过安全失败闸门 ⇒ 误释放冻结。
     if (usableOrderSysId(order.order_sys_id)) {
       req.order_sys_id = order.order_sys_id;
     } else {
@@ -155,13 +159,14 @@ class CtOrderStateQueryBridge : public hg::flow_store::IOrderStateQuery {
   }
 
  private:
-  // T-233：CTP `OrderSysID` 是否可用于窄查（非空且至少一个非空格字符）。
-  //   CTP 在交易所尚未接受报单时可能回填空白值；把它当有效键会绕过 T-212 安全失败闸门。
+  // T-233：CTP `OrderSysID` 是否可用于窄查。
+  //   · 合法字符集/长度由 `hg::flow_store::validOrderSysId` 统一裁定（`[A-Za-z0-9_-]`、
+  //     1..20 字节），**与流水编码侧共用同一口径**，禁止本件另写字符判断；
+  //   · 非法值（空白填充、含 `;`/`|`/空格、超长）**视同缺失**：既不窄查，也不编码进流水。
+  //     若当成有效键 ⇒ 按一个错的键查询 ⇒ CTP 不命中 ⇒ 误判 `kNotFound` ⇒ 释放冻结
+  //     （危险方向），同时绕过 T-212 安全失败闸门。
   static bool usableOrderSysId(const std::string& sys_id) {
-    for (std::size_t i = 0; i < sys_id.size(); ++i) {
-      if (sys_id[i] != ' ' && sys_id[i] != '\t') return true;
-    }
-    return false;
+    return hg::flow_store::validOrderSysId(sys_id);
   }
 
   // 预约本笔查询的等待额度：预算窗口在**首次查询**时启动（构造到重放之间可能间隔很久，

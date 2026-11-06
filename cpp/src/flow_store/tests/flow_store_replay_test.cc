@@ -424,6 +424,76 @@ void test_inflight_carries_order_sys_id_from_flow() {
   HG_CHECK_EQ(rep.frozen_held, static_cast<std::size_t>(0));
 }
 
+// ---- 6d. T-233 O-1（安全面）：非法 sys_id 一律**不编码**进流水 -----------------
+//   根因：`order_sys_id` 被编进第 5 字段 `sys_id=<v>;`，`;` 是「值/明细」分隔符、
+//   `|` 是 5 字段分隔符（`sanitize` 会把它改写成 `/`）⇒ 含这些字符的值编进去会被
+//   **截断/篡改**，读侧拿到错的窄查键 ⇒ CTP 不命中 ⇒ 误判「未到达」⇒ 释放冻结。
+//   ⇒ 非法值视同缺失：不编码，读侧还原为空（窄查侧再回退 ref + T-212 安全失败闸门）。
+//   变异（把 `composeDetail` 的合法判定去掉，无条件编码）⇒ 本用例必红（落盘出现 `sys_id=` 前缀）。
+void test_detail_sys_id_rejects_illegal_values() {
+  using hg::flow_store::validOrderSysId;
+  // 白名单：字母/数字/`_`/`-`
+  HG_CHECK(validOrderSysId("S9001"));
+  HG_CHECK(validOrderSysId("S-9001_A"));
+  HG_CHECK(validOrderSysId("123456"));
+  // 非法：空 / `;`（值分隔符）/ `|`（字段分隔符）/ 空白（CTP 未分配时的填充值）/ 超长
+  HG_CHECK(!validOrderSysId(""));
+  HG_CHECK(!validOrderSysId("S;A"));
+  HG_CHECK(!validOrderSysId("S|A"));
+  HG_CHECK(!validOrderSysId("S A"));
+  HG_CHECK(!validOrderSysId("   "));
+  HG_CHECK(!validOrderSysId("S\tA"));
+  HG_CHECK(!validOrderSysId("123456789012345678901"));  // 21 字节 > 20（TThostFtdcOrderSysIDType[21]）
+
+  const std::string d = dirOf("sysid-illegal");
+  mkclean(d);
+  const char* kIllegal[] = {"S;A", "S|A", "S A"};
+  for (int i = 0; i < 3; ++i) {
+    FlowStore fs;
+    HG_CHECK(fs.open(hg::flow_store::flowShardPath(d, 20261106)));
+    FlowRecord rec;
+    rec.kind = FlowKind::kReported;
+    rec.order_id = static_cast<std::uint64_t>(700 + i);
+    rec.client_order_ref = "HG20261106000007";
+    rec.ts_ms = 1767225600000LL + i;
+    rec.detail = "order report";
+    rec.order_sys_id = kIllegal[i];  // 非法：不得编码
+    HG_CHECK(fs.append(rec));
+    fs.close();
+  }
+
+  // 落盘断言：无 `sys_id=` 前缀（值未经截断/篡改进入流水），detail 原样，仍 5 字段/行。
+  {
+    FILE* f = std::fopen(hg::flow_store::flowShardPath(d, 20261106).c_str(), "rb");
+    HG_ABORT_IF(f == nullptr);
+    std::string all;
+    char buf[512];
+    std::size_t n = 0;
+    while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) all.append(buf, n);
+    std::fclose(f);
+    HG_CHECK(all.find("sys_id=") == std::string::npos);
+    int pipes = 0;
+    for (std::size_t i = 0; i < all.size(); ++i) {
+      if (all[i] == '|') ++pipes;
+    }
+    HG_CHECK_EQ(pipes, 12);                                  // 3 行 × 4 个字段分隔符
+    HG_CHECK(all.find("|order report\n") != std::string::npos);
+  }
+
+  // 读侧断言：重放还原为空 sys_id（非法值等义于「缺失」，不得把脏值带进 InflightOrder）。
+  ReplayController rc;
+  FlowRuntimeConfig cfg;
+  cfg.flow_dir = d;
+  rc.set_runtime_config(cfg);
+  FakeQuery q;
+  const ReplayReport rep = rc.run(1770000000000LL, nullptr, nullptr);
+  HG_CHECK(rep.verdict == ReplayVerdict::kOk);
+  HG_CHECK_EQ(rep.orders.size(), static_cast<std::size_t>(3));
+  for (std::size_t i = 0; i < rep.orders.size(); ++i) {
+    HG_CHECK(rep.orders[i].order_sys_id.empty());
+  }
+}
+
 // ---- 7. 结构损坏 ⇒ 整文件拒（验收 3 / §4.5.1 不得带病运行）----------------
 void test_corrupt_variants_reject() {
   const char* cases[] = {
@@ -572,6 +642,7 @@ int main() {
   test_inflight_timeout_unknown_alert();
   test_inflight_adopt_terminal();
   test_detail_sys_id_codec();                 // T-233
+  test_detail_sys_id_rejects_illegal_values();     // T-233 O-1（非法值不编码）
   test_inflight_carries_order_sys_id_from_flow();  // T-233
   test_corrupt_variants_reject();
   test_torn_tail_rejects();

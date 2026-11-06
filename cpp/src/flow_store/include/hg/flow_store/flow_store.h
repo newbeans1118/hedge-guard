@@ -56,13 +56,39 @@ struct FlowRecord {
   //   `OrderSysID` 是 `CThostFtdcQryOrderField` **唯一**可用于服务端窄查的键（该结构无 OrderRef）。
   //
   // 落盘编码（**不改行格式**，仍是 5 个 `|` 分隔字段，向后兼容旧文件）：
-  //   `order_sys_id` 非空时，写入的第 5 字段为 `sys_id=<OrderSysID>;<detail>`；
-  //   为空时不写前缀（与 T-233 之前的文件逐字节同形）。读侧由 splitDetailSysId 还原。
-  //   约定由本头声明、`FlowStore::append` 编码、重放解析共用一处，禁止各自私拼。
+  //   `order_sys_id` **合法**（见 validOrderSysId）时，写入的第 5 字段为
+  //   `sys_id=<OrderSysID>;<detail>`；为空或**非法**时不写前缀（与 T-233 之前的文件逐字节
+  //   同形，且不把 `;`/`|`/空白等破坏 5 字段与值边界的字符编进流水）。读侧由
+  //   splitDetailSysId 还原。约定由本头声明、`FlowStore::append` 编码、重放解析共用一处，
+  //   禁止各自私拼。
   std::string order_sys_id;
 
   FlowRecord() {}
 };
+
+// CTP `OrderSysID` 的**字符白名单**校验（T-233 O-1 安全面）。
+//
+// 为什么需要（**安全面，非风格问题**）：`order_sys_id` 被编码进流水第 5 字段的
+//   `sys_id=<v>;` 前缀，而 `;` 是「值 / 明细」的分隔符、`|` 是 5 字段分隔符
+//   （`sanitize` 会把 `|` 改写成 `/`）。若把含 `;`/`|`/空白的值编进去：
+//     · `sys_id=S|A;d` ⇒ 落盘变 `sys_id=S/A;d`（值被**篡改**）；
+//     · `sys_id=S;A;d` ⇒ 读侧 `splitDetailSysId` 取到 `S`（值被**截断**），余段污染 detail；
+//   两者都会让在途对账按一个**错的键**窄查 ⇒ CTP 不命中 ⇒ 误判「未到达」⇒ 释放冻结
+//   （`NFR-REL-1` 重复下单方向）。故**非法值一律视为缺失**：不编码、不窄查，回退
+//   `client_order_ref` 并由 T-212 安全失败闸门兜底（`kTimeout` 冻结，绝不 `kNotFound`）。
+//
+// 白名单依据（**CTP 口径，实测而非推测**）：`OrderSysID` 是交易所分配的报单编号。官方
+//   v6.7.13 `sdk/v6.7.13_20260225_api/.../ThostFtdcUserApiDataType.h:185`
+//   `typedef char TThostFtdcOrderSysIDType[21];`（20 可用字节）——**语法上**未限定字符集
+//   （官方未给出受限字符集），而业务实取值恒为**字母/数字**。
+//   故可用集取 `A–Z`/`a–z`/`0–9`，并额外接受 `_`/`-`：二者**不参与**流水行格式（非 `|`/`;`/
+//   换行），无注入面，且能容纳仿真环境的自定义编号；**拒绝**空白/控制字符/`|`/`;`/其它符号
+//   ——它们才是破坏 5 字段与值边界的真凶。
+// 长度：`TThostFtdcOrderSysIDType[21]` ⇒ 20 个可用字节 + '\0'；超过 20 字节的值**不可能**
+//   是 CTP 回填值（只可能来自损坏/伪造流水），同样按不可用处理（保守方向）。
+// ⚠️ 本函数是**唯一**的合法性口径：`FlowStore::append`（编码侧）与
+//   `app::CtOrderStateQueryBridge`（窄查侧）必须共用，禁止各自另写字符判断。
+bool validOrderSysId(const std::string& order_sys_id);
 
 // 拆解 `detail` 字段内嵌的 `sys_id=<value>;` 前缀（T-233）。
 //
@@ -92,8 +118,9 @@ class FlowStore {
   // 行格式（T-037 重放契约）：`<ts_ms>|<KIND>|<order_id>|<ref>|<detail>\n`
   //   · `ref`/`detail` 内的 `|` 与换行符被替换（`|`→`/`、`\n`/`\r`→空格），
   //     保证一行一记录、五字段定列；
-  //   · `rec.order_sys_id` 非空时，第 5 字段编码为 `sys_id=<value>;<detail>`（T-233，
-  //     见 FlowRecord::order_sys_id 注释；字段数不变，旧文件可直接读）；
+  //   · `rec.order_sys_id` **合法**（`validOrderSysId`）时，第 5 字段编码为
+  //     `sys_id=<value>;<detail>`（T-233，见 FlowRecord::order_sys_id 注释；字段数不变，
+  //     旧文件可直接读）；为空或非法 ⇒ 不编码（detail 逐字节原样，禁止把 `;`/`|` 写进流水）；
   //   · 编码 = UTF-8 透传（detail 来自指令要素摘要，ASCII 为主）。
   bool append(const FlowRecord& rec);
 

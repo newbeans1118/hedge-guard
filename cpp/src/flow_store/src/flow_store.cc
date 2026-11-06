@@ -30,10 +30,17 @@ std::string sanitize(const std::string& in) {
   return out;
 }
 
+// T-233：CTP `OrderSysID` 承载上限（`TThostFtdcOrderSysIDType[21]` ⇒ 20 可用字节 + '\0'）。
+// 超出者不可能是 CTP 回填值（只可能来自损坏/伪造流水）⇒ 按不可用处理（见 validOrderSysId）。
+static const std::size_t kCtOrderSysIdCapacity = 20;
+
 // T-233：把 FlowRecord::order_sys_id 编码进第 5 字段（`sys_id=<value>;<detail>`）。
 // 值为空 ⇒ 原样返回 detail（与 T-233 之前的文件逐字节同形，5 字段不变）。
+// 值**非法**（见 validOrderSysId：含 `;`/`|`/空白等）⇒ **同样不编码**：`;` 是「值/明细」
+//   分隔符、`|` 是字段分隔符，编进去会截断值或篡改值（读到错的窄查键 ⇒ 误判「未到达」
+//   ⇒ 释放冻结）。非法值等义于「缺失」，由窄查侧回退 ref + T-212 安全失败闸门兜底。
 std::string composeDetail(const FlowRecord& rec) {
-  if (rec.order_sys_id.empty()) return rec.detail;
+  if (!validOrderSysId(rec.order_sys_id)) return rec.detail;
   std::string out;
   out.reserve(rec.order_sys_id.size() + rec.detail.size() + 9);
   out += "sys_id=";
@@ -44,6 +51,17 @@ std::string composeDetail(const FlowRecord& rec) {
 }
 
 }  // namespace
+
+bool validOrderSysId(const std::string& order_sys_id) {
+  if (order_sys_id.empty() || order_sys_id.size() > kCtOrderSysIdCapacity) return false;
+  for (std::size_t i = 0; i < order_sys_id.size(); ++i) {
+    const char c = order_sys_id[i];
+    const bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                    (c >= '0' && c <= '9') || c == '_' || c == '-';
+    if (!ok) return false;  // 含空格/TAB/`;`/`|`/换行等 ⇒ 非法（不可窄查、不可编码）
+  }
+  return true;
+}
 
 bool splitDetailSysId(const std::string& detail, std::string* order_sys_id, std::string* rest) {
   static const char kPrefix[] = "sys_id=";

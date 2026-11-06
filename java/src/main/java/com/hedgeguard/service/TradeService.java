@@ -1032,6 +1032,9 @@ public final class TradeService {
             row.eventSeq = e.eventSeq;
             tradeOrderReportDao.insert(row, 0L);
             boolean touchOrder = false;
+            boolean backfilled = false;
+            // 状态更新（T-172 既有路径）：语义与 T-233 之前**逐字一致** —— 影响行数保持忽略。
+            //   T-233 的授权只覆盖「回填失败不得静默」，故此处不扩大行为变更（D-3）。
             if (e.mappedOrderStatus != null) {
                 order.status = e.mappedOrderStatus;
                 touchOrder = true;
@@ -1039,12 +1042,15 @@ public final class TradeService {
             // T-233：CTP `OrderSysID` 回填（重放在途对账的窄查键；见 DATA_MODEL §2.6 TB-TRADE-1 备注）
             if (backfillOrderSysId(order, e.orderSysId, e.orderId)) {
                 touchOrder = true;
+                backfilled = true;
             }
-            if (touchOrder && tradeOrderDao.updateById(order, 0L) != 1) {
-                // 回填/状态更新失败不得静默（T-233 验收 2）：抛错由事件消费侧重试并告警
+            final int affected = touchOrder ? tradeOrderDao.updateById(order, 0L) : 0;
+            if (backfilled && affected != 1) {
+                // 仅「本次确实回填 order_sys_id」这一路不得静默（T-233 验收 2）：抛错由事件消费侧
+                // 重试并告警。状态更新（非回填）路径维持原语义（返回值忽略，D-3 收窄）。
                 throw BizException.of(ErrorCode.REFERENCE_CONFLICT,
-                        "委托回报回填 t_trade_order 失败（EVT_ORDER_REPORT）：orderId=" + e.orderId
-                                + " ref=" + order.clientOrderRef + " orderSysId=" + e.orderSysId
+                        "委托回报回填 t_trade_order.order_sys_id 失败（EVT_ORDER_REPORT）：orderId="
+                                + e.orderId + " ref=" + order.clientOrderRef + " orderSysId=" + e.orderSysId
                                 + "；影响行数≠1（行不存在或并发状态冲突）");
             }
             return null;
