@@ -26,8 +26,10 @@ public final class TradeOrder extends AuditedEntity {
     /**
      * CTP 报单编号（{@code OrderSysID}；{@code T-233} 补列）。
      *
-     * <p>由 {@code EVT_ORDER_REPORT} 按 {@code client_order_ref} 关联回填；首次回报确定后<b>不再改写</b>
-     * （后到回报携带异值 ⇒ 告警留痕、不覆盖）。用途 = 崩溃重放的<b>在途对账窄查</b>
+     * <p>由 {@code EVT_ORDER_REPORT} <b>按 {@code order_id} 解析父指令行</b>后回填
+     * （{@code requireParentOrder}：先 {@code findByOrderId} 命中业务键 {@code order_id}，未命中回退
+     * {@code findById} 命中主键；回报事件载荷<b>无</b> {@code clientOrderRef} 字段，故"按 ref 关联"不可实现）；
+     * 首次回报确定后<b>不再改写</b>（后到回报携带异值 ⇒ 告警留痕、不覆盖）。用途 = 崩溃重放的<b>在途对账窄查</b>
      * （{@code CThostFtdcQryOrderField.OrderSysID} 是唯一可用于服务端过滤的字段）；
      * {@code client_order_ref}（16 字符）超 CTP {@code OrderRef} 的 12 字节可用上限，
      * 被 {@code setField} 静默截断 ⇒ <b>不得</b>用于选行。未收到回报前为 {@code null}。
