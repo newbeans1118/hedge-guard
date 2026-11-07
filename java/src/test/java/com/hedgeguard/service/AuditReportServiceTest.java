@@ -29,6 +29,8 @@ import com.hedgeguard.service.AuditReportService.MajorEventRequest;
 import com.hedgeguard.service.AuditReportService.ReportDataProvider;
 import com.hedgeguard.service.AuditReportService.ReportExport;
 import com.hedgeguard.service.AuditReportService.ReportRow;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.hedgeguard.web.BizException;
 import com.hedgeguard.web.ErrorCode;
 import org.junit.jupiter.api.AfterEach;
@@ -116,14 +118,36 @@ class AuditReportServiceTest {
         assertEquals("Y", r.dualPnlIncluded);
         assertEquals(AuditReportService.COMPLETE, r.chainIntegrity);
         assertEquals(OPERATOR, r.generatedBy);
-        assertTrue(r.contentJson.contains("\"hedgeScale\":300"), "汇总保值规模=明细之和：" + r.contentJson);
-        assertTrue(r.contentJson.contains("\"derivativePnl\":500"), "汇总衍生品盈亏=明细之和");
-        assertTrue(r.contentJson.contains("\"positionQty\":30"), "汇总持仓=明细之和");
+        // T-132：内容快照经 JsonCodec（全局 BigDecimal → 字符串化十进制适配器）落库 ⇒
+        // 汇总项以 JSON string 承载（§4.1.1）；此处按**语义**校验「汇总=明细之和」，
+        // 不再用子串匹配数值词法形态（既保住不变量，又与新口径一致）。
+        JsonObject summary = JsonParser.parseString(r.contentJson).getAsJsonObject()
+                .getAsJsonObject("summary");
+        assertDecimalEquals("300", summary, "hedgeScale", "汇总保值规模=明细之和：" + r.contentJson);
+        assertDecimalEquals("500", summary, "derivativePnl", "汇总衍生品盈亏=明细之和：" + r.contentJson);
+        assertDecimalEquals("30", summary, "positionQty", "汇总持仓=明细之和：" + r.contentJson);
         assertTrue(r.contentJson.contains("铜") && r.contentJson.contains("铝"), "含品种");
         assertTrue(r.contentJson.contains("实货盈亏数据源"), "实货盈亏缺口须标注");
         assertTrue(r.contentJson.contains("violations"), "FR-RISK-18 验收 4：事后汇总进 AUDIT");
         assertNotNull(reportDao.findByReportNo(r.reportNo));
         assertEquals(1, countOperation(AuditReportService.OP_GENERATE));
+    }
+
+    /**
+     * 断言内容快照中的金额/数量项为<b>字符串化十进制</b>且数值等于期望（{@code T-132} 口径）。
+     *
+     * @param expected 期望十进制文本
+     * @param holder   承载对象
+     * @param field    字段名
+     * @param message  失败信息
+     */
+    private static void assertDecimalEquals(String expected, JsonObject holder, String field,
+                                            String message) {
+        assertTrue(holder.get(field) != null && holder.get(field).isJsonPrimitive()
+                && holder.get(field).getAsJsonPrimitive().isString(),
+                message + "（金额/数量须为字符串化十进制，实际=" + holder.get(field) + "）");
+        assertEquals(0, new BigDecimal(expected).compareTo(new BigDecimal(holder.get(field).getAsString())),
+                message);
     }
 
     @Test
