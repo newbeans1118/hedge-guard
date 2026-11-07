@@ -198,6 +198,65 @@ class VarietyServiceTest {
     }
 
     @Test
+    @DisplayName("FR-PRODUCT-13：换算关系成功路径承重（生效起始日必填 / 默认启用 / 逐行留痕）+ 同品种同生效日唯一")
+    void putUnitSuccessPathAndUniqueRule() {
+        long productId = service.createProduct(product("CU", "铜", "COMMODITY"), 1L);
+        ProductUnit draft = unit(productId, new BigDecimal("5"), LocalDate.of(2026, 2, 1));
+        draft.status = null;                     // 未显式给状态 ⇒ 默认 ENABLED（:472 另支）
+        int logsBefore = changeLogDao.rows.size();
+
+        long id = service.putUnit(draft, 1L);
+
+        assertTrue(id > 0, "成功路径须返回新行主键（T-133：原仅覆盖早前守卫被拒路径）");
+        assertEquals(1, unitDao.rows.size(), "须真实落库一行");
+        ProductUnit stored = unitDao.rows.get(unitDao.rows.size() - 1);
+        assertEquals(id, stored.id);
+        assertEquals(productId, stored.productId);
+        assertEquals("ENABLED", stored.status, "未给状态默认启用（FR-PRODUCT-13）");
+        assertEquals(0, new BigDecimal("5").compareTo(stored.convertFactor));
+        assertEquals(LocalDate.of(2026, 2, 1), stored.effectiveFrom, "生效起始日须落库");
+        assertEquals(1, changeLogDao.rows.size() - logsBefore, "新增换算关系须留痕一条");
+        assertEquals("UPDATE", changeLogDao.rows.get(changeLogDao.rows.size() - 1).changeType);
+        assertEquals("product_unit", changeLogDao.rows.get(changeLogDao.rows.size() - 1).changedField);
+        assertEquals("LOT=5TON",
+                changeLogDao.rows.get(changeLogDao.rows.size() - 1).afterValue,
+                "留痕须记 futures=convertFactor spot（FR-PRODUCT-13）");
+
+        assertEquals(ErrorCode.UNIQUE_CONFLICT,
+                assertThrows(BizException.class,
+                        () -> service.putUnit(unit(productId, new BigDecimal("6"),
+                                LocalDate.of(2026, 2, 1)), 1L)).errorCode(),
+                "同品种同生效日重复 ⇒ 10010（uk_product_unit_eff）");
+        assertEquals(1, unitDao.rows.size(), "唯一冲突不得留下半行");
+    }
+
+    @Test
+    @DisplayName("FR-PRODUCT-13 验收 2/3：生效起始日必填；换算系数空值/品种缺省须拒（不得 NPE）")
+    void putUnitRequiresEffectiveFromAndFactor() {
+        long productId = service.createProduct(product("CU", "铜", "COMMODITY"), 1L);
+
+        BizException noFrom = assertThrows(BizException.class,
+                () -> service.putUnit(unit(productId, new BigDecimal("5"), null), 1L));
+        assertEquals(ErrorCode.PARAM_INVALID, noFrom.errorCode(),
+                "生效起始日必填（换算关系变更不追溯重算历史）");
+        assertTrue(noFrom.getMessage().contains("生效起始日必填"),
+                "拒因须点名生效起始日：实际=" + noFrom.getMessage());
+
+        assertEquals(ErrorCode.PARAM_INVALID,
+                assertThrows(BizException.class,
+                        () -> service.putUnit(unit(productId, null, LocalDate.of(2026, 2, 1)), 1L))
+                        .errorCode(), "换算系数缺省（null）须拒而非 NPE");
+
+        ProductUnit noProduct = unit(productId, new BigDecimal("5"), LocalDate.of(2026, 2, 1));
+        noProduct.productId = null;
+        assertEquals(ErrorCode.PARAM_INVALID,
+                assertThrows(BizException.class, () -> service.putUnit(noProduct, 1L)).errorCode(),
+                "品种标识缺省须拒而非 NPE");
+
+        assertTrue(unitDao.rows.isEmpty(), "被拒路径均零写入");
+    }
+
+    @Test
     @DisplayName("合约关联：期权三要素必填；合约类型必显式；境内强制 Y")
     void putContractOptionRequirements() {
         long productId = service.createProduct(product("CU", "铜", "COMMODITY"), 1L);
@@ -557,6 +616,14 @@ class VarietyServiceTest {
 
         @Override
         public int insert(ProductUnit entity, long operatorId) {
+            // T-133：对齐 DDL uk_product_unit_eff（同品种同生效日唯一）——守卫
+            // {@code VarietyService.putUnit} 的 {@code UNIQUE_CONFLICT} 支路需要真实冲突来源。
+            for (ProductUnit row : rows) {
+                if (java.util.Objects.equals(row.productId, entity.productId)
+                        && java.util.Objects.equals(row.effectiveFrom, entity.effectiveFrom)) {
+                    return 0;
+                }
+            }
             entity.id = nextId++;
             rows.add(entity);
             return 1;
