@@ -42,8 +42,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   <li><b>可注入时钟</b>（{@code NFR-TEST-4}）：{@link MutableJobClock} 推进时间，
  *       同一用例在固定时钟下结果稳定、不依赖真实墙钟；</li>
  *   <li><b>可靠性</b>：幂等守卫（不重复结算）、失败必告警、失败后可重入、单任务失败隔离、
- *       并发不重复、高频巡检节流。变异测试见 {@code T-051} 回报：摘幂等守卫 ⇒
- *       {@link #successIsTerminalNoDuplicateSettlement} 必红。</li>
+ *       并发不重复、高频巡检节流、<b>持续失败有重试上限且告警去重</b>（60s 节拍下不重跑/不刷屏）。
+ *       变异测试见 {@code T-051} 回报：摘幂等守卫 ⇒
+ *       {@link #successIsTerminalNoDuplicateSettlement} 必红；摘重试上限或告警去重 ⇒
+ *       {@link #persistentFailureIsBoundedAndAlarmDeduplicated} 必红。</li>
  * </ol>
  */
 class JobSchedulerTest {
@@ -270,6 +272,134 @@ class JobSchedulerTest {
         // 成功后再次短路（重入完成即回到幂等终态）
         s.tick();
         assertEquals(2, ports.calls(JobType.DAILY_SETTLEMENT));
+    }
+
+    @Test
+    @DisplayName("验收4【变异守卫】持续失败有上限：同一时间片 10 拍故障 ⇒ L3 端口调用与告警条数受上限约束")
+    void persistentFailureIsBoundedAndAlarmDeduplicated() {
+        MutableJobClock clock = new MutableJobClock(DAY.atTime(17, 0));
+        RecordingJobPorts ports = new RecordingJobPorts();
+        ports.failing.add(JobType.DAILY_SETTLEMENT);
+        List<String> failureAlarms = new ArrayList<>();
+        JobAlarm alarm = (jobId, message, cause) -> {
+            if (cause != null) { // 只收集失败类告警（水位滞后类 cause 为 null）
+                failureAlarms.add(message);
+            }
+        };
+        JobScheduler s = scheduler(clock.asJobClock(), ports, JobConfig.DEFAULTS, alarm);
+        String key = JobType.DAILY_SETTLEMENT.id() + "#" + DAY;
+        int limit = JobIdempotencyGuard.DEFAULT_MAX_ATTEMPTS;
+        assertEquals(3, limit, "重试上限缺省为 3 次");
+
+        // 固定时钟 + 同一时间片连续 10 拍（模拟 60s 节拍下持续故障一整天）
+        List<JobOutcome.Status> observed = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            observed.add(result(s.tick(), JobType.DAILY_SETTLEMENT).status());
+        }
+
+        assertEquals(limit, ports.calls(JobType.DAILY_SETTLEMENT),
+                "★重试上限有牙：持续故障时 L3 端口调用次数须有上限（摘掉上限此处=10）");
+        assertEquals(2, failureAlarms.size(),
+                "★告警去重有牙：仅首次失败 + 达上限各告警一次（摘掉去重此处=10）");
+        assertTrue(failureAlarms.get(0).contains("第 1 次连续失败"),
+                "首条告警须说明是第几次连续失败：" + failureAlarms.get(0));
+        assertTrue(failureAlarms.get(1).contains("重试上限"),
+                "达上限告警须显式说明停止自动重试：" + failureAlarms.get(1));
+
+        for (int i = 0; i < limit; i++) {
+            assertEquals(JobOutcome.Status.FAILED, observed.get(i), "上限内每拍仍失败：" + i);
+        }
+        for (int i = limit; i < observed.size(); i++) {
+            assertEquals(JobOutcome.Status.SKIPPED_RETRY_LIMIT, observed.get(i),
+                    "达上限后须以 SKIPPED_RETRY_LIMIT 跳过（不再调用 L3 端口）：" + i);
+        }
+        assertEquals(JobIdempotencyGuard.State.FAILED, s.guard().stateOf(key));
+        assertEquals(limit, s.guard().failuresOf(key), "连续失败计数须与状态同步记录");
+
+        // 人工补跑同样受上限约束：不再触发 L3 端口、不再新增告警
+        assertEquals(JobOutcome.Status.SKIPPED_RETRY_LIMIT,
+                s.runNow(JobType.DAILY_SETTLEMENT, DAY).status(),
+                "重试上限耗尽后人工补跑亦被跳过（需人工介入复位）");
+        assertEquals(limit, ports.calls(JobType.DAILY_SETTLEMENT));
+        assertEquals(2, failureAlarms.size());
+
+        // 单任务失败隔离：其余任务不受影响
+        assertEquals(1, ports.calls(JobType.RECONCILIATION));
+        assertEquals(1, ports.calls(JobType.POST_RISK_REPORT));
+    }
+
+    @Test
+    @DisplayName("验收4：重试上限之内保持可重入（失败 2 次后修复 ⇒ 第 3 次成功并清零计数）")
+    void retryWithinLimitStillSucceedsAfterFix() {
+        MutableJobClock clock = new MutableJobClock(DAY.atTime(17, 0));
+        RecordingJobPorts ports = new RecordingJobPorts();
+        List<String> failureAlarms = new ArrayList<>();
+        JobAlarm alarm = (jobId, message, cause) -> {
+            if (cause != null) {
+                failureAlarms.add(message);
+            }
+        };
+        JobScheduler s = scheduler(clock.asJobClock(), ports, JobConfig.DEFAULTS, alarm);
+        String key = JobType.DAILY_SETTLEMENT.id() + "#" + DAY;
+
+        ports.failing.add(JobType.DAILY_SETTLEMENT);
+        assertEquals(JobOutcome.Status.FAILED, result(s.tick(), JobType.DAILY_SETTLEMENT).status());
+        assertEquals(JobOutcome.Status.FAILED, result(s.tick(), JobType.DAILY_SETTLEMENT).status());
+        assertEquals(2, ports.calls(JobType.DAILY_SETTLEMENT), "上限内每拍可重入重试");
+        assertEquals(1, failureAlarms.size(), "阈值内的重复失败不重复告警（仅首次失败告警）");
+        assertEquals(2, s.guard().failuresOf(key));
+
+        // 故障修复 ⇒ 下一次 tick 重试成功（验收标准 4「可重入」）
+        ports.failing.remove(JobType.DAILY_SETTLEMENT);
+        assertEquals(JobOutcome.Status.SUCCESS, result(s.tick(), JobType.DAILY_SETTLEMENT).status(),
+                "未达重试上限的失败必须仍能重跑成功");
+        assertEquals(3, ports.calls(JobType.DAILY_SETTLEMENT));
+        assertEquals(JobIdempotencyGuard.State.SUCCEEDED, s.guard().stateOf(key));
+        assertEquals(0, s.guard().failuresOf(key), "成功后连续失败计数须清零（下一时间片重新计）");
+
+        // 成功后回到幂等终态，不再执行
+        assertEquals(JobOutcome.Status.SKIPPED_DUPLICATE,
+                result(s.tick(), JobType.DAILY_SETTLEMENT).status());
+        assertEquals(3, ports.calls(JobType.DAILY_SETTLEMENT));
+    }
+
+    @Test
+    @DisplayName("幂等守卫：连续失败计数与状态原子更新，达上限拒绝领取，重复上报不重复计数/告警")
+    void guardEnforcesRetryLimitAndCountsFailures() {
+        assertEquals(3, JobIdempotencyGuard.DEFAULT_MAX_ATTEMPTS, "缺省重试上限 3 次");
+        JobIdempotencyGuard g = new JobIdempotencyGuard(2);
+        assertEquals(2, g.maxAttempts());
+
+        assertTrue(g.tryAcquire("k"));
+        JobIdempotencyGuard.FailureRecord first = g.markFailed("k");
+        assertEquals(1, first.attempt());
+        assertTrue(first.alertDue(), "首次失败须告警");
+        assertFalse(first.retryExhausted());
+        assertEquals(JobIdempotencyGuard.State.FAILED, g.stateOf("k"));
+
+        assertTrue(g.tryAcquire("k"), "未达上限须可重入");
+        JobIdempotencyGuard.FailureRecord second = g.markFailed("k");
+        assertEquals(2, second.attempt());
+        assertTrue(second.alertDue(), "达上限那一次须告警");
+        assertTrue(second.retryExhausted());
+
+        assertEquals(JobIdempotencyGuard.AcquireOutcome.RETRY_LIMIT_EXHAUSTED, g.acquire("k"),
+                "达上限须返回可区分的领取结果");
+        assertFalse(g.tryAcquire("k"), "达上限后不再领取");
+        assertEquals(2, g.failuresOf("k"));
+
+        JobIdempotencyGuard.FailureRecord duplicate = g.markFailed("k");
+        assertEquals(2, duplicate.attempt(), "同一轮失败重复上报不得重复计数");
+        assertFalse(duplicate.alertDue(), "同一轮失败重复上报不得重复告警");
+
+        assertEquals(0, g.failuresOf("never-failed"));
+
+        g.markSucceeded("k");
+        assertEquals(JobIdempotencyGuard.State.SUCCEEDED, g.stateOf("k"));
+        assertEquals(0, g.failuresOf("k"), "成功须清零连续失败计数");
+        assertEquals(JobIdempotencyGuard.AcquireOutcome.ALREADY_HANDLED, g.acquire("k"));
+
+        assertThrows(IllegalArgumentException.class, () -> new JobIdempotencyGuard(0));
     }
 
     @Test

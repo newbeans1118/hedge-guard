@@ -27,7 +27,10 @@ import java.util.logging.Logger;
  *   <li><b>可注入时钟</b>（{@code NFR-TEST-4}）：时间只取自构造注入的 {@link JobClock}；
  *       {@link #tick()} 不读墙钟，单测注入可变时钟即可逐帧推进业务日期。</li>
  *   <li><b>可靠性</b>：{@link JobIdempotencyGuard} 保证「成功终态不重跑（不重复结算）」、
- *       「失败释放可重入」；{@link JobAlarm} 保证失败必告警；单个任务失败不影响其余任务。</li>
+ *       「失败释放可重入」；连续失败达上限（{@link JobIdempotencyGuard#DEFAULT_MAX_ATTEMPTS} 次）
+ *       后该时间片停止自动重试（{@link JobOutcome.Status#SKIPPED_RETRY_LIMIT}，不再调用 L3 端口）；
+ *       {@link JobAlarm} 保证失败必告警，且同键同时间片只在首次失败与达上限时各告警一次
+ *       （无告警风暴）；单个任务失败不影响其余任务。</li>
  * </ol>
  *
  * <p><b>单次 tick 语义</b>：取一次 {@code now}（同一帧内所有任务看到同一业务时间），
@@ -164,7 +167,13 @@ public final class JobScheduler {
     private JobOutcome.Result executeGuarded(ScheduledJob job, LocalDateTime now,
                                              LocalDate businessDate, String bucket) {
         String key = job.type().id() + "#" + bucket;
-        if (!guard.tryAcquire(key)) {
+        JobIdempotencyGuard.AcquireOutcome outcome = guard.acquire(key);
+        if (outcome == JobIdempotencyGuard.AcquireOutcome.RETRY_LIMIT_EXHAUSTED) {
+            // 该时间片连续失败已达上限：跳过后续重跑，不再调用 L3 端口、不再告警
+            return JobOutcome.Result.retryLimitExhausted(job.type(), bucket,
+                    guard.failuresOf(key), guard.maxAttempts());
+        }
+        if (outcome != JobIdempotencyGuard.AcquireOutcome.ACQUIRED) {
             return JobOutcome.Result.duplicate(job.type(), bucket);
         }
         JobContext ctx = new JobContext(now, businessDate, operatorId, config, alarm);
@@ -173,18 +182,38 @@ public final class JobScheduler {
             guard.markSucceeded(key);
             return JobOutcome.Result.success(job.type(), bucket, summary);
         } catch (RuntimeException e) {
-            // 失败：释放为可重入状态（不写成功终态），并告警；其余任务不受影响
-            guard.markFailed(key);
-            alert(job.type(), key, e);
+            // 失败：释放为可重入状态（不写成功终态），并按回执去重告警；其余任务不受影响
+            JobIdempotencyGuard.FailureRecord record = guard.markFailed(key);
+            if (record.alertDue()) {
+                alert(job.type(), key, e, record);
+            }
             return JobOutcome.Result.failed(job.type(), bucket, e);
         }
     }
 
-    private void alert(JobType type, String key, Throwable cause) {
-        String message = "定时任务失败：job=" + type.id() + "，幂等键=" + key
-                + "，原因=" + (cause.getMessage() == null ? cause.toString() : cause.getMessage());
+    /**
+     * 失败告警（由 {@link JobIdempotencyGuard.FailureRecord#alertDue()} 驱动去重）。
+     *
+     * <p>同一幂等键在同一轮连续失败中只在「首次失败」与「达重试上限」各告警一次，
+     * 避免 60s 节拍 + 持续故障下的告警风暴。
+     *
+     * @param type    任务类型
+     * @param key     幂等键
+     * @param cause   失败原因
+     * @param record  失败回执（第几次连续失败 / 是否已达上限）
+     */
+    private void alert(JobType type, String key, Throwable cause,
+                       JobIdempotencyGuard.FailureRecord record) {
+        StringBuilder message = new StringBuilder("定时任务失败：job=").append(type.id())
+                .append("，幂等键=").append(key)
+                .append("，第 ").append(record.attempt()).append(" 次连续失败")
+                .append("，原因=").append(cause.getMessage() == null ? cause.toString() : cause.getMessage());
+        if (record.retryExhausted()) {
+            message.append("；连续失败已达重试上限 ").append(guard.maxAttempts())
+                    .append(" 次，本时间片停止自动重试（需人工介入）");
+        }
         try {
-            alarm.alert(type.id(), message, cause);
+            alarm.alert(type.id(), message.toString(), cause);
         } catch (RuntimeException alarmFailure) {
             // 告警 sink 自身失败不得掩盖原失败、不得中断其余任务（JobAlarm 契约）
             // 此处刻意吞掉：原失败已体现在 FAILED 结果中，且不可再抛影响后续任务。
@@ -236,6 +265,18 @@ public final class JobScheduler {
     /** 已登记任务（不可变，顺序即执行顺序）。 */
     public List<ScheduledJob> jobs() {
         return jobs;
+    }
+
+    /**
+     * 已装配的 L3 服务端口（可观测，只读）。
+     *
+     * <p>供装配级测试断言「7 类任务确实接到真实 L3 服务适配而非 {@link JobPorts#NOOP}」
+     * （{@code T-051} {@code JobAssemblyTest}）；不改变构造签名与生产接线。
+     *
+     * @return 装配时注入的端口实例（恒非 {@code null}）
+     */
+    public JobPorts ports() {
+        return ports;
     }
 
     /** 幂等状态守卫（可观测）。 */

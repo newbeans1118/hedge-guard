@@ -142,58 +142,158 @@ public interface JobPorts {
                        Actions.PlanExpiryReminder expiryReminder,
                        Actions.ReportPeriodReminder periodReminder,
                        Actions.EventFlowWatermark watermark) {
-        java.util.Objects.requireNonNull(settlement, "settlement");
-        java.util.Objects.requireNonNull(postRisk, "postRisk");
-        java.util.Objects.requireNonNull(reports, "reports");
-        java.util.Objects.requireNonNull(reconciliation, "reconciliation");
-        java.util.Objects.requireNonNull(expiryReminder, "expiryReminder");
-        java.util.Objects.requireNonNull(periodReminder, "periodReminder");
-        java.util.Objects.requireNonNull(watermark, "watermark");
-        return new JobPorts() {
-            @Override
-            public JobOutcome.Summary runDailySettlement(LocalDate d, long op) {
-                return settlement.run(d, op);
-            }
+        return new Composite(settlement, postRisk, reports, reconciliation,
+                expiryReminder, periodReminder, watermark);
+    }
 
-            @Override
-            public JobOutcome.Summary runPostRiskReport(LocalDate d, long op) {
-                return postRisk.run(d, op);
-            }
+    /**
+     * 7 个端口动作的组合实现（{@link JobPorts#of} 的产物）。
+     *
+     * <p><b>为何暴露各动作</b>：{@code JobPorts} 是 7 个函数式动作的组合边界，「端口是否接到
+     * 真实 L3 服务」只能在装配层核验。本类把 7 个动作以只读访问器暴露出来，使
+     * {@code JobAssemblyTest} 能对<b>每一个</b>端口断言「非空、未退化为
+     * {@link NoOps} 空动作」（生产误装 {@link JobPorts#NOOP} 时立即可判红）。
+     * 动作本身语义不变，装配方（{@code Bootstrap}）与任务侧均无需感知本类。
+     */
+    final class Composite implements JobPorts {
 
-            @Override
-            public JobOutcome.Summary generateDailyReports(LocalDate d, long op) {
-                return reports.run(d, op);
-            }
+        private final Actions.DailySettlement settlement;
+        private final Actions.PostRiskReport postRisk;
+        private final Actions.ReportGeneration reports;
+        private final Actions.Reconciliation reconciliation;
+        private final Actions.PlanExpiryReminder expiryReminder;
+        private final Actions.ReportPeriodReminder periodReminder;
+        private final Actions.EventFlowWatermark watermark;
 
-            @Override
-            public JobOutcome.Summary reconcile(LocalDate d, long op) {
-                return reconciliation.run(d, op);
-            }
+        /**
+         * 构造（7 个动作均不得为 {@code null}）。
+         *
+         * @param settlement     日终结算动作
+         * @param postRisk       事后风控动作
+         * @param reports        报表生成动作
+         * @param reconciliation 对账动作
+         * @param expiryReminder 到期提醒动作
+         * @param periodReminder 报告周期提醒动作
+         * @param watermark      事件流水位巡检动作
+         */
+        public Composite(Actions.DailySettlement settlement,
+                         Actions.PostRiskReport postRisk,
+                         Actions.ReportGeneration reports,
+                         Actions.Reconciliation reconciliation,
+                         Actions.PlanExpiryReminder expiryReminder,
+                         Actions.ReportPeriodReminder periodReminder,
+                         Actions.EventFlowWatermark watermark) {
+            this.settlement = java.util.Objects.requireNonNull(settlement, "settlement");
+            this.postRisk = java.util.Objects.requireNonNull(postRisk, "postRisk");
+            this.reports = java.util.Objects.requireNonNull(reports, "reports");
+            this.reconciliation = java.util.Objects.requireNonNull(reconciliation, "reconciliation");
+            this.expiryReminder = java.util.Objects.requireNonNull(expiryReminder, "expiryReminder");
+            this.periodReminder = java.util.Objects.requireNonNull(periodReminder, "periodReminder");
+            this.watermark = java.util.Objects.requireNonNull(watermark, "watermark");
+        }
 
-            @Override
-            public JobOutcome.Summary remindPlanExpiry(LocalDate d, int days, long op) {
-                return expiryReminder.run(d, days, op);
-            }
+        @Override
+        public JobOutcome.Summary runDailySettlement(LocalDate d, long op) {
+            return settlement.run(d, op);
+        }
 
-            @Override
-            public JobOutcome.Summary remindReportPeriod(LocalDate d, long op) {
-                return periodReminder.run(d, op);
-            }
+        @Override
+        public JobOutcome.Summary runPostRiskReport(LocalDate d, long op) {
+            return postRisk.run(d, op);
+        }
 
-            @Override
-            public JobOutcome.Summary inspectEventFlowWatermark(long op) {
-                return watermark.run(op);
-            }
-        };
+        @Override
+        public JobOutcome.Summary generateDailyReports(LocalDate d, long op) {
+            return reports.run(d, op);
+        }
+
+        @Override
+        public JobOutcome.Summary reconcile(LocalDate d, long op) {
+            return reconciliation.run(d, op);
+        }
+
+        @Override
+        public JobOutcome.Summary remindPlanExpiry(LocalDate d, int days, long op) {
+            return expiryReminder.run(d, days, op);
+        }
+
+        @Override
+        public JobOutcome.Summary remindReportPeriod(LocalDate d, long op) {
+            return periodReminder.run(d, op);
+        }
+
+        @Override
+        public JobOutcome.Summary inspectEventFlowWatermark(long op) {
+            return watermark.run(op);
+        }
+
+        /** 端口 1：日终结算动作。 */
+        public Actions.DailySettlement settlement() {
+            return settlement;
+        }
+
+        /** 端口 2：事后风控动作。 */
+        public Actions.PostRiskReport postRisk() {
+            return postRisk;
+        }
+
+        /** 端口 3：报表生成动作。 */
+        public Actions.ReportGeneration reports() {
+            return reports;
+        }
+
+        /** 端口 4：对账动作。 */
+        public Actions.Reconciliation reconciliation() {
+            return reconciliation;
+        }
+
+        /** 端口 5：到期提醒动作。 */
+        public Actions.PlanExpiryReminder expiryReminder() {
+            return expiryReminder;
+        }
+
+        /** 端口 6：报告周期提醒动作。 */
+        public Actions.ReportPeriodReminder periodReminder() {
+            return periodReminder;
+        }
+
+        /** 端口 7：事件流水位巡检动作。 */
+        public Actions.EventFlowWatermark watermark() {
+            return watermark;
+        }
+    }
+
+    /**
+     * 7 个<b>空动作</b>常量（7 个端口均返回空摘要）。
+     *
+     * <p>{@link JobPorts#NOOP} 由这 7 个常量组装；装配级测试以「动作身份不等于本类常量」
+     * 作为「端口已接到真实 L3 服务」的可判据。
+     */
+    final class NoOps {
+
+        /** 空：日终结算。 */
+        public static final Actions.DailySettlement SETTLEMENT = (d, op) -> JobOutcome.Summary.empty();
+        /** 空：事后风控。 */
+        public static final Actions.PostRiskReport POST_RISK = (d, op) -> JobOutcome.Summary.empty();
+        /** 空：报表生成。 */
+        public static final Actions.ReportGeneration REPORTS = (d, op) -> JobOutcome.Summary.empty();
+        /** 空：对账。 */
+        public static final Actions.Reconciliation RECONCILIATION = (d, op) ->
+                JobOutcome.Summary.empty();
+        /** 空：到期提醒。 */
+        public static final Actions.PlanExpiryReminder EXPIRY_REMINDER = (d, days, op) ->
+                JobOutcome.Summary.empty();
+        /** 空：报告周期提醒。 */
+        public static final Actions.ReportPeriodReminder PERIOD_REMINDER = (d, op) ->
+                JobOutcome.Summary.empty();
+        /** 空：事件流水位巡检。 */
+        public static final Actions.EventFlowWatermark WATERMARK = op -> JobOutcome.Summary.empty();
+
+        private NoOps() {
+        }
     }
 
     /** 全空实现（7 个动作均返回空摘要），用于「无 DB 装配」与单测基线。 */
-    JobPorts NOOP = of(
-            (d, op) -> JobOutcome.Summary.empty(),
-            (d, op) -> JobOutcome.Summary.empty(),
-            (d, op) -> JobOutcome.Summary.empty(),
-            (d, op) -> JobOutcome.Summary.empty(),
-            (d, days, op) -> JobOutcome.Summary.empty(),
-            (d, op) -> JobOutcome.Summary.empty(),
-            op -> JobOutcome.Summary.empty());
+    JobPorts NOOP = of(NoOps.SETTLEMENT, NoOps.POST_RISK, NoOps.REPORTS, NoOps.RECONCILIATION,
+            NoOps.EXPIRY_REMINDER, NoOps.PERIOD_REMINDER, NoOps.WATERMARK);
 }

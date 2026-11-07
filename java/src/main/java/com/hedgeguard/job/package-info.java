@@ -14,7 +14,10 @@
  *       {@link com.hedgeguard.job.JobConfig} / {@link com.hedgeguard.job.JobAlarm}
  *       ——配置读取与运维告警端口；</li>
  *   <li>{@link com.hedgeguard.job.JobIdempotencyGuard}
- *       ——{@code ABSENT→IN_PROGRESS→SUCCEEDED/FAILED} 状态守卫：成功终态不重跑、失败释放可重入；</li>
+ *       ——{@code ABSENT→IN_PROGRESS→SUCCEEDED/FAILED} 状态守卫：成功终态不重跑、失败释放可重入；
+ *       每键连续失败计数达上限（{@link com.hedgeguard.job.JobIdempotencyGuard#DEFAULT_MAX_ATTEMPTS}）
+ *       即停止自动重试（不再调 L3 端口），失败告警仅在首次失败与达上限时各一次
+ *       （60s 节拍下不出现告警风暴）；</li>
  *   <li>{@link com.hedgeguard.job.JobPorts} ——<b>调度层 → L3 服务层的唯一边界</b>；
  *       生产实现由 {@code Bootstrap} 用真实 L3 服务方法引用装配。</li>
  * </ul>

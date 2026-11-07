@@ -1,6 +1,7 @@
 package com.hedgeguard.web;
 
 import com.hedgeguard.common.Config;
+import com.hedgeguard.job.JobPorts;
 import com.hedgeguard.job.JobScheduler;
 import com.hedgeguard.job.JobType;
 import com.hedgeguard.job.ScheduledJob;
@@ -17,6 +18,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -72,7 +74,7 @@ class JobAssemblyTest {
     }
 
     @Test
-    @DisplayName("已配库装配：调度器的 JobPorts 是真实 L3 服务适配（非 NOOP），且路由数不因调度层变化")
+    @DisplayName("已配库装配：调度器的 7 个 JobPorts 逐一接到真实 L3 服务适配（非 NOOP），且路由数不因调度层变化")
     void wiredPortsAreRealServices() {
         configureFakeDb();
         Bootstrap.Assembly assembly = assertDoesNotThrow(
@@ -86,10 +88,35 @@ class JobAssemblyTest {
                 triggers.add(j.trigger().describe());
             }
             assertTrue(triggers.size() >= 2, "应同时存在日更与高频两类触发时点");
+
+            // ★端口真实性（D-2 补正）：把生产 jobPorts 换成 JobPorts.NOOP 时，以下断言必红
+            JobPorts ports = scheduler.ports();
+            assertNotNull(ports, "调度器必须暴露已装配的 JobPorts 供装配级核验");
+            assertNotSame(JobPorts.NOOP, ports,
+                    "生产装配不得把 JobPorts 退化为 NOOP（7 类任务会静默空转）");
+            assertTrue(ports instanceof JobPorts.Composite,
+                    "生产端口须由 JobPorts.of 以 7 个真实动作装配，实际类型=" + ports.getClass());
+            JobPorts.Composite composite = (JobPorts.Composite) ports;
+            // 7 个端口逐一断言：非空、且不是 NoOps 的空动作（即确实接到 L3 服务方法引用）
+            assertWiredPort("1/7 日终结算", JobPorts.NoOps.SETTLEMENT, composite.settlement());
+            assertWiredPort("2/7 事后风控", JobPorts.NoOps.POST_RISK, composite.postRisk());
+            assertWiredPort("3/7 报表生成", JobPorts.NoOps.REPORTS, composite.reports());
+            assertWiredPort("4/7 对账", JobPorts.NoOps.RECONCILIATION, composite.reconciliation());
+            assertWiredPort("5/7 到期提醒", JobPorts.NoOps.EXPIRY_REMINDER, composite.expiryReminder());
+            assertWiredPort("6/7 报告周期提醒", JobPorts.NoOps.PERIOD_REMINDER, composite.periodReminder());
+            assertWiredPort("7/7 事件流水位巡检", JobPorts.NoOps.WATERMARK, composite.watermark());
+
             // 路由基线不因新增调度层而变化（调度层不注册任何 HTTP 端点）
             assertEquals(168, assembly.routeCount());
         } finally {
             Bootstrap.close(assembly);
         }
+    }
+
+    /** 单端口真实性判据：已装配（非空）且未退化为空动作（{@link JobPorts.NoOps} 常量）。 */
+    private static void assertWiredPort(String label, Object noOpAction, Object wiredAction) {
+        assertNotNull(wiredAction, label + " 端口未装配（null）");
+        assertNotSame(noOpAction, wiredAction,
+                label + " 端口退化为空实现（NOOP）——该类任务将静默空转");
     }
 }
