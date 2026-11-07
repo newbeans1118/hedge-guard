@@ -572,14 +572,14 @@ function frCoverageCard() {
   ul.appendChild(ui.el('li', { html: '<strong>已覆盖</strong>：' +
     '<code>FR-PRODUCT-1</code> 新增（<code>POST /product</code>）、' +
     '<code>FR-PRODUCT-2</code> 修改（<code>PUT /product/{id}</code>：名称 / 分类管理标记 / 备注）、' +
-    '<code>FR-PRODUCT-3</code> 停用（<code>POST /product/{id}</code> <code>action=DISABLE</code>）、' +
-    '<code>FR-PRODUCT-4</code> 启用（<code>action=ENABLE</code>）、' +
+    '<code>FR-PRODUCT-3</code> 停用（<code>POST /product/{id}/disable</code>，body <code>{reason}</code>）、' +
+    '<code>FR-PRODUCT-4</code> 启用（<code>POST /product/{id}/enable</code>，空体）、' +
     '<code>FR-PRODUCT-5</code> 列表（分页 / 排序 / 服务端筛选 / 子账户隔离）、' +
     '<code>FR-PRODUCT-6</code> 详情（含<b>所属子账户白名单</b>读取 <code>GET /product/whitelist</code>）、' +
     '<code>FR-PRODUCT-7</code> 导入、<code>FR-PRODUCT-8</code> 导出（带当前筛选）、' +
     '<code>FR-PRODUCT-9</code> 合约关联、<code>FR-PRODUCT-10</code> 现货映射、' +
     '<code>FR-PRODUCT-11</code> 额度（三层展示＋维护）、<code>FR-PRODUCT-12</code> 白名单写面＋留痕、' +
-    '<code>FR-PRODUCT-13</code> 计量单位与换算关系（<code>action=PUT_UNIT</code>）、' +
+    '<code>FR-PRODUCT-13</code> 计量单位与换算关系（<code>POST /product/{id}/unit</code>）、' +
     '<code>FR-PRODUCT-14</code> 变更历史。' }));
   ul.appendChild(ui.el('li', { html: '<strong>未覆盖（附理由）</strong>：' +
     '<code>FR-PRODUCT-2</code> 的<b>分类变更</b>（商品类 ⇄ 贸易类）—— 处理规则要求「风控岗发起 + 财务负责人审批 + ' +
@@ -648,7 +648,7 @@ function editCard(id, product) {
   return card;
 }
 
-/** 停用 / 启用（FR-PRODUCT-3/4；POST /product/{id} 的 action 动作）。 */
+/** 停用 / 启用（FR-PRODUCT-3/4；POST /product/{id}/disable 与 POST /product/{id}/enable）。 */
 function statusActionCard(id, product) {
   const card = ui.el('div', { class: 'hg-card' });
   card.appendChild(ui.el('h3', { class: 'hg-card__title', text: '状态（FR-PRODUCT-3 停用 / FR-PRODUCT-4 启用）' }));
@@ -715,7 +715,7 @@ function statusActionCard(id, product) {
   return card;
 }
 
-/** 计量单位与换算关系（FR-PRODUCT-13；POST /product/{id} 的 action=PUT_UNIT）。 */
+/** 计量单位与换算关系（FR-PRODUCT-13；POST /product/{id}/unit）。 */
 function unitCard(id) {
   const card = ui.el('div', { class: 'hg-card' });
   card.appendChild(ui.el('h3', { class: 'hg-card__title', text: '计量单位与换算关系（FR-PRODUCT-13）' }));

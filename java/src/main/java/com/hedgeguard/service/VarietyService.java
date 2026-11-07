@@ -552,7 +552,9 @@ public final class VarietyService {
      * {@code categoryManaged}（{@code Y}/{@code N}）、{@code remark}。
      *
      * <p><b>不可改</b>：{@code productCode} —— 编码一经使用不得修改（{@code R-PRODUCT-3}；
-     * {@code FR-PRODUCT-2} 验收 2「不提供该入口或拒绝修改」）。请求给出与原值不同的编码 ⇒ {@code 10001}。
+     * {@code FR-PRODUCT-2} 验收 2「不提供该入口或拒绝修改」）。本方法<b>无编码入口</b>：入参不含
+     * {@code productCode}，请求体（{@code UpdateRequest}）亦不含该字段 ⇒ 即便提交编码也<b>被忽略</b>
+     * （不报错、按 200 返回，编码保持原值）；编码不可改由「无入口」保证，而非「给出即拒绝」。
      *
      * <p><b>分类（{@code category}）变更未承载（据实披露）</b>：{@code FR-PRODUCT-2} 处理规则要求
      * 分类变更「由风控岗发起、财务负责人审批并留痕，**且须校验该品种下是否存在未结束的套保计划或持仓**

@@ -11,8 +11,8 @@
  *   ④ **白名单读取（FR-PRODUCT-6）**：白名单 Tab 发 GET /product/whitelist?productId=…，三态齐全
  *      （加载/空/错误+重试），行含 status 与 dispatchStatus。
  *   ⑤ **写面契约**：修改 → PUT /product/{id}（body camelCase：productName/categoryManaged/remark）；
- *      停用 → POST /product/{id} {action:'DISABLE',reason}；启用 → {action:'ENABLE'}；
- *      计量单位 → {action:'PUT_UNIT', spotUnit, futuresUnit, convertFactor(字符串), effectiveFrom}。
+ *      停用 → POST /product/{id}/disable {reason}；启用 → POST /product/{id}/enable（空体）；
+ *      计量单位 → POST /product/{id}/unit {spotUnit, futuresUnit, convertFactor(字符串), effectiveFrom}。
  *
  * 用法：node tools/probes/t131_product_write_probe.mjs → 全过打印 PASS 计数，退出码 0；任一失败退出码 1。
  *
