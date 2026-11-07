@@ -11,8 +11,12 @@ import com.hedgeguard.web.HttpResult;
 import com.hedgeguard.web.RequestContext;
 import com.hedgeguard.web.RouteHandler;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * 品种变更历史 {@code GET /api/v1/product/change-log?productId=}（{@code T-012}；{@code FR-PRODUCT-14}）。
@@ -54,10 +58,73 @@ public final class ProductChangeLogHandler implements RouteHandler {
         // T-151：读取面按调用者可见子账户范围过滤品种；不可见 ≡ 不存在（统一错误 10001，不泄露存在性）
         Product product = ProductHandler.requireVisibleProduct(varietyService, raw, ctx.currentUserId());
         List<ChangeView> views = new ArrayList<>();
-        for (ProductChangeLog log : varietyService.listChangeLogs(product.id)) {
+        for (ProductChangeLog log : varietyService.listChangeLogs(product.id, filterOf(ctx))) {
             views.add(ChangeView.of(log));
         }
         return HttpResult.json(200, ApiResponse.ok(views, ctx.traceId()));
+    }
+
+    /**
+     * 解析筛选参数（{@code FR-PRODUCT-14} 输入列 {@code docs/REQUIREMENTS/PRODUCT.md:279}
+     * 「品种标识、时间范围、变更类型筛选（新建/修改/启用/停用）」；{@code T-116} 验收 7）。
+     *
+     * <p>参数名（wire）：
+     * <ul>
+     *   <li>{@code fromTime} / {@code toTime}：ISO-8601，接受 {@code 2026-09-01T00:00:00} 或
+     *       {@code 2026-09-01}。仅给日期时，{@code fromTime} 取当日 {@code 00:00:00}、
+     *       {@code toTime} 取当日 {@code 23:59:59.999} ⇒ <b>含当日</b>（审计口径的可预期行为）；</li>
+     *   <li>{@code changeType}：单个或逗号分隔多个（{@code CREATE,UPDATE,ENABLE,DISABLE}，大小写不敏感）
+     *       ⇒ 下推 {@code change_type IN (?,...)}。</li>
+     * </ul>
+     * 格式非法 / 起止倒置 ⇒ {@code 10001}（明确报错，不静默忽略）。
+     *
+     * @param ctx 请求上下文
+     * @return 筛选（未给任何参数 ⇒ 空筛选）
+     */
+    static VarietyService.ChangeLogFilter filterOf(RequestContext ctx) {
+        VarietyService.ChangeLogFilter filter = new VarietyService.ChangeLogFilter();
+        filter.fromTime = parseTime(ctx.queryParam("fromTime"), false);
+        filter.toTime = parseTime(ctx.queryParam("toTime"), true);
+        filter.changeTypes = parseTypes(ctx.queryParam("changeType"));
+        if (filter.fromTime != null && filter.toTime != null
+                && filter.fromTime.isAfter(filter.toTime)) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "时间范围非法：fromTime 晚于 toTime；实际=" + filter.fromTime + " > " + filter.toTime
+                            + "；复现=核对查询参数 fromTime/toTime");
+        }
+        return filter;
+    }
+
+    private static LocalDateTime parseTime(String raw, boolean endOfDay) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return null;
+        }
+        String value = raw.trim();
+        try {
+            if (value.length() <= 10) {
+                LocalDate date = LocalDate.parse(value);
+                return endOfDay ? date.atTime(23, 59, 59, 999_000_000) : date.atStartOfDay();
+            }
+            return LocalDateTime.parse(value);
+        } catch (DateTimeParseException e) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "时间格式非法：实际=" + value + "；复现=按 ISO-8601 提交（2026-09-01T00:00:00"
+                            + " 或 2026-09-01）", e);
+        }
+    }
+
+    private static List<String> parseTypes(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return null;
+        }
+        List<String> types = new ArrayList<>();
+        for (String token : raw.split(",")) {
+            String value = token.trim();
+            if (!value.isEmpty()) {
+                types.add(value.toUpperCase(Locale.ROOT));
+            }
+        }
+        return types.isEmpty() ? null : types;
     }
 
     /** 变更留痕视图（时间 ISO-8601；数量类字段以字符串承载）。 */

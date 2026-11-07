@@ -63,7 +63,7 @@ public final class ProductHandler implements RouteHandler {
             String id = ctx.pathParam("id");
             if (id != null && !id.isEmpty()) {
                 return HttpResult.json(200, ApiResponse.ok(
-                        ProductView.of(requireVisibleProduct(varietyService, id, ctx.currentUserId())),
+                        view(requireVisibleProduct(varietyService, id, ctx.currentUserId())),
                         ctx.traceId()));
             }
             return list(ctx);
@@ -80,7 +80,7 @@ public final class ProductHandler implements RouteHandler {
         product.remark = request.remark;
         long id = varietyService.createProduct(product, ctx.currentUserId());
         return HttpResult.json(200, ApiResponse.ok(
-                ProductView.of(varietyService.getProduct(id)), ctx.traceId()));
+                view(varietyService.getProduct(id)), ctx.traceId()));
     }
 
     /**
@@ -99,13 +99,61 @@ public final class ProductHandler implements RouteHandler {
         }
         PageQuery query = PageQuery.of(ctx.queryParam("page"), ctx.queryParam("size"), sort,
                 VarietyService.DEFAULT_SORT_FIELD);
-        PageResult<Product> page = varietyService.listProducts(ctx.currentUserId(), query);
+        PageResult<Product> page = varietyService.listProducts(ctx.currentUserId(), query,
+                filterOf(ctx));
         List<ProductView> items = new ArrayList<>();
         for (Product product : page.items()) {
-            items.add(ProductView.of(product));
+            items.add(view(product));
         }
         PageData<ProductView> data = new PageData<>(items, page.total(), page.page(), page.size());
         return HttpResult.json(200, ApiResponse.ok(data, ctx.traceId()));
+    }
+
+    /**
+     * 解析列表 / 导出的<b>同口径筛选</b>查询参数（{@code FR-PRODUCT-5} 输入列；{@code T-116} 验收 1/2）。
+     *
+     * <p>参数名（wire，{@code camelCase}）：{@code productCode}（编码关键字）、{@code productName}
+     * （名称关键字）、{@code status}（{@code ENABLED}/{@code DISABLED}）、{@code category}
+     * （{@code COMMODITY}/{@code TRADE}）、{@code subAccountId}（整数）。
+     * 取值域校验在服务层（越域 ⇒ {@code 10001}），此处只做**类型**解析（{@code subAccountId} 非整数
+     * ⇒ {@code 10001}，不静默忽略）。
+     *
+     * <p><b>列表与导出共用本方法</b> ⇒ 两端点的筛选口径不可能漂移（{@code T-116} 验收 2）。
+     *
+     * @param ctx 请求上下文
+     * @return 筛选（未给任何参数 ⇒ 空筛选）
+     */
+    static VarietyService.ProductFilter filterOf(RequestContext ctx) {
+        VarietyService.ProductFilter filter = VarietyService.ProductFilter.none();
+        filter.productCode = blankToNull(ctx.queryParam("productCode"));
+        filter.productName = blankToNull(ctx.queryParam("productName"));
+        filter.status = blankToNull(ctx.queryParam("status"));
+        filter.category = blankToNull(ctx.queryParam("category"));
+        String subAccountId = blankToNull(ctx.queryParam("subAccountId"));
+        if (subAccountId != null) {
+            try {
+                filter.subAccountId = Integer.valueOf(subAccountId);
+            } catch (NumberFormatException e) {
+                throw BizException.of(ErrorCode.PARAM_INVALID,
+                        "子账户 ID 须为十进制整数：实际=" + subAccountId
+                                + "；复现=核对查询参数 subAccountId", e);
+            }
+        }
+        return filter;
+    }
+
+    private static String blankToNull(String raw) {
+        return raw == null || raw.trim().isEmpty() ? null : raw.trim();
+    }
+
+    /**
+     * 组装品种视图（含 {@code FR-PRODUCT-5} 输出列「子账户」「最近变更时间」；{@code T-116} 验收 3）。
+     *
+     * @param product 品种
+     * @return 视图
+     */
+    private ProductView view(Product product) {
+        return ProductView.of(product, varietyService.productSubAccountIds(product.id));
     }
 
     /**
@@ -219,7 +267,33 @@ public final class ProductHandler implements RouteHandler {
         /** 停用原因（停用时非空）。 */
         public String disabledReason;
 
+        /**
+         * 在册子账户（{@code FR-PRODUCT-5} 输出列「子账户」；{@code T-116} 验收 3）。
+         *
+         * <p><b>口径</b>：{@code t_product} 无 {@code sub_account_id} 列（全局共享档案），
+         * 「子账户」由 {@code TB-PRODUCT-5 t_sub_product_whitelist} 表达 ⇒ 取该品种白名单中
+         * <b>{@code status = ENABLED}</b>（在册）的 {@code sub_account_id}，去重升序；
+         * <b>无在册行 ⇒ 空数组（恒出现，不为 null）</b>。
+         */
+        public List<Integer> subAccountIds;
+
+        /**
+         * 最近变更时间（{@code FR-PRODUCT-5} 输出列「最近变更时间」；{@code T-116} 验收 3，ISO-8601）。
+         *
+         * <p><b>取值口径（二选一，本实现取后者并写明理由）</b>：{@code t_product.updated_time}
+         * （品种档案本体最近一次写入时间）；该列为空（自创建后从未修改）⇒ 回退
+         * {@code t_product.created_time}；两者皆空（不应发生）⇒ {@code null}。
+         * <b>不取</b> {@code product_change_log} 最新一条：列表页 {@code size ≤ 100}，逐行回查留痕表
+         * 将产生 N 倍附加查询（渲染性能纪律），且逐条变更明细已由 {@code GET /product/change-log}
+         * （{@code FR-PRODUCT-14}）承载。
+         */
+        public String lastModifiedTime;
+
         static ProductView of(Product product) {
+            return of(product, java.util.Collections.emptyList());
+        }
+
+        static ProductView of(Product product, List<Integer> subAccountIds) {
             ProductView view = new ProductView();
             view.id = product.id;
             view.productCode = product.productCode;
@@ -231,6 +305,11 @@ public final class ProductHandler implements RouteHandler {
             view.currency = product.currency;
             view.remark = product.remark;
             view.disabledReason = product.disabledReason;
+            view.subAccountIds = subAccountIds == null
+                    ? new ArrayList<Integer>() : new ArrayList<>(subAccountIds);
+            java.time.LocalDateTime last = product.updatedTime != null
+                    ? product.updatedTime : product.createdTime;
+            view.lastModifiedTime = last == null ? null : last.toString();
             return view;
         }
     }

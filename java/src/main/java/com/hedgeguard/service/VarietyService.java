@@ -27,6 +27,7 @@ import com.hedgeguard.web.ErrorCode;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -120,6 +121,23 @@ public final class VarietyService {
     public static final Set<String> PRODUCT_SORT_FIELDS = Collections.unmodifiableSet(
             new LinkedHashSet<>(Arrays.asList(
                     "created_time", "product_code", "product_name", "status", "category")));
+
+    /** 品种状态取值域（{@code ck_product_status}；无 {@code DELETED}：品种不允许物理删除）。 */
+    public static final Set<String> PRODUCT_STATUSES = Collections.unmodifiableSet(
+            new LinkedHashSet<>(Arrays.asList("ENABLED", "DISABLED")));
+
+    /** 变更类型取值域（{@code FR-PRODUCT-14}「新建/修改/启用/停用」；{@code ck_product_chg_type}）。 */
+    public static final Set<String> CHANGE_TYPES = Collections.unmodifiableSet(
+            new LinkedHashSet<>(Arrays.asList("CREATE", "UPDATE", "ENABLE", "DISABLE")));
+
+    /** 白名单在册状态（{@code TB-PRODUCT-5}：移出白名单 = 置 {@code DISABLED}，保留历史）。 */
+    private static final String WHITELIST_ENABLED = "ENABLED";
+
+    /** 导出/遍历页长（{@link PageQuery#ALLOWED_SIZES} 白名单最大值：导出不受分页上限约束）。 */
+    private static final int EXPORT_PAGE_SIZE = 100;
+
+    /** 变更历史排序（{@code FR-PRODUCT-14} 输出列「按时间倒序」）。 */
+    private static final String CHANGE_LOG_SORT = "change_time,desc";
 
     /** 品种编码格式（ASCII 大写字母/数字/连字符，{@code R-PRODUCT-3}）。 */
     private static final Pattern PRODUCT_CODE = Pattern.compile("[A-Z0-9][A-Z0-9_\\-]{1,31}");
@@ -240,6 +258,45 @@ public final class VarietyService {
     }
 
     /**
+     * 按品种取变更历史 + <b>筛选</b>（{@code FR-PRODUCT-14} 输入列
+     * {@code docs/REQUIREMENTS/PRODUCT.md:279}「品种标识、时间范围、变更类型筛选（新建/修改/启用/停用）」；
+     * {@code T-116} 验收 7）。
+     *
+     * <p><b>下推</b>：{@code WHERE product_id = ? [AND change_time >= ?] [AND change_time <= ?]
+     * [AND change_type IN (?,...)]}，经 {@link ProductChangeLogDao#findPage}（{@code BaseDao} 冻结面）
+     * 执行——筛选在 SQL 层生效，不是取全量后内存过滤。时间边界均为<b>闭区间</b>
+     * （{@code >=} / {@code <=}），与 {@code FR-PRODUCT-14}「时间范围」的审计口径一致。
+     *
+     * <p><b>排序</b>：{@code change_time DESC}（{@code FR-PRODUCT-14} 输出列「按时间倒序」），
+     * 装配层另补主键 {@code id ASC} 收官构成全序（{@code T-096}）。
+     *
+     * <p><b>无筛选</b>（{@code null} 或空）⇒ 走原路径 {@link ProductChangeLogDao#findByProduct}
+     * （{@code change_time DESC}，行为与 {@code T-012} 交付时一致，不改变既有语义）。
+     *
+     * @param productId 品种
+     * @param filter    筛选（{@code null} ⇒ 不筛）
+     * @return 变更历史（按时间倒序；无命中返回空列表）
+     */
+    public List<ProductChangeLog> listChangeLogs(long productId, ChangeLogFilter filter) {
+        if (filter == null || filter.isEmpty()) {
+            return productChangeLogDao.findByProduct(productId);
+        }
+        ProductWhere where = changeLogWhere(productId, filter);
+        List<ProductChangeLog> out = new ArrayList<>();
+        int page = 1;
+        while (true) {
+            PageResult<ProductChangeLog> pr =
+                    productChangeLogDao.findPage(
+                            pageQuery(page, CHANGE_LOG_SORT, "change_time"), where.where, where.args);
+            out.addAll(pr.items());
+            if (pr.items().isEmpty() || out.size() >= pr.total()) {
+                return out;
+            }
+            page++;
+        }
+    }
+
+    /**
      * 查询品种列表（筛选后分页 + 排序；{@code FR-PRODUCT-5} 验收 2/3）。
      *
      * <p><b>缺省排序</b>：{@code created_time} 倒序（{@code FR-PRODUCT-5} 处理规则）；排序字段须在
@@ -260,14 +317,55 @@ public final class VarietyService {
      * @return 分页结果（空结果 {@code items} 空、{@code total}=0）
      */
     public PageResult<Product> listProducts(long operatorId, PageQuery query) {
+        return listProducts(operatorId, query, ProductFilter.none());
+    }
+
+    /**
+     * 品种列表（分页 + 排序 + 子账户隔离 + <b>筛选</b>；{@code FR-PRODUCT-5} 输入列
+     * {@code docs/REQUIREMENTS/PRODUCT.md:148}「筛选条件（品种编码/名称关键字、状态、分类、子账户）」；
+     * {@code T-116} 验收 1）。
+     *
+     * <p><b>筛选下推（{@code T-116} 验收 1 的判据）</b>：本方法只调用 DAO 的<b>分页入口</b>
+     * （{@code findPage} / {@code findPageScoped}），筛选条件以 {@code extraWhere + 占位符参数}
+     * 形式交给 {@link ProductDao}；{@code AbstractDmDao#findPage} 内部<b>分别执行 COUNT 与 SELECT
+     * 两条 SQL</b>且两条都用同一 {@code WHERE} ⇒ 筛选同时下推到<b>计数</b>与<b>取数</b>。
+     * 若只筛 SELECT 不筛 COUNT，{@code total} 会大于 {@code items} 实际可翻页总数（分页错乱），
+     * 故用例断言落在 {@code total} 上（{@code T-116} 验收 4 ①③）。
+     *
+     * <p><b>筛选项口径</b>（逐项下推，多个条件为 AND）：
+     * <ul>
+     *   <li>{@code productCode} / {@code productName}：关键字，下推为
+     *       {@code product_code LIKE ?} / {@code product_name LIKE ?}（模式串 {@code %关键字%}，
+     *       以<b>绑定参数</b>传入，不拼字符串 ⇒ 无注入面；{@code %}/{@code _} 仍具 LIKE 通配含义，
+     *       与 SQL 语义一致）；</li>
+     *   <li>{@code status}：{@code ENABLED} / {@code DISABLED}（越域 ⇒ {@code 10001}），
+     *       下推为 {@code status = ?}；</li>
+     *   <li>{@code category}：{@code COMMODITY} / {@code TRADE}（越域 ⇒ {@code 10001}），
+     *       下推为 {@code category = ?}；</li>
+     *   <li>{@code subAccountId}：<b>先经白名单取数</b>（{@link SubProductWhitelistDao#findBySubAccount}，
+     *       仅 {@code status=ENABLED} 的在册行）解析为该子账户的在册品种 ID 集，再下推为
+     *       {@code id IN (?,...)}；<b>空集 ⇒ 恒假条件 {@code id IN (-1)}（返回空），不得退化为不过滤</b>。
+     *       <b>为何不用子查询</b>：{@code t_product} 无 {@code sub_account_id} 列，子查询形态
+     *       {@code id IN (SELECT product_id ...)} 属 {@code T-152} 已记录的
+     *       {@code InMemoryDmEngine} 静默错值形态（测试不可判）⇒ 改为「先解析再 IN 列表」，
+     *       语义等价且可测。</li>
+     * </ul>
+     *
+     * @param operatorId 调用者（用于解析可见子账户；由会话决定）
+     * @param query      分页 / 排序
+     * @param filter     筛选（{@code null} 或 {@link ProductFilter#none()} ⇒ 不筛）
+     * @return 分页结果（{@code total} 为叠加子账户隔离与筛选后的总行数）
+     */
+    public PageResult<Product> listProducts(long operatorId, PageQuery query, ProductFilter filter) {
         requireSortFieldsAllowed(query, PRODUCT_SORT_FIELDS);
+        ProductWhere where = productWhere(filter);
         List<Integer> visible = visibleSubAccountIds(operatorId);
         if (visible.contains(SubAccountScope.ALL_ACCOUNT_SENTINEL)) {
-            // 跨账户只读（管理层 / 审计岗）：不构造 scope、不加过滤
-            return productDao.findPage(query, null, Collections.emptyList());
+            // 跨账户只读（管理层 / 审计岗）：不构造 scope、不加过滤（筛选仍下推）
+            return productDao.findPage(query, where.where, where.args);
         }
         return productDao.findPageScoped(query,
-                SubAccountScope.of("sub_account_id", visible), null, Collections.emptyList());
+                SubAccountScope.of("sub_account_id", visible), where.where, where.args);
     }
 
     /**
@@ -975,14 +1073,29 @@ public final class VarietyService {
      * <b>排序</b>：{@code created_time} 倒序，与 {@code GET /product} 的缺省排序对齐。
      *
      * @param operatorId 调用者（用于解析可见子账户；由会话决定）
-     * @return CSV 行；无可见数据时仅返回表头
+     * @return CSV 行；无可见数据时仅返回表头（**HTTP 面**的「无可导出数据」语义见
+     *         {@code ProductExportHandler}：{@code T-116} 验收 6 禁止返回「仅表头 CSV」）
      */
     public List<String> exportProducts(long operatorId) {
-        List<Integer> visible = visibleSubAccountIds(operatorId);
-        List<Product> products = visible.contains(SubAccountScope.ALL_ACCOUNT_SENTINEL)
-                // 跨账户只读（哨兵 0）：不加过滤
-                ? productDao.findAllOrderByCreatedDesc()
-                : productDao.findAllScoped(SubAccountScope.of("sub_account_id", visible));
+        return exportProducts(operatorId, ProductFilter.none());
+    }
+
+    /**
+     * 品种导出（{@code FR-PRODUCT-8}；{@code T-105} 验收 4 / {@code T-116} 验收 2）：CSV 文本行（含表头）。
+     *
+     * <p><b>与列表同筛选口径（{@code T-116} 验收 2 的判据）</b>：本方法与
+     * {@link #listProducts(long, PageQuery, ProductFilter)} <b>共用同一</b>
+     * {@link #productWhere(ProductFilter)} 构造的 {@code WHERE} 与参数（同一筛选语义、同一可见集、
+     * 同一排序 {@code created_time DESC}）⇒ 同一筛选下列表 {@code total} 与导出数据行数一致。
+     * 实现上以 {@code PageQuery} 白名单最大页长（100）**分页遍历**取全量（导出不受分页上限约束），
+     * 每条 SQL 都带同一筛选条件。
+     *
+     * @param operatorId 调用者（用于解析可见子账户；由会话决定）
+     * @param filter     筛选（与列表同一口径；{@code null} ⇒ 不筛）
+     * @return CSV 行（首行表头；无数据时**只**返回表头，由 handler 判定为「无可导出数据」）
+     */
+    public List<String> exportProducts(long operatorId, ProductFilter filter) {
+        List<Product> products = allVisibleProducts(operatorId, productWhere(filter));
         List<String> out = new ArrayList<>();
         out.add(String.join(",", CSV_HEADER));
         for (Product product : products) {
@@ -998,6 +1111,201 @@ public final class VarietyService {
     }
 
     // ------------------------------------------------------------ 内部
+
+    /**
+     * 按筛选构造品种 {@code WHERE}（{@code T-116} 验收 1/2 的唯一口径来源）。
+     *
+     * <p>列表与导出<b>共用</b>本方法 ⇒ 「导出与列表同筛选口径」由代码结构保证，而非两处各自实现
+     * （各写一遍正是{@code T-116} 立项时的缺陷形态）。
+     *
+     * @param filter 筛选（{@code null} ⇒ 无附加条件）
+     * @return 条件 + 按占位符顺序排列的绑定参数（无条件时 {@code where=null}、{@code args} 空）
+     */
+    private ProductWhere productWhere(ProductFilter filter) {
+        if (filter == null) {
+            return ProductWhere.none();
+        }
+        StringBuilder where = new StringBuilder();
+        List<Object> args = new ArrayList<>();
+        if (isNotBlank(filter.productCode)) {
+            append(where, "product_code LIKE ?");
+            args.add(likePattern(filter.productCode));
+        }
+        if (isNotBlank(filter.productName)) {
+            append(where, "product_name LIKE ?");
+            args.add(likePattern(filter.productName));
+        }
+        if (isNotBlank(filter.status)) {
+            append(where, "status = ?");
+            args.add(requireOneOf(filter.status, PRODUCT_STATUSES, "状态 status"));
+        }
+        if (isNotBlank(filter.category)) {
+            append(where, "category = ?");
+            args.add(requireOneOf(filter.category, CATEGORIES, "品种分类 category"));
+        }
+        if (filter.subAccountId != null) {
+            List<Long> inBook = inBookProductIds(filter.subAccountId);
+            if (inBook.isEmpty()) {
+                // 空集 ⇒ 恒假（返回空），绝不退化为「不筛」= 全可见
+                append(where, "id IN (-1)");
+            } else {
+                StringBuilder in = new StringBuilder("id IN (");
+                for (int i = 0; i < inBook.size(); i++) {
+                    in.append(i == 0 ? "?" : ",?");
+                }
+                append(where, in.append(')').toString());
+                args.addAll(inBook);
+            }
+        }
+        return new ProductWhere(where.length() == 0 ? null : where.toString(), args);
+    }
+
+    /**
+     * 按筛选构造变更历史 {@code WHERE}（{@code T-116} 验收 7）。
+     *
+     * @param productId 品种
+     * @param filter    筛选（非空）
+     * @return 条件 + 绑定参数（{@code product_id = ?} 恒为首条件）
+     */
+    private ProductWhere changeLogWhere(long productId, ChangeLogFilter filter) {
+        StringBuilder where = new StringBuilder("product_id = ?");
+        List<Object> args = new ArrayList<>();
+        args.add(productId);
+        if (filter.fromTime != null) {
+            append(where, "change_time >= ?");
+            args.add(filter.fromTime);
+        }
+        if (filter.toTime != null) {
+            append(where, "change_time <= ?");
+            args.add(filter.toTime);
+        }
+        if (filter.changeTypes != null && !filter.changeTypes.isEmpty()) {
+            StringBuilder in = new StringBuilder("change_type IN (");
+            for (int i = 0; i < filter.changeTypes.size(); i++) {
+                in.append(i == 0 ? "?" : ",?");
+            }
+            append(where, in.append(')').toString());
+            for (String type : filter.changeTypes) {
+                args.add(requireOneOf(type, CHANGE_TYPES, "变更类型 changeType"));
+            }
+        }
+        return new ProductWhere(where.toString(), args);
+    }
+
+    /**
+     * 取可见范围内的全部品种（导出面；{@code created_time} 倒序，与列表缺省排序一致）。
+     *
+     * <p>以 {@code PageQuery} 白名单最大页长 {@value #EXPORT_PAGE_SIZE} 分页遍历：导出不受分页上限约束，
+     * 但每条 SQL 都带同一 {@code WHERE}（筛选下推），且排序键含主键收官为全序 ⇒ 跨页不重不漏。
+     *
+     * @param operatorId 调用者
+     * @param where      筛选条件
+     * @return 可见且命中的全部品种（{@code created_time} 倒序）
+     */
+    private List<Product> allVisibleProducts(long operatorId, ProductWhere where) {
+        List<Integer> visible = visibleSubAccountIds(operatorId);
+        boolean cross = visible.contains(SubAccountScope.ALL_ACCOUNT_SENTINEL);
+        SubAccountScope scope = cross ? null : SubAccountScope.of("sub_account_id", visible);
+        List<Product> out = new ArrayList<>();
+        int page = 1;
+        while (true) {
+            PageQuery query = pageQuery(page, DEFAULT_SORT_FIELD + ",desc", DEFAULT_SORT_FIELD);
+            PageResult<Product> result = cross
+                    ? productDao.findPage(query, where.where, where.args)
+                    : productDao.findPageScoped(query, scope, where.where, where.args);
+            out.addAll(result.items());
+            if (result.items().isEmpty() || out.size() >= result.total()) {
+                return out;
+            }
+            page++;
+        }
+    }
+
+    /**
+     * 取品种在册子账户（{@code FR-PRODUCT-5} 输出列「子账户」；{@code T-116} 验收 3）。
+     *
+     * <p><b>口径</b>：{@code t_product} 本身**无** {@code sub_account_id} 列（全局共享档案），
+     * 「子账户」由 {@code TB-PRODUCT-5 t_sub_product_whitelist} 表达 ⇒ 本方法返回该品种白名单中
+     * **{@code status = ENABLED}（在册；移出白名单 = 置 {@code DISABLED}）** 的
+     * {@code sub_account_id} 去重升序列表（无在册行 ⇒ 空列表）。与
+     * {@link #productWhere(ProductFilter)} 的 {@code subAccountId} 筛选口径**互为镜像**。
+     *
+     * <p><b>成本（诚实披露）</b>：{@code t_sub_product_whitelist} 现有索引为
+     * {@code idx_sub_product_wl_sub(sub_account_id, status)} 与唯一键
+     * {@code uk_sub_product_wl(sub_account_id, product_id)}——<b>前导列都是 {@code sub_account_id}</b>，
+     * {@code WHERE product_id = ?} 无索引可用 ⇒ 每次为表扫描；列表页 {@code size ≤ 100} ⇒ 至多
+     * {@value #EXPORT_PAGE_SIZE} 次扫描。<b>遗留建议</b>：补 {@code idx_sub_product_wl_product(product_id)}
+     * （属 {@code docs/DEPLOY/schema} 与 {@code DATA_MODEL.md} 写者职责，{@code T-116} 写域不含）。
+     *
+     * @param productId 品种
+     * @return 在册子账户 ID（升序；无则空列表）
+     */
+    public List<Integer> productSubAccountIds(long productId) {
+        if (subProductWhitelistDao == null) {
+            // 入口缺位 ⇒ fail-closed 返回空（不猜测、不放行为全量）
+            return Collections.emptyList();
+        }
+        List<SubProductWhitelist> rows = subProductWhitelistDao.findByProduct(productId);
+        Set<Integer> ids = new LinkedHashSet<>();
+        if (rows != null) {
+            for (SubProductWhitelist row : rows) {
+                if (row != null && row.subAccountId != null && WHITELIST_ENABLED.equals(row.status)) {
+                    ids.add(row.subAccountId);
+                }
+            }
+        }
+        List<Integer> out = new ArrayList<>(ids);
+        Collections.sort(out);
+        return out;
+    }
+
+    /** 子账户在册品种 ID（{@code status = ENABLED} 的白名单行；入口缺位 ⇒ 空集 fail-closed）。 */
+    private List<Long> inBookProductIds(int subAccountId) {
+        if (subProductWhitelistDao == null) {
+            return Collections.emptyList();
+        }
+        List<SubProductWhitelist> rows = subProductWhitelistDao.findBySubAccount(subAccountId);
+        Set<Long> ids = new LinkedHashSet<>();
+        if (rows != null) {
+            for (SubProductWhitelist row : rows) {
+                if (row != null && row.productId != null && WHITELIST_ENABLED.equals(row.status)) {
+                    ids.add(row.productId);
+                }
+            }
+        }
+        return new ArrayList<>(ids);
+    }
+
+    private static PageQuery pageQuery(int page, String sort, String defaultSortField) {
+        return PageQuery.of(String.valueOf(page), String.valueOf(EXPORT_PAGE_SIZE), sort,
+                defaultSortField);
+    }
+
+    private static void append(StringBuilder where, String clause) {
+        if (where.length() > 0) {
+            where.append(" AND ");
+        }
+        where.append(clause);
+    }
+
+    private static boolean isNotBlank(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
+    /** {@code LIKE} 模式串（{@code %关键字%}）；以绑定参数传入，不拼 SQL。 */
+    private static String likePattern(String keyword) {
+        return "%" + keyword.trim() + "%";
+    }
+
+    private static String requireOneOf(String value, Set<String> allowedCandidates, String field) {
+        String v = value.trim();
+        if (!allowedCandidates.contains(v)) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    field + " 取值越域：实际=" + v + "；可选=" + allowedCandidates
+                            + "；复现=按 FR-PRODUCT-5 输入列的取值域提交");
+        }
+        return v;
+    }
 
     /**
      * 取调用者可见子账户集合（{@code NFR-SEC-7} 取数入口；{@code null} ⇒ 空集 fail-closed）。
@@ -1260,5 +1568,81 @@ public final class VarietyService {
                     "必填字段为空：" + field + "；复现=补齐该字段后重新提交");
         }
         return value;
+    }
+
+    /**
+     * 品种列表 / 导出的<b>同口径筛选</b>（{@code FR-PRODUCT-5} 输入列；{@code T-116} 验收 1/2）。
+     *
+     * <p>列表与导出共用本类实例 ⇒ 「导出与列表筛选一致」由类型系统保证。
+     * 字段为 {@code null} / 空串表示不筛该维度；多个维度同时给出为 <b>AND</b>。
+     */
+    public static final class ProductFilter {
+
+        /** 品种编码关键字（下推 {@code product_code LIKE ?}）。 */
+        public String productCode;
+
+        /** 品种名称关键字（下推 {@code product_name LIKE ?}）。 */
+        public String productName;
+
+        /** 状态：{@code ENABLED} / {@code DISABLED}（越域 ⇒ {@code 10001}）。 */
+        public String status;
+
+        /** 分类：{@code COMMODITY} / {@code TRADE}（越域 ⇒ {@code 10001}）。 */
+        public String category;
+
+        /** 子账户（白名单在册口径 ⇒ 下推 {@code id IN (?,...)}；无在册品种 ⇒ 恒假）。 */
+        public Integer subAccountId;
+
+        /**
+         * 空筛选（不筛任何维度）。
+         *
+         * @return 空筛选实例
+         */
+        public static ProductFilter none() {
+            return new ProductFilter();
+        }
+    }
+
+    /**
+     * 变更历史筛选（{@code FR-PRODUCT-14} 输入列；{@code T-116} 验收 7）。
+     *
+     * <p>时间边界均为<b>闭区间</b>；{@code null} 表示不设该边界。
+     */
+    public static final class ChangeLogFilter {
+
+        /** 起始时间（含；下推 {@code change_time >= ?}）。 */
+        public LocalDateTime fromTime;
+
+        /** 截止时间（含；下推 {@code change_time <= ?}）。 */
+        public LocalDateTime toTime;
+
+        /** 变更类型（{@code CREATE}/{@code UPDATE}/{@code ENABLE}/{@code DISABLE}；空/null ⇒ 不筛）。 */
+        public List<String> changeTypes;
+
+        /**
+         * 是否无任何筛选条件。
+         *
+         * @return {@code true} ⇒ 三个维度均未给出
+         */
+        public boolean isEmpty() {
+            return fromTime == null && toTime == null
+                    && (changeTypes == null || changeTypes.isEmpty());
+        }
+    }
+
+    /** {@code WHERE} 片段 + 绑定参数（按占位符顺序；无条件时 {@code where=null}）。 */
+    private static final class ProductWhere {
+
+        private final String where;
+        private final List<Object> args;
+
+        private ProductWhere(String where, List<Object> args) {
+            this.where = where;
+            this.args = args == null ? Collections.emptyList() : args;
+        }
+
+        private static ProductWhere none() {
+            return new ProductWhere(null, Collections.emptyList());
+        }
     }
 }

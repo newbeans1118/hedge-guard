@@ -581,6 +581,19 @@ class VarietyServiceTest {
             return out;
         }
 
+        // T-116：导出面改为「与列表同一 WHERE 的分页遍历」（筛选须真正下推）⇒ 假 DAO 补 findPage。
+        // 本用例不带筛选，故此处只做 created_time 倒序 + 分页切片；where 的语义由
+        // ProductReadFaceT116Test（真实 DAO + 等价引擎）覆盖，勿在此模拟过滤。
+        @Override
+        public PageResult<Product> findPage(PageQuery query, String where, List<Object> whereArgs) {
+            List<Product> ordered = new ArrayList<>(rows);
+            ordered.sort((a, b) -> b.createdTime.compareTo(a.createdTime));
+            int from = Math.min((query.page() - 1) * query.size(), ordered.size());
+            int to = Math.min(from + query.size(), ordered.size());
+            return new PageResult<>(new ArrayList<>(ordered.subList(from, to)),
+                    ordered.size(), query.page(), query.size());
+        }
+
         // T-105：导出面按 created_time 倒序；列表 scoped 面本用例不驱动（隔离由专用用例覆盖）
         @Override
         public List<Product> findAllOrderByCreatedDesc() {

@@ -2,6 +2,8 @@ package com.hedgeguard.web.handler.product;
 
 import com.hedgeguard.service.VarietyService;
 import com.hedgeguard.web.ApiRoutes;
+import com.hedgeguard.web.BizException;
+import com.hedgeguard.web.ErrorCode;
 import com.hedgeguard.web.HttpResult;
 import com.hedgeguard.web.RequestContext;
 import com.hedgeguard.web.RouteHandler;
@@ -37,8 +39,18 @@ public final class ProductExportHandler implements RouteHandler {
 
     @Override
     public HttpResult handle(RequestContext ctx) {
-        List<String> lines = varietyService.exportProducts(ctx.currentUserId());
-        String csv = String.join("\r\n", lines) + (lines.isEmpty() ? "" : "\r\n");
+        // 与 GET /product **同一筛选口径**（共用 ProductHandler.filterOf → 同一 WHERE 构造器）：
+        // FR-PRODUCT-8 验收 1 / T-116 验收 2「导出条数与列表一致、仅含符合筛选的品种」。
+        List<String> lines = varietyService.exportProducts(ctx.currentUserId(),
+                ProductHandler.filterOf(ctx));
+        // T-116 验收 6：无数据 ⇒ 不得返回「200 + 仅表头 CSV」（FR-PRODUCT-8 输出列
+        // 「CSV 文件；无数据时提示"无可导出数据"」）。表头恒为第 1 行 ⇒ 数据行数 = 总行数 - 1。
+        if (lines.size() <= 1) {
+            throw BizException.of(ErrorCode.DATA_INSUFFICIENT,
+                    "无可导出数据：当前筛选条件下没有符合的品种；复现=放宽筛选条件"
+                            + "（FR-PRODUCT-8 输出列「无数据时提示无可导出数据」；T-116 验收 6）");
+        }
+        String csv = String.join("\r\n", lines) + "\r\n";
         return HttpResult.bytes(200, "text/csv; charset=UTF-8", csv.getBytes(StandardCharsets.UTF_8))
                 .withHeader("Content-Disposition", "attachment; filename=\"products.csv\"");
     }
