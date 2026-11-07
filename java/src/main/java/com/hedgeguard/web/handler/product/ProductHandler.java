@@ -18,11 +18,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 品种 {@code GET|POST /api/v1/product} 与 {@code GET /api/v1/product/{id}}（{@code T-012} 提交面）。
+ * 品种 {@code GET|POST /api/v1/product}、{@code GET|PUT /api/v1/product/{id}}（{@code T-012} 提交面；
+ * {@code PUT} 修改面由 {@code T-131} 补齐，{@code FR-PRODUCT-2}）。
  *
- * <p>只暴露品种档案的**读写**；启停、白名单、额度各有独立路径（{@code /product/{id}} 的动作、
- * {@code /product/whitelist}、{@code /product/quota}），避免一个端点混杂多种语义
- * （{@code §4.1.1} 方法语义：查询 / 新增或动作 / 修改）。
+ * <p>只暴露品种档案的**读写**；启停、计量单位、白名单、额度各有独立路径
+ * （{@code /product/{id}/{disable|enable|unit}}、{@code /product/whitelist}、{@code /product/quota}），
+ * 避免一个端点混杂多种语义（{@code §4.1.1} 方法语义：查询 / 新增或动作 / 修改）。
  *
  * <p>品种**不允许物理删除**（{@code status} 无 {@code DELETED}），故本类**无** {@code DELETE}。
  *
@@ -68,6 +69,9 @@ public final class ProductHandler implements RouteHandler {
             }
             return list(ctx);
         }
+        if ("PUT".equalsIgnoreCase(ctx.method())) {
+            return update(ctx);
+        }
         CreateRequest request = JsonCodec.fromJson(ctx.body(), CreateRequest.class);
         if (request == null) {
             throw BizException.of(ErrorCode.PARAM_INVALID,
@@ -81,6 +85,38 @@ public final class ProductHandler implements RouteHandler {
         long id = varietyService.createProduct(product, ctx.currentUserId());
         return HttpResult.json(200, ApiResponse.ok(
                 view(varietyService.getProduct(id)), ctx.traceId()));
+    }
+
+    /**
+     * 品种修改（{@code PUT /product/{id}}，{@code FR-PRODUCT-2}；{@code T-131}）。
+     *
+     * <p><b>为何是 {@code PUT}</b>：{@code §4.1.1}「方法语义：GET 查询 / POST 新增或动作 /
+     * PUT 修改 / DELETE 仅限草稿类物理删除」——本端点对<b>既有资源</b>的属性做修改，
+     * 属「PUT 修改」；与 {@code POST /product}（新增）语义正交，且 {@code §4.1.1} 的 PRODUCT
+     * 资源行已声明 {@code /product/{id}} 允许 {@code GET/POST/PUT}。
+     *
+     * <p><b>权限</b>：授权判定在服务层（{@code VarietyService.updateProduct} →
+     * {@code requireGlobalObjectWriteAuthority}，{@code T-118} 强制点），本层<b>不</b>另行判定，
+     * 以免出现「两套判定」（{@code CH-012} 口径）。
+     *
+     * @param ctx 请求上下文
+     * @return 修改后的品种视图
+     */
+    private HttpResult update(RequestContext ctx) {
+        long productId = parseId(ctx.pathParam("id"));
+        UpdateRequest request = JsonCodec.fromJson(ctx.body(), UpdateRequest.class);
+        if (request == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "修改品种须提交 JSON 体 {productName, categoryManaged?, remark?}："
+                            + "复现=按 FR-PRODUCT-2 可修改属性提交（编码不可改）");
+        }
+        Product updated = varietyService.updateProduct(productId, request.productName,
+                request.categoryManaged, request.remark, request.category, ctx.currentUserId());
+        if (updated == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "品种不存在：id=" + productId + "；复现=按 product_code 查询确认 ID");
+        }
+        return HttpResult.json(200, ApiResponse.ok(view(updated), ctx.traceId()));
     }
 
     /**
@@ -216,6 +252,31 @@ public final class ProductHandler implements RouteHandler {
                             + "；复现=核对品种 ID 与该品种所属子账户的可见性（FR-PRODUCT-6）");
         }
         return product;
+    }
+
+    /**
+     * 修改请求体（{@code PUT /product/{id}}；{@code FR-PRODUCT-2}）。
+     *
+     * <p>{@code productCode} <b>不在</b>本类中（编码不可修改，{@code R-PRODUCT-3}）——
+     * 「不提供入口」优于「入口后拒绝」；即使客户端强塞 {@code productCode} 字段，
+     * 也因无对应字段而被忽略（{@code JsonCodec} 按字段名绑定）。
+     *
+     * <p>{@code category} 仅用于<b>拒绝</b>判定：分类变更须审批流 + 在途校验，本期未承载 ⇒
+     * 给出与原值不同的 {@code category} 一律 {@code 10012}（见服务层注释）。
+     */
+    public static final class UpdateRequest {
+
+        /** 品种名称（必填；置空 ⇒ {@code 10001}）。 */
+        public String productName;
+
+        /** 分类管理标记（{@code Y}/{@code N}；{@code null} = 不变）。 */
+        public String categoryManaged;
+
+        /** 备注（{@code null} = 不变；空串 = 清空）。 */
+        public String remark;
+
+        /** 分类（给出且与原值不同 ⇒ {@code 10012} 阻断；{@code FR-PRODUCT-2} 处理规则）。 */
+        public String category;
     }
 
     /** 新增请求体。 */

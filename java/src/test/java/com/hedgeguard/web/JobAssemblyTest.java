@@ -107,7 +107,8 @@ class JobAssemblyTest {
             assertWiredPort("7/7 事件流水位巡检", JobPorts.NoOps.WATERMARK, composite.watermark());
 
             // 路由基线不因新增调度层而变化（调度层不注册任何 HTTP 端点）
-            assertEquals(168, assembly.routeCount());
+            // 【T-131 增注】基线由 168 订正为 173：PRODUCT 写面 +5 对（见 BootstrapAssemblyTest 同轮注释）。
+            assertEquals(173, assembly.routeCount());
         } finally {
             Bootstrap.close(assembly);
         }

@@ -111,7 +111,8 @@ class WsProductionAssemblyTest {
         assertNull(a.wsServer(), "CFG-32 未配置时不得装配 WS 服务端（不得编造默认端口）");
 
         // 路由计数不受 WS 影响（WS 不注册 HTTP 路由，A′ 独立 ServerSocket）
-        assertEquals(168, a.routeCount(), "WS 装配不增减 HTTP 路由计数（装配前基线 168）");
+        // 【T-131 增注】基线由 168 订正为 173（PRODUCT 写面 +5 对；WS 仍不注册 HTTP 路由）。
+        assertEquals(173, a.routeCount(), "WS 装配不增减 HTTP 路由计数（装配前基线 173）");
     }
 
     @Test

@@ -46,7 +46,9 @@ public final class ApiRoutes {
         BY_MODULE.put("PRODUCT", Arrays.asList(
                 "/product", "/product/{id}", "/product/{id}/contracts", "/product/mapping",
                 "/product/whitelist", "/product/quota", "/product/change-log", "/product/import",
-                "/product/export"));
+                "/product/export",
+                // T-131：§4.1.1 v1.5.27 补登的三条动作子路径（POST）
+                "/product/{id}/disable", "/product/{id}/enable", "/product/{id}/unit"));
         BY_MODULE.put("SPOT", Arrays.asList(
                 "/spot/purchase", "/spot/sales", "/spot/production", "/spot/wip", "/spot/inventory",
                 "/spot/price", "/spot/price/import", "/spot/price/export", "/spot/exposure",
@@ -105,6 +107,10 @@ public final class ApiRoutes {
                 "GET /product/{id}/contracts", "POST /product/{id}/contracts",
                 "GET /product/mapping", "POST /product/mapping",
                 "GET /product/change-log", "POST /product/import", "GET /product/export",
+                // T-131：PRODUCT 写面补登记（FR-PRODUCT-2/3/4/13 + FR-PRODUCT-6 白名单读取）
+                //   路径逐字取自 §4.1.1 v1.5.27 的 PRODUCT 行（三条动作子路径已先声明，NFR-MAINT-5）
+                "GET /product/whitelist", "PUT /product/{id}",
+                "POST /product/{id}/disable", "POST /product/{id}/enable", "POST /product/{id}/unit",
                 "GET /product/{id}"));
         BY_MODULE_ROUTES.put("SPOT", Arrays.asList(
                 "POST /spot/purchase", "POST /spot/sales", "POST /spot/inventory",

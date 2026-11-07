@@ -546,6 +546,99 @@ public final class VarietyService {
     }
 
     /**
+     * 修改品种的**非编码**属性（{@code FR-PRODUCT-2}；{@code T-131}）。
+     *
+     * <p><b>可改</b>：{@code productName}（必填，置空即拒绝——{@code FR-PRODUCT-2} 验收 4）、
+     * {@code categoryManaged}（{@code Y}/{@code N}）、{@code remark}。
+     *
+     * <p><b>不可改</b>：{@code productCode} —— 编码一经使用不得修改（{@code R-PRODUCT-3}；
+     * {@code FR-PRODUCT-2} 验收 2「不提供该入口或拒绝修改」）。请求给出与原值不同的编码 ⇒ {@code 10001}。
+     *
+     * <p><b>分类（{@code category}）变更未承载（据实披露）</b>：{@code FR-PRODUCT-2} 处理规则要求
+     * 分类变更「由风控岗发起、财务负责人审批并留痕，**且须校验该品种下是否存在未结束的套保计划或持仓**
+     * ——存在则拒绝」。该审批流（{@code AUTH} 侧）与在途判定（{@code PLAN}/{@code TRADE} 侧 DAO）在本期
+     * 均未建立，而分类直接决定规模红线比例（90% / 80%，{@code R-PRODUCT-4}）⇒ 按<b>安全默认拒绝</b>
+     * （{@code 10012} 阻断类，四项 {@code ruleId}/{@code current}/{@code threshold}/{@code nextStep} 齐全），
+     * **不得**静默放行造成红线口径中途漂移。登记见 {@code docs/TASKS.md} {@code T-131} 交付说明。
+     *
+     * <p><b>权限</b>：与 {@code createProduct}/{@code disableProduct}/{@code enableProduct}/{@code putUnit}
+     * 同一强制点 —— {@link #requireGlobalObjectWriteAuthority}（{@code T-118}；{@code FR-AUTH-13} /
+     * {@code CH-012} 口径：功能权限 {@code 10003}，入口缺位 fail-closed）。品种档案为<b>全局共享</b>对象
+     * （{@code R-PRODUCT-7}）⇒ **不**套子账户写面断言（套用会误拒）。
+     *
+     * @param productId       品种
+     * @param productName     新品种名称（必填）
+     * @param categoryManaged 分类管理标记（{@code Y}/{@code N}；{@code null} = 不变）
+     * @param remark          备注（{@code null} = 不变；空串 = 清空）
+     * @param category        分类（仅用于**拒绝**判定：给出且与原值不同 ⇒ {@code 10012}）
+     * @param operatorId      操作人
+     * @return 修改后的品种（权威行）
+     */
+    public Product updateProduct(long productId, String productName, String categoryManaged,
+                                 String remark, String category, long operatorId) {
+        requireGlobalObjectWriteAuthority(operatorId, "修改品种");
+        Product product = productDao.findById(productId);
+        if (product == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "品种不存在：id=" + productId + "；复现=按 product_code 查询确认 ID");
+        }
+        String name = requireText(productName, "product_name");
+        if (category != null && !category.trim().isEmpty()) {
+            requireCategory(category.trim());
+            if (!category.trim().equals(product.category)) {
+                throw BizException.blocking(ErrorCode.COMPLIANCE_GATE_FAILED,
+                        "品种分类变更未承载：分类变更须由风控岗发起、财务负责人审批并留痕，且须校验该品种下"
+                                + "是否存在未结束的套保计划或持仓（FR-PRODUCT-2 / R-PRODUCT-4）：id=" + productId,
+                        "R-PRODUCT-4", String.valueOf(product.category),
+                        "分类变更 = 风控岗发起 + 财务负责人审批 + 在途计划/持仓校验",
+                        "本期审批流与在途校验未建立 ⇒ 暂不提供分类变更入口；确需变更请由管理员经"
+                                + "CONFIG 子账户分类口径统一处置并留痕");
+            }
+        }
+        String candidateManaged = product.categoryManaged;
+        if (categoryManaged != null && !categoryManaged.trim().isEmpty()) {
+            candidateManaged = categoryManaged.trim();
+            if (!"Y".equals(candidateManaged) && !"N".equals(candidateManaged)) {
+                throw BizException.of(ErrorCode.PARAM_INVALID,
+                        "分类管理标记只允许 Y/N：实际=" + candidateManaged
+                                + "；复现=按 §2 数据字典「品种分类管理标记」提交");
+            }
+        }
+        final String newName = name;
+        final String newManaged = candidateManaged;
+        final String newRemark = remark;
+        final boolean nameChanged = !newName.equals(product.productName);
+        final boolean managedChanged = !newManaged.equals(product.categoryManaged);
+        final boolean remarkChanged = newRemark != null && !newRemark.equals(product.remark);
+        if (!nameChanged && !managedChanged && !remarkChanged) {
+            return product;
+        }
+        tx.inTransaction(connection -> {
+            if (nameChanged) {
+                writeLog(productId, "UPDATE", "product_name", product.productName, newName, null,
+                        operatorId, "修改品种名称");
+                product.productName = newName;
+            }
+            if (managedChanged) {
+                writeLog(productId, "UPDATE", "category_managed", product.categoryManaged, newManaged, null,
+                        operatorId, "修改分类管理标记");
+                product.categoryManaged = newManaged;
+            }
+            if (remarkChanged) {
+                writeLog(productId, "UPDATE", "remark", product.remark, newRemark, null,
+                        operatorId, "修改备注");
+                product.remark = newRemark;
+            }
+            if (productDao.updateById(product, operatorId) != 1) {
+                throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                        "品种并发冲突：id=" + productId + "；复现=重新读取后再提交");
+            }
+            return null;
+        });
+        return productDao.findById(productId);
+    }
+
+    /**
      * 维护计量单位换算关系（{@code FR-PRODUCT-13}）。
      *
      * @param unit       换算关系（{@code convertFactor > 0}）
@@ -1259,6 +1352,83 @@ public final class VarietyService {
         }
         List<Integer> out = new ArrayList<>(ids);
         Collections.sort(out);
+        return out;
+    }
+
+    /**
+     * 查询子账户品种白名单（{@code FR-PRODUCT-6} 处理规则「详情含…所属子账户白名单」；{@code T-131}）。
+     *
+     * <p><b>为何是 {@code FR-PRODUCT-6} 而非 {@code FR-PRODUCT-12}</b>：{@code FR-PRODUCT-12} 的输入列
+     * 只有「子账户标识、品种集合（增/减）」，<b>不含读取</b>；读取义务来自 {@code FR-PRODUCT-6} 的
+     * 「处理规则：详情含基础属性、额度指标、期货合约关联、现货品类映射、计量单位、<b>所属子账户白名单</b>、
+     * 最近变更历史摘要」（{@code docs/REQUIREMENTS/PRODUCT.md}）。故本方法为**读取面**，不改变白名单。
+     *
+     * <p><b>{@code subAccountId} 取值域</b>：真实子账户（{@code > 0}，{@code DATA_MODEL.md} §0.2）；
+     * 哨兵 {@code 0} 仅表达「账户级」作用域，<b>不是</b>白名单行 → 传 {@code 0} 一律 {@code 10001}。
+     *
+     * <p><b>权限口径（读面 / 写面分离，{@code NFR-SEC-7} / {@code FR-AUTH-13}）</b>：
+     * <ul>
+     *   <li>按 {@code productId} 查（本单主用法）：行级按<b>调用者可见子账户集合</b>过滤 ——
+     *       含哨兵 {@code 0}（跨账户只读）⇒ 不过滤；空集 ⇒ <b>恒空</b>（fail-closed，严禁退化为全可见）；</li>
+     *   <li>按 {@code subAccountId} 查（反向查「某子账户当前白名单」）：显式给定目标 ⇒ 走<b>读面</b>
+     *       可见性断言（{@link #requireSubAccountVisible}，越权 {@code 10004}）——与 {@code GET /product/quota}
+     *       的「显式目标 ⇒ 无权限提示」口径一致；</li>
+     *   <li>写面（加/移出）仍归 {@code POST /product/whitelist}，其 {@code LIMITED} 写授权断言
+     *       （{@link #requireSubAccountWritable}）<b>不变</b>；本方法<b>不</b>放宽写面。</li>
+     * </ul>
+     *
+     * <p><b>「完整」的含义</b>：不做分页截断（白名单行数为子账户数量级），且<b>含已移出历史行</b>
+     * （{@code status=DISABLED}，{@code R-PRODUCT-5}「移出 = 置 DISABLED 并保留历史」）——历史行是
+     * {@code FR-PRODUCT-6}「所属子账户白名单」审计视图的一部分；只取在册行可由 {@code status} 参数收窄。
+     *
+     * @param productId    品种（{@code null} = 不限）
+     * @param subAccountId 子账户（{@code null} = 不限；{@code <= 0} ⇒ {@code 10001}）
+     * @param status       行状态筛选（{@code ENABLED}/{@code DISABLED}；空 = 全部）
+     * @param operatorId   调用者（由会话决定，不接受请求参数传入）
+     * @return 白名单行（无命中返回空列表，不报错）
+     */
+    public List<SubProductWhitelist> listWhitelist(Long productId, Integer subAccountId, String status,
+                                                   long operatorId) {
+        if (productId == null && subAccountId == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "须至少给出 productId 或 subAccountId 之一；复现=按品种查白名单用 productId，"
+                            + "按子账户查用 subAccountId");
+        }
+        String wantedStatus = status == null || status.trim().isEmpty() ? null : status.trim();
+        if (wantedStatus != null && !PRODUCT_STATUSES.contains(wantedStatus)) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "白名单状态只允许 " + PRODUCT_STATUSES + "：实际=" + wantedStatus
+                            + "；复现=按 TB-PRODUCT-5 status 取值域提交");
+        }
+        if (subAccountId != null) {
+            requireSubAccount(subAccountId);
+            // 显式给定子账户目标 ⇒ 读面可见性断言（T-106 双口径：显式目标给「无权限提示」而非统一错误）
+            requireSubAccountVisible(operatorId, subAccountId);
+        }
+        List<Integer> visible = visibleSubAccountIds(operatorId);
+        boolean allVisible = visible.contains(SubAccountScope.ALL_ACCOUNT_SENTINEL);
+        List<SubProductWhitelist> rows = subAccountId != null
+                ? subProductWhitelistDao.findBySubAccount(subAccountId)
+                : subProductWhitelistDao.findByProduct(productId);
+        List<SubProductWhitelist> out = new ArrayList<>();
+        if (rows == null) {
+            return out;
+        }
+        for (SubProductWhitelist row : rows) {
+            if (row == null || row.subAccountId == null) {
+                continue;
+            }
+            if (productId != null && !productId.equals(row.productId)) {
+                continue;
+            }
+            if (!allVisible && !visible.contains(row.subAccountId)) {
+                continue;
+            }
+            if (wantedStatus != null && !wantedStatus.equals(row.status)) {
+                continue;
+            }
+            out.add(row);
+        }
         return out;
     }
 

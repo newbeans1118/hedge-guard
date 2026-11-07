@@ -55,6 +55,37 @@ class ProductRouteDispatchTest {
         assertHandler(router, "/product/123", "ProductHandler");
     }
 
+    @Test
+    @DisplayName("T-131 写面 (方法,路径) 5 对可达：PUT /{id}、POST /{id}/{disable|enable|unit}、GET /whitelist")
+    void writeSurfacePairsResolve() {
+        Router router = new Router();
+        ProductRoutes.register(router, null);
+
+        assertHandler(router, "PUT", "/product/123", "ProductHandler");
+        assertHandler(router, "POST", "/product/123/disable", "ProductActionHandler");
+        assertHandler(router, "POST", "/product/123/enable", "ProductActionHandler");
+        assertHandler(router, "POST", "/product/123/unit", "ProductActionHandler");
+        assertHandler(router, "GET", "/product/whitelist", "WhitelistHandler");
+        // 同段数对照：写动作子路径不得抢占 /product/{id}/contracts（同 3 段 POST）
+        assertHandler(router, "POST", "/product/123/contracts", "ProductContractHandler");
+        // 2 段静态 POST 与 2 段占位符 GET 各自独立
+        assertHandler(router, "POST", "/product/whitelist", "WhitelistHandler");
+        assertHandler(router, "POST", "/product/quota", "QuotaHandler");
+        assertHandler(router, "POST", "/product/mapping", "ProductMappingHandler");
+        // 方法级语义正交：GET /product/123 仍为详情，POST /product 仍为新增
+        assertHandler(router, "GET", "/product/123", "ProductHandler");
+        assertHandler(router, "POST", "/product", "ProductHandler");
+    }
+
+    private static void assertHandler(Router router, String method, String path,
+                                      String expectedSimpleName) {
+        Router.RouteMatch match = router.match(method, ApiRoutes.full(path));
+        assertNotNull(match, method + " " + path + " 未注册");
+        assertEquals(expectedSimpleName, match.handler().getClass().getSimpleName(),
+                method + " " + path + " 须命中 " + expectedSimpleName + "，实际="
+                        + match.handler().getClass().getSimpleName());
+    }
+
     private static void assertHandler(Router router, String path, String expectedSimpleName) {
         Router.RouteMatch match = router.match("GET", ApiRoutes.full(path));
         assertNotNull(match, "GET " + path + " 未命中");

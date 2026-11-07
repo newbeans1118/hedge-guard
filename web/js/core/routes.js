@@ -11,12 +11,15 @@
  *
  * ## 口径（**勿用任何总数核对** —— 本项目已因口径不一浪费排查轮次）
  * 接口面的**唯一权威是 `java/src/main/java/com/hedgeguard/web/ApiRoutes.java`**（`byModule()` 逐模块列出的路径）。
- * 铺页面只按**逐条路径**，不按总数。若确须引用规模，统一写：**「83 个 (方法, 路径) 对 / 60 个路径」**并标明口径：
- *   判据 = `java/src/test/java/com/hedgeguard/web/BootstrapAssemblyTest.java:145`
- *     `assertEquals(83, assembly.routeCount(), "业务路由必须全部注册：81（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18）+ ping 2")`
- *   分模块（按"对"）：AUTH 17 / CONFIG 18 / PRODUCT 13 / SPOT 15 / PLAN 18 = 81，另加 `ping` 的 `GET`+`HEAD` 2 对 ⇒ 83。
+ * 铺页面只按**逐条路径**，不按总数。若确须引用**六模块装配**（AUTH/CONFIG/PRODUCT/SPOT/PLAN + ping）规模，
+ * 统一写：**「88 个 (方法, 路径) 对」**并标明口径（`T-131` 起，此前为 83）：
+ *   分模块（按"对"）：AUTH 17 / CONFIG 18 / PRODUCT **18** / SPOT 15 / PLAN 18 = 86，另加 `ping` 的 `GET`+`HEAD` 2 对 ⇒ 88。
+ *   ⚠️ 全仓（11 模块）的权威锚在 `BootstrapAssemblyTest`（当前 173）与 `FullWebAssembly.ROUTE_COUNT`（当前 171）；
+ *   六模块口径仅用于本文件上方枚举，**不得**与全仓口径混用。
  *   （`PLAN` 的 18 对含 2 处循环注册：`PlanActionHandler.Action.values()` 8 条 + `PlanRatioHandler.Method.values()` 3 条。）
- * ⚠️ **PRODUCT 的路径数为 9、按"对"为 13**（旧口径"6"是 `ModuleRoutesConsistencyTest` 的**覆盖下限清单**，非全量，勿用）。
+ * ⚠️ **PRODUCT 的路径数为 12、按"对"为 18**（`T-131` 起：+ `PUT /product/{id}`、`GET /product/whitelist`、
+ *    `POST /product/{id}/{disable|enable|unit}`（动作式，§4.1.1 v1.5.27 声明）；旧口径"6"是
+ *    `ModuleRoutesConsistencyTest` 的**覆盖下限清单**，非全量，勿用）。
  * ⚠️ **不要写 47 / 38 / 29**（均已作废；47 系 `T-109` 补齐「已声明未注册」端点之前的旧值）。
  *
  * ## 已注册（M1，实测 `…Routes.register(...)`；逐条见下方 ROUTES）
@@ -26,7 +29,10 @@
  *   CONFIG  GET|PUT /config/item、GET|POST|PUT /config/sub-account、GET|POST /config/ctp、POST /config/ctp/test、
  *           GET|POST /config/dict、GET|POST /config/subject、GET|POST /config/report-period、
  *           GET /config/dispatch/{id}、GET /config/change-log、POST /config/import、GET /config/export
- *   PRODUCT GET|POST /product、GET /product/{id}、POST /product/whitelist、GET|POST /product/quota、
+ *   PRODUCT GET|POST /product、GET|PUT /product/{id}（GET 详情 / PUT 修改 FR-PRODUCT-2）、
+ *           POST /product/{id}/disable（停用 FR-PRODUCT-3）、POST /product/{id}/enable（启用 FR-PRODUCT-4）、
+ *           POST /product/{id}/unit（计量单位换算关系 FR-PRODUCT-13）、
+ *           GET|POST /product/whitelist（GET 为当前完整白名单读取，FR-PRODUCT-6）、GET|POST /product/quota、
  *           GET|POST /product/{id}/contracts、GET|POST /product/mapping、GET /product/change-log、
  *           POST /product/import、GET /product/export
  *   SPOT    POST /spot/purchase、POST /spot/sales、POST /spot/production、POST /spot/inventory、
@@ -81,6 +87,10 @@ export const ROUTES = {
   PRODUCT: {
     LIST: '/product',
     detail: (id) => '/product/' + enc(id),
+    // T-131：品种写动作（§4.1.1 v1.5.27 声明的动作式子路径；GET 详情仍为 detail(id)，PUT 修改亦用 detail(id)）
+    DISABLE: (id) => '/product/' + enc(id) + '/disable',
+    ENABLE: (id) => '/product/' + enc(id) + '/enable',
+    UNIT: (id) => '/product/' + enc(id) + '/unit',
     WHITELIST: '/product/whitelist',
     QUOTA: '/product/quota',
     CONTRACTS: (id) => '/product/' + enc(id) + '/contracts',

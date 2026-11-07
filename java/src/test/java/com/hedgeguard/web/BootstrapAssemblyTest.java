@@ -267,8 +267,17 @@ class BootstrapAssemblyTest {
             //   业务路由 166（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/SETTLE15/
             //   FUND16/AUDIT24/ACCT20）+ ping 2 = 168。算术分解：165（前值）+ 3 对 = 168。
             //   非为过测试而放宽断言。
-            assertEquals(168, assembly.routeCount(),
-                    "业务路由必须全部注册：166（AUTH17/CONFIG18/PRODUCT13/SPOT15/PLAN18/RISK7/TRADE3/"
+            //   非为过测试而放宽断言。
+            // 【T-131 增注】断言值由 168 订正为 173：PRODUCT 写面补齐（{@code FR-PRODUCT-2/3/4/13} +
+            //   {@code FR-PRODUCT-6} 白名单读取）——ProductHandler 于已声明路径 /product/{id} 注册 PUT（1 对）
+            //   + ProductActionHandler 于 §4.1.1 v1.5.27 已声明的三条动作子路径注册 POST（3 对：
+            //   /disable、/enable、/unit）+ WhitelistHandler 于已声明路径 /product/whitelist 增 GET（1 对）
+            //   = 5 对（PRODUCT 方法注册表键 13 → 18），业务路由 171
+            //   （AUTH17/CONFIG18/PRODUCT18/SPOT15/PLAN18/RISK7/TRADE3/SETTLE15/FUND16/AUDIT24/ACCT20）
+            //   + ping 2 = 173。算术分解：168（前值）+ 5 对 = 173。
+            //   非为过测试而放宽断言。
+            assertEquals(173, assembly.routeCount(),
+                    "业务路由必须全部注册：171（AUTH17/CONFIG18/PRODUCT18/SPOT15/PLAN18/RISK7/TRADE3/"
                             + "SETTLE15/FUND16/AUDIT24/ACCT20）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。

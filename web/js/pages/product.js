@@ -6,10 +6,22 @@
  *                                           查询：page / size∈{10,20,50,100}（默认 20）/ sort=field,asc|desc
  *                                           排序白名单（VarietyService.PRODUCT_SORT_FIELDS）：
  *                                             created_time(默认,desc) | product_code | product_name | status | category
+ *                                           筛选（**服务端下推**，T-116；多条件 AND）：productCode（编码关键字）/
+ *                                             productName（名称关键字）/ status / category / subAccountId
  *   POST /product                          → CreateRequest {productCode, productName, category, remark}
  *   GET  /product/{id}                     → ProductView {id, productCode, productName, category,
  *                                            categoryManaged, status, isDomesticExchange, currency, remark,
- *                                            disabledReason}（⚠️ 无 createdTime / 最近变更时间）
+ *                                            disabledReason, subAccountIds, lastModifiedTime}
+ *   PUT  /product/{id}                     → UpdateRequest {productName(必填), categoryManaged?, remark?, category?}
+ *                                           成功 → ProductView；编码不可改（R-PRODUCT-3）；分类变更 → **10012**
+ *                                           阻断类（ruleId/current/threshold/nextStep 四项，FR-PRODUCT-2）
+ *   POST /product/{id}/disable             → {reason} → 停用 + 级联移出白名单（FR-PRODUCT-3；原因必填）
+ *   POST /product/{id}/enable              → 空体 → 启用（缺换算关系 ⇒ 10015，FR-PRODUCT-4）
+ *   POST /product/{id}/unit                → {spotUnit, futuresUnit, convertFactor(字符串),
+ *                                             effectiveFrom(yyyy-MM-dd), convertDesc?} → 新增换算关系（FR-PRODUCT-13）
+ *                                            （三条均为动作式 POST，§4.1.1 v1.5.27 已声明）
+ *   GET  /product/whitelist               → WhitelistView[]（T-131；**当前完整白名单**，含已移出历史行）
+ *                                           查询：productId / subAccountId（至少给一个）/ status=ENABLED|DISABLED
  *   GET|POST /product/{id}/contracts       → ContractView[] / Request {instrumentId, instrumentType,
  *                                            exchangeCode, contractMultiplier, expiryDate,
  *                                            underlyingInstrumentId, strikePrice, optionType}
@@ -113,22 +125,31 @@ function triggerBlobDownload(blob, filename) {
   window.setTimeout(() => { URL.revokeObjectURL(url); }, 1000);
 }
 
-async function doExport(btn, alertBox) {
+async function doExport(btn, alertBox, filters) {
   ui.clear(alertBox);
   const orig = btn.textContent;
   btn.disabled = true; btn.textContent = '导出中…';
   try {
-    const res = await HG.api.download(R.EXPORT);
+    // ★ OBS-T116V-1：导出须带**当前筛选**（与列表同一组参数），否则「只看得到筛选结果、导出却是全量」
+    //   ⇒ FR-PRODUCT-8 验收 1「导出内容与列表筛选一致」在 UI 链路不成立。
+    const res = await HG.api.download(R.EXPORT, filters || {});
     const text = await res.blob.text();
-    // 行数统计：仅用于「无数据 ⇒ 不生成空文件」的界面裁决（非业务判定）
+    // 行数统计：仅用于「无数据 ⇒ 不生成空文件」的界面裁决（非业务判定）。
+    // 主路径：服务端无数据 ⇒ 10015（JSON 信封）→ 走 catch 的 ui.blockedHTML（含「无可导出数据」文案）。
+    // 本分支是**兼容兜底**：若某部署端仍返回「仅表头 CSV」，界面同样拦截、不生成空文件。
     const rows = text.replace(/^\uFEFF/, '').split(/\r\n|\n/).filter((l) => l !== '');
     if (rows.length <= 1) {
-      alertBox.appendChild(ui.banner('无可导出数据：服务端仅返回表头，未生成文件（FR-PRODUCT-8 验收 3）。', 'warn'));
+      alertBox.appendChild(ui.banner('无可导出数据：当前筛选条件下没有符合的品种，未生成文件（FR-PRODUCT-8 验收 3）。', 'warn'));
       return;
     }
     triggerBlobDownload(res.blob, res.filename || 'products.csv');
     ui.toast('已导出 ' + (rows.length - 1) + ' 条品种', 'ok');
   } catch (err) {
+    // 10015「数据不足，拒绝计算」= 无可导出数据（服务端 errmsg 已含「无可导出数据」文案）
+    // 阻断类四项（ruleId/current/threshold/nextStep）与非阻断错误均由 blockedHTML 统一渲染。
+    if (err && err.code === 10015) {
+      ui.toast('无可导出数据', 'warn');
+    }
     alertBox.innerHTML = ui.blockedHTML(err);
   } finally {
     btn.disabled = false; btn.textContent = orig;
@@ -278,26 +299,46 @@ function renderList(root) {
   root.appendChild(ui.el('h2', { class: 'hg-page__title', text: '品种管理（PRODUCT）' }));
   root.appendChild(ui.el('p', { class: 'hg-page__desc', text: '品种档案为全局共享（编码全系统唯一），白名单与额度为子账户级配置（R-PRODUCT-7）。' }));
 
-  const state = { page: 1, size: HG.api.DEFAULT_PAGE_SIZE, sortField: 'created_time', sortDir: 'desc', kw: '', status: '', category: '', raw: [] };
+  // 筛选状态（**服务端筛选**，T-116；列表与导出共用同一组参数 ⇒ FR-PRODUCT-8 验收 1 一致）
+  const state = { page: 1, size: HG.api.DEFAULT_PAGE_SIZE, sortField: 'created_time', sortDir: 'desc', raw: [],
+    productCode: '', productName: '', status: '', category: '', subAccountId: '' };
 
   /* ---- 工具栏 ---- */
   const bar = ui.el('div', { class: 'hg-toolbar' });
 
-  const kw = ui.el('input', { id: 'pd-f-kw', type: 'search', placeholder: '编码 / 名称关键字' });
-  kw.addEventListener('input', () => { state.kw = kw.value.trim().toLowerCase(); renderRows(); });
-  bar.appendChild(ui.field({ id: 'pd-f-kw', label: '关键字（本页内）', control: kw }));
+  const codeKw = ui.el('input', { id: 'pd-f-code', type: 'search', placeholder: '品种编码关键字' });
+  codeKw.addEventListener('input', () => { state.productCode = codeKw.value.trim(); });
+  codeKw.addEventListener('change', () => { state.productCode = codeKw.value.trim(); load(1); });
+  bar.appendChild(ui.field({ id: 'pd-f-code', label: '品种编码', control: codeKw }));
+
+  const nameKw = ui.el('input', { id: 'pd-f-name', type: 'search', placeholder: '品种名称关键字' });
+  nameKw.addEventListener('input', () => { state.productName = nameKw.value.trim(); });
+  nameKw.addEventListener('change', () => { state.productName = nameKw.value.trim(); load(1); });
+  bar.appendChild(ui.field({ id: 'pd-f-name', label: '品种名称', control: nameKw }));
 
   const statusSel = ui.el('select', { id: 'pd-f-status' });
   statusSel.appendChild(ui.el('option', { value: '', text: '全部状态' }));
   Object.keys(STATUS).forEach((k) => statusSel.appendChild(ui.el('option', { value: k, text: STATUS[k] })));
-  statusSel.addEventListener('change', () => { state.status = statusSel.value; renderRows(); });
-  bar.appendChild(ui.field({ id: 'pd-f-status', label: '状态（本页内）', control: statusSel }));
+  statusSel.addEventListener('change', () => { state.status = statusSel.value; load(1); });
+  bar.appendChild(ui.field({ id: 'pd-f-status', label: '状态', control: statusSel }));
 
   const catSel = ui.el('select', { id: 'pd-f-cat' });
   catSel.appendChild(ui.el('option', { value: '', text: '全部分类' }));
   Object.keys(CATEGORY).forEach((k) => catSel.appendChild(ui.el('option', { value: k, text: CATEGORY[k] })));
-  catSel.addEventListener('change', () => { state.category = catSel.value; renderRows(); });
-  bar.appendChild(ui.field({ id: 'pd-f-cat', label: '分类（本页内）', control: catSel }));
+  catSel.addEventListener('change', () => { state.category = catSel.value; load(1); });
+  bar.appendChild(ui.field({ id: 'pd-f-cat', label: '分类', control: catSel }));
+
+  const subSel = subAccountSelect('pd-f-sub', false);
+  subSel.addEventListener('change', () => { state.subAccountId = subSel.value; load(1); });
+  bar.appendChild(ui.field({ id: 'pd-f-sub', label: '子账户', control: subSel }));
+
+  const clearBtn = ui.el('button', { class: 'hg-btn hg-btn--ghost', type: 'button', text: '清空筛选' });
+  clearBtn.addEventListener('click', () => {
+    codeKw.value = ''; nameKw.value = ''; statusSel.value = ''; catSel.value = ''; subSel.value = '';
+    state.productCode = ''; state.productName = ''; state.status = ''; state.category = ''; state.subAccountId = '';
+    load(1);
+  });
+  bar.appendChild(clearBtn);
 
   const sortSel = ui.el('select', { id: 'pd-f-sort' });
   PRODUCT_SORTS.forEach((s) => sortSel.appendChild(ui.el('option', { value: s.v, text: s.t })));
@@ -329,7 +370,7 @@ function renderList(root) {
   bar.appendChild(createToggle);
 
   root.appendChild(bar);
-  root.appendChild(ui.el('p', { class: 'hg-muted', text: '注：服务端列表端点仅支持 分页 / 排序 / 子账户隔离，未提供 status、分类、关键字筛选参数；标「本页内」的筛选仅作用于当前页（FR-PRODUCT-5 的服务端筛选为待补项）。' }));
+  root.appendChild(ui.el('p', { class: 'hg-muted', text: '筛选与排序均由服务端执行（GET /product 的 productCode / productName / status / category / subAccountId，多条件 AND）；「导出 CSV」按同一组筛选条件导出（FR-PRODUCT-8 验收 1）。' }));
 
   const alertBox = ui.el('div', { role: 'alert' });
   root.appendChild(alertBox);
@@ -342,7 +383,7 @@ function renderList(root) {
   root.appendChild(createCard);
   createToggle.addEventListener('click', () => { createCard.classList.toggle('hg-hidden'); importCard.classList.add('hg-hidden'); });
   importToggle.addEventListener('click', () => { importCard.classList.toggle('hg-hidden'); createCard.classList.add('hg-hidden'); });
-  exportBtn.addEventListener('click', () => doExport(exportBtn, alertBox));
+  exportBtn.addEventListener('click', () => doExport(exportBtn, alertBox, filterQuery()));
 
   const body = ui.el('div');
   root.appendChild(body);
@@ -351,8 +392,23 @@ function renderList(root) {
 
   sortSel.value = state.sortField; dirSel.value = state.sortDir; sizeSel.value = String(state.size);
 
+  /** 当前筛选（wire 字段名逐字对齐 ProductHandler.filterOf；空值不发送 ⇒ 服务端视为不筛该维度）。 */
+  function filterQuery() {
+    const q = {};
+    if (state.productCode) q.productCode = state.productCode;
+    if (state.productName) q.productName = state.productName;
+    if (state.status) q.status = state.status;
+    if (state.category) q.category = state.category;
+    if (state.subAccountId) q.subAccountId = state.subAccountId;
+    return q;
+  }
+
   function query(page) {
-    return { page: page, size: state.size, sort: state.sortField + ',' + state.sortDir };
+    const q = filterQuery();
+    q.page = page;
+    q.size = state.size;
+    q.sort = state.sortField + ',' + state.sortDir;
+    return q;
   }
 
   async function load(page) {
@@ -371,24 +427,13 @@ function renderList(root) {
     }
   }
 
-  function applyFilters(items) {
-    return items.filter((p) => {
-      if (state.status && p.status !== state.status) return false;
-      if (state.category && p.category !== state.category) return false;
-      if (state.kw) {
-        const hay = (String(p.productCode || '') + ' ' + String(p.productName || '')).toLowerCase();
-        if (hay.indexOf(state.kw) === -1) return false;
-      }
-      return true;
-    });
-  }
-
   function renderRows(pg) {
     pg = pg || { items: state.raw, total: state.raw.length, page: state.page, size: state.size };
-    const items = applyFilters(pg.items);
+    const items = pg.items;
     if (!items.length) {
-      const hint = state.raw.length
-        ? '当前页 ' + state.raw.length + ' 条记录均被「本页内」筛选条件过滤（改用排序/翻页查看，或清空筛选）。'
+      const hasFilter = !!(state.productCode || state.productName || state.status || state.category || state.subAccountId);
+      const hint = hasFilter
+        ? '当前筛选条件下无匹配品种（筛选由服务端执行；可点「清空筛选」查看全部）。'
         : '暂无品种。可点击「新增品种」创建，或「导入 CSV」批量建立品种档案。';
       ui.renderEmpty(body, hint);
       renderPager(pg);
@@ -407,7 +452,7 @@ function renderList(root) {
     ];
     ui.clear(body);
     body.innerHTML = ui.tableHTML(columns, items);
-    body.appendChild(ui.el('p', { class: 'hg-muted', text: '本页显示 ' + items.length + ' / ' + pg.items.length + ' 条（第 ' + pg.page + ' 页）。' }));
+    body.appendChild(ui.el('p', { class: 'hg-muted', text: '第 ' + pg.page + ' 页，本页 ' + items.length + ' 条（共 ' + pg.total + ' 条，含服务端筛选后的总数）。' }));
     renderPager(pg);
   }
 
@@ -438,7 +483,7 @@ function renderDetail(root, ctx) {
   root.appendChild(head);
 
   const tabs = [
-    { key: 'overview', label: '概览', build: (c) => buildOverview(c, id) },
+    { key: 'overview', label: '概览', build: (c) => buildOverview(c, id, current) },
     { key: 'contracts', label: '合约关联', build: (c) => buildContracts(c, id) },
     { key: 'mapping', label: '现货映射', build: (c) => buildMapping(c, id) },
     { key: 'whitelist', label: '白名单', build: (c) => buildWhitelist(c, id) },
@@ -500,32 +545,236 @@ function productHeadCard(d, id) {
    ['停用原因', d.disabledReason || '—']
   ].forEach((r) => { dl.appendChild(ui.el('dt', { text: r[0] })); dl.appendChild(ui.el('dd', { text: r[1] })); });
   card.appendChild(dl);
-  card.appendChild(ui.el('p', { class: 'hg-muted', text: '注：ProductView 不含创建时间 / 最近变更时间；变更时间见「变更历史」Tab（FR-PRODUCT-5 输出的「最近变更时间」为待补项）。' }));
+  card.appendChild(ui.el('p', { class: 'hg-muted', text: '注：最近变更时间取自 t_product.updated_time（为空回退 created_time）；「所属子账户」取自白名单在册行，明细见「白名单」Tab。逐条变更前后值见「变更历史」Tab。' }));
   return card;
 }
 
 /* ---- 概览 ---- */
-function buildOverview(container) {
+function buildOverview(container, id, product) {
   container.appendChild(ui.el('p', { class: 'hg-muted', text: '基础属性见上方档案卡片。额度指标、合约关联、现货映射、白名单分别见对应 Tab（服务端将其拆为独立端点，未并入 ProductView）。' }));
 
+  container.appendChild(frCoverageCard());
+  container.appendChild(editCard(id, product));
+  container.appendChild(statusActionCard(id, product));
+  container.appendChild(unitCard(id));
+}
+
+/**
+ * FR 覆盖登记（诚实登记；T-131 起写面已接线）。
+ *
+ * 纪律：**已覆盖**只写「服务端有端点且本页有真实入口」的项；**未覆盖**须写明理由与去向，
+ * 不得留陈旧登记（T-131 验收 2）。
+ */
+function frCoverageCard() {
   const card = ui.el('div', { class: 'hg-card' });
   card.appendChild(ui.el('h3', { class: 'hg-card__title', text: 'FR 覆盖与接口缺口（诚实登记）' }));
   const ul = ui.el('ul');
   ul.appendChild(ui.el('li', { html: '<strong>已覆盖</strong>：' +
     '<code>FR-PRODUCT-1</code> 新增（<code>POST /product</code>）、' +
-    '<code>FR-PRODUCT-5</code> 列表（分页 / 排序 / 子账户隔离）、' +
-    '<code>FR-PRODUCT-6</code> 详情、<code>FR-PRODUCT-7</code> 导入、<code>FR-PRODUCT-8</code> 导出、' +
+    '<code>FR-PRODUCT-2</code> 修改（<code>PUT /product/{id}</code>：名称 / 分类管理标记 / 备注）、' +
+    '<code>FR-PRODUCT-3</code> 停用（<code>POST /product/{id}</code> <code>action=DISABLE</code>）、' +
+    '<code>FR-PRODUCT-4</code> 启用（<code>action=ENABLE</code>）、' +
+    '<code>FR-PRODUCT-5</code> 列表（分页 / 排序 / 服务端筛选 / 子账户隔离）、' +
+    '<code>FR-PRODUCT-6</code> 详情（含<b>所属子账户白名单</b>读取 <code>GET /product/whitelist</code>）、' +
+    '<code>FR-PRODUCT-7</code> 导入、<code>FR-PRODUCT-8</code> 导出（带当前筛选）、' +
     '<code>FR-PRODUCT-9</code> 合约关联、<code>FR-PRODUCT-10</code> 现货映射、' +
     '<code>FR-PRODUCT-11</code> 额度（三层展示＋维护）、<code>FR-PRODUCT-12</code> 白名单写面＋留痕、' +
+    '<code>FR-PRODUCT-13</code> 计量单位与换算关系（<code>action=PUT_UNIT</code>）、' +
     '<code>FR-PRODUCT-14</code> 变更历史。' }));
-  ul.appendChild(ui.el('li', { html: '<strong>接口缺口</strong>（服务端无端点 ⇒ 本页<strong>不提供</strong>假入口）：' +
-    '<code>FR-PRODUCT-2</code> 修改（无 <code>PUT /product/{id}</code>）、' +
-    '<code>FR-PRODUCT-3</code> 停用 / <code>FR-PRODUCT-4</code> 启用（无动作端点）、' +
-    '<code>FR-PRODUCT-13</code> 计量单位与换算关系（无端点）、' +
-    '<code>FR-PRODUCT-5</code> 的 status / 分类 / 关键字筛选（<code>GET /product</code> 仅支持 page / size / sort）、' +
-    '<code>FR-PRODUCT-12</code> 「当前白名单」读取（仅注册 <code>POST /product/whitelist</code>）。' }));
+  ul.appendChild(ui.el('li', { html: '<strong>未覆盖（附理由）</strong>：' +
+    '<code>FR-PRODUCT-2</code> 的<b>分类变更</b>（商品类 ⇄ 贸易类）—— 处理规则要求「风控岗发起 + 财务负责人审批 + ' +
+    '在途计划/持仓校验」，该审批流与在途判定本期未建立 ⇒ 服务端 <b>明确拒绝</b>（<code>10012</code> 阻断类，' +
+    '带 <code>ruleId</code>/<code>current</code>/<code>threshold</code>/<code>nextStep</code>），本页因此<b>不提供</b>分类修改入口，' +
+    '仅展示现值并提示去向；' +
+    '<code>FR-PRODUCT-13</code> 的<b>换算关系历史列表</b>—— 服务端仅提供「新增生效行」写面（变更不追溯重算历史，' +
+    '<code>R-PRODUCT-6</code>），无读取端点 ⇒ 本页不列表，仅提示可按生效日新增。' }));
   card.appendChild(ul);
-  container.appendChild(card);
+  return card;
+}
+
+/** 修改品种（FR-PRODUCT-2；PUT /product/{id}）。编码不可改、分类变更由服务端拒绝（10012）。 */
+function editCard(id, product) {
+  const card = ui.el('div', { class: 'hg-card' });
+  card.appendChild(ui.el('h3', { class: 'hg-card__title', text: '修改品种（FR-PRODUCT-2）' }));
+  const alertBox = ui.el('div', { role: 'alert' });
+  card.appendChild(alertBox);
+
+  const name = ui.el('input', { id: 'pd-e-name', type: 'text', maxlength: '64', value: (product && product.productName) || '' });
+  const managed = ui.el('select', { id: 'pd-e-managed' });
+  managed.appendChild(ui.el('option', { value: 'Y', text: '纳入分类管理（Y）' }));
+  managed.appendChild(ui.el('option', { value: 'N', text: '未纳入（N）' }));
+  if (product && product.categoryManaged) managed.value = product.categoryManaged;
+  const remark = ui.el('input', { id: 'pd-e-remark', type: 'text', maxlength: '200', value: (product && product.remark) || '' });
+
+  const form = ui.el('form', { novalidate: 'novalidate' });
+  form.appendChild(alertBox);
+  const grid = ui.el('div', { class: 'hg-grid-2' });
+  grid.appendChild(ui.field({ id: 'pd-e-name', label: '品种名称', required: true, control: name }));
+  grid.appendChild(ui.field({ id: 'pd-e-managed', label: '分类管理标记', required: true, control: managed }));
+  grid.appendChild(ui.field({ id: 'pd-e-remark', label: '备注', required: false, control: remark }));
+  grid.appendChild(ui.field({
+    id: 'pd-e-cat', label: '分类（只读）', required: false,
+    help: '分类变更须风控岗发起 + 财务负责人审批 + 在途校验，本期未受理；提交分类会返回 10012。',
+    control: ui.el('input', { id: 'pd-e-cat', type: 'text', value: (product && (CATEGORY[product.category] || product.category)) || '', readonly: 'readonly' })
+  }));
+  form.appendChild(grid);
+  form.appendChild(ui.el('p', { class: 'hg-muted', text: '品种编码一经使用不得修改（R-PRODUCT-3），故不在可编辑项中。' }));
+
+  const submit = ui.el('button', { class: 'hg-btn', type: 'submit', text: '保存修改' });
+  form.appendChild(ui.el('div', { class: 'hg-form-actions' }, submit));
+
+  form.addEventListener('submit', async (evt) => {
+    evt.preventDefault();
+    ui.clear(alertBox);
+    if (!name.value.trim()) { ui.setFieldError(name, '请填写品种名称（置空提交会被拒绝，10001）'); return; }
+    ui.setFieldError(name, '');
+    const orig = submit.textContent;
+    submit.disabled = true; submit.textContent = '保存中…';
+    try {
+      await HG.api.put(R.detail(id), {
+        productName: name.value.trim(),
+        categoryManaged: managed.value,
+        remark: remark.value.trim()
+      }, { idempotencyKey: HG.api.newIdempotencyKey() });
+      ui.toast('品种已更新（变更已留痕，FR-PRODUCT-14）', 'ok');
+      HG.router.navigate('/product/' + encodeURIComponent(id));
+    } catch (err) {
+      alertBox.innerHTML = ui.blockedHTML(err);
+    } finally {
+      submit.disabled = false; submit.textContent = orig;
+    }
+  });
+  card.appendChild(form);
+  return card;
+}
+
+/** 停用 / 启用（FR-PRODUCT-3/4；POST /product/{id} 的 action 动作）。 */
+function statusActionCard(id, product) {
+  const card = ui.el('div', { class: 'hg-card' });
+  card.appendChild(ui.el('h3', { class: 'hg-card__title', text: '状态（FR-PRODUCT-3 停用 / FR-PRODUCT-4 启用）' }));
+  const alertBox = ui.el('div', { role: 'alert' });
+  card.appendChild(alertBox);
+
+  const status = (product && product.status) || 'ENABLED';
+  card.appendChild(ui.el('p', { class: 'hg-muted', text: '当前状态：' + (STATUS[status] || status) +
+    '。停用会<b>级联移出</b>该品种在各子账户白名单中的行（保留历史）并置待下发；启用要求该品种存在生效的计量单位换算关系。' }));
+
+  const reason = ui.el('input', { id: 'pd-s-reason', type: 'text', maxlength: '200' });
+  const form = ui.el('form', { novalidate: 'novalidate' });
+  form.appendChild(ui.field({ id: 'pd-s-reason', label: '停用原因', required: false, help: '停用必填（FR-PRODUCT-3 输入列）', control: reason }));
+
+  const actions = ui.el('div', { class: 'hg-form-actions' });
+
+  async function act(action, extra) {
+    ui.clear(alertBox);
+    const orig = { };
+    const btn = action === 'DISABLE' ? disableBtn : enableBtn;
+    orig.text = btn.textContent;
+    btn.disabled = true; btn.textContent = '提交中…';
+    try {
+      // T-131：动作式子路径（§4.1.1 v1.5.27 声明）—— POST /product/{id}/{disable|enable|unit}
+      const path = action === 'DISABLE' ? R.DISABLE(id) : R.ENABLE(id);
+      await HG.api.post(path, extra || {}, { idempotencyKey: HG.api.newIdempotencyKey() });
+      ui.toast(action === 'DISABLE' ? '品种已停用（白名单已级联移出）' : '品种已启用', 'ok');
+      HG.router.navigate('/product/' + encodeURIComponent(id));
+    } catch (err) {
+      alertBox.innerHTML = ui.blockedHTML(err);
+    } finally {
+      btn.disabled = false; btn.textContent = orig.text;
+    }
+  }
+
+  const disableBtn = ui.el('button', { class: 'hg-btn hg-btn--danger', type: 'button', text: '停用品种', disabled: status === 'DISABLED' });
+  disableBtn.addEventListener('click', async () => {
+    if (!reason.value.trim()) { ui.setFieldError(reason, '停用原因必填'); return; }
+    ui.setFieldError(reason, '');
+    const yes = await ui.confirm(
+      '确认<strong>停用</strong>品种 <strong>#' + F.esc(id) + '</strong>？停用后不可用于新建计划与下单，' +
+      '并会级联移出各子账户白名单（历史数据保留）。',
+      { title: '停用品种', okText: '确认停用', danger: true }
+    );
+    if (!yes) return;
+    act('DISABLE', { reason: reason.value.trim() });
+  });
+
+  const enableBtn = ui.el('button', { class: 'hg-btn', type: 'button', text: '启用品种', disabled: status === 'ENABLED' });
+  enableBtn.addEventListener('click', async () => {
+    const yes = await ui.confirm(
+      '确认<strong>启用</strong>品种 <strong>#' + F.esc(id) + '</strong>？启用要求该品种存在生效的计量单位换算关系，' +
+      '否则服务端拒绝（10015）。',
+      { title: '启用品种', okText: '确认启用' }
+    );
+    if (!yes) return;
+    act('ENABLE');
+  });
+
+  actions.appendChild(disableBtn);
+  actions.appendChild(enableBtn);
+  form.appendChild(actions);
+  card.appendChild(form);
+  return card;
+}
+
+/** 计量单位与换算关系（FR-PRODUCT-13；POST /product/{id} 的 action=PUT_UNIT）。 */
+function unitCard(id) {
+  const card = ui.el('div', { class: 'hg-card' });
+  card.appendChild(ui.el('h3', { class: 'hg-card__title', text: '计量单位与换算关系（FR-PRODUCT-13）' }));
+  const alertBox = ui.el('div', { role: 'alert' });
+  card.appendChild(alertBox);
+  card.appendChild(ui.el('p', { class: 'hg-muted', text: '换算关系**新增为一条生效行**（同一生效日重复提交会被唯一键拒绝，10010）；变更**不追溯重算历史**（R-PRODUCT-6）。换算系数以字符串提交（避免浮点误差）。' }));
+
+  const form = ui.el('form', { novalidate: 'novalidate' });
+  form.appendChild(alertBox);
+  const spot = ui.el('input', { id: 'pd-u-spot', type: 'text', maxlength: '16', placeholder: '吨' });
+  const futures = ui.el('input', { id: 'pd-u-futures', type: 'text', maxlength: '16', placeholder: '手' });
+  const factor = ui.el('input', { id: 'pd-u-factor', type: 'text', inputmode: 'decimal', placeholder: '1 手 = ? 吨，如 5.0000' });
+  const from = ui.el('input', { id: 'pd-u-from', type: 'date' });
+  const desc = ui.el('input', { id: 'pd-u-desc', type: 'text', maxlength: '200', placeholder: '1 手 = 5 吨' });
+
+  const grid = ui.el('div', { class: 'hg-grid-2' });
+  grid.appendChild(ui.field({ id: 'pd-u-spot', label: '现货计量单位', required: true, control: spot }));
+  grid.appendChild(ui.field({ id: 'pd-u-futures', label: '期货交易单位', required: true, control: futures }));
+  grid.appendChild(ui.field({ id: 'pd-u-factor', label: '换算系数', required: true, help: '须 > 0（0/负数被拒，FR-PRODUCT-13 验收 2）', control: factor }));
+  grid.appendChild(ui.field({ id: 'pd-u-from', label: '生效起始日', required: true, help: 'yyyy-MM-dd', control: from }));
+  grid.appendChild(ui.field({ id: 'pd-u-desc', label: '换算方向说明', required: false, control: desc }));
+  form.appendChild(grid);
+
+  const submit = ui.el('button', { class: 'hg-btn', type: 'submit', text: '新增换算关系' });
+  form.appendChild(ui.el('div', { class: 'hg-form-actions' }, submit));
+
+  form.addEventListener('submit', async (evt) => {
+    evt.preventDefault();
+    ui.clear(alertBox);
+    let ok = true;
+    if (!spot.value.trim()) { ui.setFieldError(spot, '请填写现货计量单位'); ok = false; } else ui.setFieldError(spot, '');
+    if (!futures.value.trim()) { ui.setFieldError(futures, '请填写期货交易单位'); ok = false; } else ui.setFieldError(futures, '');
+    if (!/^[0-9]+(\.[0-9]+)?$/.test(factor.value.trim()) || Number(factor.value) <= 0) {
+      ui.setFieldError(factor, '换算系数须为正的十进制数（如 5.0000）'); ok = false;
+    } else ui.setFieldError(factor, '');
+    if (!from.value) { ui.setFieldError(from, '请选择生效起始日'); ok = false; } else ui.setFieldError(from, '');
+    if (!ok) return;
+
+    const orig = submit.textContent;
+    submit.disabled = true; submit.textContent = '提交中…';
+    try {
+      await HG.api.post(R.UNIT(id), {
+        spotUnit: spot.value.trim(),
+        futuresUnit: futures.value.trim(),
+        convertFactor: factor.value.trim(),
+        effectiveFrom: from.value,
+        convertDesc: desc.value.trim() || null
+      }, { idempotencyKey: HG.api.newIdempotencyKey() });
+      ui.toast('换算关系已生效（自 ' + from.value + ' 起）', 'ok');
+      form.reset();
+      HG.router.navigate('/product/' + encodeURIComponent(id));
+    } catch (err) {
+      alertBox.innerHTML = ui.blockedHTML(err);
+    } finally {
+      submit.disabled = false; submit.textContent = orig;
+    }
+  });
+  card.appendChild(form);
+  return card;
 }
 
 /* ---- 合约关联（FR-PRODUCT-9） ---- */
@@ -706,12 +955,55 @@ function buildMapping(container, id) {
 
 /* ---- 白名单（FR-PRODUCT-12） ---- */
 function buildWhitelist(container, id) {
-  container.appendChild(ui.banner(
-    '<strong>接口现状（诚实登记）</strong>：白名单端点仅注册 <code>POST /product/whitelist</code>（action=ENABLE|DISABLE），' +
-    '<strong>无读取端点</strong> ⇒ 本页可执行「加入 / 移出」并展示其变更留痕，但<strong>无法列出某子账户当前完整白名单</strong>。' +
-    '当前白名单的读取属待补项（建议并入 <code>GET /product/{id}</code> 详情或新增查询端点）。',
-    'warn'
-  ));
+  container.appendChild(ui.el('p', { class: 'hg-muted', text:
+    '白名单按子账户独立生效（R-PRODUCT-5）：未列入的品种在该子账户下不得下单。下方「当前白名单」取自 ' +
+    'GET /product/whitelist（含已移出历史行，status=DISABLED 表示保留历史）；可见范围随登录身份（NFR-SEC-7）。' }));
+
+  /* ---- 当前白名单（FR-PRODUCT-6「所属子账户白名单」读取；T-131） ---- */
+  const listCard = ui.el('div', { class: 'hg-card' });
+  listCard.appendChild(ui.el('h3', { class: 'hg-card__title', text: '当前白名单（FR-PRODUCT-6）' }));
+  const listBar = ui.el('div', { class: 'hg-toolbar' });
+  const statusFilter = ui.el('select', { id: 'pd-wl-status' });
+  statusFilter.appendChild(ui.el('option', { value: '', text: '全部行（含已移出）' }));
+  statusFilter.appendChild(ui.el('option', { value: 'ENABLED', text: '在册（ENABLED）' }));
+  statusFilter.appendChild(ui.el('option', { value: 'DISABLED', text: '已移出（DISABLED，保留历史）' }));
+  statusFilter.addEventListener('change', () => loadList());
+  listBar.appendChild(ui.field({ id: 'pd-wl-status', label: '行状态', control: statusFilter }));
+  const refreshBtn = ui.el('button', { class: 'hg-btn hg-btn--ghost', type: 'button', text: '刷新白名单' });
+  refreshBtn.addEventListener('click', () => loadList());
+  listBar.appendChild(refreshBtn);
+  listCard.appendChild(listBar);
+  const listBody = ui.el('div');
+  listCard.appendChild(listBody);
+  container.appendChild(listCard);
+
+  /** 拉取本品种的完整白名单（读面三态：加载 / 空 / 错误 + 重试）。 */
+  async function loadList() {
+    ui.renderLoading(listBody, '正在加载当前白名单…');
+    try {
+      const q = { productId: Number(id) };
+      if (statusFilter.value) q.status = statusFilter.value;
+      const rows = await HG.api.get(R.WHITELIST, q);
+      const items = Array.isArray(rows) ? rows : [];
+      if (!items.length) {
+        ui.renderEmpty(listBody, statusFilter.value
+          ? '该状态下没有白名单行（可切回「全部行」查看历史）。'
+          : '该品种当前未列入任何子账户白名单。可在下方「白名单配置」中加入。');
+        return;
+      }
+      ui.clear(listBody);
+      listBody.innerHTML = ui.tableHTML([
+        { title: '子账户', render: (r) => '#' + F.esc(r.subAccountId) },
+        { title: '状态', render: (r) => ui.statusBadge(r.status === 'ENABLED' ? '在册' : '已移出（保留历史）') },
+        { title: '品种级分类覆盖', render: (r) => F.esc(r.categoryOverride ? (CATEGORY[r.categoryOverride] || r.categoryOverride) : '继承子账户') },
+        { title: '下发状态', render: (r) => F.esc(r.dispatchStatus || '—') },
+        { title: '移出原因', render: (r) => F.esc(r.disabledReason || '—') }
+      ], items);
+      listBody.appendChild(ui.el('p', { class: 'hg-muted', text: '共 ' + items.length + ' 行（含已移出历史行）。' }));
+    } catch (err) {
+      ui.renderError(listBody, err, () => loadList());
+    }
+  }
 
   const form = ui.el('form', { novalidate: 'novalidate' });
   const alertBox = ui.el('div', { role: 'alert' });
@@ -769,6 +1061,7 @@ function buildWhitelist(container, id) {
       await HG.api.post(R.WHITELIST, payload, { idempotencyKey: HG.api.newIdempotencyKey() });
       ui.toast(act === 'ENABLE' ? '已加入白名单（变更待下发 C++）' : '已移出白名单（保留历史）', 'ok');
       form.reset(); syncHelp();
+      loadList();
       if (typeof reloadLog === 'function') reloadLog();
     } catch (err) {
       alertBox.innerHTML = ui.blockedHTML(err);
@@ -787,6 +1080,8 @@ function buildWhitelist(container, id) {
   const logBody = ui.el('div');
   logCard.appendChild(logBody);
   container.appendChild(logCard);
+
+  loadList();
 
   let reloadLog = null;
   async function loadLog() {

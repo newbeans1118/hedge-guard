@@ -151,8 +151,15 @@ final class FullWebAssembly {
      * 清单；{@code ACCT} 方法注册表键 17 → 20，至此 ACCT 12 条已声明路径全部注册）。
      * 算术分解：业务路由 163 → 166（ACCT17 → ACCT20）；生产装配含平台级 {@code ping} 2 条后
      * 为 {@code 168}，与 {@code BootstrapAssemblyTest} 同锚。
+     *
+     * <p>【{@code T-131}】PRODUCT 写面补齐（{@code FR-PRODUCT-2/3/4/13} + {@code FR-PRODUCT-6} 白名单读取）
+     * ——{@code PUT /product/{id}}（1 对）、{@code POST /product/{id}/{disable|enable|unit}}（3 对；
+     * 动作式，路径由 {@code §4.1.1} {@code v1.5.27} 先声明）、{@code GET /product/whitelist}（1 对）= 5 对
+     * ⇒ {@code 166 → 171}（路径与 {@code ApiRoutes} 的 {@code PRODUCT} 对级清单逐字一致；
+     * {@code PRODUCT} 方法注册表键 13 → 18）。算术分解：业务路由 166 → 171；生产装配含平台级
+     * {@code ping} 2 条后为 {@code 173}，与 {@code BootstrapAssemblyTest} 同锚。
      */
-    static final int ROUTE_COUNT = 166;
+    static final int ROUTE_COUNT = 171;
 
     private FullWebAssembly() {
     }

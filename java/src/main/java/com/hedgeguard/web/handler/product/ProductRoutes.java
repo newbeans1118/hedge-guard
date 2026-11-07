@@ -10,9 +10,14 @@ import com.hedgeguard.web.Router;
  * {@code web/} 框架类保持 {@code #java} 写入域不变（本类只调用 {@code router.register}）。
  *
  * <pre>
- *   GET  /api/v1/product            品种列表（分页 + 创建时间倒序 + 子账户隔离）
+ *   GET  /api/v1/product            品种列表（分页 + 排序 + 筛选 + 子账户隔离）
  *   POST /api/v1/product            新增品种
  *   GET  /api/v1/product/{id}       品种详情
+ *   PUT  /api/v1/product/{id}       品种修改（FR-PRODUCT-2；编码不可改，分类变更 10012）
+ *   POST /api/v1/product/{id}/disable  停用（动作式；原因必填；级联移出白名单；FR-PRODUCT-3）
+ *   POST /api/v1/product/{id}/enable   启用（动作式；前置＝存在生效换算关系；FR-PRODUCT-4）
+ *   POST /api/v1/product/{id}/unit     新增计量单位换算关系（动作式；FR-PRODUCT-13）
+ *   GET  /api/v1/product/whitelist  当前完整白名单（productId / subAccountId / status）
  *   POST /api/v1/product/whitelist  白名单加入/移出（action=ENABLE|DISABLE）
  *   GET  /api/v1/product/quota      三层限额全景（展示）
  *   POST /api/v1/product/quota      维护层①/②/③额度
@@ -41,6 +46,8 @@ public final class ProductRoutes {
     public static void register(Router router, VarietyService varietyService) {
         router.register("GET", ProductHandler.PATH, new ProductHandler(varietyService));
         router.register("POST", ProductHandler.PATH, new ProductHandler(varietyService));
+        // ★T-131：白名单读面（GET）与写面（POST）同路径；静态 2 段路由须先于占位符 /product/{id} 注册
+        router.register("GET", WhitelistHandler.PATH, new WhitelistHandler(varietyService));
         router.register("POST", WhitelistHandler.PATH, new WhitelistHandler(varietyService));
         router.register("GET", QuotaHandler.PATH, new QuotaHandler(varietyService));
         router.register("POST", QuotaHandler.PATH, new QuotaHandler(varietyService));
@@ -55,9 +62,16 @@ public final class ProductRoutes {
                 new ProductChangeLogHandler(varietyService));
         router.register("POST", ProductImportHandler.PATH, new ProductImportHandler(varietyService));
         router.register("GET", ProductExportHandler.PATH, new ProductExportHandler(varietyService));
+        // T-131：品种写动作（停用 / 启用 / 计量单位）——动作式 POST；三条子路径已在
+        //   §4.1.1 v1.5.27 的 PRODUCT 行声明（先声明后改 ApiRoutes，NFR-MAINT-5）
+        for (ProductActionHandler.Action action : ProductActionHandler.Action.values()) {
+            router.register("POST", action.path(), new ProductActionHandler(varietyService, action));
+        }
         // ★T-151：占位符路由 `/product/{id}` 必须**最后**注册。Router.match 为「注册序首次命中」，
         //   若先注册会抢占同段数的静态 GET（/product/quota、/product/mapping、/product/change-log、
         //   /product/export）⇒ 这 4 条端点在生产装配下不可达（被解析为品种详情 id=quota/mapping/…）。
         router.register("GET", ProductHandler.PATH_BY_ID, new ProductHandler(varietyService));
+        // T-131：修改面 PUT /product/{id}（同占位符模板，语义 = §4.1.1「PUT 修改」）——随占位符最后注册
+        router.register("PUT", ProductHandler.PATH_BY_ID, new ProductHandler(varietyService));
     }
 }
