@@ -14,8 +14,12 @@ import java.util.List;
  * （{@code DATA_MODEL.md} §2.3 TB-PRODUCT-1）；可见范围由 {@code TB-PRODUCT-5
  * t_sub_product_whitelist(sub_account_id, product_id)} 表达。故本 DAO 的 scoped 方法把 scope 的
  * {@code sub_account_id} 谓词落在<b>白名单子查询</b>上：{@code t_product.id IN (SELECT product_id
- * FROM t_sub_product_whitelist WHERE <scope.sql()>)}（{@code FR-PRODUCT-5} 处理规则
+ * FROM t_sub_product_whitelist WHERE <scope.sql()> AND status = 'ENABLED')}（{@code FR-PRODUCT-5} 处理规则
  * 「仅返回当前用户有权限查看的子账户范围内的品种」）。
+ *
+ * <p><b>「在册」口径（{@code T-117}）</b>：白名单行<b>仅 {@code status = 'ENABLED'} 者在册</b> ——
+ * 「移出白名单 = 置 {@code DISABLED} 并保留历史」，故已移出品种<b>不</b>得算入可见集（修正前的可见性
+ * over-inclusive 缺陷）。
  */
 public interface ProductDao extends BaseDao<Product, Long> {
 
@@ -41,7 +45,8 @@ public interface ProductDao extends BaseDao<Product, Long> {
      *
      * <p>scope 的 {@code sub_account_id} 谓词落在 <b>{@code t_sub_product_whitelist} 子查询</b>上
      * （{@code t_product} 无 {@code sub_account_id} 列）：命中的品种为「可见子账户白名单所覆盖的品种」
-     * 之并集。<b>空 scope ⇒ 恒假条件（返回空），绝不退化为不过滤</b>；计数（{@code total}）与
+     * 之并集，且<b>仅取在册（{@code status = 'ENABLED'}）行</b>（已移出 = {@code DISABLED} 保留历史 ⇒ 不可见，
+     * {@code T-117}）。<b>空 scope ⇒ 恒假条件（返回空），绝不退化为不过滤</b>；计数（{@code total}）与
      * 取数（{@code items}）两条 SQL 均带该 scope（{@code AbstractDmDao#findPage} 独立执行 {@code COUNT}）。
      *
      * <p><b>缺省排序方向</b>：本层不做方向缺省；调用方（handler）须显式声明（{@code created_time,desc}），
@@ -82,7 +87,8 @@ public interface ProductDao extends BaseDao<Product, Long> {
      * 按主键取品种 + 子账户可见范围过滤（{@code FR-PRODUCT-6} 详情 / {@code NFR-SEC-7} 读取面强制点）。
      *
      * <p>条件形态 {@code WHERE id = ? AND id IN (SELECT product_id FROM t_sub_product_whitelist
-     * WHERE <scope.sql()>)}；scope 为空集时其 {@code sql()} 为恒假条件（{@code sub_account_id IN (-1)}），
+     * WHERE <scope.sql()> AND status = 'ENABLED')}；scope 为空集时其 {@code sql()} 为恒假条件
+     * （{@code sub_account_id IN (-1)}），
      * 与主键条件并列后必然无命中——即<b>不可见 ≡ 不存在</b>（同一返回 {@code null}，不泄露存在性，
      * 同 {@code HedgePlanDao#findByIdScoped} / {@code ExposureDao#findByIdScoped}）。
      *

@@ -31,6 +31,12 @@ public final class DmProductDao extends AbstractDmDao<Product, Long> implements 
     };
 
     /**
+     * 「在册」白名单行的追加守卫（{@code TB-PRODUCT-5} {@code ck_sub_product_wl_status}：
+     * 移出白名单 = 置 {@code DISABLED} 并保留历史；{@code T-117}）。
+     */
+    private static final String WHITELIST_IN_BOOK = " AND status = 'ENABLED'";
+
+    /**
      * 构造。
      *
      * @param tx 事务模板
@@ -117,8 +123,9 @@ public final class DmProductDao extends AbstractDmDao<Product, Long> implements 
      *
      * <p><b>scope 落点</b>：{@code t_product} 无 {@code sub_account_id} 列，故把 scope 的
      * {@code sub_account_id} 谓词落在 {@code t_sub_product_whitelist} 子查询上，主查询以
-     * {@code id IN (...)} 取并集；{@code scope.sql()} 为空集时为 {@code sub_account_id IN (-1)} ⇒
-     * 子查询无行 ⇒ 主查询恒假（返回空），<b>不</b>退化为不过滤。
+     * {@code id IN (...)} 取并集（并集<b>仅取在册行</b> {@code status = 'ENABLED'}，{@code T-117}）；
+     * {@code scope.sql()} 为空集时为 {@code sub_account_id IN (-1)} ⇒ 子查询无行 ⇒ 主查询恒假（返回空），
+     * <b>不</b>退化为不过滤。
      *
      * <p>计数与取数经 {@link AbstractDmDao#findPage} 各执行一条 SQL（{@code COUNT} + {@code SELECT}），
      * 两条<b>均</b>带该 scope 条件（{@code T-105} 验收 6）。
@@ -172,8 +179,9 @@ public final class DmProductDao extends AbstractDmDao<Product, Long> implements 
      * {@inheritDoc}
      *
      * <p>条件形态 {@code WHERE id = ? AND id IN (SELECT product_id FROM t_sub_product_whitelist
-     * WHERE <scope.sql()>)}；主键条件与白名单子查询并列后，不可见（scope 不含该行子账户的白名单）
-     * 与不存在同样无命中 ⇒ 同一返回（{@code null}，不泄露存在性，{@code T-106}）。
+     * WHERE <scope.sql()> AND status = 'ENABLED')}；主键条件与白名单子查询并列后，不可见（scope 不含该行
+     * 子账户的在册白名单行，或该行已置 {@code DISABLED} = 已移出）与不存在同样无命中 ⇒ 同一返回
+     * （{@code null}，不泄露存在性，{@code T-106}）。
      */
     @Override
     public Product findByIdScoped(long id, SubAccountScope scope) {
@@ -186,15 +194,25 @@ public final class DmProductDao extends AbstractDmDao<Product, Long> implements 
     }
 
     /**
-     * 可见品种主键谓词：{@code id IN (SELECT product_id FROM t_sub_product_whitelist WHERE <scope>)}。
+     * 可见品种主键谓词：{@code id IN (SELECT product_id FROM t_sub_product_whitelist WHERE <scope>
+     * AND status = 'ENABLED')}。
      *
      * <p>把 {@link SubAccountScope} 的 {@code sub_account_id} 谓词放入白名单子查询（形态见接口注释）；
      * 空 scope ⇒ 子查询恒假 ⇒ 主查询无命中。
+     *
+     * <p><b>{@code status = 'ENABLED'} 守卫（{@code T-117}）</b>：{@code TB-PRODUCT-5} 的「移出白名单」是
+     * <b>置 {@code DISABLED} 并保留历史</b>（{@code docs/DEPLOY/schema/m1_product.sql}
+     * {@code ck_sub_product_wl_status}）⇒ 不带该守卫时<b>已移出品种仍算「可见」</b>（可见性 over-inclusive
+     * {@code FR-PRODUCT-5} 处理规则「仅返回……有权限查看的子账户范围内的品种」+ {@code NFR-SEC-7}）。
+     * 判定口径与 Java 侧「在册」口径（{@code VarietyService} 的 {@code WHITELIST_ENABLED}）一致；
+     * 取值是定值常量（非用户输入）⇒ 以字面量内联，<b>不占</b>绑定槽（scope 参数序号不受影响），
+     * 且与 {@code idx_sub_product_wl_sub_status(sub_account_id, status)} 索引前缀吻合。
      *
      * @param scope 子账户过滤
      * @return 主查询 WHERE 片段（不含绑定值）
      */
     private static String scopedProductIdsPredicate(SubAccountScope scope) {
-        return "id IN (SELECT product_id FROM t_sub_product_whitelist WHERE " + scope.sql() + ")";
+        return "id IN (SELECT product_id FROM t_sub_product_whitelist WHERE " + scope.sql()
+                + WHITELIST_IN_BOOK + ")";
     }
 }

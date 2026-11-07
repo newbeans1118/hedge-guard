@@ -307,7 +307,9 @@ public final class VarietyService {
      * 可见子账户集合后施加过滤（{@code ARCHITECTURE.md} §8.2 / {@code NFR-SEC-7}）：
      * <ul>
      *   <li>含哨兵 {@code 0}（跨账户只读）⇒ <b>不加过滤</b>（管理层 / 审计岗可跨子账户查看）；</li>
-     *   <li>否则经 {@code t_sub_product_whitelist} 构造 {@code sub_account_id IN (...)} 过滤；
+     *   <li>否则经 {@code t_sub_product_whitelist} 构造 {@code sub_account_id IN (...)} 过滤，且<b>仅取
+     *       在册行</b>（{@code status = 'ENABLED'}；移出 = 置 {@code DISABLED} 保留历史 ⇒ 已移出品种不可见，
+     *       {@code T-117}）；
      *       <b>空集 ⇒ 恒假条件（返回空），不得退化为全可见</b>；{@code null} 取数入口 ⇒ 按空集 fail-closed。</li>
      * </ul>
      * {@code total} 与 {@code items} 均按过滤后结果计（越权品种既不入 {@code items}，也不计入 {@code total}）。
@@ -390,7 +392,8 @@ public final class VarietyService {
      *   <li>含哨兵 {@link SubAccountScope#ALL_ACCOUNT_SENTINEL}（跨账户只读）⇒ <b>不加过滤</b>
      *       （管理层 / 审计岗可跨子账户查看）；</li>
      *   <li>否则经 {@link ProductDao#findByIdScoped} 注入白名单子查询
-     *       （{@code id IN (SELECT product_id FROM t_sub_product_whitelist WHERE sub_account_id IN (...))}）；
+     *       （{@code id IN (SELECT product_id FROM t_sub_product_whitelist WHERE sub_account_id IN (...)
+     *       AND status = 'ENABLED')}；仅<b>在册</b>行算可见，{@code T-117}）；
      *       空集 ⇒ 恒假（返回 {@code null}）。</li>
      * </ul>
      * <b>不可见 ≡ 不存在</b>（同一返回 {@code null}，不泄露存在性，{@code T-100}/{@code T-107} 口径）；
