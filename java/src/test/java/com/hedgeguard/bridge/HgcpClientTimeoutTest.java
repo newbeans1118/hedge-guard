@@ -24,13 +24,17 @@ import hgcp.v1.Hgcp;
  * {@code T-209} 起改以<b>可控逻辑序</b>驱动（超时「何时发生」由测试给定，不再抢真实时钟窗口）。
  *
  * <p>背景（编排者实测）：超时路径此前零直接测试覆盖（{@code grep COMMAND_TIMEOUT|scheduleTimeout java/src/test/} = 0 命中），
- * 唯一驱动为 {@code HgcpClientGuardTest} 的间接路径。本类补三例：
+ * 唯一驱动为 {@code HgcpClientGuardTest} 的间接路径。本类补四例：
  * <ol>
  *   <li><b>无回执 ⇒ 标记未生效</b>（{@code CFG-28}）：超时触发后 {@code acknowledged=false}、
  *       message 含「标记未生效」；</li>
  *   <li><b>回执及时 ⇒ 不误判超时</b>：ACK 先到完成 future 并移除在途项 ⇒ 超时触发时
  *       {@code pending.remove} 短路（{@code cur == null ⇒ return}），无二次改写；</li>
  *   <li><b>close 后不再触发</b>：池已 {@code shutdownNow} ⇒ 迟到注册的请求不 complete。</li>
+ *   <li><b>真实定时到点</b>（{@code T-234}）：<b>不</b>注入逻辑时钟，保留生产真实
+ *       {@link ScheduledThreadPoolExecutor} + 注入 {@code commandTimeoutMs = 50 ms} ⇒
+ *       超时路径须在<b>真实到点后</b>生效（{@code acknowledged=false} + 超时文案）。
+ *       该例补的正是 {@code T-209} 逻辑时钟化后归零的那段覆盖（复核报告 ★C / O-1）。</li>
  * </ol>
  *
  * <p><b>测试确定性（{@code T-209}，{@code NFR-TEST-4}）</b>：原实现经包内字段 {@code commandTimeoutMs} 注入
@@ -342,5 +346,54 @@ class HgcpClientTimeoutTest {
         CompletableFuture<AckResult> f2 = c2.confirmOrder(557L, 44L, "tok-3");
         assertFalse(f2.isDone(), "真实池已 shutdownNow ⇒ 迟到注册的超时任务被同步拒绝，future 不得完成");
         assertFalse(pendingMap(c2).isEmpty(), "真实池路径：close 后迟到注册的在途项同样保留（无超时触发移除）");
+    }
+
+    // ============ 用例 4（T-234）：真实调度池按 commandTimeoutMs 到点 ⇒ 超时生效 ============
+
+    /**
+     * {@code T-234}：补「<b>真实定时器按 {@code commandTimeoutMs} 到点</b>」路径。
+     *
+     * <p>{@code T-209} 把用例 1/2 改为逻辑时钟后，生产真实 {@link ScheduledThreadPoolExecutor}
+     * 「延迟到点 ⇒ 超时 lambda 执行」这一路径<b>覆盖归零</b>（用例 3 的真实池分支只覆盖
+     * 「关停后拒绝调度」）。本例保留生产真实池（{@code authenticatedClient(t, null)} 即<b>不</b>注入
+     * {@code timeoutPool}），仅注入 {@code commandTimeoutMs = }{@value #TIMEOUT_MS} ms，让真实定时器
+     * 在短延迟后到点。
+     *
+     * <p><b>为何不 flaky</b>（与 {@code T-209} 修掉的原竞争不同质）：原竞争断言的是「ACK 必须在超时前到达」，
+     * 需要测试线程<b>跑赢</b>定时线程；本例只要求「超时<b>最终</b>生效」——ACK 根本不喂，故无竞速对手。
+     * {@code f.get(10, TimeUnit.SECONDS)} 只是兜住机器停顿的宽上限，不参与判定；唯一的时序断言是
+     * <b>单侧下界</b> {@code elapsed >= TIMEOUT_MS}（{@link ScheduledThreadPoolExecutor} 规范保证不早于延迟
+     * 触发），<b>无上限</b> ⇒ 负载再高也只会更晚、不会假红。
+     */
+    @Test
+    @DisplayName("T-234/用例4：真实 ScheduledThreadPoolExecutor 按 commandTimeoutMs 到点 ⇒ acknowledged=false + 超时文案")
+    void realSchedulerFiresAtCommandTimeout() throws Exception {
+        RecordingTransport t = new RecordingTransport();
+        // scheduler == null ⇒ 不注入 timeoutPool，走生产真实单线程守护调度池
+        HgcpClient c = authenticatedClient(t, null);
+        try {
+            long t0 = System.nanoTime();
+            CompletableFuture<AckResult> f = c.confirmOrder(556L, 43L, "tok-real");
+            assertEquals(1, t.sent.size(), "confirmOrder 须恰好下发一帧命令（否则未进入超时登记路径）");
+            assertFalse(f.isDone(), "超时未到点且无回执 ⇒ future 不得已完成"
+                    + "（已完成 ⇒ 未在测定时路径，或其延迟被注成 0）");
+            assertFalse(pendingMap(c).isEmpty(), "真实池路径：超时到点前在途项须存在");
+
+            // 宽上限：只兜机器停顿，不参与判定（不等 ACK，故无竞速）
+            AckResult r = f.get(10, TimeUnit.SECONDS);
+            long elapsedMs = (System.nanoTime() - t0) / 1_000_000L;
+
+            assertFalse(r.acknowledged, "真实到点后须标记未生效（acknowledged=false），实际耗时 "
+                    + elapsedMs + " ms");
+            assertTrue(r.message.contains("标记未生效"),
+                    "超时文案须含『标记未生效』（CFG-28），实际：" + r.message);
+            assertTrue(r.message.contains(String.valueOf(HgcpConstants.COMMAND_TIMEOUT_MS)),
+                    "超时文案须含命令超时值 " + HgcpConstants.COMMAND_TIMEOUT_MS + "（语义未改），实际：" + r.message);
+            assertTrue(pendingMap(c).isEmpty(), "超时 lambda 须移除在途项（证明超时任务真的执行过，非空过）");
+            assertTrue(elapsedMs >= TIMEOUT_MS, "完成须发生在真实到点之后（注入 " + TIMEOUT_MS
+                    + " ms），实测 " + elapsedMs + " ms（单侧下界：调度器保证不早于延迟触发）");
+        } finally {
+            c.close();
+        }
     }
 }
