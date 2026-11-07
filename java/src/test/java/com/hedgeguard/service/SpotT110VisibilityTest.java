@@ -28,6 +28,7 @@ import com.hedgeguard.dao.entity.SpotPrice;
 import com.hedgeguard.dao.entity.UnauthorizedAttempt;
 import com.hedgeguard.dao.entity.UserSubAccountPerm;
 import com.hedgeguard.dao.entity.WipRecord;
+import com.hedgeguard.testsupport.FakeProductUnitDao;
 import com.hedgeguard.testsupport.UnsupportedBaseDao;
 import com.hedgeguard.web.BizException;
 import com.hedgeguard.web.ErrorCode;
@@ -92,6 +93,7 @@ class SpotT110VisibilityTest {
     private FakeExposureDetailDao detailDao;
     private FakeSpotChangeLogDao changeLogDao;
     private FakeProductDao productDao;
+    private FakeProductUnitDao productUnitDao;
 
     @BeforeEach
     void setUp() {
@@ -106,6 +108,9 @@ class SpotT110VisibilityTest {
         detailDao = new FakeExposureDetailDao();
         changeLogDao = new FakeSpotChangeLogDao();
         productDao = new FakeProductDao();
+        // BUG-006：导入新增行须由系统补 price_unit（currency + "/" + spot_unit）
+        productUnitDao = new FakeProductUnitDao();
+        productUnitDao.withUnit(5L, "TON", LocalDate.of(2020, 1, 1));
     }
 
     @AfterEach
@@ -383,7 +388,7 @@ class SpotT110VisibilityTest {
     private SpotService service(SubAccountVisibility visibility) {
         return new SpotService(FakeTx.newTemplate(), purchaseDao, salesDao, mappingDao, wipDao,
                 inventoryDao, priceDao, exposureDao, detailDao, changeLogDao, null, null, null,
-                productDao, visibility, null);
+                productDao, visibility, null, productUnitDao);
     }
 
     /** 真实 {@link AuthService}（仅装配可见性判定所需的两个 DAO；其余入参不被驱动 → 传 {@code null}）。 */
@@ -482,6 +487,7 @@ class SpotT110VisibilityTest {
         Product p = new Product();
         p.id = id;
         p.productCode = code;
+        p.currency = "CNY"; // 币种参与 price_unit 组合（BUG-006）；DDL ck_product_currency 恒 CNY
         return p;
     }
 

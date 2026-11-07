@@ -7,6 +7,7 @@ import com.hedgeguard.dao.impl.DmHedgePlanExposureDao;
 import com.hedgeguard.dao.impl.DmInventoryLedgerDao;
 import com.hedgeguard.dao.impl.DmProductDao;
 import com.hedgeguard.dao.impl.DmProductSpotCategoryDao;
+import com.hedgeguard.dao.impl.DmProductUnitDao;
 import com.hedgeguard.dao.impl.DmProductionPlanDao;
 import com.hedgeguard.dao.impl.DmProductionPlanLineDao;
 import com.hedgeguard.dao.impl.DmPurchaseContractDao;
@@ -112,7 +113,8 @@ class SpotT133GuardBearingTest {
                 new DmExposureDao(tx), new DmExposureDetailDao(tx), new DmSpotChangeLogDao(tx),
                 planDao, new DmProductionPlanLineDao(tx),
                 new DmSubAccountDao(tx), new DmProductDao(tx),
-                uid -> List.of(SUB_A, SUB_B), new DmHedgePlanExposureDao(tx));
+                uid -> List.of(SUB_A, SUB_B), new DmHedgePlanExposureDao(tx),
+                new DmProductUnitDao(tx)); // 与生产 Bootstrap 同构（BUG-006 导入补默认单位依赖）
     }
 
     @AfterEach

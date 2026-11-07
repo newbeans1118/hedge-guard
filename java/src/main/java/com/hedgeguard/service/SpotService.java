@@ -11,6 +11,7 @@ import com.hedgeguard.dao.PageQuery;
 import com.hedgeguard.dao.PageResult;
 import com.hedgeguard.dao.ProductDao;
 import com.hedgeguard.dao.ProductSpotCategoryDao;
+import com.hedgeguard.dao.ProductUnitDao;
 import com.hedgeguard.dao.ProductionPlanDao;
 import com.hedgeguard.dao.ProductionPlanLineDao;
 import com.hedgeguard.dao.PurchaseContractDao;
@@ -26,6 +27,7 @@ import com.hedgeguard.dao.entity.HedgePlanExposure;
 import com.hedgeguard.dao.entity.InventoryLedger;
 import com.hedgeguard.dao.entity.Product;
 import com.hedgeguard.dao.entity.ProductSpotCategory;
+import com.hedgeguard.dao.entity.ProductUnit;
 import com.hedgeguard.dao.entity.ProductionPlan;
 import com.hedgeguard.dao.entity.ProductionPlanLine;
 import com.hedgeguard.dao.entity.PurchaseContract;
@@ -95,6 +97,15 @@ public final class SpotService {
     public static final List<String> CSV_HEADER = Collections.unmodifiableList(
             Arrays.asList("品种编码", "日期", "现货价"));
 
+    /**
+     * 价格单位列长度上限（{@code t_spot_price.price_unit VARCHAR(16) NOT NULL}，无 DEFAULT；
+     * 锚点 {@code docs/DEPLOY/schema/m1_spot.sql}，时点 2026-11-07 实测 —— 以实时为准）。
+     *
+     * <p>导入新增行的单位由系统按品种配置组合（{@link #resolveImportPriceUnit}），超长
+     * <b>一律拒绝</b>而不截断（截断会静默改写计量语义）。
+     */
+    private static final int PRICE_UNIT_MAX_LENGTH = 16;
+
     /** 未映射敞口的品种**哨兵值**（{@code DC-041}：指向 {@code t_product} 保留系统行 {@code id=0}）。 */
     public static final long UNMAPPED_PRODUCT_SENTINEL = 0L;
 
@@ -133,6 +144,14 @@ public final class SpotService {
     private final ProductDao productDao;
     private final SubAccountVisibility subAccountVisibility;
     private final HedgePlanExposureDao hedgePlanExposureDao;
+
+    /**
+     * 计量单位换算关系 DAO（{@code BUG-006}）：导入新增行的 {@code price_unit} 由
+     * {@code product.currency + "/" + t_product_unit.spot_unit} 组合，须按品种取<b>当时生效</b>的一份。
+     *
+     * <p>未装配时 {@link #importSpotPrices} <b>明确拒绝</b>（10001），不得静默或留空让 DB 约束兜底。
+     */
+    private final ProductUnitDao productUnitDao;
 
     /**
      * 构造（{@code T-013}/{@code T-014} 既有签名，向后兼容——新增依赖为 {@code null}）。
@@ -191,7 +210,10 @@ public final class SpotService {
     }
 
     /**
-     * 构造（全量依赖，{@code T-109-R} 修复 {@code TE-T109-001}/{@code TE-T109-002} 所需）。
+     * 构造（{@code T-109-R} 修复 {@code TE-T109-001}/{@code TE-T109-002} 所需的三项依赖）。
+     *
+     * <p>{@code BUG-006} 起本构造<b>委托</b>全量构造并传 {@code null} 计量单位 DAO，
+     * 供不涉导入的调用方沿用；<b>导入新增行</b>的装配要求见下一构造。
      *
      * <p>新增三项依赖的用途：
      * <ul>
@@ -230,6 +252,48 @@ public final class SpotService {
                        ProductionPlanLineDao productionPlanLineDao, SubAccountDao subAccountDao,
                        ProductDao productDao, SubAccountVisibility subAccountVisibility,
                        HedgePlanExposureDao hedgePlanExposureDao) {
+        this(tx, purchaseContractDao, salesContractDao, productSpotCategoryDao, wipRecordDao,
+                inventoryLedgerDao, spotPriceDao, exposureDao, exposureDetailDao, spotChangeLogDao,
+                productionPlanDao, productionPlanLineDao, subAccountDao, productDao,
+                subAccountVisibility, hedgePlanExposureDao, null);
+    }
+
+    /**
+     * 构造（全量依赖，{@code BUG-006} 增补计量单位 DAO）。
+     *
+     * <p>新增依赖用途：{@code FR-SPOT-11}/{@code FR-SPOT-12} 的导入输入契约只含
+     * 品种编码 / 日期 / 现货价（{@link #CSV_HEADER}），<b>不含单位列</b>；而
+     * {@code t_spot_price.price_unit} 为 {@code NOT NULL} 且无 DEFAULT ⇒ 单位必须由系统按
+     * {@code t_product_unit} 的生效换算关系补出（{@link ProductUnitDao#findEffective}，
+     * {@code R-PRODUCT-6}）。旧构造一律委托本构造并传 {@code null}（未装配即明确拒绝，不静默降级）。
+     *
+     * @param tx                       事务模板
+     * @param purchaseContractDao      采购合同 DAO
+     * @param salesContractDao         销售合同 DAO
+     * @param productSpotCategoryDao   现货品类映射 DAO
+     * @param wipRecordDao             在制品 DAO
+     * @param inventoryLedgerDao       库存台账 DAO
+     * @param spotPriceDao             现货价 DAO
+     * @param exposureDao              敞口 DAO
+     * @param exposureDetailDao        敞口构成明细 DAO
+     * @param spotChangeLogDao         现货变更留痕 DAO
+     * @param productionPlanDao        生产计划头 DAO
+     * @param productionPlanLineDao    生产计划行 DAO
+     * @param subAccountDao            子账户 DAO（归属变更目标校验用）
+     * @param productDao               品种 DAO（导入按品种编码解析；币种来源）
+     * @param subAccountVisibility     子账户可见性判定端口
+     * @param hedgePlanExposureDao     计划-敞口绑定 DAO
+     * @param productUnitDao           计量单位换算关系 DAO（导入补默认价格单位用）
+     */
+    public SpotService(TxTemplate tx, PurchaseContractDao purchaseContractDao,
+                       SalesContractDao salesContractDao,
+                       ProductSpotCategoryDao productSpotCategoryDao, WipRecordDao wipRecordDao,
+                       InventoryLedgerDao inventoryLedgerDao, SpotPriceDao spotPriceDao,
+                       ExposureDao exposureDao, ExposureDetailDao exposureDetailDao,
+                       SpotChangeLogDao spotChangeLogDao, ProductionPlanDao productionPlanDao,
+                       ProductionPlanLineDao productionPlanLineDao, SubAccountDao subAccountDao,
+                       ProductDao productDao, SubAccountVisibility subAccountVisibility,
+                       HedgePlanExposureDao hedgePlanExposureDao, ProductUnitDao productUnitDao) {
         this.tx = tx;
         this.purchaseContractDao = purchaseContractDao;
         this.salesContractDao = salesContractDao;
@@ -246,6 +310,7 @@ public final class SpotService {
         this.productDao = productDao;
         this.subAccountVisibility = subAccountVisibility;
         this.hedgePlanExposureDao = hedgePlanExposureDao;
+        this.productUnitDao = productUnitDao;
     }
 
     // ------------------------------------------------------------ T-013 现货单证
@@ -967,6 +1032,12 @@ public final class SpotService {
      * 未确认覆盖则整体拒绝（{@code R-SPOT-3}，不得静默覆盖）。成功时来源标注含 {@code sourceType} /
      * 导入文件名 / 操作人（{@code FR-SPOT-12} 验收 3）。
      *
+     * <p><b>价格单位由系统补（{@code BUG-006}）</b>：输入契约不含单位列（{@link #CSV_HEADER}），
+     * 而 {@code t_spot_price.price_unit} 为 {@code NOT NULL} 无 DEFAULT ⇒ <b>新增行</b>按
+     * {@code product.currency + "/" + t_product_unit.spot_unit} 补默认单位（按价格日期取生效换算关系，
+     * 取不到回退当前生效；{@link #resolveImportPriceUnits}），无法确定或超列宽则以 {@code 10001}
+     * 定位到行号后整批拒绝；<b>同日覆盖行</b>保留既有 {@code price_unit}（{@code R-PRODUCT-6}）。
+     *
      * @param lines              文本行（{@code BATCH_PASTE} 全为数据行；{@code CSV_IMPORT} 首行为表头）
      * @param subAccountId       录入归属子账户（必填，&gt; 0）
      * @param sourceType         {@code BATCH_PASTE} / {@code CSV_IMPORT}（缺省 {@code BATCH_PASTE}）
@@ -1017,6 +1088,10 @@ public final class SpotService {
             dataStart = 1;
         }
         List<SpotPrice> parsed = new ArrayList<>();
+        // 与 parsed 逐下标对齐的两条并行信息：行号（拒因定位到行）与解析出的品种
+        // （BUG-006：新增行补默认价格单位时要取品种币种与生效换算关系，避免二次按编码回查）
+        List<Integer> parsedLineNos = new ArrayList<>();
+        List<Product> parsedProducts = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
         int validRows = 0;
         for (int i = dataStart; i < lines.size(); i++) {
@@ -1085,6 +1160,8 @@ public final class SpotService {
                 problems.add("第 " + line + " 行与批次内其它行品种+日期重复");
             }
             parsed.add(price);
+            parsedLineNos.add(line);
+            parsedProducts.add(product);
         }
         if (validRows == 0) {
             problems.add("无可导入数据行（内容全为空行）");
@@ -1107,10 +1184,13 @@ public final class SpotService {
                                 + "；复现=携带覆盖确认后重试");
             }
         }
+        // BUG-006：新增行的 price_unit 由系统补默认单位（输入契约不含单位列）；覆盖行不动既有单位
+        List<String> defaultUnits = resolveImportPriceUnits(parsed, parsedProducts, parsedLineNos);
         return tx.inTransaction(connection -> {
             int inserted = 0;
             int updated = 0;
-            for (SpotPrice row : parsed) {
+            for (int i = 0; i < parsed.size(); i++) {
+                SpotPrice row = parsed.get(i);
                 SpotPrice existing = spotPriceDao.findGlobalPrice(row.productId, row.priceDate);
                 if (existing == null) {
                     row.sourceType = source;
@@ -1119,6 +1199,14 @@ public final class SpotService {
                     row.operatorId = operatorId;
                     row.entryTime = Clocks.now();
                     row.overwriteConfirmed = "N";
+                    row.priceUnit = defaultUnits.get(i);
+                    if (isBlank(row.priceUnit)) {
+                        // 反退化守卫：预校验阶段判过「新增行」，此处若无可填单位，绝不留给 DB 约束变成 500
+                        throw BizException.of(ErrorCode.PARAM_INVALID,
+                                "第 " + parsedLineNos.get(i) + " 行价格单位缺失，拒绝落库（price_unit NOT NULL）："
+                                        + "productId=" + row.productId + " priceDate=" + row.priceDate
+                                        + "；复现=核对 t_product_unit 当前生效换算关系");
+                    }
                     if (spotPriceDao.insert(row, operatorId) != 1) {
                         throw BizException.of(ErrorCode.UNIQUE_CONFLICT,
                                 "现货价唯一口径冲突（uk_spot_price_global）：productId=" + row.productId
@@ -1147,6 +1235,91 @@ public final class SpotService {
             summary.put("sourceType", source);
             return summary;
         });
+    }
+
+    /**
+     * 为导入的<b>新增</b>行算默认价格单位（{@code BUG-006}）。
+     *
+     * <p>依据：{@code FR-SPOT-11}/{@code FR-SPOT-12} 的输入契约只含 品种编码 / 日期 / 现货价
+     * （{@link #CSV_HEADER} 三列），<b>不含单位列</b>；而 {@code t_spot_price.price_unit} 为
+     * {@code VARCHAR(16) NOT NULL} 且无 DEFAULT ⇒ 单位必须由系统按品种配置补出，
+     * <b>不得</b>留给 DB 约束兜底（否则新增行落库即 500，导入功能整体不可用）。
+     *
+     * <p>只判定<b>新增</b>行（{@code findGlobalPrice} 为 {@code null} 者）：同日已存在的覆盖行
+     * 保留 {@code existing.priceUnit}（{@code R-PRODUCT-6}「换算关系变更不追溯重算历史」）。
+     * 无法确定单位的行<b>逐行定位行号</b>汇总后以 {@code 10001} 整批拒绝（不截断、不降级为 1:1）。
+     * {@code productUnitDao} 装配缺位<b>只在出现新增行时</b>失败（纯覆盖批次不依赖单位解析）。
+     *
+     * @param parsed         解析行
+     * @param parsedProducts 逐下标对齐的品种（{@link ProductDao#findByCode} 结果）
+     * @param parsedLineNos  逐下标对齐的行号（1 起，用于拒因定位）
+     * @return 与 {@code parsed} 逐下标对齐的价格单位；覆盖行/未判定行为 {@code null}（不参与写入）
+     */
+    private List<String> resolveImportPriceUnits(List<SpotPrice> parsed, List<Product> parsedProducts,
+                                                 List<Integer> parsedLineNos) {
+        List<String> units = new ArrayList<>(Collections.nCopies(parsed.size(), (String) null));
+        List<String> unitProblems = new ArrayList<>();
+        for (int i = 0; i < parsed.size(); i++) {
+            SpotPrice row = parsed.get(i);
+            if (spotPriceDao.findGlobalPrice(row.productId, row.priceDate) != null) {
+                continue; // 覆盖行：保留既有 price_unit（R-PRODUCT-6）
+            }
+            if (productUnitDao == null) {
+                // 纯覆盖批次不需要单位解析；一旦有新增行则装配缺位必须显式失败（不静默、不 NPE）
+                throw BizException.of(ErrorCode.PARAM_INVALID,
+                        "现货价导入未装配计量单位 DAO，无法为新增行补默认 price_unit（BUG-006）："
+                                + "复现=检查 Bootstrap 对 SpotService 的 ProductUnitDao 注入");
+            }
+            Product product = parsedProducts.get(i);
+            units.set(i, product == null ? null
+                    : resolveImportPriceUnit(product, row.priceDate, parsedLineNos.get(i), unitProblems));
+        }
+        if (!unitProblems.isEmpty()) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "导入行价格单位预校验未通过（整体不导入，共 " + unitProblems.size() + " 处）："
+                            + String.join("；", unitProblems));
+        }
+        return units;
+    }
+
+    /**
+     * 取单个品种在给定价格日期的默认价格单位 = {@code product.currency + "/" + spot_unit}
+     * （{@code BUG-006}；实证既有落库值 {@code CNY/TON}）。
+     *
+     * <p>取值链：先按<b>价格日期</b>取当时生效的换算关系（{@code R-PRODUCT-6}：不追溯重算历史）；
+     * 取不到时（价格日期早于首个生效日）回退按 {@code Clocks.today()} 取当前生效；仍无 ⇒ 记入
+     * {@code unitProblems}（10001 整批拒绝）。组合结果超过列宽 {@link #PRICE_UNIT_MAX_LENGTH}
+     * 亦拒绝（<b>不截断</b>：截断会静默改写计量语义）。
+     *
+     * @param product     品种（币种来源）
+     * @param priceDate   价格日期
+     * @param line        行号（拒因定位用）
+     * @param unitProblems 拒因收集器
+     * @return 组合后的价格单位；无法确定时返回 {@code null} 并已记入 {@code unitProblems}
+     */
+    private String resolveImportPriceUnit(Product product, LocalDate priceDate, int line,
+                                          List<String> unitProblems) {
+        ProductUnit unit = productUnitDao.findEffective(product.id, priceDate);
+        boolean fellBack = false;
+        if (unit == null && !Clocks.today().equals(priceDate)) {
+            unit = productUnitDao.findEffective(product.id, Clocks.today());
+            fellBack = true;
+        }
+        if (unit == null || isBlank(unit.spotUnit) || isBlank(product.currency)) {
+            unitProblems.add("第 " + line + " 行品种缺少生效计量单位（R-PRODUCT-6）：品种编码="
+                    + product.productCode + " 价格日期=" + priceDate
+                    + (fellBack ? "（已回退按当日 " + Clocks.today() + " 取当前生效，仍无）" : "")
+                    + "；复现=先维护 t_product_unit 的生效换算关系（spot_unit 与 currency 不得为空）");
+            return null;
+        }
+        String composed = product.currency.trim() + "/" + unit.spotUnit.trim();
+        if (composed.length() > PRICE_UNIT_MAX_LENGTH) {
+            unitProblems.add("第 " + line + " 行价格单位超长（" + composed.length() + " 字符 > 列宽 "
+                    + PRICE_UNIT_MAX_LENGTH + "，不得截断）：" + composed
+                    + "；复现=核对 t_product_unit.spot_unit 与 price_unit 列宽（VARCHAR(16)）");
+            return null;
+        }
+        return composed;
     }
 
     /** 按分隔符拆列：含制表符按制表符，否则按逗号（{@code FR-SPOT-11} 制表符/逗号）。 */

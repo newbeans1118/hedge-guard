@@ -716,7 +716,7 @@ public final class Bootstrap {
                 new DmWipRecordDao(tx), new DmInventoryLedgerDao(tx), new DmSpotPriceDao(tx),
                 exposureDao, new DmExposureDetailDao(tx), new DmSpotChangeLogDao(tx),
                 new DmProductionPlanDao(tx), new DmProductionPlanLineDao(tx), new DmSubAccountDao(tx),
-                productDao, authService, hedgePlanExposureDao);
+                productDao, authService, hedgePlanExposureDao, new DmProductUnitDao(tx));
 
         PlanService planService = new PlanService(tx,
                 new DmHedgePlanDao(tx), new DmHedgePlanExposureDao(tx), new DmHedgeRatioCalcDao(tx),

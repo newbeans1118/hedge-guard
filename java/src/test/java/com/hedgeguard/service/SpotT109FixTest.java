@@ -28,6 +28,7 @@ import com.hedgeguard.dao.entity.PurchaseContract;
 import com.hedgeguard.dao.entity.SpotChangeLog;
 import com.hedgeguard.dao.entity.SpotPrice;
 import com.hedgeguard.dao.entity.SubAccount;
+import com.hedgeguard.testsupport.FakeProductUnitDao;
 import com.hedgeguard.testsupport.UnsupportedBaseDao;
 import com.hedgeguard.web.BizException;
 import com.hedgeguard.web.ErrorCode;
@@ -81,6 +82,7 @@ class SpotT109FixTest {
     private FakeSubAccountDao subAccountDao;
     private FakeHedgePlanExposureDao bindDao;
     private FakeSpotChangeLogDao changeLogDao;
+    private FakeProductUnitDao productUnitDao;
 
     @BeforeEach
     void setUp() {
@@ -95,6 +97,9 @@ class SpotT109FixTest {
         subAccountDao = new FakeSubAccountDao();
         bindDao = new FakeHedgePlanExposureDao();
         changeLogDao = new FakeSpotChangeLogDao();
+        // BUG-006：导入新增行须由系统补 price_unit（`currency + "/" + spot_unit`）⇒ 品种 5 备一份生效换算关系
+        productUnitDao = new FakeProductUnitDao();
+        productUnitDao.withUnit(5L, "TON", LocalDate.of(2020, 1, 1));
     }
 
     @AfterEach
@@ -120,6 +125,8 @@ class SpotT109FixTest {
         assertEquals("BATCH_PASTE", summary.get("sourceType"));
         assertEquals("BATCH_PASTE", priceDao.rows.get(0).sourceType);
         assertEquals(7L, priceDao.rows.get(0).operatorId, "来源标注含操作人");
+        assertEquals("CNY/TON", priceDao.rows.get(0).priceUnit,
+                "导入新增行须由系统补默认单位 currency + \"/\" + spot_unit（BUG-006）");
     }
 
     @Test
@@ -392,13 +399,14 @@ class SpotT109FixTest {
     private SpotService service(SubAccountVisibility visibility) {
         return new SpotService(FakeTx.newTemplate(), purchaseDao, null, null, null, null, priceDao,
                 exposureDao, detailDao, changeLogDao, planDao, planLineDao, subAccountDao, productDao,
-                visibility, bindDao);
+                visibility, bindDao, productUnitDao);
     }
 
     private static Product product(long id, String code) {
         Product p = new Product();
         p.id = id;
         p.productCode = code;
+        p.currency = "CNY"; // 币种参与 price_unit 组合（BUG-006）；DDL ck_product_currency 恒 CNY
         return p;
     }
 
