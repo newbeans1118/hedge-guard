@@ -162,6 +162,22 @@ import com.hedgeguard.service.impl.LoggingTamperAlarm;
 import com.hedgeguard.service.impl.ParamDispatchServiceImpl;
 import com.hedgeguard.service.impl.RiskIntradayPersistenceSink;
 import com.hedgeguard.service.impl.RiskRecomputeServiceImpl;
+import com.hedgeguard.service.PostRiskReportService;
+import com.hedgeguard.service.impl.PostRiskReportServiceImpl;
+import com.hedgeguard.dao.PageQuery;
+import com.hedgeguard.dao.entity.HedgePlan;
+import com.hedgeguard.dao.entity.ReportPeriodConfig;
+import com.hedgeguard.dao.impl.DmRiskViolationDao;
+import com.hedgeguard.job.JobClock;
+import com.hedgeguard.job.JobConfig;
+import com.hedgeguard.job.JobIdempotencyGuard;
+import com.hedgeguard.job.JobOutcome;
+import com.hedgeguard.job.JobPorts;
+import com.hedgeguard.job.JobScheduler;
+import com.hedgeguard.job.JobSchedules;
+import com.hedgeguard.job.LoggingJobAlarm;
+import com.hedgeguard.job.PostRiskReportAlarm;
+import com.hedgeguard.job.PostRiskReportJob;
 import com.hedgeguard.web.handler.PingHandler;
 import com.hedgeguard.web.handler.audit.AuditLogRoutes;
 import com.hedgeguard.web.handler.audit.AuditReportRoutes;
@@ -186,7 +202,10 @@ import com.hedgeguard.web.ws.WsAuthorizer;
 import com.hedgeguard.web.ws.WsServer;
 
 import java.io.IOException;
+import java.time.LocalDate;
 import java.util.Arrays;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -275,6 +294,7 @@ public final class Bootstrap {
         HgcpClient hgcpClient = null;
         ParamDispatchService paramDispatchService = null;
         WsServerHolder wsServer = null;
+        JobScheduler jobScheduler = null;
         AuthFilter authFilter;
 
         // ---- 条件装配：仅当 hg.db.url 已配置时才接入数据库层 ----
@@ -311,11 +331,14 @@ public final class Bootstrap {
                     ? "参数下发服务未装配（组件桥不可用）"
                     : "参数下发服务已装配（回执超时取 CFG-28 " + ParamDispatchServiceImpl.KEY_CMD_TIMEOUT_MS
                             + "）");
-            AuthService authService = registerBusinessRoutes(router, tx, sessionStore, config,
+            BusinessAssembly business = registerBusinessRoutes(router, tx, sessionStore, config,
                     hgcpClient, paramDispatchService, wsServer);
             // 认证时经 AuthService.touchSession 续期 ⇒ 会话为「空闲 30 min」滑动超时（FR-AUTH-15 验收 2）
             authFilter = new SessionAuthFilter(sessionStore, config.sessionCookieName(),
-                    authService::touchSession);
+                    business.authService::touchSession);
+            // T-051 J6：调度层随数据库层一并装配（7 类定时任务经 JobPorts 只调 L3 服务，零 DAO 引用）。
+            // 与 paramDispatchService 同姿态：结果留在 Assembly 上可观测，不再只靠一行日志区分。
+            jobScheduler = business.jobScheduler;
             LOG.info("已装配数据库层：url=" + factory.url() + "（口令不落盘、不入日志）；"
                     + "业务服务 18 个已接线（含参数下发与 T-069 审计四服务），路由总数=" + router.routes().size());
         } else {
@@ -328,7 +351,7 @@ public final class Bootstrap {
 
         RequestDispatcher dispatcher = new RequestDispatcher(router, staticHandler, authFilter);
         return new Assembly(dispatcher, sessionStore, pool, factory, hgcpClient,
-                paramDispatchService, wsServer, router.routes().size());
+                paramDispatchService, wsServer, router.routes().size(), jobScheduler);
     }
 
     /**
@@ -357,6 +380,10 @@ public final class Bootstrap {
             // T-040：WS 服务端停机（关 accept 线程 + 节拍器 + 全部连接）。线程均为守护，
             // close 不阻塞停机钩子。
             assembly.wsServer().server().close();
+        }
+        if (assembly.jobScheduler() != null) {
+            // T-051：取消 J6 调度节拍（不关闭调用方持有的线程池）；幂等。
+            assembly.jobScheduler().stop();
         }
     }
 
@@ -647,14 +674,14 @@ public final class Bootstrap {
     }
 
     /**
-     * 装配五个业务服务并注册其模块路由。
+     * 装配五个业务服务并注册其模块路由，同时装配 J6 调度层（{@code T-051}）。
      *
      * <p>抽出的公共 DAO（{@code DmProductSpotCategoryDao} / {@code DmExposureDao} /
      * {@code DmProductContractDao}）在多个服务间<b>复用同一实例</b>（DAO 无状态，仅持 {@link TxTemplate}）。
      *
-     * @return 已装配的 {@link AuthService}（供认证过滤器注入会话续期器）
+     * @return 已装配的 {@link BusinessAssembly}（认证服务 + 调度器，供上层注入与观测）
      */
-    private static AuthService registerBusinessRoutes(Router router, TxTemplate tx,
+    private static BusinessAssembly registerBusinessRoutes(Router router, TxTemplate tx,
                                                       SessionStore sessionStore, Config config,
                                                       TradingBridge bridge,
                                                       ParamDispatchService paramDispatchService,
@@ -955,7 +982,125 @@ public final class Bootstrap {
         LOG.info("已装配核对任务查询面（T-194）：GET /api/v1/audit/check-tasks、"
                 + "GET /api/v1/audit/check-tasks/overdue（FR-AUDIT-13 验收 1/2/5；只读 R-AUDIT-6；"
                 + "子账户可见性经 SubAccountVisibility 软隔离 R-AUDIT-9）");
-        return authService;
+
+        // ==================== T-051 J6 调度层装配（§3.12）====================
+        // 7 类定时任务的 L3 服务端口适配：此处是「装配根」，把真实 L3 服务方法引用接到
+        // JobPorts 的函数式端口上。job 包内零 com.hedgeguard.dao 引用、零 SQL；调度任务
+        // 只经本端口调用 L3 服务层，绝不直连 DAO。服务本体（T-047/T-049/T-180）已交付，
+        // 调度层只负责「到点触发 + 幂等守卫 + 失败告警与重入」，不重复实现业务编排。
+        PostRiskReportService postRiskService = new PostRiskReportServiceImpl(
+                new DmPostRiskReportDao(tx), new DmRiskViolationDao(tx), new DmLimitUsageStatDao(tx),
+                new DmTradePreTradeRejectDao(tx), new DmProductQuotaDao(tx), new DmSettleCycleDao(tx),
+                tx, config);
+        // 事后风控复用 T-180 既有任务；告警统一由 JobScheduler 的 JobAlarm 发出（此处 NOOP 避免双告警）。
+        PostRiskReportJob postRiskJob = new PostRiskReportJob(postRiskService,
+                monitor::current, PostRiskReportAlarm.NOOP);
+        // CFG-24 经 L3 ConfigService 惰性读取；缺键 / 非法值回退缺省 30，范围由 PlanExpiryReminderJob 夹取。
+        JobConfig jobConfig = (key, defaultValue) -> {
+            com.hedgeguard.dao.entity.ConfigItem item = configService.getConfig(key);
+            if (item == null || item.configValue == null) {
+                return defaultValue;
+            }
+            try {
+                return Integer.parseInt(item.configValue.trim());
+            } catch (NumberFormatException e) {
+                return defaultValue;
+            }
+        };
+        JobPorts jobPorts = JobPorts.of(
+                // 1 日终结算（§6.5 ①）：到点检查 CTP 日终结算数据是否到达；未到达置待重试，不得用推算数据。
+                (d, op) -> {
+                    int cycles = settleService.listCycles(
+                            PageQuery.of("1", "100", "trade_date,desc", "trade_date", "desc"),
+                            d, d, null, null, op).items().size();
+                    return new JobOutcome.Summary(cycles, cycles == 0
+                            ? "CTP 日终结算数据未到达，任务置待重试（§6.5，不得用推算数据）"
+                            : "CTP 日终结算数据到达 " + cycles + " 批次，交 L3 结算/加总/关账链承接");
+                },
+                // 2 事后风控（§6.9）：复用 T-180 任务生成并落库三部分风险报表。
+                (d, op) -> new JobOutcome.Summary(postRiskJob.run(d, op).reportRows,
+                        "事后风险报表三部分已生成（T-180）"),
+                // 3 报表生成（§6.5 ⑨）：每日结算报告 + 风控日报，经 SettleService 生成（幂等键由服务层保证）。
+                (d, op) -> {
+                    settleService.generateReport(d, SettleService.REPORT_DAILY_SETTLE, op);
+                    settleService.generateReport(d, SettleService.REPORT_DAILY_RISK, op);
+                    return new JobOutcome.Summary(2, "每日结算报告 + 风控日报已生成");
+                },
+                // 4 对账（§6.5 ⑥ / §6.14）：资金日终对账导出 + 核对任务逾期巡检。
+                (d, op) -> {
+                    int rows = fundService.exportReconcile(d, d, null, op).rows.size();
+                    int overdue = checkTaskQueryService.overdue(d, op).size();
+                    return new JobOutcome.Summary(rows + overdue,
+                            "资金对账行 " + rows + " / 逾期核对任务 " + overdue);
+                },
+                // 5 到期提醒（CFG-24）：列出 advanceDays 天内到期的套保计划（经 L3 PlanService 查询）。
+                (asOf, days, op) -> {
+                    LocalDate deadline = asOf.plusDays(days);
+                    int hits = 0;
+                    for (HedgePlan p : planService.listPlans(op,
+                            PageQuery.of("1", "100", "term_end_date,asc", "term_end_date", "asc"),
+                            null).items()) {
+                        if (p.termEndDate != null && !p.termEndDate.isBefore(asOf)
+                                && !p.termEndDate.isAfter(deadline)) {
+                            hits++;
+                        }
+                    }
+                    return new JobOutcome.Summary(hits,
+                            "CFG-24 提前 " + days + " 天内到期计划 " + hits + " 个");
+                },
+                // 6 报告周期提醒（§11.3 / Q-14）：启用且设了提前提醒天数的报告周期配置。
+                (asOf, op) -> {
+                    int due = 0;
+                    for (ReportPeriodConfig c : configService.listReportPeriods(
+                            PageQuery.of("1", "100", null, "report_type")).items()) {
+                        if ("Y".equals(c.isEnabled) && c.remindAdvanceDays > 0) {
+                            due++;
+                        }
+                    }
+                    return new JobOutcome.Summary(due, "启用且需提前提醒的报告周期 " + due + " 类");
+                },
+                // 7 事件流水位巡检（§6.8 / R-RISK-10）：镜像水位落后帧数 > 0 由任务侧 warn 告警。
+                op -> {
+                    if (bridge == null) {
+                        return new JobOutcome.Summary(0, "组件桥未装配，事件流水位巡检跳过（受配置保护装配）");
+                    }
+                    long consumed = bridge.mirror().watermarkEventSeq;
+                    long produced = bridge.replayProgress().lastSeq;
+                    long lag = Math.max(0L, produced - consumed);
+                    int affected = (int) Math.min(lag, Integer.MAX_VALUE);
+                    return new JobOutcome.Summary(affected, lag > 0
+                            ? "镜像事件序号落后 " + lag + " 帧（R-RISK-10）"
+                            : "事件流水位齐平");
+                });
+        JobScheduler jobScheduler = new JobScheduler(JobClock.system(), jobPorts, jobConfig,
+                new LoggingJobAlarm(), new JobIdempotencyGuard(), SYSTEM_OPERATOR_ID,
+                Arrays.asList(JobSchedules.defaults()));
+        LOG.info("已装配 J6 调度层（T-051）：7 类定时任务，触发时点=" + describeJobTriggers(jobScheduler)
+                + "；分层=JobPorts→L3 服务（零 DAO）；可注入时钟=JobClock；幂等守卫+失败告警+可重入=已启用");
+        return new BusinessAssembly(authService, jobScheduler);
+    }
+
+    /** 供运维日志回显 7 类任务的触发时点（单一清单来源 {@link JobSchedules}）。 */
+    private static String describeJobTriggers(JobScheduler scheduler) {
+        StringBuilder sb = new StringBuilder();
+        for (com.hedgeguard.job.ScheduledJob job : scheduler.jobs()) {
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append(job.type().id()).append('@').append(job.trigger().describe());
+        }
+        return sb.toString();
+    }
+
+    /** 业务路由装配产物：认证服务 + J6 调度器（包内可见，供 {@link #assembleWithResources} 拆用）。 */
+    static final class BusinessAssembly {
+        final AuthService authService;
+        final JobScheduler jobScheduler;
+
+        BusinessAssembly(AuthService authService, JobScheduler jobScheduler) {
+            this.authService = authService;
+            this.jobScheduler = jobScheduler;
+        }
     }
 
     /**
@@ -1140,10 +1285,25 @@ public final class Bootstrap {
         Config config = Config.bootstrap();
         Assembly assembly = assembleWithResources(config);
         HttpServerLauncher launcher = new HttpServerLauncher(config, assembly.dispatcher());
+        // T-051 J6：生产节拍器（守护线程，不阻塞 JVM 退出）。真正「是否到点 / 业务日期」由
+        // JobScheduler 内注入的 JobClock 决定，此处只提供心跳；close() 会取消节拍。
+        ScheduledExecutorService jobPool = null;
+        if (assembly.jobScheduler() != null) {
+            jobPool = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "hg-job-scheduler");
+                t.setDaemon(true);
+                return t;
+            });
+            assembly.jobScheduler().start(jobPool, JobSchedules.EVENT_FLOW_WATERMARK_INTERVAL_SECONDS);
+        }
+        final ScheduledExecutorService jobPoolRef = jobPool;
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             LOG.info("收到停机信号，正在停止 HTTP 服务");
             launcher.stop();
             close(assembly);
+            if (jobPoolRef != null) {
+                jobPoolRef.shutdownNow();
+            }
             LOG.info("已释放数据库资源（连接池已关闭、口令副本已清零）");
         }, "hg-shutdown"));
         launcher.start();
@@ -1180,10 +1340,13 @@ public final class Bootstrap {
         /** WS 行情/告警服务端组合产物（{@code T-040}）；CFG-32 未配置/启动失败时为 {@code null}。 */
         private final WsServerHolder wsServer;
         private final int routeCount;
+        /** J6 调度器（{@code T-051}）；未装配数据库层时为 {@code null}。 */
+        private final JobScheduler jobScheduler;
 
         Assembly(RequestDispatcher dispatcher, SessionStore sessionStore, DataSourcePool pool,
                  JdbcConnectionFactory factory, HgcpClient hgcpClient,
-                 ParamDispatchService paramDispatchService, WsServerHolder wsServer, int routeCount) {
+                 ParamDispatchService paramDispatchService, WsServerHolder wsServer, int routeCount,
+                 JobScheduler jobScheduler) {
             this.dispatcher = dispatcher;
             this.sessionStore = sessionStore;
             this.pool = pool;
@@ -1192,6 +1355,7 @@ public final class Bootstrap {
             this.paramDispatchService = paramDispatchService;
             this.wsServer = wsServer;
             this.routeCount = routeCount;
+            this.jobScheduler = jobScheduler;
         }
 
         RequestDispatcher dispatcher() {
@@ -1242,6 +1406,18 @@ public final class Bootstrap {
         /** 已注册路由条数（含平台级 ping 的 GET/HEAD）。 */
         int routeCount() {
             return routeCount;
+        }
+
+        /**
+         * J6 调度器（{@code T-051}）：数据库层装配时返回 7 类任务齐全的调度器，未配库返回 {@code null}。
+         *
+         * <p>与 {@link #paramDispatchService()} 同姿态——「是否装上」是可查询的装配产物，
+         * 并供装配级用例断言与 {@link #close(Assembly)} 停机释放。
+         *
+         * @return 调度器；未装配时为 {@code null}
+         */
+        JobScheduler jobScheduler() {
+            return jobScheduler;
         }
 
         /** 是否已装配数据库层。 */
