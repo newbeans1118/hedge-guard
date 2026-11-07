@@ -220,8 +220,8 @@ public final class SpotService {
      *   <li>{@link ProductDao}：{@code FR-SPOT-11/12} 导入按<b>品种编码</b>解析为 {@code productId}
      *       （{@link ProductDao#findByCode(String)}，{@code uk_product_code} 唯一）；</li>
      *   <li>{@link SubAccountVisibility}：子账户<b>可见性/写入强制面</b>（{@code NFR-SEC-7}）——
-     *       导出（只读面）经 {@link #requireSubAccountVisible}，写面经 {@link #requireSubAccountWritable}，
-     *       均按调用者身份断言；</li>
+     *       导出与<b>展示侧重算</b>（{@code T-114}，只读面 + 审计留痕）经 {@link #requireSubAccountVisible}，
+     *       写面经 {@link #requireSubAccountWritable}，均按调用者身份断言；</li>
      *   <li>{@link HedgePlanExposureDao}：{@code FR-SPOT-16} 验收 2 拒因按<b>计划</b>给出
      *       （{@code t_hedge_plan_exposure} 反查 {@code hedge_plan_id}）。</li>
      * </ul>
@@ -865,9 +865,25 @@ public final class SpotService {
     /**
      * 展示侧重算（{@code Q-17} ④ / {@code CFG-17b}）：只重算 + 告警 + 留痕，**绝不回写落库值**。
      *
+     * <p><b>子账户可见性强制</b>（{@code T-114}；{@code FR-AUTH-13} 验收 1 / {@code NFR-SEC-7}）：
+     * 按 {@code exposureId} 取敞口后**先**强制调用者对该敞口所属子账户<b>可见</b>
+     * （{@link #requireSubAccountVisible}，沿用 {@code T-110}/{@code TE-T109-002} 同一机制，
+     * 越权 {@code 10004}），**再**读构成明细 / 重算 / 写留痕。缺此强制则任意已登录调用者可凭
+     * {@code exposureId} 直读**他人子账户**敞口分量，并在对方 {@code t_spot_change_log} 上落
+     * {@code COMPONENT_RECALC}（读 + 留痕写双越权面，与 {@code TE-T109-002} 同族）。
+     *
+     * <p><b>先校验、后留痕</b>：可见性断言严格早于 {@code t_spot_change_log} 写入 ⇒ 越权被拒时
+     * <b>零落库副作用</b>（不得先写后拒）。
+     *
+     * <p><b>为何用可见性断言而非写面断言</b>：本端点只追加审计留痕、**不回写**任何业务落库值
+     * （返回 {@code writtenBack=false}，{@code Q-17} ④「绝不回写落库值」），属<b>展示/核对读面</b>；
+     * 故持跨子账户只读（{@code CROSS_READONLY}）者对<b>可见</b>敞口仍可重算——避免 {@code T-115}
+     * 验收 4 所指的「把只读端点一并拒掉」误拒。
+     *
      * @param exposureId 敞口
-     * @param operatorId 触发人
+     * @param operatorId 触发人（由会话决定，不接受请求参数传入）
      * @return 对比结果（含 {@code writtenBack=false} 的显式声明与逐项差异）
+     * @throws BizException 敞口不存在（{@code 10001}）或调用者不可见其子账户（越权 {@code 10004}）
      */
     public Map<String, Object> recalcForDisplay(long exposureId, long operatorId) {
         Exposure exposure = exposureDao.findById(exposureId);
@@ -875,6 +891,8 @@ public final class SpotService {
             throw BizException.of(ErrorCode.PARAM_INVALID,
                     "敞口不存在：id=" + exposureId + "；复现=按 snapshot_id 查询确认 ID");
         }
+        // T-114：先校验可见性，后读明细/重算/留痕（越权不得返回他人敞口分量、不得产生落库副作用）。
+        requireSubAccountVisible(operatorId, exposure.subAccountId);
         List<ExposureDetail> details = exposureDetailDao.findByExposure(exposureId);
         Map<String, BigDecimal> recomputed = sumByComponent(details);
         Map<String, BigDecimal> stored = new LinkedHashMap<>();
