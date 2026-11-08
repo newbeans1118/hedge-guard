@@ -485,8 +485,16 @@ class AuthServiceTest {
         addUser(1L, "trader01", "ENABLED");
         String current = userDao.users.get(1L).passwordHash;
 
-        assertThrows(IllegalArgumentException.class,
-                () -> service.changePassword(1L, "Hg#2026Trading01", "weak"), "强度不足须拒");
+        // T-147：强度拒绝在【服务边界】已转为显式 BizException（不得再漏裸 IllegalArgumentException）；
+        // 否则该拒绝只能靠 ErrorMapper 的 instanceof IAE 宽映射兜底，类型层与兄弟拒绝不统一。
+        BizException weak = assertThrows(BizException.class,
+                () -> service.changePassword(1L, "Hg#2026Trading01", "weak"),
+                "强度不足须拒，且须为显式 BizException（T-147 服务边界收口）");
+        assertEquals(ErrorCode.PARAM_INVALID, weak.errorCode(), "强度不足须为 10001（PARAM_INVALID）");
+        assertTrue(weak.getMessage().contains("口令强度不足"), "文案须可判定：" + weak.getMessage());
+        assertEquals(10001, com.hedgeguard.web.ErrorMapper.map(weak, "HGT147").code,
+                "HTTP 层须为 10001");
+        assertEquals(400, com.hedgeguard.web.ErrorMapper.httpStatus(weak), "HTTP 状态须为 400");
         assertEquals(ErrorCode.PARAM_INVALID,
                 assertThrows(BizException.class,
                         () -> service.changePassword(1L, "Hg#2026Trading01", "Hg#2026Trading01"))

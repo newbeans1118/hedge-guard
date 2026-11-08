@@ -660,25 +660,64 @@ class AuthAdminServiceTest {
     }
 
     @Test
-    @DisplayName("T-136 形态 B：PUT /auth/password 强度不足 ⇒ 拒绝（复用 assertStrength）")
+    @DisplayName("T-136/T-147 形态 B：PUT /auth/password 强度不足 ⇒ 显式 BizException 10001/400（服务边界收口，非裸 IAE）")
     void resetPasswordRejectsWeakPassword() {
         service.createUser("lisi", "李四", "NP-001", "财务部", "N", "Hg#2026Trading01", 9L);
-        // O-4（收紧）：原为 assertThrows(RuntimeException)（过宽：任何运行时异常都能通过）。
-        // 本路径的拒绝来自 PasswordHasher.assertStrength ⇒ 精确的 IllegalArgumentException。
-        // 该异常非 BizException；在 HTTP 层由 ErrorMapper 映射为既有错误码 10001（PARAM_INVALID），
-        // 故此处同时断言「类型 + 报文 + 线上错误码语义」三者。
-        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+        // T-147 改判（改前 = 裸 IllegalArgumentException，仅靠 ErrorMapper 的 instanceof IAE 宽映射兜底 10001）：
+        // 强度拒绝已由 AuthService 服务边界（assertPasswordStrengthAtBoundary）转为显式 BizException，
+        // 故此处断言「类型 + 错误码 + 报文 + HTTP 状态」四者，任一退化为裸 IAE 即红。
+        BizException e = assertThrows(BizException.class,
                 () -> new PasswordHandler(service).handle(
                         new RequestContext("PUT", PasswordHandler.PATH, null,
                                 java.util.Collections.emptyMap(),
                                 "{\"userId\":1,\"newPassword\":\"short\"}", "HGT136", "127.0.0.1")),
-                "强度不足须拒绝（FR-AUTH-16 处理规则复用）");
+                "强度不足须拒绝（FR-AUTH-16 处理规则复用），且须为显式 BizException（不得漏裸 IAE）");
+        assertEquals(ErrorCode.PARAM_INVALID, e.errorCode(), "强度不足须为 10001（PARAM_INVALID）");
         assertTrue(e.getMessage().contains("口令强度不足"),
                 "拒绝须点名口令强度策略（且不得回显明文）：" + e.getMessage());
         assertFalse(e.getMessage().contains("short"), "异常信息不得回显明文口令：" + e.getMessage());
-        assertEquals(ErrorCode.PARAM_INVALID.code(),
-                com.hedgeguard.web.ErrorMapper.map(e, "HGT136").code,
+        assertEquals(ErrorCode.PARAM_INVALID.code(), com.hedgeguard.web.ErrorMapper.map(e, "HGT136").code,
                 "该拒绝在 HTTP 层须映射为既有错误码 10001（PARAM_INVALID）");
+        assertEquals(400, com.hedgeguard.web.ErrorMapper.httpStatus(e), "HTTP 状态须为 400");
+    }
+
+    @Test
+    @DisplayName("T-147 服务边界收口（第二处 assertStrength 调用点）：createUser 初始口令强度不足 ⇒ 显式 BizException 10001/400")
+    void createUserRejectsWeakInitialPasswordWithBizException() {
+        BizException e = assertThrows(BizException.class,
+                () -> service.createUser("lisi", "李四", "NP-001", "财务部", "N", "weak", 9L),
+                "初始口令强度不足须拒绝，且须为显式 BizException（AuthService.createUser 边界转换）");
+        assertEquals(ErrorCode.PARAM_INVALID, e.errorCode(), "初始口令强度不足须为 10001（PARAM_INVALID）");
+        assertTrue(e.getMessage().contains("口令强度不足"), "文案须可判定：" + e.getMessage());
+        assertFalse(e.getMessage().contains("weak"), "异常信息不得回显明文口令：" + e.getMessage());
+        assertEquals(10001, com.hedgeguard.web.ErrorMapper.map(e, "HGT147").code,
+                "HTTP 层须为 10001（不再依赖 IAE 宽映射兜底）");
+        assertEquals(400, com.hedgeguard.web.ErrorMapper.httpStatus(e), "HTTP 状态须为 400");
+        assertTrue(userDao.byId.isEmpty(), "强度拒绝须发生在落库之前（不得留半态用户）");
+    }
+
+    @Test
+    @DisplayName("T-147 文案可判定：强度不足 / 与历史口令重复 / 无权限 三类拒绝均为显式 BizException 且文案点名原因")
+    void passwordPolicyRejectionsCarryJudgeableMessages() {
+        service.createUser("lisi", "李四", "NP-001", "财务部", "N", "Hg#2026Trading01", 9L);
+        // ① 强度不足 ⇒ 10001 / 400（T-147 服务边界转换，非裸 IAE）
+        BizException weak = assertThrows(BizException.class,
+                () -> service.resetPassword(1L, "short", 9L), "强度不足须拒");
+        assertEquals(ErrorCode.PARAM_INVALID, weak.errorCode(), "强度不足须为 10001");
+        assertTrue(weak.getMessage().contains("口令强度不足"), "文案须点名强度不足：" + weak.getMessage());
+        assertEquals(400, com.hedgeguard.web.ErrorMapper.httpStatus(weak), "HTTP 状态须为 400");
+        // ② 与历史（含当前）口令重复 ⇒ 10001 / 400（既有 BizException，同码同状态同类型）
+        BizException reuse = assertThrows(BizException.class,
+                () -> service.resetPassword(1L, "Hg#2026Trading01", 9L), "与当前口令相同须拒");
+        assertEquals(ErrorCode.PARAM_INVALID, reuse.errorCode(), "历史口令重复须为 10001");
+        assertTrue(reuse.getMessage().contains("重复"), "文案须点名历史口令重复：" + reuse.getMessage());
+        assertEquals(400, com.hedgeguard.web.ErrorMapper.httpStatus(reuse), "HTTP 状态须为 400");
+        // ③ 无权限（层③账户级配置权）⇒ 10003，文案点名无权限（口径对齐，非 IAE 面）
+        BizException denied = assertThrows(BizException.class,
+                () -> service.assertCanConfigureAccountLevel(1L), "无 FIN_RISK/SYS_ADMIN 角色须拒");
+        assertEquals(ErrorCode.FUNCTION_PERMISSION_DENIED, denied.errorCode(), "无权限须为 10003");
+        assertTrue(denied.getMessage().contains("无权"), "文案须点名无权限：" + denied.getMessage());
+        assertEquals(10003, com.hedgeguard.web.ErrorMapper.map(denied, "HGT147").code);
     }
 
     @Test

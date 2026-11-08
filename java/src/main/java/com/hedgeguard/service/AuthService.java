@@ -513,9 +513,10 @@ public final class AuthService implements SubAccountVisibility, AccountLevelConf
      * @param userId     用户 ID
      * @param currentHash 当前口令哈希（命中即视为"与当前口令相同"）
      * @param newPassword 新口令（仅内存）
+     * @throws BizException 强度不足（{@code 10001}；{@code T-147} 服务边界收口）/ 与最近 N 次历史口令重复
      */
     private void assertNewPasswordAcceptable(long userId, String currentHash, String newPassword) {
-        PasswordHasher.assertStrength(newPassword, passwordMinLength());
+        assertPasswordStrengthAtBoundary(newPassword);
         if (PasswordHasher.verify(newPassword, currentHash)) {
             throw reuseRejected();
         }
@@ -955,7 +956,7 @@ public final class AuthService implements SubAccountVisibility, AccountLevelConf
                     "该自然人已存在账号：natural_person_key=" + naturalPersonKey
                             + "；复现=合并重复账号（R-AUTH-2「一个自然人一个账号」）");
         }
-        PasswordHasher.assertStrength(initialPassword, passwordMinLength());
+        assertPasswordStrengthAtBoundary(initialPassword);
         String leader = "Y".equals(isEnterpriseLeader) ? "Y" : "N";
         // 初始角色：先校验（任何失败都发生在落库之前，避免半态）
         Role initialRole = null;
@@ -1873,6 +1874,48 @@ public final class AuthService implements SubAccountVisibility, AccountLevelConf
         return BizException.of(ErrorCode.AUTH_FAILED,
                 "用户名或口令不正确；复现=核对登录名与口令（连续失败 " + loginFailLimit()
                         + " 次将锁定 " + loginLockMinutes() + " 分钟）");
+    }
+
+    /**
+     * <b>口令强度断言的服务边界收口</b>（{@code T-147}；{@code FR-AUTH-16} 输出列「失败 → 明确错误
+     * （强度不足 / 与历史口令重复 / 无权限）」）。
+     *
+     * <p><b>为何转换点选在这里，而不改 {@link PasswordHasher}</b>：{@code PasswordHasher} 是
+     * {@code service} 层的<b>纯工具</b>（只做加盐哈希与强度判定，不认识 HTTP 错误码），而
+     * {@link BizException} 是 {@code com.hedgeguard.web} 的<b>跨层异常载体</b>（{@code ARCHITECTURE.md}
+     * §3.7）——让工具类抛 {@code BizException} 即<b>分层倒置</b>（{@code service} 反向依赖 {@code web} 的
+     * 错误码语义）。故转换落在<b>服务边界</b>：本方法被 {@link #assertNewPasswordAcceptable}（
+     * {@link #changePassword}/{@link #resetPassword}/{@link #enableUser} 三条「设定口令」路径共用）与
+     * {@link #createUser}（初始口令）<b>两处</b>工具调用点调用，各自在此把裸
+     * {@code IllegalArgumentException} 转为显式业务异常。
+     *
+     * <p><b>收益</b>：① 口令策略拒绝<b>不再依赖</b> {@code ErrorMapper} 的
+     * {@code instanceof IllegalArgumentException → 10001} <b>宽映射</b>兜底（该分支按类型<b>全局</b>命中，
+     * 会吞 {@code NumberFormatException}/{@code PatternSyntaxException} 等子类且不记 SEVERE）；
+     * 出口改为显式 {@link ErrorCode#PARAM_INVALID}（{@code 10001} / HTTP {@code 400}）——与同端点兄弟
+     * 拒绝（字段必填、历史口令重复、无权限）<b>同码同状态同异常类型</b>，判据可断言。
+     * ② 文案沿用工具类原文（点名「口令强度不足，缺少：…」），失败原因<b>可判定</b>，且工具类
+     * <b>不回显明文口令</b>（{@code NFR-SEC-2}）。
+     *
+     * <p><b>为何不包 {@code PasswordHasher.hash}</b>：其 {@code IllegalArgumentException} 只在入参为
+     * {@code null}/空串或迭代次数低于 {@value PasswordHasher#DEFAULT_ITERATIONS} 时抛；四条设定口令路径
+     * 均在 {@code hash} 之前经过强度断言（空口令已被拒），迭代次数取常量默认值 ⇒ 结构上不可达。若将来该
+     * 前提失效，仍会落到同一宽映射分支——这也是 {@code T-147} 评估报告判「<b>不建议现在全局收窄</b>
+     * {@code ErrorMapper} 的 IAE 分支」的理由之一（多 handler 依赖 {@code IAE → 10001} 承接用户入参解析错）。
+     *
+     * @param password 明文口令（仅内存持有，不入日志、不回显）
+     * @throws BizException 口令不满足强度策略时 {@code 10001}（文案含「口令强度不足」）
+     */
+    private void assertPasswordStrengthAtBoundary(String password) {
+        try {
+            PasswordHasher.assertStrength(password, passwordMinLength());
+        } catch (IllegalArgumentException e) {
+            String detail = e.getMessage();
+            if (detail == null || detail.trim().isEmpty()) {
+                detail = "口令强度不足；复现=按 CFG-23b 强度策略设置（长度/大小写/数字/符号）";
+            }
+            throw BizException.of(ErrorCode.PARAM_INVALID, detail);
+        }
     }
 
     private static BizException reuseRejected() {
