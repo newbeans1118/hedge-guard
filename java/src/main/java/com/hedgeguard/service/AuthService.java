@@ -470,6 +470,11 @@ public final class AuthService implements SubAccountVisibility, AccountLevelConf
      * "不得与最近 N 次历史口令相同"复用 {@link #assertNewPasswordAcceptable} 与
      * {@link #recordPasswordHistory}（与 {@link #changePassword} 同源，见 {@code FR-AUTH-16} 处理规则）。
      *
+     * <p><b>留痕</b>（{@code FR-AUTH-16} 处理规则「重置须留痕」）：成功后写一条 {@code t_permission_change_log}
+     * （{@code change_target=USER_ATTR}、{@code operator_id=}操作人、摘要「重置口令（须强制修改）」），
+     * 与 {@link #enableUser} 同形——使目标用户<b>无在线会话</b>（{@code invalidateByUser} 命中 0 行）时
+     * 亦有可追溯的操作人记录（{@code T-150}）。摘要<b>不含</b>口令明文与哈希（{@code R-AUTH-6}）。
+     *
      * @param userId      目标用户
      * @param newPassword 管理员设定的新口令（必填；仅内存）
      * @param operatorId  操作人
@@ -496,6 +501,12 @@ public final class AuthService implements SubAccountVisibility, AccountLevelConf
             }
             return null;
         });
+        // FR-AUTH-16 处理规则「重置须留痕」：与 enableUser / disableUser 同形写 t_permission_change_log。
+        // 仅靠 invalidateSessionsImmediately 的 kicked_by 不足以留痕——目标用户【无在线会话】时
+        // invalidateByUser 命中 0 行 ⇒ 不存在任何持久化操作人记录（t_password_history 无操作人列、
+        // LOG.info 不属持久化审计面，见 T-150）。after_value 只写变更摘要：不写口令明文、不写哈希
+        // （FR-AUTH-16 / R-AUTH-6）。写在事务提交之后 ⇒ 只有成功的重置才留痕。
+        recordChange(CHANGE_USER_ATTR, userId, userId, null, "重置口令（须强制修改）", operatorId, null);
         // FR-AUTH-16「重置后强制修改」须对「已在线的会话」同样生效：立即失效目标用户既有会话。
         // 门禁（SessionAuthFilter）读的是登录时快照（Session.mustChangePassword），而旧会话不读库真值
         // ⇒ 若不失效旧会话，管理员重置后在线会话仍被放行（门禁对「在线的那个会话」落空）。
