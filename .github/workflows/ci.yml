@@ -1,0 +1,84 @@
+# HedgeGuard CI —— 门禁单一入口（依据 CODEBUDDY.md「常用命令」、docs/ARCHITECTURE.md §3.13）
+#
+# 覆盖：
+#   · Java 11 业务端：`mvn -B clean test` —— validate 阶段经 exec-maven-plugin 先跑
+#     `tools/arch-check/arch-check.sh`（聚合 E1–E9），再编译（-Xlint:all）+ surefire 全量单测。
+#   · C++11 引擎 stub 轨：`cmake -S cpp -B cpp/build_stub` + 编译 + `ctest`；
+#     `arch_check` 注册为 ctest fixture（SETUP），`ctp_found_parity` 判据同批实跑。
+#   · 真实 CTP 轨需厂商 `sdk/`（不入库、CI 不可得）⇒ 本工作流只跑 `CTP_FOUND=OFF` 的 stub 轨。
+#
+# ⚠️ 与本地门禁的唯一差异：本地 `mvn -B -o clean test` 的 `-o` 假定 `~/.m2` 已预缓存；
+#    CI 全新 runner 的本地仓库为空 ⇒ **不可带 -o**，改为在线解析 + setup-java 的 maven 缓存。
+#    仅解析 `java/pom.xml` 既有依赖/插件，**不新增任何 Maven 依赖**（红线）。
+# ⚠️ 端口令/密钥：`dm` profile 默认关闭（DM JDBC 驱动不随仓库分发）；本文件不含任何凭据，
+#    `permissions` 仅 `contents: read`。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  java:
+    name: Java 11 门禁（E1–E9 + 全量单测）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 准备 JDK 11（PROJECT.md §5.1）
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+          cache: maven
+          cache-dependency-path: java/pom.xml
+
+      # E6（check_frontend.sh）判据 ③ 需 node：缺失会按「前置错误」退 2，故显式装配。
+      # E7/E8/E9 为单文件 Python3（零第三方依赖）、E5 用 awk，ubuntu-latest 已预装。
+      - name: 准备 Node（E6 判据 ③）
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Maven 全量门禁（validate → arch-check E1–E9 → compile → test）
+        working-directory: java
+        run: mvn -B clean test
+
+  cpp-stub:
+    name: C++11 stub 轨（cmake + ctest）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 装配 Node（ctest 的 arch_check fixture 内 E6 判据 ③）
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # CTP_USE_FETCH_DEPS 缺省 OFF ⇒ find_package(Protobuf) 取系统包；
+      # 大版本须为 3（与 Java 侧 3.21.12 同大版本，ARCHITECTURE.md §4.2.5）。
+      - name: 装配系统 protobuf
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libprotobuf-dev protobuf-compiler
+
+      # 不传 CTP_SDK_ROOT ⇒ CTP_FOUND=OFF，ctp_adapter 走空实现（双轨之 stub 轨）。
+      - name: CMake 配置（stub 轨）
+        run: cmake -S cpp -B cpp/build_stub
+
+      - name: 编译（C++11 硬边界 / -Wall -Wextra -Werror）
+        run: cmake --build cpp/build_stub --parallel 2
+
+      - name: ctest（含 arch_check fixture 与 ctp_found_parity）
+        run: ctest --test-dir cpp/build_stub --output-on-failure
