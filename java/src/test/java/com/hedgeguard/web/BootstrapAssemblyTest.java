@@ -276,8 +276,11 @@ class BootstrapAssemblyTest {
             //   （AUTH17/CONFIG18/PRODUCT18/SPOT15/PLAN18/RISK7/TRADE3/SETTLE15/FUND16/AUDIT24/ACCT20）
             //   + ping 2 = 173。算术分解：168（前值）+ 5 对 = 173。
             //   非为过测试而放宽断言。
-            assertEquals(173, assembly.routeCount(),
-                    "业务路由必须全部注册：171（AUTH17/CONFIG18/PRODUCT18/SPOT15/PLAN18/RISK7/TRADE3/"
+            // 【FR-PLAN-2 / FR-PLAN-5 试点增注】断言值由 173 订正为 175：PLAN 面补齐 2 对
+            // 已声明未注册的方法对（PUT /plan/{id}、GET /plan/{id}/doc），PLAN 18 → 20，
+            // 业务路由 171 → 173，+ ping 2 = 175。非为过测试而放宽断言。
+            assertEquals(175, assembly.routeCount(),
+                    "业务路由必须全部注册：173（AUTH17/CONFIG18/PRODUCT18/SPOT15/PLAN20/RISK7/TRADE3/"
                             + "SETTLE15/FUND16/AUDIT24/ACCT20）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。

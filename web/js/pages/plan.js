@@ -14,8 +14,12 @@
  *                                    unit, termStartDate, termEndDate, hedgeRatio, ratioMethod, calcBaseDate,
  *                                    binds:[{exposureId, coveredQty}]} → 新计划 id
  *   GET  /plan/{id}               → PlanView（详情；含 bindings 与最近一次 precheckResult 快照）
+ *   PUT  /plan/{id}               → UpdateRequest（FR-PLAN-2 修改草稿；部分更新，可只传 planQty）→ 计划 id
  *   POST /plan/{id}/doc           → {elemFormalDesignation, elemEffectivenessMethod, elemRebalanceMechanism,
  *                                    hedgingInstrument} → 新书面文件版本号（三要素门禁，缺一 → 10012）
+ *   GET  /plan/{id}/doc           → DocView {docNo, docVersion, isCurrent, elemFormalDesignation,
+ *                                    elemEffectivenessMethod, elemRebalanceMechanism, hedgedItemExposureId,
+ *                                    hedgingInstrument, pendingExternalReview, generatedTime}；尚未生成时 data 省略
  *   POST /plan/{id}/submit        → 提交审批 → {precheckResult, unverified:[...]}（unverified 含 "R-PLAN-3/③"）
  *   POST /plan/{id}/approve       → {reason?}    审批通过（**发起人 ≠ 审批人**；占额）
  *   POST /plan/{id}/reject        → {reason}     驳回（原因必填；回草稿）
@@ -47,12 +51,14 @@
  *      本页**消费服务端字段**；仅当字段缺失（如旧版服务端）时按**同一定义**派生兜底，不再标注「待 T-104」。
  *   2. **`GET /plan` 至多返回授权子账户范围**；「审批人视角默认展示待我审批」（`FR-PLAN-4` 验收 3）本页以
  *      **状态=待审批**快捷筛选近似；**「排除本人发起」需服务端支持**（无「非本人」筛选参数）⇒ 未实现。
- *   3. **详情区块缺口**：`PlanView` **不含**套保比率计算过程（`t_hedge_ratio_calc`）、审批链记录、书面文件**正文**，
- *      且**无书面文件读取端点** ⇒ 「书面文件预览」= **生成 + 回显本次提交要素 + 版本号**，**正文读取缺端点**。
- *      已如实登记，见详情页「待补区块」。
- *   4. **`FR-PLAN-2`（修改草稿）/ `FR-PLAN-3`（删除草稿）无 REST 端点**：`PlanRoutes` **未注册**
- *      `PUT|DELETE /plan/{id}`（见 `PlanRoutes.java:52-65` 全部 `router.register`）⇒ 前端**无法实现**修改 / 删除；
- *      本页**不虚构**这两个入口（状态机动作 `submit/approve/reject/withdraw/freeze/unfreeze/terminate/extend` 均已接线）。
+ *   3. **书面文件正文读取已接线**：`GET /plan/{id}/doc`（`PlanDocReadHandler`）返回当前版本三要素，
+ *      本页「套期关系书面文件」卡片已接入读取展示。`PlanView` **仍不含**套保比率计算过程
+ *      （`t_hedge_ratio_calc`）与审批链记录，详见详情页「待补区块」。
+ *   4. **`FR-PLAN-2` 修改草稿已接线**：`PUT /plan/{id}`（`PlanDraftHandler`，部分更新）。
+ *      **`FR-PLAN-3` 删除草稿仍未接线**：`DELETE /plan/{id}` **未注册**——草稿必带
+ *      `t_plan_state_log`（编制留痕）与 `t_hedge_plan_exposure`（绑定敞口）子行，二者外键
+ *      `ON DELETE RESTRICT`，且状态留痕表「只增不改不删」、全库禁级联 ⇒ 物理删除在真 DM8 上必然失败，
+ *      而内存引擎不校验 RESTRICT 会造成假绿。须先经 `CH/DC` 裁定删除留痕承载方案，本页**不虚构**删除入口。
  *
  * 易用性 NFR-USE-2：详情页提供「下单」按钮，预填 计划ID / 子账户 / 品种 / 方向。
  */
@@ -748,6 +754,11 @@ function renderPlan(box, d, reload) {
   /* ---- 计划操作 ---- */
   box.appendChild(renderActions(d, reload));
 
+  /* ---- 修改草稿（FR-PLAN-2，PUT /plan/{id}；仅 DRAFT 可用）---- */
+  if (d.status === 'DRAFT') {
+    box.appendChild(renderDraftEdit(d, reload));
+  }
+
   /* ---- 书面文件（FR-PLAN-9）---- */
   box.appendChild(renderDocCard(d, reload));
 
@@ -759,9 +770,9 @@ function renderPlan(box, d, reload) {
 
   /* ---- 待补区块（诚实登记）---- */
   box.appendChild(ui.banner(
-    '<strong>待补区块</strong>：当前 <code>PlanView</code> <strong>不含</strong> 套保比率计算过程（<code>t_hedge_ratio_calc</code>）、审批链记录、书面文件<strong>正文</strong>；' +
-    '且<strong>无书面文件读取端点</strong>（仅 <code>POST /plan/{id}/doc</code> 生成）。这些属 <code>FR-PLAN-5</code> 的详情组成，' +
-    '需后端在详情中返回或提供对应端点；本页不作虚假承诺。',
+    '<strong>待补区块</strong>：当前 <code>PlanView</code> <strong>不含</strong> 套保比率计算过程（<code>t_hedge_ratio_calc</code>）与审批链记录。' +
+    '书面文件<strong>正文</strong>已改由 <code>GET /plan/{id}/doc</code> 独立端点读取（下方文件卡片已接入展示），' +
+    '不再依赖详情返回；<code>DELETE /plan/{id}</code>（删除草稿）仍因外键 RESTRICT 与留痕约束待 <code>CH/DC</code> 裁定，未接线。',
     'warn'
   ));
 }
@@ -1003,16 +1014,67 @@ function renderDocEcho(out, echo) {
   out.appendChild(dl);
 }
 
+/* 修改草稿（FR-PLAN-2）—— 部分更新：只提交计划数量（字符串化十进制），其余字段保持原值。 */
+function renderDraftEdit(d, reload) {
+  const card = ui.el('div', { class: 'hg-card' });
+  card.appendChild(ui.el('h3', { class: 'hg-card__title', text: '修改草稿（FR-PLAN-2）' }));
+  card.appendChild(ui.el('p', { class: 'hg-page__desc', text: '仅草稿状态可修改；部分更新，未提交的字段保持原值。修改后服务端重新校验（含期限红线），违反则拒绝保存。' }));
+  const qty = ui.el('input', { id: 'pde-qty', type: 'text', value: String(d.planQty == null ? '' : d.planQty), placeholder: '计划数量（字符串化十进制，> 0）' });
+  card.appendChild(ui.field({ id: 'pde-qty', label: '计划数量', required: true, help: '当前 ' + F.qty(d.planQty) + ' ' + F.esc(d.unit || ''), control: qty }));
+  const alertBox = ui.el('div', { role: 'alert' });
+  card.appendChild(alertBox);
+  const save = ui.el('button', { class: 'hg-btn', type: 'button', text: '保存修改' });
+  save.addEventListener('click', async () => {
+    ui.clear(alertBox);
+    if (req('计划数量')(qty.value) !== true) {
+      alertBox.appendChild(ui.banner('请填写计划数量。', 'warn'));
+      return;
+    }
+    save.disabled = true; const orig = save.textContent; save.textContent = '保存中…';
+    try {
+      await HG.api.put(HG.routes.PLAN.detail(d.id), { planQty: String(qty.value).trim() });
+      ui.toast('草稿已修改（FR-PLAN-2）', 'ok');
+      if (typeof reload === 'function') reload();
+    } catch (err) {
+      alertBox.innerHTML = ui.blockedHTML(err);
+    } finally {
+      save.disabled = false; save.textContent = orig;
+    }
+  });
+  card.appendChild(ui.el('div', { class: 'hg-form-actions' }, [save]));
+  return card;
+}
+
 function renderDocCard(d, reload) {
   const card = ui.el('div', { class: 'hg-card' });
   card.appendChild(ui.el('h3', { class: 'hg-card__title', text: '套期关系书面文件（CAS 24 三要素门禁，FR-PLAN-9）' }));
   card.appendChild(ui.el('p', { class: 'hg-page__desc', text: '文件须含三要素：① 正式指定（被套期项目 + 套期工具）② 有效性评估方法 ③ 再平衡机制。三要素任一为空即拒绝（10012）。' }));
   card.appendChild(ui.el('p', { class: 'hg-muted', text: '当前版本：' + (d.currentDocVersion > 0 ? 'v' + d.currentDocVersion : '（未生成）') }));
-  card.appendChild(ui.banner(
-    '<strong>预览受限（诚实登记）</strong>：后端<strong>无书面文件读取端点</strong>（仅 <code>POST /plan/{id}/doc</code> 生成，返回版本号）⇒ ' +
-    '本区只能<strong>生成文件并回显本次提交的三要素与版本号</strong>，无法读取已存正文。如需正文预览，须后端补读取端点。',
-    'warn'
-  ));
+
+  /* 已存正文读取（GET /plan/{id}/doc，FR-PLAN-5）—— 下方生成区之外单独展示，避免与本次提交回显混淆。 */
+  const storedBox = ui.el('div');
+  card.appendChild(storedBox);
+  const loadStored = async () => {
+    ui.clear(storedBox);
+    try {
+      const doc = await HG.api.get(HG.routes.PLAN.doc(d.id));
+      if (!doc) {
+        storedBox.appendChild(ui.banner('当前<strong>尚未生成书面文件</strong>（<code>GET /plan/{id}/doc</code> 返回空 data）。生成后将在此显示已存正文。', 'warn'));
+        return;
+      }
+      const dl = ui.el('dl', { class: 'hg-desc' });
+      [['文件编号', doc.docNo], ['版本号', doc.docVersion != null ? 'v' + doc.docVersion : '—'],
+       ['① 正式指定', doc.elemFormalDesignation], ['② 有效性评估方法', doc.elemEffectivenessMethod],
+       ['③ 再平衡机制', doc.elemRebalanceMechanism], ['套期工具', doc.hedgingInstrument || '—'],
+       ['待外部复核（R-ACCT-10）', doc.pendingExternalReview || '—'], ['生成时间', doc.generatedTime || '—']]
+        .forEach((r) => { dl.appendChild(ui.el('dt', { text: r[0] })); dl.appendChild(ui.el('dd', { text: r[1] == null ? '—' : String(r[1]) })); });
+      storedBox.appendChild(ui.el('h4', { class: 'hg-card__title', text: '已存书面文件正文（v' + (doc.docVersion == null ? '—' : doc.docVersion) + '）' }));
+      storedBox.appendChild(dl);
+    } catch (err) {
+      storedBox.innerHTML = ui.blockedHTML(err);
+    }
+  };
+  loadStored();
 
   const fd = ui.el('textarea', { id: 'pdoc-fd', rows: '2', placeholder: '① 正式指定：被套期项目 = 实货敞口标识；套期工具 = 期货/期权合约' });
   const em = ui.el('textarea', { id: 'pdoc-em', rows: '2', placeholder: '② 有效性评估方法' });

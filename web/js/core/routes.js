@@ -39,9 +39,13 @@
  *           POST /spot/wip、POST|GET /spot/price、POST /spot/price/import、GET /spot/price/export、
  *           POST|GET /spot/exposure、GET /spot/exposure/{id}、POST /spot/exposure/recalc、
  *           GET /spot/exposure/export、POST /spot/doc/sub-account
- *   PLAN    GET|POST /plan、GET /plan/{id}、POST /plan/{id}/doc、POST /plan/{id}/bind-exposure、
+ *   PLAN    GET|POST /plan、GET|PUT /plan/{id}（PUT 修改草稿 FR-PLAN-2）、
+ *           POST|GET /plan/{id}/doc（POST 生成 / GET 读取正文 FR-PLAN-5）、
+ *           POST /plan/{id}/bind-exposure、
  *           POST /plan/{id}/{submit|approve|reject|withdraw|freeze|unfreeze|terminate|extend}、
  *           GET|POST /plan/{id}/trade-plans、POST /plan/ratio/{simple|minvar|custom}
+ *           ⚠️ DELETE /plan/{id}（FR-PLAN-3）未注册：草稿必带 t_plan_state_log 与绑定子行、
+ *           外键 ON DELETE RESTRICT 且留痕表只增不删 ⇒ 待 CH/DC 裁定留痕承载方案，勿调用。
  *   PING    GET|HEAD /ping
  * ## 未注册（前端**不得**调用；handler/ 下无对应 (方法, 路径) 对——调用即 404，见 Q-FE-001）
  *   余量逐键见 NOT_REGISTERED：RISK 5 路径（T-070 登记）+ TRADE 9 路径（T-053 登记）。
@@ -117,8 +121,8 @@ export const ROUTES = {
   PLAN: {
     LIST: '/plan',                                    // GET（列表，FR-PLAN-4；PlanRoutes.java:52 已注册）
     CREATE: '/plan',                                  // POST（编制计划；与 LIST 同路径不同方法）
-    detail: (id) => '/plan/' + enc(id),
-    doc: (id) => '/plan/' + enc(id) + '/doc',
+    detail: (id) => '/plan/' + enc(id),                // GET 详情 / PUT 修改草稿（FR-PLAN-2，同路径不同方法）
+    doc: (id) => '/plan/' + enc(id) + '/doc',          // POST 生成 / GET 读取正文（FR-PLAN-5，同路径不同方法）
     bindExposure: (id) => '/plan/' + enc(id) + '/bind-exposure', // FR-PLAN-19（BindExposureHandler.PATH）
     tradePlans: (id) => '/plan/' + enc(id) + '/trade-plans',
     action: (id, action) => '/plan/' + enc(id) + '/' + enc(action),

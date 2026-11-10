@@ -687,6 +687,135 @@ public final class PlanService {
     }
 
     /**
+     * 修改草稿计划（{@code FR-PLAN-2}；端点 {@code PUT /api/v1/plan/{id}}）。
+     *
+     * <p><b>状态门禁（验收 2/3）</b>：仅 {@code DRAFT} 可直接修改；{@code PENDING_APPROVAL}
+     * 须先撤回（{@code FR-PLAN-13}）；{@code APPROVED} 及之后状态不得直接改要素，须终止后新建
+     * 或走变更流程（{@code R-PLAN-6}）。写面经 {@link #requireWritablePlan} 强制子账户可见性
+     * （{@code NFR-SEC-7}）。
+     *
+     * <p><b>重新校验（验收 4）</b>：按与 {@link #createPlan} <b>同口径</b>重跑标量校验
+     * （类型 / 方向 / 数量 / 单位 / 比率 / 基准日 / 品种）与{@code requireTerm} 期限红线
+     * （起始日 + {@code TERM_MAX_MONTHS} 个月，{@code R-RISK-6} / {@code CFG-03}），
+     * 任一不通过即拒绝保存，不落库。<b>诚实披露</b>：{@code R-PLAN-3} 六项<b>阻断式</b>合规
+     * 预校验仍在提交审批（{@link #submitForApproval}）时执行——草稿阶段书面文件三要素
+     * （{@code R-PLAN-8}）与岗位分离等提交门禁条件通常尚未齐备，若在修改期强制会把
+     * 「修改草稿数量」这一基本操作全部阻断，故本端点不重复该提交门禁。
+     *
+     * <p><b>范围</b>：只覆盖计划主表可修改要素，且为<strong>部分更新</strong>——请求中
+     * {@code null} 的字段保持原值（{@code FR-PLAN-2} 验收 1「只改数量」即可）。{@code plan_no}、
+     * {@code status}、{@code sub_account_id}、额度占用、已成交 / 已下达量、书面文件版本、
+     * 发起人等系统字段一律不接受请求覆盖。绑定敞口增删继续走
+     * {@code POST /api/v1/plan/{id}/bind-exposure}（{@link #bindExposure}，{@code FR-PLAN-19}），
+     * 本端点不重复处理 {@code binds}。修改按 {@code TB-PLAN-7} 写一条「变更留痕」
+     * （{@code DRAFT → DRAFT}）。
+     *
+     * @param planId     计划
+     * @param patch      待覆盖的可修改要素（{@code null} 字段保持原值）
+     * @param operatorId 操作人（会话身份）
+     * @return 计划主键
+     */
+    public long updateDraft(long planId, HedgePlan patch, long operatorId) {
+        HedgePlan plan = requireWritablePlan(planId, operatorId);
+        if (!"DRAFT".equals(plan.status)) {
+            String hint = "PENDING_APPROVAL".equals(plan.status)
+                    ? "待审批计划须先撤回后再修改（FR-PLAN-13）"
+                    : "已批准及之后状态不得直接修改要素，须终止后新建或走变更流程（R-PLAN-6）";
+            throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                    "仅草稿状态可修改（FR-PLAN-2 验收 2/3）：planNo=" + plan.planNo
+                            + " status=" + plan.status + "；" + hint
+                            + "；复现=对 DRAFT 计划提交，或按提示先做状态流转");
+        }
+        // 先把 patch 与既有值合并为局部量（不触碰实体）⇒ 校验失败时不留任何副作用
+        // （§5.3 实现纪律：状态变更须在全部校验通过之后）。
+        String planType = patch.planType != null ? patch.planType : plan.planType;
+        Long productId = patch.productId != null ? patch.productId : plan.productId;
+        String hedgeDirection = patch.hedgeDirection != null
+                ? patch.hedgeDirection : plan.hedgeDirection;
+        BigDecimal planQty = patch.planQty != null ? patch.planQty : plan.planQty;
+        String unit = patch.unit != null ? patch.unit : plan.unit;
+        LocalDate termStartDate = patch.termStartDate != null
+                ? patch.termStartDate : plan.termStartDate;
+        LocalDate termEndDate = patch.termEndDate != null
+                ? patch.termEndDate : plan.termEndDate;
+        BigDecimal hedgeRatio = patch.hedgeRatio != null ? patch.hedgeRatio : plan.hedgeRatio;
+        String ratioMethod = patch.ratioMethod != null ? patch.ratioMethod : plan.ratioMethod;
+        LocalDate calcBaseDate = patch.calcBaseDate != null
+                ? patch.calcBaseDate : plan.calcBaseDate;
+        // 对合并后的完整值重跑与 createPlan 同口径的标量校验（验收 4「修改后重新校验」）；
+        // 不抽取 createPlan 逻辑，避免改动既有已验证路径。
+        requireText(planType, "plan_type");
+        requireText(hedgeDirection, "hedge_direction");
+        requireText(unit, "unit");
+        requireText(ratioMethod, "ratio_method");
+        if (productId == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID, "品种必填；复现=补齐 product_id");
+        }
+        if (planQty == null || planQty.compareTo(BigDecimal.ZERO) <= 0) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "计划数量必须 > 0：实际=" + planQty + "；复现=填写正数");
+        }
+        if (hedgeRatio == null || hedgeRatio.compareTo(BigDecimal.ZERO) <= 0
+                || hedgeRatio.compareTo(BigDecimal.ONE) > 0) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "套保比率必须 ∈ (0,1]（ck_hedge_plan_ratio）：实际=" + hedgeRatio
+                            + "；复现=按小数填写（如 0.8）");
+        }
+        requireTerm(termStartDate, termEndDate);
+        if (calcBaseDate == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "比率计算基准日必填；复现=补齐 calc_base_date");
+        }
+        if (HEDGE_TO_EXPOSURE_OPPOSITE.get(hedgeDirection) == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "套保方向只允许 BUY_HEDGE / SELL_HEDGE：实际=" + hedgeDirection
+                            + "；复现=按 TB-PLAN-1 取值域提交");
+        }
+        // 全部校验通过后才落库：仅覆盖可修改要素，系统字段保持原值。
+        plan.planType = planType;
+        plan.productId = productId;
+        plan.hedgeDirection = hedgeDirection;
+        plan.planQty = planQty;
+        plan.unit = unit;
+        plan.termStartDate = termStartDate;
+        plan.termEndDate = termEndDate;
+        plan.hedgeRatio = hedgeRatio;
+        plan.ratioMethod = ratioMethod;
+        plan.calcBaseDate = calcBaseDate;
+        tx.inTransaction(connection -> {
+            if (hedgePlanDao.updateById(plan, operatorId) != 1) {
+                throw BizException.of(ErrorCode.STATE_NOT_ALLOWED,
+                        "计划并发冲突：planNo=" + plan.planNo + "；复现=重新读取后再提交");
+            }
+            writeStateLog(plan, "DRAFT", "DRAFT", "NONE", null, operatorId,
+                    "修改草稿（FR-PLAN-2）");
+            return null;
+        });
+        return planId;
+    }
+
+    /**
+     * 读取计划当前生效的套期关系书面文件<strong>正文</strong>
+     * （端点 {@code GET /api/v1/plan/{id}/doc}；补齐 {@code FR-PLAN-5} 详情页「正文读取缺端点」登记）。
+     *
+     * <p><b>子账户隔离（{@code NFR-SEC-7} / {@code FR-PLAN-5}）</b>：经 {@link #getPlan}
+     * 读面 scope 过滤；不可见的计划与不存在的计划返回同一错误，不泄露存在性。
+     * 尚无当前版本书面文件时返回 {@code null}（信封 {@code data} 省略，前端按「未生成」展示）。
+     *
+     * @param planId     计划
+     * @param operatorId 调用者（会话身份）
+     * @return 当前生效书面文件实体；无则 {@code null}
+     */
+    public HedgeDoc currentDoc(long planId, long operatorId) {
+        HedgePlan plan = getPlan(planId, operatorId);
+        if (plan == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "计划不存在：id=" + planId + "；复现=按 plan_no 查询确认 ID");
+        }
+        return hedgeDocDao.findCurrent(planId);
+    }
+
+    /**
      * 绑定实货敞口到<b>已存在</b>的套保计划（{@code FR-PLAN-19}）。
      *
      * <p>规则（与 {@link #createPlan} 的绑定段同口径）：绑定敞口须与计划<b>同子账户、同品种、

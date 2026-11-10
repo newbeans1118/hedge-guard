@@ -33,9 +33,20 @@ import java.time.format.DateTimeParseException;
  *   POST /api/v1/plan/ratio/simple             简单比率法
  *   POST /api/v1/plan/ratio/minvar             最小方差法（样本 ≥ 30）
  *   POST /api/v1/plan/ratio/custom             自定义规则法（取最严）
+ *   PUT  /api/v1/plan/{id}                     修改草稿（FR-PLAN-2）
+ *   GET  /api/v1/plan/{id}/doc                 读取当前书面文件正文（FR-PLAN-5）
  *   POST /api/v1/plan/{id}/bind-exposure       绑定实货敞口（FR-PLAN-19；仅草稿态可直接增删）
  * </pre>
  * ⇒ {@code PLAN} 模块的 {@code ApiRoutes} 清单**已全量注册**（{@code T-109} 补齐声明面）。
+ *
+ * <p><b>注册序约束（{@code BUG-004}）</b>：{@code Router.match} 按注册序首次命中；这里新增的
+ * {@code PUT /plan/{id}}（4 段）与 {@code GET /plan/{id}/doc}（5 段）分别以方法与段数区分于
+ * 既有 {@code GET /plan/{id}}、{@code POST /plan/{id}/doc}，故一并置于末尾「占位符段」区。
+ * <b>删除草稿（{@code DELETE /plan/{id}}，FR-PLAN-3）本轮不注册</b>：草稿计划必然存在
+ * {@code t_plan_state_log}（编制留痕）与 {@code t_hedge_plan_exposure}（绑定敞口）子行，二者 FK
+ * 均为 {@code ON DELETE RESTRICT}，且状态留痕表「只增不改不删」、全库禁级联（{@code DATA_MODEL.md}
+ * §0.3/§0.4）⇒ 物理删除在真 DM8 上必然被拒，而内存引擎不校验 RESTRICT 会造成假绿。
+ * 该端点须先经 {@code CH/DC} 裁定删除留痕承载方案，登记待办、不臆造。
  */
 public final class PlanRoutes {
 
@@ -63,6 +74,10 @@ public final class PlanRoutes {
         }
         // T-109：补齐声明面
         router.register("POST", BindExposureHandler.PATH, new BindExposureHandler(planService));
+        // FR-PLAN-2：修改草稿（PUT /plan/{id}）；与 GET /plan/{id} 同路径不同方法。
+        router.register("PUT", PlanDraftHandler.PATH, new PlanDraftHandler(planService));
+        // FR-PLAN-5：读取当前书面文件正文（GET /plan/{id}/doc）；与 POST 生成同路径不同方法。
+        router.register("GET", PlanDocReadHandler.PATH, new PlanDocReadHandler(planService));
     }
 
     /** 解析十进制整数（路径参数 / 字符串化 ID）。 */

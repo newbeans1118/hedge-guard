@@ -158,8 +158,14 @@ final class FullWebAssembly {
      * ⇒ {@code 166 → 171}（路径与 {@code ApiRoutes} 的 {@code PRODUCT} 对级清单逐字一致；
      * {@code PRODUCT} 方法注册表键 13 → 18）。算术分解：业务路由 166 → 171；生产装配含平台级
      * {@code ping} 2 条后为 {@code 173}，与 {@code BootstrapAssemblyTest} 同锚。
+     *
+     * <p>【FR-PLAN-2 / FR-PLAN-5 试点】PLAN 面补齐 2 对已声明未注册的方法对：
+     * {@code PUT /plan/{id}}（修改草稿）、{@code GET /plan/{id}/doc}（读取书面文件正文）
+     * ⇒ {@code 171 → 173}（PLAN 方法注册表键 18 → 20）。路径逐字取自
+     * {@code ARCHITECTURE.md §4.1.1} PLAN 行，未新增路径、未改字段/错误码/信封。
+     * 生产装配含平台级 {@code ping} 2 条后为 {@code 175}，与 {@code BootstrapAssemblyTest} 同锚。
      */
-    static final int ROUTE_COUNT = 171;
+    static final int ROUTE_COUNT = 173;
 
     private FullWebAssembly() {
     }

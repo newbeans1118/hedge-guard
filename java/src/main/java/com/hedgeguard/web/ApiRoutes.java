@@ -126,7 +126,10 @@ public final class ApiRoutes {
                 "POST /plan/{id}/terminate", "POST /plan/{id}/extend",
                 "GET /plan/{id}/trade-plans", "POST /plan/{id}/trade-plans",
                 "POST /plan/ratio/simple", "POST /plan/ratio/minvar", "POST /plan/ratio/custom",
-                "POST /plan/{id}/bind-exposure"));
+                "POST /plan/{id}/bind-exposure",
+                // FR-PLAN-2 / FR-PLAN-5：路径逐字取自 ARCHITECTURE.md §4.1.1 PLAN 行（已声明
+                // PUT(草稿) 与 /plan/{id}/doc），补齐「已声明未注册」的方法对。
+                "PUT /plan/{id}", "GET /plan/{id}/doc"));
         BY_MODULE_ROUTES.put("TRADE", Arrays.asList(
                 "POST /trade/order", "POST /trade/order/{id}/confirm",
                 "POST /trade/order/{id}/cancel"));
