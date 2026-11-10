@@ -56,6 +56,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -702,6 +703,11 @@ public final class PlanService {
      * （{@code R-PLAN-8}）与岗位分离等提交门禁条件通常尚未齐备，若在修改期强制会把
      * 「修改草稿数量」这一基本操作全部阻断，故本端点不重复该提交门禁。
      *
+     * <p><b>绑定一致性复核（{@code TE-P1PILOT-001} 补正）</b>：当套保方向 / 品种相对原值变化时，
+     * 对已 {@code BOUND} 的绑定敞口重跑 {@code R-PLAN-1}（方向相反）与 {@code R-PLAN-7}
+     * （同品种 + 同子账户）校验——草稿态无解绑 / 改绑路径，且提交审批六项预校验不复核该一致性，
+     * 若不在此拦截，不一致态可随提交进入待审批。无绑定行时放行；只改数量等标量不触发。
+     *
      * <p><b>范围</b>：只覆盖计划主表可修改要素，且为<strong>部分更新</strong>——请求中
      * {@code null} 的字段保持原值（{@code FR-PLAN-2} 验收 1「只改数量」即可）。{@code plan_no}、
      * {@code status}、{@code sub_account_id}、额度占用、已成交 / 已下达量、书面文件版本、
@@ -771,6 +777,14 @@ public final class PlanService {
                     "套保方向只允许 BUY_HEDGE / SELL_HEDGE：实际=" + hedgeDirection
                             + "；复现=按 TB-PLAN-1 取值域提交");
         }
+        // 方向 / 品种变更会改变「计划 ↔ 已绑定敞口」的套保关系（R-PLAN-1 方向相反、
+        // R-PLAN-7 同品种 + 同子账户）。草稿态无解绑 / 改绑路径（BindExposureHandler 仅增），
+        // 且 submitForApproval 六项预校验不复核该一致性 ⇒ 不在此拦截则不一致态可进入待审批
+        // （TE-P1PILOT-001）。仅在这两项相对原值变化时查绑定，避免影响只改数量的常规修改。
+        if (!Objects.equals(hedgeDirection, plan.hedgeDirection)
+                || !Objects.equals(productId, plan.productId)) {
+            requireBoundExposureConsistency(plan, hedgeDirection, productId);
+        }
         // 全部校验通过后才落库：仅覆盖可修改要素，系统字段保持原值。
         plan.planType = planType;
         plan.productId = productId;
@@ -792,6 +806,56 @@ public final class PlanService {
             return null;
         });
         return planId;
+    }
+
+    /**
+     * 方向 / 品种变更前复核已绑定敞口的一致性（{@code R-PLAN-1} / {@code R-PLAN-7}；
+     * 承接 {@code TE-P1PILOT-001}）。
+     *
+     * <p>与 {@link #createPlan} / {@link #bindExposure} 同口径：套保方向须与所绑敞口方向相反、
+     * 品种须一致、子账户须一致。任一不满足即拒绝，<b>不落库、不写留痕</b>。
+     * 无 {@code BOUND} 绑定行（草稿尚未绑定敞口）⇒ 放行。
+     */
+    private void requireBoundExposureConsistency(HedgePlan plan, String hedgeDirection,
+                                                 Long productId) {
+        if (hedgePlanExposureDao == null || exposureDao == null) {
+            // 离线桩 / 装配缺件：无法判定 ⇒ fail-closed，绝不放行到落库（避免「桩上假绿」）。
+            throw BizException.of(ErrorCode.DATA_INSUFFICIENT,
+                    "方向或品种变更须复核已绑定敞口，但绑定/敞口取数入口不可用；复现=检查服务装配");
+        }
+        String expectedExposureDirection = HEDGE_TO_EXPOSURE_OPPOSITE.get(hedgeDirection);
+        if (expectedExposureDirection == null) {
+            throw BizException.of(ErrorCode.PARAM_INVALID,
+                    "套保方向只允许 BUY_HEDGE / SELL_HEDGE：实际=" + hedgeDirection
+                            + "；复现=按 TB-PLAN-1 取值域提交");
+        }
+        for (HedgePlanExposure bind : hedgePlanExposureDao.findByPlan(plan.id)) {
+            if (!"BOUND".equals(bind.status)) {
+                continue;
+            }
+            Exposure exposure = exposureDao.findById(bind.exposureId);
+            if (exposure == null) {
+                throw BizException.of(ErrorCode.PARAM_INVALID,
+                        "已绑定实货敞口不存在：exposureId=" + bind.exposureId + "；复现=核对绑定关系");
+            }
+            if (!Objects.equals(exposure.subAccountId, plan.subAccountId)) {
+                throw BizException.of(ErrorCode.SUB_ACCOUNT_PERMISSION_DENIED,
+                        "敞口与计划的子账户不一致（R-PLAN-7）：exposureId=" + bind.exposureId
+                                + "；复现=改用同子账户的敞口");
+            }
+            if (!expectedExposureDirection.equals(exposure.direction)) {
+                throw BizException.of(ErrorCode.PARAM_INVALID,
+                        "套保方向必须与绑定敞口方向相反（R-PLAN-1）：计划方向=" + hedgeDirection
+                                + " 敞口方向=" + exposure.direction + " exposureId=" + bind.exposureId
+                                + "；复现=保持原方向，或先撤销后重建计划");
+            }
+            if (productId == null || !productId.equals(exposure.productId)) {
+                throw BizException.of(ErrorCode.PARAM_INVALID,
+                        "绑定敞口品种与计划品种不一致（R-PLAN-7）：exposureId=" + bind.exposureId
+                                + " 计划品种=" + productId + " 敞口品种=" + exposure.productId
+                                + "；复现=保持原品种，或先撤销后重建计划");
+            }
+        }
     }
 
     /**

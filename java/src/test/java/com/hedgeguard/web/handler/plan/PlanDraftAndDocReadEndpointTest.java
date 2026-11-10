@@ -2,14 +2,18 @@ package com.hedgeguard.web.handler.plan;
 
 import com.google.gson.JsonParser;
 import com.hedgeguard.common.Clocks;
+import com.hedgeguard.dao.ExposureDao;
 import com.hedgeguard.dao.HedgeDocDao;
 import com.hedgeguard.dao.HedgePlanDao;
+import com.hedgeguard.dao.HedgePlanExposureDao;
 import com.hedgeguard.dao.PageQuery;
 import com.hedgeguard.dao.PageResult;
 import com.hedgeguard.dao.PlanStateLogDao;
 import com.hedgeguard.dao.SubAccountScope;
+import com.hedgeguard.dao.entity.Exposure;
 import com.hedgeguard.dao.entity.HedgeDoc;
 import com.hedgeguard.dao.entity.HedgePlan;
+import com.hedgeguard.dao.entity.HedgePlanExposure;
 import com.hedgeguard.dao.entity.PlanStateLog;
 import com.hedgeguard.service.FakeTx;
 import com.hedgeguard.service.PlanService;
@@ -73,6 +77,8 @@ class PlanDraftAndDocReadEndpointTest {
     private FakeHedgePlanDao planDao;
     private FakeStateLogDao stateLogDao;
     private FakeHedgeDocDao docDao;
+    private FakeBindDao bindDao;
+    private FakeExposureDao exposureDao;
     private PlanService service;
 
     @BeforeEach
@@ -81,6 +87,8 @@ class PlanDraftAndDocReadEndpointTest {
         planDao = new FakeHedgePlanDao();
         stateLogDao = new FakeStateLogDao();
         docDao = new FakeHedgeDocDao();
+        bindDao = new FakeBindDao();
+        exposureDao = new FakeExposureDao();
         service = service(userId -> Collections.singletonList(SUB));
     }
 
@@ -321,11 +329,108 @@ class PlanDraftAndDocReadEndpointTest {
         assertTrue(!body(result).contains("\"data\""), "无文件时不携带 data：" + body(result));
     }
 
+    // ============================================================ TE-P1PILOT-001 补正：绑定一致性复核
+
+    @Test
+    @DisplayName("补正 a：已绑定合法态改 hedgeDirection ⇒ 拒绝，且不落库、不写留痕")
+    void directionChangeRejectedWhenBound() {
+        planDao.rows.add(draftPlan("DRAFT"));
+        bindDao.rows.add(boundRow(1L));
+        exposureDao.rows.add(hedgeExposure(1L));
+
+        HedgePlan patch = new HedgePlan();
+        patch.hedgeDirection = "SELL_HEDGE";
+        BizException e = assertThrows(BizException.class,
+                () -> service.updateDraft(PLAN_ID, patch, OPERATOR));
+
+        assertEquals(ErrorCode.PARAM_INVALID, e.errorCode());
+        assertTrue(e.getMessage().contains("R-PLAN-1"), e.getMessage());
+        assertEquals("BUY_HEDGE", planDao.rows.get(0).hedgeDirection, "拒绝时方向须保持原值");
+        assertEquals(PRODUCT, planDao.rows.get(0).productId.longValue(), "拒绝时品种须保持原值");
+        assertTrue(stateLogDao.rows.isEmpty(), "拒绝时不得写留痕");
+    }
+
+    @Test
+    @DisplayName("补正 b：已绑定合法态改 productId ⇒ 拒绝（R-PLAN-7 同品种）")
+    void productChangeRejectedWhenBound() {
+        planDao.rows.add(draftPlan("DRAFT"));
+        bindDao.rows.add(boundRow(1L));
+        exposureDao.rows.add(hedgeExposure(1L));
+
+        HedgePlan patch = new HedgePlan();
+        patch.productId = 9L;
+        BizException e = assertThrows(BizException.class,
+                () -> service.updateDraft(PLAN_ID, patch, OPERATOR));
+
+        assertEquals(ErrorCode.PARAM_INVALID, e.errorCode());
+        assertTrue(e.getMessage().contains("R-PLAN-7"), e.getMessage());
+        assertEquals(PRODUCT, planDao.rows.get(0).productId.longValue());
+        assertTrue(stateLogDao.rows.isEmpty());
+    }
+
+    @Test
+    @DisplayName("补正 c：已绑定合法态只改 planQty ⇒ 仍成功（未过度拦截）")
+    void quantityOnlyUpdateStillAllowedWhenBound() {
+        planDao.rows.add(draftPlan("DRAFT"));
+        bindDao.rows.add(boundRow(1L));
+        exposureDao.rows.add(hedgeExposure(1L));
+
+        HedgePlan patch = new HedgePlan();
+        patch.planQty = new BigDecimal("120");
+        assertEquals(PLAN_ID, service.updateDraft(PLAN_ID, patch, OPERATOR));
+        assertEquals(0, new BigDecimal("120").compareTo(planDao.rows.get(0).planQty));
+        assertEquals(1, stateLogDao.rows.size(), "正常修改仍写变更留痕");
+    }
+
+    @Test
+    @DisplayName("补正 d：无 BOUND 绑定行 ⇒ 改方向/品种放行（草稿尚未绑定敞口）")
+    void directionChangeAllowedWhenNoBindings() {
+        planDao.rows.add(draftPlan("DRAFT"));
+
+        HedgePlan patch = new HedgePlan();
+        patch.hedgeDirection = "SELL_HEDGE";
+        patch.productId = 9L;
+        assertEquals(PLAN_ID, service.updateDraft(PLAN_ID, patch, OPERATOR));
+        assertEquals("SELL_HEDGE", planDao.rows.get(0).hedgeDirection);
+        assertEquals(9L, planDao.rows.get(0).productId.longValue());
+    }
+
+    @Test
+    @DisplayName("补正 e：绑定行存在但敞口取数返回 null ⇒ fail-closed 拒绝（不静默放行）")
+    void missingExposureFailsClosedWhenChangingDirection() {
+        planDao.rows.add(draftPlan("DRAFT"));
+        bindDao.rows.add(boundRow(99L));
+        // exposureDao.rows 为空 ⇒ findById 返回 null
+
+        HedgePlan patch = new HedgePlan();
+        patch.hedgeDirection = "SELL_HEDGE";
+        BizException e = assertThrows(BizException.class,
+                () -> service.updateDraft(PLAN_ID, patch, OPERATOR));
+        assertEquals(ErrorCode.PARAM_INVALID, e.errorCode());
+        assertTrue(stateLogDao.rows.isEmpty());
+    }
+
+    @Test
+    @DisplayName("补正 f：绑定取数入口缺失（装配缺件）⇒ fail-closed 拒绝，不假绿")
+    void missingDaoFailsClosedWhenChangingDirection() {
+        planDao.rows.add(draftPlan("DRAFT"));
+        PlanService noDao = new PlanService(FakeTx.newTemplate(), planDao, null, null, null,
+                docDao, null, stateLogDao, null, null, null,
+                userId -> Collections.singletonList(SUB),
+                null, null, null, null, null, null);
+        HedgePlan patch = new HedgePlan();
+        patch.hedgeDirection = "SELL_HEDGE";
+
+        BizException e = assertThrows(BizException.class,
+                () -> noDao.updateDraft(PLAN_ID, patch, OPERATOR));
+        assertEquals(ErrorCode.DATA_INSUFFICIENT, e.errorCode());
+    }
+
     // ============================================================ 工具
 
     private PlanService service(SubAccountVisibility visibility) {
-        return new PlanService(FakeTx.newTemplate(), planDao, null, null, null,
-                docDao, null, stateLogDao, null, null, null, visibility,
+        return new PlanService(FakeTx.newTemplate(), planDao, bindDao, null, null,
+                docDao, null, stateLogDao, null, exposureDao, null, visibility,
                 null, null, null, null, null, null);
     }
 
@@ -381,6 +486,29 @@ class PlanDraftAndDocReadEndpointTest {
         doc.generatedBy = OPERATOR;
         doc.generatedTime = LocalDateTime.of(2026, 9, 20, 10, 15, 0);
         return doc;
+    }
+
+    private static HedgePlanExposure boundRow(long exposureId) {
+        HedgePlanExposure row = new HedgePlanExposure();
+        row.id = exposureId;
+        row.subAccountId = SUB;
+        row.hedgePlanId = PLAN_ID;
+        row.exposureId = exposureId;
+        row.coveredQty = new BigDecimal("10");
+        row.status = "BOUND";
+        return row;
+    }
+
+    private static Exposure hedgeExposure(long exposureId) {
+        Exposure exposure = new Exposure();
+        exposure.id = exposureId;
+        exposure.subAccountId = SUB;
+        exposure.productId = PRODUCT;
+        exposure.direction = "SELL";
+        exposure.unmappedFlag = "N";
+        exposure.exposureQty = new BigDecimal("100");
+        exposure.coveredQty = new BigDecimal("10");
+        return exposure;
     }
 
     private static String body(HttpResult result) {
@@ -476,6 +604,60 @@ class PlanDraftAndDocReadEndpointTest {
         @Override
         public HedgeDoc findCurrent(long hedgePlanId) {
             return current;
+        }
+    }
+
+    private static final class FakeBindDao extends UnsupportedBaseDao<HedgePlanExposure, Long>
+            implements HedgePlanExposureDao {
+
+        private final List<HedgePlanExposure> rows = new ArrayList<>();
+
+        @Override
+        public List<HedgePlanExposure> findByPlan(long hedgePlanId) {
+            List<HedgePlanExposure> out = new ArrayList<>();
+            for (HedgePlanExposure row : rows) {
+                if (row.hedgePlanId != null && row.hedgePlanId == hedgePlanId) {
+                    out.add(row);
+                }
+            }
+            return out;
+        }
+
+        @Override
+        public List<HedgePlanExposure> findByExposure(long exposureId) {
+            return Collections.emptyList();
+        }
+
+        @Override
+        public List<HedgePlanExposure> findBySubAccounts(List<Integer> subAccountIds) {
+            throw FakeDao.unsupported("findBySubAccounts");
+        }
+    }
+
+    private static final class FakeExposureDao extends UnsupportedBaseDao<Exposure, Long>
+            implements ExposureDao {
+
+        private final List<Exposure> rows = new ArrayList<>();
+
+        @Override
+        public Exposure findById(Long id) {
+            for (Exposure row : rows) {
+                if (row.id == id) {
+                    return row;
+                }
+            }
+            return null;
+        }
+
+        @Override
+        public PageResult<Exposure> findPageScoped(PageQuery query, SubAccountScope scope,
+                                                   String extraWhere, List<Object> extraArgs) {
+            throw FakeDao.unsupported("findPageScoped");
+        }
+
+        @Override
+        public Exposure findByIdScoped(long id, SubAccountScope scope) {
+            throw FakeDao.unsupported("findByIdScoped");
         }
     }
 }
