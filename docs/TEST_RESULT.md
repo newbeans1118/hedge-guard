@@ -18374,3 +18374,47 @@ P1 计划列 3 项「生产实现补实」经实测**已闭环**：`TamperAlarm`
 | 单写者 / 并发 | 复核席仓库内零写入，本笔唯一写者 |
 | 零落盘 | 本登记不含口令 / 密钥 / 凭据 |
 | 时点 | 本章（delta 复检章）全部计数 / md5 / 行号引用为 **2026-11-10** 实测值，**以实时为准** |
+
+---
+
+## O-1 纵深防御补正登记：findByPlan null 判定（2026-11-10，编排者 · 纯追加）
+
+> **性质**：delta 复检观察项 `O-1` 的用户指令「补 O-1 findByPlan null 判定及用例」执行留痕。**只追加**，不改变上文任何既有结论。
+> **触发**：用户 2026-11-10 指令「补 O-1 findByPlan null 判定及用例」。
+> **追加前锚**：**18376 行 / md5 `11eedbfd9333bf0dd1b95f91e713af7c`**（本会话实测）；追加后 `head -18376 docs/TEST_RESULT.md \| md5sum` 须逐字节一致 ⇒ 删行 0 / 回改 0。
+> **时点**：HEAD `78b6322`（代码补正提交后）；全部计数 / md5 / 行号引用为 **2026-11-10** 实测值，**以实时为准**。
+
+### 一、改动（纯内部防御，契约面零改动）
+
+| 文件 | 改动 |
+|---|---|
+| `java/src/main/java/com/hedgeguard/service/PlanService.java` | `requireBoundExposureConsistency` 把 `for (... : hedgePlanExposureDao.findByPlan(plan.id))` 改为先取 `List<HedgePlanExposure> binds`，新增 `if (binds == null) ⇒ BizException.of(ErrorCode.DATA_INSUFFICIENT, ...)`；生产 `AbstractDmDao.queryList` 恒返回非 null `ArrayList` ⇒ 该分支生产不可达，仅为纵深防御：不静默放行、不让 `NullPointerException` 逸出受控错误码 |
+| `java/src/test/java/com/hedgeguard/web/handler/plan/PlanDraftAndDocReadEndpointTest.java` | `FakeBindDao` 增 `returnNull` 开关；新增用例 `nullBindingResultFailsClosedWhenChangingDirection`（断言 `DATA_INSUFFICIENT`、文案含「绑定关系」、方向保持原值、零留痕） |
+
+**未改**：wire 字段 / 路径 / 错误码（复用既有 `DATA_INSUFFICIENT 10015`）/ 信封 / `ApiRoutes` / `ARCHITECTURE` / `DATA_MODEL` / `REQUIREMENTS` / `java/CONTRACTS.md`（纯内部实现，接口冻结面零改动、`HGC-1.6` 不变）/ 前端。补正后 `CONTRACTS §5.1` 既有「取数入口缺失时 fail-closed 拒绝」描述完全成立，无需追加登记。提交 **`78b6322`**（2 文件 +29/−1）。
+
+### 二、门禁实测（编排者自跑）
+
+| 门禁 | 实测 |
+|---|---|
+| 目标测试类基线 | **21 / 0 / 0 / 0**（20 + 新增 1）`BUILD SUCCESS` |
+| 自设变异 M-O1（把 `if (binds == null)` 改为 `if (false && binds == null)`） | **验红 1 例**：`nullBindingResultFailsClosedWhenChangingDirection:437 Unexpected exception type thrown, expected: <BizException> but was: <NullPointerException>`；`21/1 FAILURE` `BUILD FAILURE` ⇒ 新用例真有牙、非自证 |
+| 逐字节复位 | pristine md5 `211853829952e7079d0e02ebcc40dee3`，`cp` 复位后同值 ⇒ 变异零残留 |
+| Java 全量 `mvn -B -o clean test` | **1501 / 0 / 0 / 0** `BUILD SUCCESS`（1500 + 1） |
+| arch-check 聚合 | **E1–E9 通过 9 / 命中 0 / 用法前置错误 0**，`rc0` |
+| 编译告警 | `[WARNING]` 7 条，均为历史 testCompile `unchecked` 存量（4 文件零差异，前序 O-2 / delta O-6 已登记）；main 侧零告警 |
+| 零落盘 | 新增行扫描 `password\|secret\|api_key\|token=\|jdbc:dm` = **0 命中** |
+
+### 三、O-1 闭环判定
+
+`O-1`（delta 复检 P3 观察：`findByPlan` 返回 null ⇒ `NullPointerException`）**已按用户指令补齐** ⇒ 现为受控 `BizException(DATA_INSUFFICIENT)`，且拒绝 / 不落库 / 不留痕不变。**闭环**。`O-2`（提交侧兜底：未来新增敞口字段订正端点时须在 `submitForApproval` 侧兜底）仍为显式挂账；前序第 268 轮 8 项观察与 delta 其余观察（除 `O-7` 已由第 270 轮追加闭合）继续挂账，不因本次补正勾销。
+
+### 四、纪律自查
+
+| 项 | 结果 |
+|---|---|
+| 只追加 | 追加前锚 **18376 行 / md5 `11eedbfd9333bf0dd1b95f91e713af7c`**；追加后 `head -18376` 逐字节一致 ⇒ 删行 0 / 回改 0 |
+| 不回改历史 | 既有章（第 268/269/270 轮）、台账合计行、准出复选框、缺陷档案状态、定版制品措辞**原文保留**；本笔不代填复检结论、不翻转状态、不补勾复选框 |
+| 单写者 / 并发 | 无并行写者；本笔唯一写者 |
+| 零落盘 | 本登记不含口令 / 密钥 / 凭据 |
+| 时点 | 本章（O-1 补正章）全部计数 / md5 / 行号引用为 **2026-11-10** 实测值，**以实时为准** |
