@@ -18418,3 +18418,75 @@ P1 计划列 3 项「生产实现补实」经实测**已闭环**：`TamperAlarm`
 | 单写者 / 并发 | 无并行写者；本笔唯一写者 |
 | 零落盘 | 本登记不含口令 / 密钥 / 凭据 |
 | 时点 | 本章（O-1 补正章）全部计数 / md5 / 行号引用为 **2026-11-10** 实测值，**以实时为准** |
+
+---
+
+## O-1 闭环 · 独立复核证据章（2026-11-10，编排者 · 纯追加）
+
+> **性质**：用户指令「派独立复核 O-1 闭环」的复核回执 + 观察项挂账。**只追加**，不改变上文任何既有结论。
+> **触发**：用户 2026-11-10 指令「派独立复核 O-1 闭环」；工单 `dev-team/inbox/test-engineer/te-verify-o1-task.md` 派实例 `te-verify-o1`。
+> **追加前锚**：**18420 行 / md5 `3421a91061ab41035d2cf1a5446bf82a`**（本会话实测）；追加后 `head -18420 docs/TEST_RESULT.md \| md5sum` 须逐字节一致 ⇒ 删行 0 / 回改 0。
+> **时点**：HEAD `3a4ee85`；全部计数 / md5 / 行号引用为 **2026-11-10** 实测值，**以实时为准**。
+
+### 一、复核结论（通过 / 0 缺陷 / O-1 正式闭环）
+
+| 项 | 值 |
+|---|---|
+| 复核席 | `te-verify-o1`（fresh eyes，独立只读） |
+| 报告 | `/root/o1-verify.md`，全文 md5 **`aa5633265622e5830a57312cd43b6cf1`** / **268 行**；正文锚 `head -261` = **`641fa83c5b7a0b2f7f79371b05846a57`**（本会话复核实测一致） |
+| 结论 | **通过** —— 6 判据 **6 通过 / 0 有保留 / 0 不通过**；缺陷 **0**（P0/P1/P2/P3 全 0），`TE-O1-00x` 无条目 |
+| O-1 | ✅ **经独立复核正式闭环**（第 271 轮为编排者自跑登记，本轮升级为独立复核回执） |
+| 观察项 | **7 项**（`OBS-1`…`OBS-7`，均 P3 非阻断） |
+
+### 二、核心证据：修复前后对照（复核席加做，判据外）
+
+复核席自写独立探针 `O1NullBindProbe`（Proxy 假 DAO，10 场景），按「方向 / 品种变更 + 已绑定 `BOUND` 合法态 + `findByPlan` 返回 null」构造，并把**补正前 `1ad3bbe` 的 `PlanService.java` 单文件编译进影子 classpath**跑同一探针：
+
+| | 补正前（`1ad3bbe` 影子树） | 补正后（HEAD `3a4ee85`） |
+|---|---|---|
+| S1/S2/S3 服务级 | `java.lang.NullPointerException`（`FAILS=4` 含端点） | `BizException(DATA_INSUFFICIENT 10015)`、文案含「绑定关系」、`FAILS=0` |
+| 端点 PUT | `500 / code=10022`（`INTERNAL_ERROR`） | `409 / code=10015` |
+| 计划值 / 副作用 | 两树均 `BUY_HEDGE/5/80/DRAFT`、`log.insert=0`、`plan.updateById=0` | 同左 ⇒ NPE 本就拒绝、不落库、不留痕，补正修的是**受控错误码**维度 |
+| 回归 R1–R5 | 两树均 PASS（只改数量、空 List 放行、DAO 缺件 / 敞口缺失 fail-closed、合法 `BOUND` 行 `R-PLAN-1` 拦截） | 同左 ⇒ 补正未扩大拦截 |
+
+> 与 delta 报告 §4 O-1 原始观察（`[B6 ... findByPlan 返回 null] java.lang.NullPointerException | null | plan保持=BUY_HEDGE/5 | log.insert=0`）逐字一致并复现。
+
+### 三、门禁独立实测（复核席自跑自算，不沿用编排者数字）
+
+| 门禁 | 实测 |
+|---|---|
+| Java 全量 `mvn -B -o clean test`（隔离快照，主 1 + baseline 1 + 复绿 2） | **1501 / 0 / 0 / 0** `BUILD SUCCESS`；`@Test` 词法状态机计数 = surefire `tests` 属性和（187 XML）= `<testcase>` 元素和 = mvn 日志 = **1501** 四方一致、`<skipped>=0`；目标类 `@Test` `20 → 21` |
+| arch-check 聚合（主仓只读） | **E1–E9 通过 9 / 命中 0 / 用法前置错误 0**，`rc0` |
+| 目标测试类 | **21 / 0 / 0 / 0** `BUILD SUCCESS` |
+| 编译告警 | main 620 源 `[WARNING]=0`；7 条 testCompile `unchecked` 为历史存量（4 文件 `1ad3bbe`/`78b6322`/HEAD 三提交 md5 全 IDENTICAL） |
+| 自设变异 | **4 组**（XM1 错码 / XM2 摘 `returnNull` 开关 / XM3 null 守卫挪到 for 之后 / XM4 改文案），**刻意不复用**编排者 M-O1；`clean` 重建 **4/4 验红**（均 `21/1/0/0 BUILD FAILURE`），各组 `md5sum -c` **839/839 OK** 复位，全量复绿 ×2 `1501/0/0/0` ⇒ 新用例 4 断言逐条被击杀、非恒真 / 非自证 |
+| 冻结面 | `git diff --numstat 1ad3bbe 78b6322` 全仓仅 2 文件（`8 1` / `21 0`）；`CONTRACTS`/`web/**`/`ARCHITECTURE`/`DATA_MODEL`/`proto/**`/`REQUIREMENTS/**`/`tools/**` 零改、7 制品三提交 md5 全 IDENTICAL；`HGC-1.6` 未升版；复用既有 `DATA_INSUFFICIENT 10015`、未新增路径 / 字段 / 错误码 / 信封、未动 §2.2；零落盘 29 新增行 / 0 命中 |
+| 仓库终态 | 复核席仓库内零写入（隔离快照 `/root/o1v-snap` + `/root/o1v-mut`，主仓仅一次只读 `arch-check.sh`）；终态 `git status --porcelain` 空、HEAD 仍 `3a4ee85`；树锚 `f91c67f1b454833e67531c2b59bebae6` / 843 文件三处同值 |
+| 台账核实 | 复核席独立复现 `git show HEAD:docs/TEST_RESULT.md \| head -18376 \| md5sum` = `11eedbfd9333bf0dd1b95f91e713af7c`（第 271 轮追加前锚）、`3a4ee85` 相对 `78b6322` = `1 0` / `44 0` 纯追加 |
+
+### 四、观察项挂账（OBS-1…OBS-7，均 P3 非阻断）
+
+| 编号 | 摘要 | 承接 |
+|---|---|---|
+| OBS-1 | `PlanService` 另有 **3 处**同源 `for (... : findByPlan(...))` 无 null 判定（`:951 bindExposure` / `:1295 contractHorizon` / `:1324 requireQuantity`）；同属生产不可达（DAO 恒非 null List）、写库前 / 只读 helper、即便触发也拒绝不落库 | **呈用户裁定**：是否另立单统一收口（本单范围由用户指令限定为 `requireBoundExposureConsistency`） |
+| OBS-2 | 新用例仅置 `returnNull=true`、未显式铺 `BOUND` 行 / 敞口（前提隐式）；新守卫在迭代之前、与行内容无关，复核席独立探针显式铺合法态后结论一致 | 夹具构造说明，非缺陷 |
+| OBS-3 | 复核席变异脚本首版 `md5sum -c` 在错误 cwd 执行，输出 `RESTORE_NON_OK=1679`；修正 cwd 后每组 839/839 OK、三处树锚同值 | 脚本自纠，如实披露（沿用 delta O-4 判例） |
+| OBS-4 | 端点 `409/10015` 经 `RequestDispatcher` 进程内分发，非真实 socket HTTP | 环境局限，与 delta §8 同口径 |
+| OBS-5 | 主仓 `java/target` mtime 早于 `78b6322` 且被 gitignore ⇒ 补正前既有、非复核席创建 | 留痕备查 |
+| OBS-6 | delta `O-2`（提交侧兜底）本补正未触及，仍显式挂账 | 继续挂账 |
+| OBS-7 | 复检结论是否追加 ledger（复核席按派发「不代填、仓库零写入」） | ✅ **本章即追加，OBS-7 闭合** |
+
+### 五、未执行项与局限（不计入通过）
+
+真 DM8 实例 / 真实 socket HTTP 起停 / 真 CTP 跨进程 L3 / 实盘观察期；补正前**整树**全量 `mvn clean test`（本单采用单文件影子 classpath 最小对照）；`submitForApproval` 六项端到端 Proxy 桩驱动（属 O-2 范围）。详见报告 §9。
+
+### 六、纪律自查
+
+| 项 | 结果 |
+|---|---|
+| 只追加 | 追加前锚 **18420 行 / md5 `3421a91061ab41035d2cf1a5446bf82a`**；追加后 `head -18420` 逐字节一致 ⇒ 删行 0 / 回改 0 |
+| 不回改历史 | 既有章（第 268/269/270/271 轮）、台账合计行、准出复选框、缺陷档案状态、定版制品措辞**原文保留**；本笔不代填复检结论（本章为编排者登记，非测试席代填）、不翻转状态、不补勾复选框 |
+| 单写者 / 并发 | 复核席仓库内零写入；本笔唯一写者 |
+| 账面 | **不立号、不贴标、不改账面** ⇒ 维持 `TASKS.md` §5.2「234 任务 / 2231 人时」与第 266 轮补35「六区 0/0/0/232/0/2 = 234 / 全部任务闭环」 |
+| 零落盘 | 本登记不含口令 / 密钥 / 凭据 |
+| 时点 | 本章（O-1 独立复核章）全部计数 / md5 / 行号引用为 **2026-11-10** 实测值，**以实时为准** |
