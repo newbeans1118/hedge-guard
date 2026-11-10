@@ -18295,3 +18295,82 @@ P1 计划列 3 项「生产实现补实」经实测**已闭环**：`TamperAlarm`
 | 单写者 / 并发 | 补正席（`be-p1-fix`）只写 `java/**`、不碰 git index；本笔唯一写者 |
 | 零落盘 | 本登记不含口令 / 密钥 / 凭据 |
 | 时点 | 本章全部计数 / md5 / 行号引用为 **2026-11-10** 实测值，**以实时为准** |
+
+---
+
+## P1 最小试点 · delta 独立复检证据章与交付闭环登记（2026-11-10，编排者 · 纯追加）
+
+> **性质**：用户裁定①「退回补正」的复检回执 + `TE-P1PILOT-001` 闭环 + 试点交付闭环登记。**只追加**，不改变上文任何既有结论。
+> **触发**：`a97d0b4`（补正提交）后派 `te-verify-p1-delta` 独立复检；本章同时闭合 delta 报告 `O-7`（「复检结论是否追加 ledger」——本笔即追加）。
+> **追加前锚**：**18297 行 / md5 `10832b5b71e5a590cbe890fdfd7ee9bc`**（本会话实测）；追加后 `head -18297 docs/TEST_RESULT.md \| md5sum` 须逐字节一致 ⇒ 删行 0 / 回改 0。
+> **时点**：HEAD `a97d0b4`；全部计数 / md5 / 行号引用为 **2026-11-10** 实测值，**以实时为准**。
+
+### 一、复检结论（通过 / 0 缺陷 / 缺陷闭环）
+
+| 项 | 值 |
+|---|---|
+| 复核席 | `te-verify-p1-delta`（fresh eyes，独立只读） |
+| 报告 | `/root/p1-pilot-delta-verify.md`，全文 md5 **`8d452c0c8c119b85c716bc5340953449`** / **209 行**；正文锚 `head -202` = **`7d13b00568fd6738115a696d04f7e1ed`**（本会话复核实测一致） |
+| 结论 | **通过** —— 6 判据 **6 通过 / 0 有保留 / 0 不通过**；缺陷 **0**（P0/P1/P2/P3 全 0） |
+| `TE-P1PILOT-001` | ✅ **闭环**（按前序报告 §3 步骤逐条重跑，缺陷不再出现） |
+| 观察项 | **7 项**（`O-1`…`O-7`，均 P3 非阻断） |
+
+> **补正经过如实留痕**：用户裁定「退回补正」后首派 backend 席 `be-p1-fix` 因**上游流中断**（`finish_reason=error`、只输出 reasoning 无产出）失败、**仓库零写入**（第 269 轮提交后 `git status` 实测为空）；改由编排者主线程按同一 spec 实现并提交 `a97d0b4`，再派 fresh 复核席独立复检 —— 不自证闭环。
+
+### 二、缺陷闭环对照（原始输出）
+
+| | 补正前（前序报告 §3） | 补正后（delta 报告 §3，独立探针 `DeltaBindingProbe`） |
+|---|---|---|
+| 改方向 / 品种 | `RESULT: SUCCESS（未抛任何异常，落库 + 留痕照常）` | `BizException PARAM_INVALID`「…（R-PLAN-1）…」/「…（R-PLAN-7）…」 |
+| 绑定 / 敞口 DAO | `绑定 DAO 被查询 = false` / `敞口 DAO 被查询 = false` | `calls={plan.findById=1, bindDao.findByPlan=1, exposureDao.findById=1}` |
+| 计划值 / 留痕 | 落库为新方向 / 品种 + 写 `DRAFT→DRAFT` 留痕 | `plan(应按原值) = direction=BUY_HEDGE productId=5 planQty=80`、`log.insert = 0` |
+| 端点级 | — | `PUT` 改方向 ⇒ `400 / code=10001`（`raw` 全文见报告 §3）；只改 `planQty` ⇒ `200 / code=0` |
+| 探针汇总 | — | `12 场景 FAILS=0` + `DeltaEdgeProbe 8 项 FAILS=0` + 复用 `RouteOrthogonalityProbe` 9 条 |
+
+> **诚实披露（delta O-3）**：前序探针用 `bind.status="ACTIVE"`，而 `DATA_MODEL.md:1722` 取值域仅 `BOUND`/`UNBOUND`（`ACTIVE` 为探索性占位）；delta 按合法态 `BOUND` 复现并实测 `UNBOUND` 跳过语义。沿用旧探针会误判「补正无效」。
+
+### 三、门禁独立实测（复核席自跑自算）
+
+| 门禁 | 实测 |
+|---|---|
+| Java 全量 `mvn -B -o clean test`（隔离快照） | **1500 / 0 / 0 / 0** `BUILD SUCCESS`（3:46）；`@Test` 词法状态机计数 = surefire `tests` 属性和（187 XML）= `<testcase>` 元素和 = mvn 日志 = **1500** 四方一致、`<skipped>=0` |
+| arch-check 聚合 | **E1–E9 通过 9 / 命中 0 / 用法前置错误 0**，`rc0` |
+| 目标测试类 | **20 / 0 / 0 / 0**（14 原有 + 6 补正） |
+| 编译告警 | main 620 源 `[WARNING]=0`；testCompile 7 条 `unchecked` 为历史存量（4 文件双提交 md5 IDENTICAL，前序 O-2 已登记） |
+| 自设变异 | **3 组（DM1 摘触发条件 / DM2 改 DAO fail-closed 条件 / DM4 `BOUND` 过滤取反），3/3 验红**，各组 `md5sum -c` 839/839 复位；复位后全量复绿 **1500/0/0/0** |
+| 冻结面 | 全仓 diff 仅 3 文件（`1 0` / `64 0` / `184 2`）；`ARCHITECTURE`/`DATA_MODEL`/`proto`/`REQUIREMENTS` 双提交 md5 全 IDENTICAL；`CONTRACTS` 仅 §5.1 `+1` 行、首部 `HGC-1.6` 未升版判定成立；零落盘 249 新增行 / 0 命中 |
+| 仓库终态 | 复核席全程仓库内零写入（隔离快照 `/root/p1v-delta-snap` + `/root/p1v-delta-mut`）；终态 `git status --porcelain` 空、HEAD 仍 `a97d0b4`；树锚 `d8d636ae…` / 843 文件三处同值 |
+
+### 四、交付闭环登记（不立号、不改账面）
+
+`TE-P1PILOT-001` 已按用户裁定退回补正并经独立 delta 复检**通过 / 0 缺陷** ⇒ **P1 最小试点登记为「交付闭环」**：`PUT /plan/{id}`（`FR-PLAN-2`）与 `GET /plan/{id}/doc`（`FR-PLAN-5`）两端点、契约 / 镜像 / 装配 / 14+6 用例、两轮独立复核（原复核有条件通过 → delta 通过）证据链完整。
+
+**但**：P1 试点**不在 234 工单台账内**，故**不立号、不贴机读 `DONE`、不改账面** —— 维持 `TASKS.md` §5.2「234 任务 / 2231 人时」与第 266 轮补35「六区 0/0/0/232/0/2 = 234 / 全部任务闭环」不变。本「交付闭环」为试点级登记，不是台账级贴标。
+
+### 五、观察项挂账（delta O-1…O-7，均 P3 非阻断）
+
+| 编号 | 摘要 | 承接 |
+|---|---|---|
+| O-1 | `findByPlan` 返回 null ⇒ `NullPointerException`（非 `BizException`）；生产 `AbstractDmDao.queryList` 恒返回非 null `ArrayList` ⇒ **生产不可达**，且仍拒绝 / 不落库 / 不留痕 | **呈用户裁定**：是否补 null 判定（纵深防御） |
+| O-2 | `submitForApproval` 六项仍不复核绑定一致性（属派发裁定范围）；其余可产生不一致态路径已逐条核实封死（`createPlan`/`bindExposure` 校验、`updateDraft` 现拦截、`SpotExposureHandler` 无改既有敞口 `direction`/`productId`/`subAccountId` 的端点） | **显式登记**：未来新增敞口字段订正端点 / 数据订正路径时，须提交侧兜底 |
+| O-3 | 前序探针 `ACTIVE` 占位值 vs `DATA_MODEL.md:1722` `BOUND`/`UNBOUND` 取值域 | 探针构造说明，非产品缺陷；本章 §二 已留痕 |
+| O-4 | 复核席首版 `@Test` 正则脚本得 1495 假差异、词法状态机修正后 1500 | 脚本自纠，非代码问题（如实披露） |
+| O-5 | 复核席 B4 首版场景同时改品种被 `R-PLAN-7` 正确拒绝、修正为只改方向后 PASS | 场景自纠，非产品缺陷（如实披露） |
+| O-6 | 7 条历史 testCompile `unchecked` 告警（双提交 md5 IDENTICAL） | 沿用前序 O-2 挂账 |
+| O-7 | 本单复检结论未追加 ledger（复核席按派发「不代填」） | ✅ **本章即追加，O-7 闭合** |
+
+> 前序（第 268 轮）8 项观察中，`O-4` 已由该章 §五补登记闭合；其余（`routes.js` 头注计数漂移、硬编码期限、弱断言、affected!=1 覆盖缺口、DAO 无独立 scope、DELETE 裁定权、历史告警）继续挂账，不因试点闭环而勾销。
+
+### 六、未执行项与局限（不计入通过）
+
+真 DM8 实例 / 真实 socket HTTP 起停 / 真 CTP 跨进程 L3 / 实盘观察期 1–2 个月日历 —— 本仓库无 DM8 驱动与实例，属「本仓库不可执行」外部前置，**未执行、不计通过**（端点级证据均为 `RequestDispatcher` 进程内分发）；`submitForApproval` 六项完整 Proxy 桩端到端驱动未执行（仅静态核对六项仍在 + 其他不一致路径核实）。详见 delta 报告 §8。
+
+### 七、纪律自查
+
+| 项 | 结果 |
+|---|---|
+| 只追加 | 追加前锚 **18297 行 / md5 `10832b5b71e5a590cbe890fdfd7ee9bc`**；追加后 `head -18297` 逐字节一致 ⇒ 删行 0 / 回改 0 |
+| 不回改历史 | 既有章（含第 268/269 轮）、台账合计行、准出复选框、缺陷档案状态、定版制品措辞**原文保留**；本笔不代填复检结论（本章为编排者登记，非测试席代填）、不翻转状态、不补勾复选框 |
+| 单写者 / 并发 | 复核席仓库内零写入，本笔唯一写者 |
+| 零落盘 | 本登记不含口令 / 密钥 / 凭据 |
+| 时点 | 本章（delta 复检章）全部计数 / md5 / 行号引用为 **2026-11-10** 实测值，**以实时为准** |
