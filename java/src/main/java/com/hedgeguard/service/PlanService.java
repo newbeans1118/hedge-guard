@@ -829,7 +829,14 @@ public final class PlanService {
                     "套保方向只允许 BUY_HEDGE / SELL_HEDGE：实际=" + hedgeDirection
                             + "；复现=按 TB-PLAN-1 取值域提交");
         }
-        for (HedgePlanExposure bind : hedgePlanExposureDao.findByPlan(plan.id)) {
+        List<HedgePlanExposure> binds = hedgePlanExposureDao.findByPlan(plan.id);
+        if (binds == null) {
+            // 生产 DAO 恒返回非 null List（AbstractDmDao.queryList），此处仅为纵深防御：
+            // 绝不因取数异常静默放行，也不让 NullPointerException 逸出受控错误码（delta 复检 O-1）。
+            throw BizException.of(ErrorCode.DATA_INSUFFICIENT,
+                    "方向或品种变更须复核已绑定敞口，但绑定关系查询结果为空引用；复现=检查绑定取数实现");
+        }
+        for (HedgePlanExposure bind : binds) {
             if (!"BOUND".equals(bind.status)) {
                 continue;
             }

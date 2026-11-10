@@ -426,6 +426,23 @@ class PlanDraftAndDocReadEndpointTest {
         assertEquals(ErrorCode.DATA_INSUFFICIENT, e.errorCode());
     }
 
+    @Test
+    @DisplayName("O-1 补正：findByPlan 返回 null ⇒ DATA_INSUFFICIENT 受控拒绝（非 NPE，不假绿）")
+    void nullBindingResultFailsClosedWhenChangingDirection() {
+        planDao.rows.add(draftPlan("DRAFT"));
+        bindDao.returnNull = true;
+
+        HedgePlan patch = new HedgePlan();
+        patch.hedgeDirection = "SELL_HEDGE";
+        BizException e = assertThrows(BizException.class,
+                () -> service.updateDraft(PLAN_ID, patch, OPERATOR));
+
+        assertEquals(ErrorCode.DATA_INSUFFICIENT, e.errorCode());
+        assertTrue(e.getMessage().contains("绑定关系"), e.getMessage());
+        assertEquals("BUY_HEDGE", planDao.rows.get(0).hedgeDirection, "拒绝时不得改方向");
+        assertTrue(stateLogDao.rows.isEmpty(), "拒绝时不得写留痕");
+    }
+
     // ============================================================ 工具
 
     private PlanService service(SubAccountVisibility visibility) {
@@ -611,9 +628,13 @@ class PlanDraftAndDocReadEndpointTest {
             implements HedgePlanExposureDao {
 
         private final List<HedgePlanExposure> rows = new ArrayList<>();
+        private boolean returnNull;
 
         @Override
         public List<HedgePlanExposure> findByPlan(long hedgePlanId) {
+            if (returnNull) {
+                return null;
+            }
             List<HedgePlanExposure> out = new ArrayList<>();
             for (HedgePlanExposure row : rows) {
                 if (row.hedgePlanId != null && row.hedgePlanId == hedgePlanId) {
