@@ -539,6 +539,12 @@ public final class PlanService {
      * @return 新行主键
      */
     public long createPlan(HedgePlan plan, List<BindSpec> binds, long operatorId) {
+        if (hedgePlanExposureDao == null) {
+            // 装配缺件 fail-fast（OBS-A 收口）：写入口 :650 在事务内裸调用，若缺件会在
+            // 事务开启后抛 NPE 并触发无谓回滚 ⇒ 于事务之前受控拒绝，与 bindingsOf 同口径。
+            throw BizException.of(ErrorCode.DATA_INSUFFICIENT,
+                    "绑定关系写入入口未装配，无法编制计划；复现=检查服务装配");
+        }
         requireSubAccount(plan.subAccountId);
         requireSubAccountWritable(operatorId, plan.subAccountId);
         requireText(plan.planType, "plan_type");

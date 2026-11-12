@@ -183,6 +183,17 @@ class PlanBindingNullSafetyTest {
         assertTrue(e.getMessage().contains("未装配"), e.getMessage());
     }
 
+    @Test
+    @DisplayName("OBS-A 收口：createPlan 装配缺件 ⇒ 事务前受控 DATA_INSUFFICIENT（不 NPE、不落库）")
+    void createPlanFailsClosedWhenDaoMissing() {
+        BizException e = assertThrows(BizException.class,
+                () -> service(false).createPlan(plan,
+                        Collections.singletonList(new PlanService.BindSpec(1L, new BigDecimal("10"))),
+                        OPERATOR));
+        assertEquals(ErrorCode.DATA_INSUFFICIENT, e.errorCode());
+        assertTrue(e.getMessage().contains("未装配"), e.getMessage());
+    }
+
     // ============================================================ 装配 / 假件
 
     private PlanService service() {
