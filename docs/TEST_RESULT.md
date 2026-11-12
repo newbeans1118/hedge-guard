@@ -18730,3 +18730,78 @@ P1 计划列 3 项「生产实现补实」经实测**已闭环**：`TamperAlarm`
 | 账面 | **不立号、不贴标、不改账面** ⇒ 维持 235 任务 / 2235 人时、233 DONE / 2 REJECTED、六区 `0/0/0/233/0/2 = 235`、「全部任务闭环」；机读实测 221 不变；源码 / 契约 / 冻结制品零改动 |
 | 零落盘 | 本登记不含口令 / 密钥 / 凭据 |
 | 时点 | 本章（OBS-2 裁定章）全部计数 / md5 / 行号引用为 **2026-11-12** 实时实测值，**以实时为准** |
+
+---
+
+## OBS-2 收口 · 独立复核证据章与闭环登记（2026-11-12，编排者 · 纯追加）
+
+> **性质**：用户改判「收口」的复核回执 + `OBS-2` 闭环落账。**只追加**，不改变上文任何既有结论（含第 276 轮「不收口」裁定章原文）。
+> **触发**：用户 2026-11-12 指令「收口」（推翻第 276 轮裁定）⇒ 实现 `1edb859` ⇒ 派 fresh 席 `te-verify-obs2` 复核 ⇒ 通过。
+> **追加前锚**：**18732 行 / md5 `b557bbbb5aacc696d30133c21098b29e`**（本会话实测）；追加后 `head -18732 docs/TEST_RESULT.md \| md5sum` 须逐字节一致 ⇒ 删行 0 / 回改 0。
+> **时点**：HEAD `1edb859`（本笔台账提交前）；全部计数 / md5 / 行号引用为 **2026-11-12** 实时实测值，**以实时为准**。
+
+### 一、复核结论（通过 / 0 缺陷 / OBS-2 闭环）
+
+| 项 | 值 |
+|---|---|
+| 复核席 | `te-verify-obs2`（fresh eyes，独立只读） |
+| 报告 | `/root/obs2-verify.md`，全文 md5 **`4de7c2ffd17b52ed710862b15c6bf22e`** / **355 行**；正文锚 `head -348` = **`6d231de14fde2d753b84743ad3258af5`**（本会话复核实测一致） |
+| 结论 | **通过** —— 5 判据 **5 通过 / 0 有保留 / 0 不通过**；缺陷 **0**（P0/P1/P2/P3 全 0），`TE-OBS2-00x` 无条目 |
+| 观察项 | **8 项**（`OBS-A`…`OBS-H`，均 P3 非阻断） |
+| OBS-2 | ✅ **闭环**（第 276 轮「不收口」裁定经用户改判后收口，并经独立复核通过） |
+
+### 二、核心证据（独立探针逐点驱动）
+
+复核席自写 `Obs2DaoMissingProbe`（第 3 参注入 null、其余 DAO 全非空，61 项断言 `FAILS=0`）：
+- 走 helper 的 5 处（`:1894 listBindings` / `:1036 generateHedgeDoc` / `:955 bindExposure` / `:1299 contractHorizon` / `:1328 requireQuantity`，含 2 处 private 反射直驱 + `submitForApproval` 真实路径）全部 `BizException(DATA_INSUFFICIENT)` 且文案含「未装配」、**不 NPE**；
+- 写路径 `generateHedgeDoc` / `bindExposure`：`txOpen=0 writes=0 doc.insert=0 stateLog.insert=0` ⇒ 未误判为 `PARAM_INVALID`「未绑定敞口」、**不落库**；
+- `:836` 两分支（「取数入口不可用」/「空引用」）仍 fail-closed、计划原值不变、零留痕 ⇒ O-1 / T-236 闭环未破坏；
+- 基线 `a7eb91e` 影子 classpath 同探针：P1–P6 逐字 `NullPointerException`、P7–P10 两树同形态 ⇒ 症状确由 `1edb859` 封堵、无回归。
+
+**5 处既有 null 装配测试零回归（判据 2 重点）**：`PlanWritePathPermissionTest 7/0/0/0`、`PlanSubAccountIsolationTest 8/0/0/0`、`TradePlanSubAccountIsolationTest 8/0/0/0`、`PlanListQueryTest 7/0/0/0`、`PlanDraftAndDocReadEndpointTest 21/0/0/0`，逐 `<testcase>` 无 failure/error/skipped。机理：这些测试走 `:825` 既有守卫 / 权限前置拒绝 / `listPlans` 列表路径，均不经 helper。
+
+### 三、门禁独立实测（复核席自跑自算）
+
+| 门禁 | 实测 |
+|---|---|
+| Java 全量 `mvn -B -o clean test` | **1508 / 0 / 0 / 0** `BUILD SUCCESS`（主 1 次 + 变异复位后复绿 1 次）；`@Test` 词法状态机 1508 = surefire `tests` 属性和（188 XML）= `<testcase>` 1508 = mvn 日志 1508 四方一致、`DANGLING=[]` / `BAD=[]` |
+| arch-check 聚合 | **E1–E9 通过 9 / 命中 0 / 用法前置错误 0**，`rc0`（主仓唯一一次只读；全量 validate 内嵌再 2 次同值） |
+| 目标测试类（隔离快照） | **7 / 0 / 0 / 0** `BUILD SUCCESS` |
+| 前端探针 | **10 文件全 rc0**（8 独立断言 129/112/100/104/71/202/48/43 + 1 共享桩 + 1 shell；计数口径见 OBS-E） |
+| 编译告警 | main 620 源 `[WARNING]=0`；7 条 testCompile `unchecked` 为历史存量（4 文件两提交 md5 全 IDENTICAL） |
+| 自设变异 | **4 组**（M1 错码 / M2 文案 / M3 测试侧开关 / M4 判空条件反转），**刻意不复用** XM-C / XM-D；`clean` 重建 **4/4 验红**（7/2、7/2、7/2、7/5/1），各组 `md5sum -c` **844/844 OK** 复位，全量复绿 **1508/0/0/0** ⇒ 2 个新用例断言逐条被击杀、非恒真 / 非自证 |
+| 冻结面 | `git diff --numstat` 全仓仅 2 文件（`9 0` / `25 2`）；`CONTRACTS`/`web/**`/`ARCHITECTURE`/`DATA_MODEL`/`proto/**`/`REQUIREMENTS/**`/`docs/**` 0 改、9 制品两提交 md5 全 IDENTICAL；`HGC-1.6` 未升版、§2.2 未动；新增 34 行零路由 / 字段 / 新错误码 / 信封、零落盘 0 命中；`:836` 方法体 md5 `36c78674…` 与六项语义块 `fd73c45e…` 两提交相同 |
+| 仓库终态 | 复核席仓库内零写入（产物全在 `/root/obs2-*`，主仓仅一次只读 `arch-check.sh`）；终态 `git status --porcelain` 空、HEAD 仍 `1edb859`；四处树锚同为 `898d8aaa…` / 844 文件 |
+
+### 四、8 项观察挂账（均 P3 非阻断）
+
+| 编号 | 摘要 | 承接 |
+|---|---|---|
+| **OBS-A** | **`:650 createPlan` 事务内 `hedgePlanExposureDao.insert` 裸调用不经 helper**，装配缺件时仍 NPE（`txOpen=1 rollbacks=1`、无落库但异常不受控）；基线 `a7eb91e` 同探针逐字同形态 ⇒ 非本补正引入、无回归；生产 `Bootstrap:721-724` 恒注入非 null、判据限定「走 helper 的 5 处」 | **呈用户裁定**：是否连带收口（范围外同源点，最重要） |
+| OBS-B | 2 个新用例未断言「不落库」；该面已由复核席独立探针 P2/P3/P4 的 `writes=0` / `doc.insert=0` / `stateLog.insert=0` 覆盖 | 断言粒度备查，非缺陷 |
+| OBS-C | `:978 bindExposure` 事务内另一处裸 insert 已被 `:955` helper 前置 fail-fast 拦截（P3 `txOpen=0` 实证） | 已覆盖，非遗漏 |
+| OBS-D | DAO 引用为 null / 返回 null 均生产不可达（纵深防御），与 T-236 OBS-1 同口径 | 挂账 |
+| OBS-E | 探针「10/10」计数口径：10 文件（9 `.mjs` + 1 `.sh`）全 rc0，其中 8 个带断言；复核席不采信「10 独立探针」计数 | 口径留痕 |
+| OBS-F | 端点级证据为进程内调用 + 反射直驱，非真实 socket HTTP | 环境局限 |
+| OBS-G | 修复前后对照为单文件影子 classpath 最小对照，未跑基线整树全量 | 局限登记 |
+| OBS-H | 复检结论是否追加 ledger（复核席按派发零写入） | ✅ **本章即追加，OBS-H 闭合** |
+
+### 五、闭环与账面
+
+`OBS-2` 经用户改判收口、独立复核 **通过 / 0 缺陷** ⇒ **闭环**。第 276 轮「不收口」裁定章**原文保留**（勘误不回改历史），本笔仅登记改判与复核回执。
+
+**账面不变**：不立号、不贴标、不改账面 ⇒ 维持 235 任务 / 2235 人时、233 DONE / 2 REJECTED、六区 `0/0/0/233/0/2 = 235`、「全部任务闭环」、机读实测 221；源码 / 契约 / 冻结制品在复核期间零改动。
+
+### 六、未执行项与局限（不计入通过）
+
+真 DM8 实例 / 真实 socket HTTP 端点 / 真 CTP 跨进程 L3 / 实盘观察期 / 基线整树全量 `mvn clean test`（采用单文件影子对照）/ 端点级 `RequestDispatcher` 分发 —— 详见报告 §9，**未执行、不计通过**。
+
+### 七、纪律自查
+
+| 项 | 结果 |
+|---|---|
+| 只追加 | 追加前锚 **18732 行 / md5 `b557bbbb5aacc696d30133c21098b29e`**；追加后 `head -18732` 逐字节一致 ⇒ 删行 0 / 回改 0 |
+| 不回改历史 | 既有章（第 268~276 轮）、`te-verify-obs2` 报告原文、§1 合计行、`BOARD.md` 头部、§5.2 原表 **原文保留**；本笔不代填复检结论（本章为编排者登记，非测试席代填）、不翻转状态、不补勾复选框 |
+| 单写者 / 并发 | 复核席仓库内零写入；本笔唯一写者 |
+| 零落盘 | 本登记不含口令 / 密钥 / 凭据 |
+| 时点 | 本章（OBS-2 复核章）全部计数 / md5 / 行号引用为 **2026-11-12** 实时实测值，**以实时为准** |
