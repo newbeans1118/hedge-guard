@@ -815,6 +815,10 @@ public final class PlanService {
      * <p>与 {@link #createPlan} / {@link #bindExposure} 同口径：套保方向须与所绑敞口方向相反、
      * 品种须一致、子账户须一致。任一不满足即拒绝，<b>不落库、不写留痕</b>。
      * 无 {@code BOUND} 绑定行（草稿尚未绑定敞口）⇒ 放行。
+     *
+     * <p><b>与 {@link #bindingsOf} 的语义差异（{@code T-236}）</b>：本方法是安全校验入口，
+     * 取数异常必须 fail-closed 受控拒绝（{@code DATA_INSUFFICIENT}）；聚合 / 展示 / 只读路径
+     * 则由 {@code bindingsOf} 把 {@code null} 规范化为「无绑定行」。二者有意不同，勿统一。
      */
     private void requireBoundExposureConsistency(HedgePlan plan, String hedgeDirection,
                                                  Long productId) {
@@ -948,7 +952,7 @@ public final class PlanService {
             newBound = newBound.add(bind.coveredQty);
         }
         BigDecimal existingBound = BigDecimal.ZERO;
-        for (HedgePlanExposure row : hedgePlanExposureDao.findByPlan(planId)) {
+        for (HedgePlanExposure row : bindingsOf(planId)) {
             if ("BOUND".equals(row.status)) {
                 existingBound = existingBound.add(nz(row.coveredQty));
             }
@@ -1029,7 +1033,7 @@ public final class PlanService {
             throw BizException.of(ErrorCode.PARAM_INVALID,
                     "套期工具必填（合约/持仓标识）：planNo=" + plan.planNo + "；复现=补齐 hedging_instrument");
         }
-        List<HedgePlanExposure> binds = hedgePlanExposureDao.findByPlan(planId);
+        List<HedgePlanExposure> binds = bindingsOf(planId);
         if (binds.isEmpty()) {
             throw BizException.of(ErrorCode.PARAM_INVALID,
                     "计划未绑定敞口，无法生成书面文件（被套期项目无从指定）：planNo=" + plan.planNo
@@ -1292,7 +1296,7 @@ public final class PlanService {
             return null;
         }
         LocalDate latest = null;
-        for (HedgePlanExposure bind : hedgePlanExposureDao.findByPlan(plan.id)) {
+        for (HedgePlanExposure bind : bindingsOf(plan.id)) {
             for (ExposureDetail detail : exposureDetailDao.findByExposure(bind.exposureId)) {
                 if (!"CONTRACT_UNEXECUTED".equals(detail.componentType) || detail.sourceId == null) {
                     continue;
@@ -1321,7 +1325,7 @@ public final class PlanService {
      */
     private void requireQuantity(HedgePlan plan, List<PrecheckItem> items) {
         BigDecimal available = BigDecimal.ZERO;
-        for (HedgePlanExposure bind : hedgePlanExposureDao.findByPlan(plan.id)) {
+        for (HedgePlanExposure bind : bindingsOf(plan.id)) {
             Exposure exposure = exposureDao == null ? null : exposureDao.findById(bind.exposureId);
             if (exposure == null) {
                 continue;
@@ -1887,7 +1891,21 @@ public final class PlanService {
      * @return 绑定行列表
      */
     public List<HedgePlanExposure> listBindings(long planId) {
-        return hedgePlanExposureDao.findByPlan(planId);
+        return bindingsOf(planId);
+    }
+
+    /**
+     * 统一取绑定行（{@code T-236}）：生产 DAO 契约保证返回非 null（
+     * {@code DmHedgePlanExposureDao.findByPlan} → {@code AbstractDmDao.queryList} 恒
+     * {@code new ArrayList<>()}），此处仅对离线桩 / 自定义代理返回 {@code null} 的情形
+     * 规范化为「无绑定行」，使 6 处调用点不会各自抛 {@code NullPointerException}。
+     *
+     * <p>安全校验入口 {@link #requireBoundExposureConsistency} 采用更严格的 fail-closed
+     * 语义（{@code null ⇒ DATA_INSUFFICIENT}），不经过本方法，故不受影响。
+     */
+    private List<HedgePlanExposure> bindingsOf(long planId) {
+        List<HedgePlanExposure> binds = hedgePlanExposureDao.findByPlan(planId);
+        return binds == null ? Collections.<HedgePlanExposure>emptyList() : binds;
     }
 
     /**
