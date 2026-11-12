@@ -18601,3 +18601,78 @@ P1 计划列 3 项「生产实现补实」经实测**已闭环**：`TamperAlarm`
 | 单写者 / 并发 | 无并行写者；本笔唯一写者 |
 | 零落盘 | 本登记不含口令 / 密钥 / 凭据 |
 | 时点 | 本章（OBS-1 改判章）全部计数 / md5 / 行号引用为 **2026-11-10** 实测值，**以实时为准** |
+
+---
+
+## T-236 独立复核证据章与贴标登记（2026-11-12，编排者 · 纯追加）
+
+> **性质**：`T-236` 独立复核回执 + 贴标 `DONE` 落账。**只追加**，不改变上文任何既有结论。
+> **触发**：用户改判立单（`T-236`）→ 实现 `c80d801` → 派 fresh 席 `te-verify-t236` 复核 → 通过。
+> **追加前锚**：**18603 行 / md5 `83a75142bcfa7493400bfbd739f7074e`**（本会话实测）；追加后 `head -18603 docs/TEST_RESULT.md \| md5sum` 须逐字节一致 ⇒ 删行 0 / 回改 0。
+> **时点**：HEAD `c80d801`（本笔台账提交前）；全部计数 / md5 / 行号引用为 **2026-11-12** 实时实测值，**以实时为准**。前序第 268~274 轮登记日期 2026-11-10 系当时时点，**原文保留不回改**（跨日续作）。
+
+### 一、复核结论（通过 / 0 缺陷 / 贴标 DONE）
+
+| 项 | 值 |
+|---|---|
+| 复核席 | `te-verify-t236`（fresh eyes，独立只读） |
+| 报告 | `/root/t236-verify.md`，全文 md5 **`1b30c8890b93a1fb0dd3ac698317a7a7`** / **340 行**；正文锚 `head -332` = **`44071c33108862a45f237c53e5b34064`**（本会话复核实测一致） |
+| 结论 | **通过** —— 6 判据 **6 通过 / 0 有保留 / 0 不通过**；缺陷 **0**（P0/P1/P2/P3 全 0），`TE-T236-00x` 无条目 |
+| 观察项 | **10 项**（`OBS-1`…`OBS-10`，均 P3 非阻断） |
+| 处置 | `TASKS.md` §1 `T-236` 状态格 `TODO` → **`DONE`** + 〔机读:DONE〕 |
+
+### 二、核心证据（独立探针逐点驱动 6 处）
+
+复核席自写 `T236NullBindProbe`（动态代理假 DAO + 逐 DAO 调用计数 + 自写 `TxTemplate` + 反射直驱 2 个 private 方法），令 `findByPlan` 返回 null：
+
+- **5 处不 NPE**：`listBindings` 空列表、`generateHedgeDoc` 受控 `PARAM_INVALID`、`bindExposure` 正常完成、`contractHorizon` 返回 null、`requireQuantity` 受控 `R-PLAN-3/⑤`；`submitForApproval` 真实路径 `findByPlan.calls=2` ⇒ ④⑤ 两处 helper 均生效。HEAD `FAILS=0`。
+- **`:836` 保持 O-1 闭环**：仍 `BizException(DATA_INSUFFICIENT)`、计划原值 `BUY_HEDGE/5/80/DRAFT` 不变、`stateLogInsert=0`、`planUpdateById=0`；`requireBoundExposureConsistency` 方法体两提交 md5 同为 `36c78674…`（逐字节相同，仅 Javadoc +4 行）。
+- **修复前后影子对照**（`33ab5f1` 的 `PlanService.java` 单文件编译进 prefix-classes）：补正前 **4 处 `NullPointerException` + `listBindings` 泄漏 null**；`:836` 两树均 fail-closed ⇒ 补正只改 5 处、未扩大拦截、O-1 闭环未破坏。
+
+### 三、门禁独立实测（复核席自跑自算）
+
+| 门禁 | 实测 |
+|---|---|
+| Java 全量 `mvn -B -o clean test` | **1506 / 0 / 0 / 0** `BUILD SUCCESS`（3:41）；`@Test` 词法状态机计数 1506 = surefire `tests` 属性和（188 XML）= `<testcase>` 1506 = mvn 日志 1506 四方一致、`<skipped>=0`；新类 5 / O-1 类 21 |
+| arch-check 聚合 | **E1–E9 通过 9 / 命中 0 / 用法前置错误 0**，`rc0` |
+| 目标测试类 | **5 / 0 / 0 / 0** `BUILD SUCCESS` |
+| 前端探针 | **8 / 8** 独立探针全绿（`t071_probe_globals.mjs` 为共享桩非独立探针；「10/10」计数口径见 OBS-5） |
+| 编译告警 | main 620 源 `[WARNING]=0`；7 条 testCompile `unchecked` 为历史存量（4 文件两提交 md5 全 IDENTICAL） |
+| 自设变异 | **8 组**（XM1–XM8，5 处调用点单点回退 / `:836` 错码 / 测试侧摘开关 / `bindingsOf` 语义错），**刻意不复用**编排者 XM-A/XM-B；`clean` 重建 **8/8 验红**，各组 `md5sum -c` **840/840 OK** 复位，全量复绿 **1506/0/0/0** ⇒ 5 条新用例 8 处具名断言逐条被击杀、非恒真 / 非自证 |
+| 冻结面 | `git diff --numstat 33ab5f1 c80d801` 全仓仅 2 文件（`23 5` / `258 0`）；9 制品 + `CONTRACTS` 两提交 md5 全 IDENTICAL；`web/**`/`ARCHITECTURE`/`DATA_MODEL`/`proto/**`/`REQUIREMENTS/**`/`docs/**`/`tools/**` 0 改；`HGC-1.6` 未升版；未新增路径 / 字段 / 错误码 / 信封；`bindingsOf` 为 `private`、§2.2 未动；六项 `R-PLAN-3` 语义块归一化后两提交 md5 同为 `f952365d…`；零落盘 281 新增行 / 0 命中 |
+| 仓库终态 | 复核席仓库内零写入（隔离快照 `/root/t236-snap` + `/root/t236-mut` + `/root/t236-probe/`，主仓仅一次只读 `arch-check.sh`）；终态 `git status --porcelain` 空、HEAD 仍 `c80d801`；树锚 `96eedc17…` / 844 文件三处同值 |
+
+### 四、10 项观察挂账（均 P3 非阻断）
+
+| 编号 | 摘要 | 承接 |
+|---|---|---|
+| OBS-1 | 6 处 `findByPlan` 返回 null 生产不可达（DAO 恒非 null、`Bootstrap` 装配恒非 null）⇒ 纵深防御 | 与 O-1 OBS-1 同口径，挂账 |
+| OBS-2 | `bindingsOf` 规范化**返回值** null，不防护 `hedgePlanExposureDao` **引用**为 null（装配缺件属另一分支；`:836` 已有专属 fail-closed） | **呈用户裁定**：是否连带收口 DAO 引用 |
+| OBS-3 | `AuditService.java:573` 为仓库内第 **7** 处 `findByPlan`，但紧随 `if (links != null)` 守卫 ⇒ 非 NPE 点、范围外（OBS-1「6 处」口径 = `PlanService` 内） | 登记备查，非遗漏 |
+| OBS-4 | `listBindings` 返回不可变空列表，唯一调用点 `PlanHandler.java:115` 只读迭代 ⇒ 无 `UnsupportedOperationException` 风险 | 挂账 |
+| OBS-5 | 探针「10/10」计数口径：复核席实测 `tools/probes/*.mjs` 9 个文件中 8 个独立可跑、1 个共享桩；**独立实跑 8/8 全绿**，不采信「10」计数 | 口径留痕，非缺陷 |
+| OBS-6 | 修复前后对照采用单文件影子 classpath 最小对照，未对补正前整树跑全量 `mvn` | 局限登记 |
+| OBS-7 | 端点级证据为服务层进程内调用 + 反射直驱，非真实 socket HTTP | 环境局限 |
+| OBS-8 | 新测试类首条 `@DisplayName(":1890 listBindings …")` 与实测 `:1894` 差 4 行 | 展示名行号漂移，按「勿为措辞统一改定版制品」不擅改，登记备查 |
+| OBS-9 | 主仓 `java/target` mtime 早于 `c80d801` 且被 gitignore ⇒ 提交前既有、非复核席创建 | 留痕备查 |
+| OBS-10 | 复检结论是否追加 ledger（复核席按派发「不代填、零写入」） | ✅ **本章即追加，OBS-10 闭合** |
+
+### 五、贴标与账面（双口径如实登记）
+
+- `TASKS.md` §1 `T-236` 状态格 `TODO` → `DONE` + 〔机读:DONE〕；工单 `dev-team/inbox/backend-engineer#java/T-236-task.md` 处理记录回填并 `CLOSED`（本地 ignored 留痕）。
+- **BOARD 逐轮台账口径**：`DONE` 232 → **233**、`TODO` 1 → **0**、六区 `0/0/0/233/0/2 = 235`、任务 **235** / 人时 **2235** 不变 ⇒ **账面重回「全部任务闭环」**（235 任务 / 233 DONE / 2 REJECTED）。
+- **机械实测口径**：`grep '^| T-' docs/TASKS.md \| grep -c '机读:DONE'` **220 → 221**（+1 即 T-236 行）；全文件计数 222 → 223。该 grep 值与 BOARD 历史「机读 232」存在既有漂移，按第 230 轮 / 本文件 18079 章 #4 判例**有意保留、不回改、不据此推中间值**。
+
+### 六、未执行项与局限（不计入通过）
+
+真 DM8 实例 / 真实 socket HTTP 起停 / 真 CTP 跨进程 L3 / 实盘观察期 1–2 个月日历 / 补正前整树全量 `mvn clean test` / 端点级 `RequestDispatcher` 分发 —— 本仓库无 DM8 驱动与实例，属「本仓库不可执行」外部前置，**未执行、不计通过**。详见报告 §9。
+
+### 七、纪律自查
+
+| 项 | 结果 |
+|---|---|
+| 只追加 | 追加前锚 **18603 行 / md5 `83a75142bcfa7493400bfbd739f7074e`**；追加后 `head -18603` 逐字节一致 ⇒ 删行 0 / 回改 0 |
+| 不回改历史 | 既有章（第 268~274 轮）、`te-verify-t236` 报告原文、§1 合计行、`BOARD.md` 头部、§5.2 原表 **原文保留**；本笔不代填复检结论（本章为编排者登记，非测试席代填）、不翻转状态、不补勾复选框 |
+| 单写者 / 并发 | 复核席仓库内零写入；本笔唯一写者 |
+| 零落盘 | 本登记不含口令 / 密钥 / 凭据 |
+| 时点 | 本章（T-236 复核章）全部计数 / md5 / 行号引用为 **2026-11-12** 实时实测值，**以实时为准** |
