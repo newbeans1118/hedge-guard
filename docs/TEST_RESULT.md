@@ -18805,3 +18805,85 @@ P1 计划列 3 项「生产实现补实」经实测**已闭环**：`TamperAlarm`
 | 单写者 / 并发 | 复核席仓库内零写入；本笔唯一写者 |
 | 零落盘 | 本登记不含口令 / 密钥 / 凭据 |
 | 时点 | 本章（OBS-2 复核章）全部计数 / md5 / 行号引用为 **2026-11-12** 实时实测值，**以实时为准** |
+
+---
+
+## OBS-A 裁定 · 独立复核证据章与闭环登记（2026-11-12，编排者 · 纯追加）
+
+> **性质**：用户指令「裁定 OBS-A hedgePlanExposureDao.insert 是否收口」的**裁定落账** + 实现复核回执 + `OBS-A` 闭环。**只追加**，不改变上文任何既有结论。
+> **触发**：用户 2026-11-12 指令「裁定 OBS-A hedgePlanExposureDao.insert 是否 收口」；对象为 `te-verify-obs2` 报告 §7 `OBS-A`。
+> **追加前锚**：**18807 行 / md5 `b849ac8f98b0f78eebc9f4a3df0e19c9`**（本会话实测）；追加后 `head -18807 docs/TEST_RESULT.md \| md5sum` 须逐字节一致 ⇒ 删行 0 / 回改 0。
+> **时点**：HEAD `562b562`（本笔台账提交前）；全部计数 / md5 / 行号引用为 **2026-11-12** 实时实测值，**以实时为准**。
+
+### 一、裁定：**收口**
+
+| 项 | 内容 |
+|---|---|
+| 对象 | `PlanService.createPlan` 事务内 `:650 hedgePlanExposureDao.insert(row, …)` 裸调用，`hedgePlanExposureDao` 引用为 null 时抛 `NullPointerException`（`txOpen=1 rollbacks=1`、无落库但异常不受控） |
+| 裁定 | **收口**（用户指令） |
+| 依据 | ① `OBS-2` 已确立「`hedgePlanExposureDao` 装配缺件 ⇒ 受控 `DATA_INSUFFICIENT`」口径（第 277 轮复核通过），`:650` 是同一 DAO 同一类场景、仅写路径，读路径全收口而写路径留 NPE 不一致；② NPE 发生在**事务内**会触发无谓的 `txOpen=1 / rollbacks=1`，前置守卫可在事务开启前 fail-fast，属实质改进；③ 实时实测 5 处既有 null 装配测试**均不调用 `createPlan`**（`PlanWritePathPermissionTest` 仅 `submitForApproval`、其余无相关调用），零回归风险已排除；④ 代价仅入口 3 行守卫 + 1 用例，不改业务逻辑 / 冻结制品 / 错误码 |
+| 实现 | **`562b562`**（基线 `f3019b2`，2 文件 +17）：`createPlan` 入口（所有校验与事务之前）新增 `hedgePlanExposureDao == null ⇒ BizException(DATA_INSUFFICIENT)` fail-fast；测试新增 `createPlanFailsClosedWhenDaoMissing`（目标类 7 → 8 用例） |
+
+### 二、复核结论（通过 / 0 缺陷 / OBS-A 闭环）
+
+| 项 | 值 |
+|---|---|
+| 复核席 | `te-verify-obsA`（fresh eyes，独立只读） |
+| 报告 | `/root/obsA-verify.md`，全文 md5 **`a9d9818cdc4128fc6931acc07c53b7fc`** / **347 行**；正文锚 `head -340` = **`471a7084cd6a756bcbcf4884756ba3f8`**（本会话复核实测一致） |
+| 结论 | **通过** —— 6 判据 **6 通过 / 0 有保留 / 0 不通过**；缺陷 **0**（P0/P1/P2/P3 全 0），`TE-OBSA-00x` 无条目 |
+| 观察项 | **8 项**（`OBS-1`…`OBS-8`，均 P3 非阻断） |
+| OBS-A | ✅ **闭环** |
+
+### 三、核心证据（独立探针 + 修复前后对照）
+
+复核席自写 `ObsACreatePlanProbe`（第 3 参 null、其余 17 依赖全非 null，自写计数假 DAO + 计数假 Connection）：
+- **HEAD `562b562`**：`BizException(DATA_INSUFFICIENT)` 文案「绑定关系写入入口未装配，无法编制计划」、**不 NPE**、`txOpen=0 commits=0 rollbacks=0 writes=0 calls={}`（守卫为方法体第一条，先于全部校验与取数）；非法 plan / `binds=null` 也仍受控 ⇒ 确在事务之前。
+- **基线 `f3019b2` 影子 classpath 同探针**：`java.lang.NullPointerException`、`txOpen=1 rollbacks=1`、`plan.insert=1` ⇒ 与 `OBS-A` 原始观察逐字吻合，症状确由 `562b562` 封堵。
+- **DAO 非 null 两树均正常创建**：`ret=7`、`bind.insert=1`、`plan.insert=1`、`exposure.updateById=1`、`stateLog.insert=1`、`txOpen=1 commits=1 rollbacks=0` ⇒ 未误伤正常路径。
+- **零回归**：`createPlan` 相关 `PlanServiceTest 18 / PlanBindExposureTest 9 / PlanCompliancePrecheckTest 19 / PlanBindingNullSafetyTest 8` 逐 testcase 全绿；5 处点名 null 装配测试 `7/8/8/7/21` 全绿且**源码 `createPlan` 调用数均为 0**（结构性不会因守卫变红）；OBS-2 / T-236 / O-1 闭环用例仍绿。
+
+### 四、门禁独立实测（复核席自跑自算）
+
+| 门禁 | 实测 |
+|---|---|
+| Java 全量 `mvn -B -o clean test` | **1509 / 0 / 0 / 0** `BUILD SUCCESS`；`@Test` 词法状态机 1509 = surefire `tests` 属性和（188 XML）= `<testcase>` 1509 = mvn 日志 1509 四方一致、`DANGLING=[]` / `BAD_CHILD_TAGS=0` |
+| arch-check 聚合 | **E1–E9 通过 9 / 命中 0 / 用法前置错误 0**，`rc0`（主仓唯一一次只读） |
+| 目标测试类 | **8 / 0 / 0 / 0** |
+| 前端探针 | **10 文件全 rc0**（计数口径见 OBS-4） |
+| 编译告警 | main 620 源 `[WARNING]=0`；7 条 testCompile `unchecked` 为历史存量（4 文件两提交 md5 全 IDENTICAL） |
+| 自设变异 | **4 组**（M1 错码 / M2 文案 / M3 异常类型 / M4 测试侧 `service(false)→service(true)`），**刻意不复用** XM-E / XM-F；`clean` 重建 **4/4 验红**（各 `8/1/0/0`），各组 `md5sum -c` **844/844 OK** 复位，全量复绿 **1509/0/0/0** ⇒ 新用例断言逐条被击杀、非恒真 / 非自证 |
+| 冻结面 | `git diff --numstat f3019b2 562b562` 全仓仅 2 文件（`6 0` / `11 0`，零删除）；9 冻结制品两提交 md5 全 IDENTICAL；`CONTRACTS`/`web/**`/`ARCHITECTURE`/`DATA_MODEL`/`proto/**`/`REQUIREMENTS/**`/`docs/**`/`tools/**`/`cpp/**` 0 改；`HGC-1.6` 未升版、§2.2 未动；17 新增行零路由 / 字段 / 新错误码 / 信封；`:836` 方法体 `36c78674…`、六项语义块 `fd73c45e…` 等 5 段 +6 偏移后两提交 md5 相同 ⇒ `bindingsOf`/`:836`/`:650`/`:978` 零改；零落盘 0 命中 |
+| 仓库终态 | 复核席仓库内零写入（`git archive HEAD` 隔离快照 + `/root/obsA-probe/`）；终态 `git status --porcelain` 空、HEAD 仍 `562b562`；四处树锚同为 `43d07fd7…` / 844 文件 |
+
+### 五、8 项观察挂账（均 P3 非阻断）
+
+| 编号 | 摘要 | 承接 |
+|---|---|---|
+| OBS-1 | 新用例只断言 `BizException(DATA_INSUFFICIENT)` + 文案，未断言「不落库 / `txOpen=0`」；该面已由复核席独立探针 `writes=0 calls={} txOpen=0` 覆盖 | 断言粒度备查，非缺陷 |
+| OBS-2 | `:984 bindExposure` 事务内另一处裸 insert 已被 `:961 bindingsOf` 事务前 fail-fast 覆盖（`txOpen=0` 实证） | 已覆盖，非遗漏；是否连带收口不代裁 |
+| OBS-3 | 守卫位于 `requireSubAccountWritable`（`NFR-SEC-7` 写面断言）之前 ⇒ 装配缺件时越权请求也收 `DATA_INSUFFICIENT` 而非 `10004`；但生产装配恒非 null（不可达）、守卫恒拒绝、零写零取数、文案仅运维提示，无越权放行 / 无泄露 | 纵深防御，挂账 |
+| OBS-4 | 探针「10/10」计数口径（10 文件 = 9 `.mjs` + 1 `.sh`，8 个带断言 + 1 共享桩 + 1 shell） | 口径留痕 |
+| OBS-5 | 修复前后对照为单文件影子 classpath 最小对照，未跑基线整树全量 | 局限登记 |
+| OBS-6 | 端点级证据为服务层进程内调用，非真实 socket HTTP | 环境局限 |
+| OBS-7 | 复检结论是否追加 ledger（复核席按派发零写入） | ✅ **本章即追加，OBS-7 闭合** |
+| OBS-8 | 全量 `@Test`=1509 四方一致；`@DisplayName`=1510 含 2 处类级注解，不影响用例计数口径 | 登记以免误读 |
+
+### 六、闭环与账面
+
+`OBS-A` 经用户裁定收口、独立复核 **通过 / 0 缺陷** ⇒ **闭环**。收口后 `PlanService` 内 `hedgePlanExposureDao` 全部取数 / 写入点在装配缺件下均受控（6 处读经 `bindingsOf` / `:836` 自有守卫 / `createPlan` 入口守卫 / `:978` 被 `:961` 前置拦截），无残留 NPE 面；复核席探索性逐引用枚举确认。
+
+**账面不变**：不立号、不贴标、不改账面 ⇒ 维持 235 任务 / 2235 人时、233 DONE / 2 REJECTED、六区 `0/0/0/233/0/2 = 235`、「全部任务闭环」、机读实测 221；源码 / 契约 / 冻结制品在复核期间零改动。
+
+### 七、未执行项与局限（不计入通过）
+
+真 DM8 实例 / 真实 socket HTTP 端点 / 真 CTP 跨进程 L3 / 实盘观察期 / 基线整树全量 `mvn clean test`（采用单文件影子对照）—— 详见报告 §9，**未执行、不计通过**。
+
+### 八、纪律自查
+
+| 项 | 结果 |
+|---|---|
+| 只追加 | 追加前锚 **18807 行 / md5 `b849ac8f98b0f78eebc9f4a3df0e19c9`**；追加后 `head -18807` 逐字节一致 ⇒ 删行 0 / 回改 0 |
+| 不回改历史 | 既有章（第 268~277 轮）、`te-verify-obsA` 报告原文、§1 合计行、`BOARD.md` 头部、§5.2 原表 **原文保留**；本笔不代填复检结论（本章为编排者登记，非测试席代填）、不翻转状态、不补勾复选框 |
+| 单写者 / 并发 | 复核席仓库内零写入；本笔唯一写者 |
+| 零落盘 | 本登记不含口令 / 密钥 / 凭据 |
+| 时点 | 本章（OBS-A 裁定章）全部计数 / md5 / 行号引用为 **2026-11-12** 实时实测值，**以实时为准** |
