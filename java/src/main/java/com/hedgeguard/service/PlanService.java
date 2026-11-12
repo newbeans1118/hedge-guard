@@ -1902,8 +1902,17 @@ public final class PlanService {
      *
      * <p>安全校验入口 {@link #requireBoundExposureConsistency} 采用更严格的 fail-closed
      * 语义（{@code null ⇒ DATA_INSUFFICIENT}），不经过本方法，故不受影响。
+     *
+     * <p><b>装配缺件（{@code OBS-2} 收口）</b>：{@code hedgePlanExposureDao} 引用本身为
+     * {@code null} 属装配编程错误（生产 {@code Bootstrap} 恒注入 {@code DmHedgePlanExposureDao}），
+     * 此处 fail-fast 抛受控 {@code DATA_INSUFFICIENT}；<b>绝不</b>静默当作「无绑定行」——
+     * 否则 {@code generateHedgeDoc} / {@code bindExposure} 写路径会把装配故障误判成业务数据。
      */
     private List<HedgePlanExposure> bindingsOf(long planId) {
+        if (hedgePlanExposureDao == null) {
+            throw BizException.of(ErrorCode.DATA_INSUFFICIENT,
+                    "绑定关系取数入口未装配，无法取绑定行；复现=检查服务装配");
+        }
         List<HedgePlanExposure> binds = hedgePlanExposureDao.findByPlan(planId);
         return binds == null ? Collections.<HedgePlanExposure>emptyList() : binds;
     }

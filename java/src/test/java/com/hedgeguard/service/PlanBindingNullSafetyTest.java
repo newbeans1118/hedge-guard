@@ -164,13 +164,36 @@ class PlanBindingNullSafetyTest {
                 "helper 不得把安全校验入口的 fail-closed 语义改成放行");
     }
 
+    @Test
+    @DisplayName("OBS-2 收口：DAO 引用为 null ⇒ 受控 DATA_INSUFFICIENT（不 NPE、不静默放行）")
+    void bindingsOfFailsClosedWhenDaoMissing() {
+        BizException e = assertThrows(BizException.class,
+                () -> service(false).listBindings(PLAN_ID));
+        assertEquals(ErrorCode.DATA_INSUFFICIENT, e.errorCode());
+        assertTrue(e.getMessage().contains("未装配"), e.getMessage());
+    }
+
+    @Test
+    @DisplayName("OBS-2 收口：generateHedgeDoc 在 DAO 缺件时不误判为「计划未绑定敞口」")
+    void generateHedgeDocFailsClosedWhenDaoMissing() {
+        BizException e = assertThrows(BizException.class,
+                () -> service(false).generateHedgeDoc(PLAN_ID, "正式指定", "有效性评估方法",
+                        "再平衡机制", "CU2611", OPERATOR));
+        assertEquals(ErrorCode.DATA_INSUFFICIENT, e.errorCode());
+        assertTrue(e.getMessage().contains("未装配"), e.getMessage());
+    }
+
     // ============================================================ 装配 / 假件
 
     private PlanService service() {
+        return service(true);
+    }
+
+    private PlanService service(boolean withBindDao) {
         HedgePlanDao planDao = stub(HedgePlanDao.class,
                 overrides("findByIdScoped", plan, "findById", plan, "updateById", 1));
-        HedgePlanExposureDao bindDao = stub(HedgePlanExposureDao.class,
-                overrides("findByPlan", null));
+        HedgePlanExposureDao bindDao = withBindDao
+                ? stub(HedgePlanExposureDao.class, overrides("findByPlan", null)) : null;
         HedgeDocDao docDao = stub(HedgeDocDao.class,
                 overrides("findCurrent", doc));
         PlanApprovalDao approvalDao = stub(PlanApprovalDao.class, Collections.emptyMap());
