@@ -8,7 +8,7 @@ Java 11 Maven 业务端（`java/`）+ C++11 引擎（`cpp/`，CTP/stub 双轨）
 # Java 门禁（在 java/ 下执行；离线，无需 DM 环境）
 mvn -B -o clean test              # 全量单测（标准门禁）
 mvn -B -o -Punit clean test       # unit profile（无 DM 模式变体）
-mvn validate                      # E1–E8 架构门禁（tools/arch-check/，退出码 0/1/2）
+mvn validate                      # E1–E9 架构门禁（tools/arch-check/，退出码 0/1/2）
 
 # C++ 双轨
 cmake -S cpp -B cpp/build && cmake --build cpp/build    # 真实 CTP（需 sdk/）
@@ -27,8 +27,9 @@ node tools/probes/<probe>.mjs
 
 改任何东西前先确认读写口：
 
-- `PROJECT.md` — 唯一事实源；`docs/ARCHITECTURE.md` — 架构与 E1–E8 门禁；`docs/DATA_MODEL.md` — schema 唯一来源
-- `docs/TASKS.md` §1 合计行 — 任务数/人时唯一权威；`docs/BOARD.md` — 状态流转（TODO→IN_PROGRESS→DONE）
+- `PROJECT.md` — 唯一事实源；`docs/ARCHITECTURE.md` — 架构与 E1–E9 门禁；`docs/DATA_MODEL.md` — schema 唯一来源
+- `docs/TASKS.md` §5.2「现行资源负荷」— 任务数/人时**现行值唯一来源**；§1 合计行系第 266 轮时点快照，按第 274 轮裁定有意保留、不回改（2026-11-12 对账，数值以实时为准）
+- `docs/BOARD.md` §5 — 状态流转（TODO→IN_PROGRESS→DONE）与逐轮账面，以最新轮为准
 - `docs/REQUIREMENTS/` — 14 模块 FR；`docs/TEST_PLAN/` — 用例；`java/CONTRACTS.md` — 接口冻结（HGC-1.6）
 - `docs/DECISIONS/`、`docs/BUGS/`、`docs/DEPLOY/`
 
