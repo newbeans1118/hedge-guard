@@ -18676,3 +18676,57 @@ P1 计划列 3 项「生产实现补实」经实测**已闭环**：`TamperAlarm`
 | 单写者 / 并发 | 复核席仓库内零写入；本笔唯一写者 |
 | 零落盘 | 本登记不含口令 / 密钥 / 凭据 |
 | 时点 | 本章（T-236 复核章）全部计数 / md5 / 行号引用为 **2026-11-12** 实时实测值，**以实时为准** |
+
+---
+
+## OBS-2 裁定登记：DAO 引用为 null 是否收口（2026-11-12，编排者 · 纯追加）
+
+> **性质**：用户指令「裁定 OBS-2 是否收口」的裁定落账 + 实时实测取证。**只追加**，不改变上文任何既有结论。
+> **触发**：用户 2026-11-12 指令「裁定 OBS-2 是否收口」；对象为 `te-verify-t236` 报告 §5 `OBS-2`。
+> **追加前锚**：**18678 行 / md5 `b3dee91a15614bcd32563878c9574523`**（本会话实测）；追加后 `head -18678 docs/TEST_RESULT.md \| md5sum` 须逐字节一致 ⇒ 删行 0 / 回改 0。
+> **时点**：HEAD `80fcc4e`；全部计数 / md5 / 行号引用为 **2026-11-12** 实时实测值，**以实时为准**。
+
+### 一、裁定：**不收口**，显式登记为「已知装配缺件观察·生产不可达」并挂账
+
+不改代码、不立单、不贴标、不改账面。本笔只做裁定登记（满足「不得沉默略过」）。
+
+### 二、实时实测取证（不采信报告转述）
+
+| 项 | 实测 |
+|---|---|
+| OBS-2 语义 | `bindingsOf` 规范化的是**返回值** `findByPlan(...) == null`；不防护 `hedgePlanExposureDao` **引用本身**为 null。复核席 `T236EdgeProbe` 实测：装配 `bindDao=null` 时 `listBindings` 抛 `NullPointerException`，而 `:836` 的 `updateDraft` 仍 `BizException(DATA_INSUFFICIENT)`（专属 fail-closed 守卫） |
+| 生产装配恒非 null | `java/src/main/java/com/hedgeguard/web/Bootstrap.java:721-722` `new PlanService(tx, new DmHedgePlanDao(tx), new DmHedgePlanExposureDao(tx), ...)` ⇒ 第 3 参恒非 null；构造函数 `PlanService.java:269` 直接赋值 ⇒ **DAO 引用为 null 仅存在于离线测试桩 / 装配编程错误**，生产不可达 |
+| 项目既有隔离惯例 | `grep -rn 'new PlanService(' java/src/test/java/` 共 **19** 处装配，其中 **5** 处第 3 参为 `null`（`PlanWritePathPermissionTest:205` / `PlanSubAccountIsolationTest:173` / `TradePlanSubAccountIsolationTest:213` / `PlanListQueryTest:39` / `PlanDraftAndDocReadEndpointTest:417`）——「未使用的 DAO 注入 null」是既定测试惯例 |
+| 症状非本补正引入 | 补正前 5 处同样为裸 `hedgePlanExposureDao.findByPlan(...)`；`te-verify-t236` 复核 **0 缺陷**、无回归 |
+
+### 三、裁定依据（收益 vs 锚点连锁代价）
+
+| 维度 | 判断 |
+|---|---|
+| 类别差异 | `OBS-1` 是**运行时返回值** null（桩 / 自定义代理可触发，纵深防御合理）；`OBS-2` 是**装配引用** null（编程错误 / 测试桩隔离）。对编程错误做防御性判空会把装配 bug 转换成受控异常或「无绑定」静默语义，**掩盖根因**；NPE 500 反而是 fail-fast 暴露 |
+| 写路径风险 | 若 helper 在 DAO 缺件时返回空列表，`generateHedgeDoc`（写路径）会误判「计划未绑定敞口」、`bindExposure` 会误判「无已有绑定」继续累加 ⇒ 装配故障被当成业务数据，比 NPE 更隐蔽 |
+| 回归风险 | 若 helper 在 DAO 缺件时抛受控异常，上述 **5 处** null 装配中凡触达 `bindingsOf` 的既有用例会改变断言 ⇒ 须重跑全量 1506 用例 + 补 ≥5 组用例 + 变异 + **重跑独立复核** |
+| 既有覆盖 | `:836 requireBoundExposureConsistency` 已有 `hedgePlanExposureDao == null \|\| exposureDao == null ⇒ DATA_INSUFFICIENT` 专属守卫，覆盖最关键的安全校验入口；其余 5 处为聚合 / 展示 / 只读，装配缺件下 NPE **不落库**（复核席实测） |
+| 收益 | 仅「测试桩场景不 NPE」，无生产可达路径；复核 0 缺陷、症状非 T-236 引入 |
+| 结论 | **代价远大于收益 ⇒ 不收口**，改以「显式登记 + 触发条件」承接（`CODEBUDDY.md` 避免过度工程、勿为措辞统一改定版制品） |
+
+### 四、挂账与再评估触发条件（不沉默略过）
+
+登记为「已知装配缺件观察·生产不可达」，**出现下列任一条件即另立单收口**：
+1. 引入依赖注入框架 / 可插拔 DAO 实现，允许 `null` 装配或运行期替换；
+2. 真 DM8 联调（L3 / 部署方环境）实测暴露 `hedgePlanExposureDao` 引用为 null；
+3. 未来新增装配路径使该 DAO 可为 null；
+4. 用户明确要求收口。
+
+届时须先裁定「受控拒绝（`DATA_INSUFFICIENT`）vs 空列表」语义（推荐前者，避免掩盖装配缺件），并**全量验证 5 处 null 装配测试无回归** + 独立复核。承接方：编排者。当前不改任何代码、不立号、不贴标。
+
+### 五、纪律自查
+
+| 项 | 结果 |
+|---|---|
+| 只追加 | 追加前锚 **18678 行 / md5 `b3dee91a15614bcd32563878c9574523`**；追加后 `head -18678` 逐字节一致 ⇒ 删行 0 / 回改 0 |
+| 不回改历史 | 既有章（第 268~275 轮）、`te-verify-t236` 报告原文、§1 合计行、`BOARD.md` 头部、§5.2 原表 **原文保留** |
+| 单写者 / 并发 | 无并行写者；本笔唯一写者 |
+| 账面 | **不立号、不贴标、不改账面** ⇒ 维持 235 任务 / 2235 人时、233 DONE / 2 REJECTED、六区 `0/0/0/233/0/2 = 235`、「全部任务闭环」；机读实测 221 不变；源码 / 契约 / 冻结制品零改动 |
+| 零落盘 | 本登记不含口令 / 密钥 / 凭据 |
+| 时点 | 本章（OBS-2 裁定章）全部计数 / md5 / 行号引用为 **2026-11-12** 实时实测值，**以实时为准** |
