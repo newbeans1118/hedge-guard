@@ -44,3 +44,8 @@ sdk/
 
 # ---- 会话基建（harness 生成：worker inbox 等；非交付物）----
 dev-team/
+
+# ---- 本地运行配置（部署方提供；含 CTP 前置地址等非公开部署信息，零落盘纪律 ⇒ 不入库）----
+# hg-trading 缺省读取 ./hg.properties（CLI --config / HG_CONFIG_FILE 可另指路径）；
+# 用无斜杠模式匹配任意目录下的同名文件，避免部署方在别处放置时误提交。
+hg.properties
