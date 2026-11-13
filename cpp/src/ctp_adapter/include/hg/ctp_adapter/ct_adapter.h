@@ -51,6 +51,8 @@ class CtAdapter : public CtCallbackSink {
   virtual ~CtAdapter();
 
   // ---- 对外接口（§3.1）------------------------------------------------------
+  // 只发起前置连接（CTP `Init()` 为异步）；`kCtOk` = 连接已发起，**登录请求由
+  // `OnFrontConnected` 回调补发**，真实登录结果以 `OnRspUserLogin` 回调为准。
   CtLoginResult login(const CtConfig& cfg);
   void logout();
   bool isConnected() const;   // 交易前置已连通（OnFrontConnected）
@@ -89,6 +91,8 @@ class CtAdapter : public CtCallbackSink {
   bool pollOrderQueryReply(CtOrderQueryReply* out);
 
   // ---- SPI 回调侧（CtCallbackSink 实现；只做序列化 + 入队 + 轻量状态位）-------
+  // W-09 例外：交易/行情前置连上后**补发一次** `ReqUserLogin`（非阻塞 `Req*`）。
+  // 原因：CTP `Init()` 异步，`login()` 内立即发登录必被 SDK 退回（kCtNotConnected）。
   virtual void onFrontConnected(bool market);
   virtual void onFrontDisconnected(bool market, int reason);
   virtual void onLoginReply(bool market, bool ok, const std::string& trading_day,
@@ -145,6 +149,18 @@ class CtAdapter : public CtCallbackSink {
   std::deque<CtOrderQueryReply> query_replies_;
   std::size_t order_event_overflow_;
   CtConfig cfg_;
+
+  // W-09：OnFrontConnected 补登录的同步与去重（SPI 回调线程 T2 与启动线程共享）。
+  // 仅保护「配置快照 + 登录发起去重 + 预生成 RequestID」；状态位与退回队列沿用既有
+  // 无锁/单线程纪律，不扩面。RequestID 在 login() 内预生成，避免 SPI 线程触碰
+  // request_seq_（维持其文档化单线程访问）；登录应答不依赖 RequestID 匹配，故重连
+  // 复用同一 ID 安全。
+  std::mutex login_mutex_;
+  bool login_configured_;      // 已调用 login() 且配置就位 ⇒ 允许补发登录
+  bool trade_login_pending_;  // 本轮连接已发过交易登录请求（防重复）
+  bool md_login_pending_;
+  int trade_login_rid_;
+  int md_login_rid_;
 };
 
 }  // namespace ctp_adapter

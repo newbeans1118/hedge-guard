@@ -557,12 +557,15 @@ bool TradingApp::start(std::string* error) {
     ctp_login_attempted_ = true;
     const hg::ctp_adapter::CtLoginResult lr = ct_.login(cfg_.toCtConfig());
     if (lr.code != hg::ctp_adapter::kCtOk) {
+      // W-09 后 `login()` 只负责建连，非 kCtOk 仅可能是前置连接失败。
       ctp_degraded_ = true;
-      ctp_reason = "CTP 登录请求失败：" + lr.error_msg;
+      ctp_reason = "CTP 前置连接失败：" + lr.error_msg;
     } else if (!ct_.isLoggedIn()) {
-      // 异步模型：结果以 SPI 回调为准，此刻尚未登录 ⇒ 如实标 DEGRADED。
+      // W-09：异步模型的**正常中间态** —— 连接刚发起，ReqUserLogin 由
+      // OnFrontConnected 回调补发，此刻尚未登录。DEGRADED 如实反映「CTP 暂不可用」，
+      // 并非故障；登录成功后由 refreshCtpState 自动解除并补发 EVT_CTP_STATE。
       ctp_degraded_ = true;
-      ctp_reason = "CTP 登录结果待回调（异步模型，当前未登录）";
+      ctp_reason = "CTP 前置连接已发起，登录结果待异步回调";
     }
   }
   // 观测基线：异步登录结果以 isLoggedIn() 为准（后续迁移由 refreshCtpState 处理）。

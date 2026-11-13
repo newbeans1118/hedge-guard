@@ -82,13 +82,16 @@ void login_success_is_async_state_driven() {
   CtAdapter adapter(&trade, &md, false);
   const CtConfig cfg = makeConfig();
   const hg::ctp_adapter::CtLoginResult r = adapter.login(cfg);
-  HG_CHECK_EQ(r.code, kCtOk);          // 只是「请求已交给 CTP」
+  HG_CHECK_EQ(r.code, kCtOk);          // 仅「前置连接已发起」
   HG_CHECK(!adapter.isConnected());    // 尚在未连接（异步）
   HG_CHECK(!adapter.isLoggedIn());
+  // W-09：login() 内不再发 ReqUserLogin（CTP Init() 异步，立即发会被 SDK 退回）。
+  HG_CHECK_EQ(trade.logins, 0);
+  HG_CHECK_EQ(md.logins, 0);
+
+  bringOnline(&adapter);  // OnFrontConnected ⇒ 补发登录；OnRspUserLogin ⇒ 置登录态
   HG_CHECK_EQ(trade.logins, 1);
   HG_CHECK_EQ(md.logins, 1);
-
-  bringOnline(&adapter);
   HG_CHECK(adapter.isConnected());
   HG_CHECK(adapter.isLoggedIn());
   HG_CHECK(adapter.isMdConnected());
@@ -97,6 +100,78 @@ void login_success_is_async_state_driven() {
   adapter.logout();
   HG_CHECK(!adapter.isConnected());
   HG_CHECK(!adapter.isLoggedIn());
+}
+
+// ---- W-09：OnFrontConnected 补登录回归 --------------------------------------
+
+// 未调用 login() 时（测试助手直接模拟状态位的场景），OnFrontConnected 不得补发登录，
+// 也不得破坏既有「状态位仍可观测」的行为。
+void front_connected_without_login_does_not_send_login() {
+  FakeTradeGateway trade;
+  FakeMdGateway md;
+  CtAdapter adapter(&trade, &md, false);
+  bringOnline(&adapter);  // 只有回调、无 login()
+  HG_CHECK_EQ(trade.logins, 0);
+  HG_CHECK_EQ(md.logins, 0);
+  HG_CHECK(adapter.isConnected());
+  HG_CHECK(adapter.isLoggedIn());
+}
+
+// 每次连接只发一次登录；重复的 OnFrontConnected 回调不得重复发 ReqUserLogin。
+void front_connected_sends_login_only_once_per_connection() {
+  FakeTradeGateway trade;
+  FakeMdGateway md;
+  CtAdapter adapter(&trade, &md, false);
+  (void)adapter.login(makeConfig());
+  HG_CHECK_EQ(trade.logins, 0);
+  adapter.onFrontConnected(false);
+  adapter.onFrontConnected(false);
+  adapter.onFrontConnected(true);
+  adapter.onFrontConnected(true);
+  HG_CHECK_EQ(trade.logins, 1);
+  HG_CHECK_EQ(md.logins, 1);
+}
+
+// 补发的登录请求必须携带 login() 的配置（含身份与口令的内存副本），不是空配置。
+void front_connected_login_uses_login_config() {
+  FakeTradeGateway trade;
+  FakeMdGateway md;
+  CtAdapter adapter(&trade, &md, false);
+  const CtConfig cfg = makeConfig();
+  (void)adapter.login(cfg);
+  adapter.onFrontConnected(false);
+  HG_CHECK_EQ(trade.logins, 1);
+  HG_CHECK_EQ(trade.last_login_cfg.broker_id, cfg.broker_id);
+  HG_CHECK_EQ(trade.last_login_cfg.user_id, cfg.user_id);
+  HG_CHECK_EQ(trade.last_login_cfg.password, cfg.password);
+  HG_CHECK_EQ(trade.last_login_cfg.trade_front, cfg.trade_front);
+}
+
+// 断线后清零去重位 ⇒ 重连的 OnFrontConnected 会重新补发登录。
+void front_disconnect_allows_relogin_on_reconnect() {
+  FakeTradeGateway trade;
+  FakeMdGateway md;
+  CtAdapter adapter(&trade, &md, false);
+  (void)adapter.login(makeConfig());
+  adapter.onFrontConnected(false);
+  HG_CHECK_EQ(trade.logins, 1);
+  adapter.onFrontDisconnected(false, 0x1001);
+  HG_CHECK(!adapter.isConnected());
+  adapter.onFrontConnected(false);
+  HG_CHECK_EQ(trade.logins, 2);
+}
+
+// 登出后残留的 OnFrontConnected 回调不得补发登录。
+void logout_blocks_late_front_connected() {
+  FakeTradeGateway trade;
+  FakeMdGateway md;
+  CtAdapter adapter(&trade, &md, false);
+  (void)adapter.login(makeConfig());
+  adapter.onFrontConnected(false);
+  HG_CHECK_EQ(trade.logins, 1);
+  adapter.logout();
+  adapter.onFrontConnected(false);
+  HG_CHECK_EQ(trade.logins, 1);
 }
 
 // 承重 ①：未连接 ⇒ 0x2004 + 退回保留（不静默丢弃）。
@@ -341,6 +416,11 @@ int main() {
   default_backend_matches_build_track();
   login_connect_failure_returns_not_connected();
   login_success_is_async_state_driven();
+  front_connected_without_login_does_not_send_login();
+  front_connected_sends_login_only_once_per_connection();
+  front_connected_login_uses_login_config();
+  front_disconnect_allows_relogin_on_reconnect();
+  logout_blocks_late_front_connected();
   disconnected_send_order_is_returned_not_dropped();
   connected_send_order_is_forwarded();
   futures_and_options_are_both_covered();

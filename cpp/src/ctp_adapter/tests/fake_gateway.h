@@ -43,10 +43,12 @@ class FakeTradeGateway : public CtTradeGateway {
     return true;
   }
   virtual void disconnect() {}
-  virtual int reqLogin(const CtConfig& /*cfg*/, int /*request_id*/) {
+  virtual int reqLogin(const CtConfig& cfg, int /*request_id*/) {
     ++logins;
+    last_login_cfg = cfg;  // W-09：断言 OnFrontConnected 补发登录时携带的是 login() 的配置
     return rc;
   }
+  CtConfig last_login_cfg;
   virtual int reqLogout(int /*request_id*/) {
     ++logouts;
     return 0;

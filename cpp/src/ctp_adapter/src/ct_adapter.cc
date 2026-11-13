@@ -83,7 +83,12 @@ CtAdapter::CtAdapter()
       request_seq_(0),
       order_events_(new RingBuffer<CtOrderEvent, kOrderEventQueueCapacity + 1>()),
       quote_events_(new QuoteQueue(kQuoteQueueCapacity)),
-      order_event_overflow_(0) {}
+      order_event_overflow_(0),
+      login_configured_(false),
+      trade_login_pending_(false),
+      md_login_pending_(false),
+      trade_login_rid_(0),
+      md_login_rid_(0) {}
 
 CtAdapter::CtAdapter(CtTradeGateway* trade, CtMdGateway* md, bool own)
     : trade_(trade),
@@ -96,7 +101,12 @@ CtAdapter::CtAdapter(CtTradeGateway* trade, CtMdGateway* md, bool own)
       request_seq_(0),
       order_events_(new RingBuffer<CtOrderEvent, kOrderEventQueueCapacity + 1>()),
       quote_events_(new QuoteQueue(kQuoteQueueCapacity)),
-      order_event_overflow_(0) {}
+      order_event_overflow_(0),
+      login_configured_(false),
+      trade_login_pending_(false),
+      md_login_pending_(false),
+      trade_login_rid_(0),
+      md_login_rid_(0) {}
 
 CtAdapter::~CtAdapter() {
   if (own_) {
@@ -122,7 +132,20 @@ void CtAdapter::retainFund(const CtFundReq& req) { retained_funds_.push_back(req
 // -----------------------------------------------------------------------------
 CtLoginResult CtAdapter::login(const CtConfig& cfg) {
   CtLoginResult result;
-  cfg_ = cfg;  // 口令仅内存持有（不落盘、不入日志）；打印一律用 cfg_.redacted()
+  // W-09：CTP `Init()` 是异步的 —— 在此立即发 `ReqUserLogin` 必被 SDK 以「未连接」
+  // 退回（kCtNotConnected）。故登录请求改由 `onFrontConnected()` 在连上后补发。
+  // RequestID 在此（启动线程）预生成，SPI 回调线程只取快照，不触碰 request_seq_。
+  const int trade_rid = nextRequestId();
+  const int md_rid = nextRequestId();
+  {
+    std::lock_guard<std::mutex> guard(login_mutex_);
+    cfg_ = cfg;  // 口令仅内存持有（不落盘、不入日志）；打印一律用 cfg_.redacted()
+    trade_login_rid_ = trade_rid;
+    md_login_rid_ = md_rid;
+    login_configured_ = true;
+    trade_login_pending_ = false;
+    md_login_pending_ = false;
+  }
   std::string error;
 
   if (!trade_->connect(cfg, &error)) {
@@ -134,13 +157,7 @@ CtLoginResult CtAdapter::login(const CtConfig& cfg) {
   std::string md_error;
   (void)md_->connect(cfg, &md_error);
 
-  const int rc = trade_->reqLogin(cfg, nextRequestId());
-  if (rc != 0) {
-    result.code = (rc > 0) ? kCtBackpressure : kCtNotConnected;
-    result.error_msg = "ReqUserLogin 未被 CTP 受理（异步模型：结果以回调为准）";
-    return result;
-  }
-  (void)md_->reqLogin(cfg, nextRequestId());  // 行情登录失败仅影响行情
+  // `kCtOk` = 前置连接已发起；登录结果以 `OnRspUserLogin` 回调为准（见 onLoginReply）。
   result.code = kCtOk;
   return result;
 }
@@ -151,6 +168,13 @@ void CtAdapter::logout() {
   }
   trade_->disconnect();
   md_->disconnect();
+  {
+    // W-09：登出后不得再由残留的 OnFrontConnected 回调补发登录。
+    std::lock_guard<std::mutex> guard(login_mutex_);
+    login_configured_ = false;
+    trade_login_pending_ = false;
+    md_login_pending_ = false;
+  }
   trade_connected_ = false;
   trade_logged_in_ = false;
   md_connected_ = false;
@@ -395,10 +419,37 @@ void CtAdapter::onQueryOrderReply(const CtOrderQueryReply& reply) {
 // SPI 回调侧：**只做**序列化 + 入队 + 轻量状态位（§3.1）
 // -----------------------------------------------------------------------------
 void CtAdapter::onFrontConnected(bool market) {
+  // W-09：CTP `Init()` 异步 ⇒ 登录必须在「前置已连上」的回调里补发。
+  // 临界区只做「状态位 + 去重判定 + 取配置快照」；`Req*` 一律在锁外调用 ——
+  // SDK 可能同步回吐 SPI 回调，持锁调用会自锁。
+  CtConfig snapshot;
+  int rid = 0;
+  bool send_login = false;
+  {
+    std::lock_guard<std::mutex> guard(login_mutex_);
+    if (market) {
+      md_connected_ = true;
+      if (login_configured_ && !md_login_pending_) {
+        md_login_pending_ = true;
+        snapshot = cfg_;
+        rid = md_login_rid_;
+        send_login = true;
+      }
+    } else {
+      trade_connected_ = true;
+      if (login_configured_ && !trade_login_pending_) {
+        trade_login_pending_ = true;
+        snapshot = cfg_;
+        rid = trade_login_rid_;
+        send_login = true;
+      }
+    }
+  }
+  if (!send_login) return;  // 未 login() 或本轮连接已发过 ⇒ 不重复发（防重复 ReqUserLogin）
   if (market) {
-    md_connected_ = true;
+    (void)md_->reqLogin(snapshot, rid);
   } else {
-    trade_connected_ = true;
+    (void)trade_->reqLogin(snapshot, rid);
   }
 }
 
@@ -410,6 +461,13 @@ void CtAdapter::onFrontDisconnected(bool market, int /*reason*/) {
   } else {
     trade_connected_ = false;
     trade_logged_in_ = false;
+  }
+  // W-09：断线后清零去重位 ⇒ 重连的 OnFrontConnected 会重新补发登录。
+  std::lock_guard<std::mutex> guard(login_mutex_);
+  if (market) {
+    md_login_pending_ = false;
+  } else {
+    trade_login_pending_ = false;
   }
 }
 
