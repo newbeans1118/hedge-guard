@@ -64,6 +64,17 @@ enum class CtFundDirection { kIn, kOut };
 //     false:使用测评版本的API」；且「生产版 API 只能连生产前置、评测版只能连评测前置」。
 enum class CtEnvType { kSimulation, kProduction };
 
+// W-10：官方 SDK「评测/生产密钥模式」（`Create*Api(..., bIsProductionMode)`）与
+//   `CFG-22` 的「实盘准入语义」解耦后的独立开关。
+//   · kAuto        ⇒ 跟随 `env_type`（**缺省，零回归**：未配置新键时行为逐字不变）
+//   · kProduction  ⇒ 强制 `bIsProductionMode=true`（生产密钥；如 SimNow 看穿式前置
+//                    用监控中心生产秘钥，但治理上仍属仿真环境）
+//   · kEvaluation  ⇒ 强制 `bIsProductionMode=false`（评测密钥）
+// 依据：官方《6.7.13 API 接口说明》§3377（v6.7.11 起评测/生产合并为同一 API，
+//   由 `bIsProductionMode` 选择密钥）+ SimNow 官网公告「看穿式前置，使用监控中心生产秘钥」。
+// ⚠️ 本枚举**只决定 SDK 握手密钥**，不表示「是否实盘」；实盘准入仍由 `CFG-22` 治理。
+enum class CtApiKeyMode { kAuto, kProduction, kEvaluation };
+
 // -----------------------------------------------------------------------------
 // 登录配置（由 T1 装配；口令仅内存持有）
 // -----------------------------------------------------------------------------
@@ -85,10 +96,17 @@ struct CtConfig {
   //    ⇒ 模式与前置必须匹配，缺省更须保守。
   //    ⇒ **部署上生产必须在 `CFG-22` 显式设 `PRODUCTION`**（该值经 `redacted()` 可观测）。
   CtEnvType env_type;
+  // W-10：SDK 握手密钥模式（缺省 kAuto ⇒ 完全跟随 env_type，保证零回归）。
+  CtApiKeyMode api_key_mode;
 
-  CtConfig() : env_type(CtEnvType::kSimulation) {}
+  CtConfig() : env_type(CtEnvType::kSimulation), api_key_mode(CtApiKeyMode::kAuto) {}
   // 供 `Create*Api()` 使用的 `bIsProductionMode` 取值。
-  bool productionMode() const { return env_type == CtEnvType::kProduction; }
+  //   AUTO 走原有 `CFG-22` 映射；PRODUCTION/EVALUATION 为 W-10 的独立覆盖。
+  bool productionMode() const {
+    if (api_key_mode == CtApiKeyMode::kProduction) return true;
+    if (api_key_mode == CtApiKeyMode::kEvaluation) return false;
+    return env_type == CtEnvType::kProduction;
+  }
   // 供日志使用的安全呈现：口令一律替换为占位，**不得**返回明文（NFR-SEC-1 / R-FUND-9）。
   std::string redacted() const {
     std::string s;
@@ -110,6 +128,12 @@ struct CtConfig {
     s += (app_id.empty() ? "<empty>" : "<redacted>");
     s += " env_type=";
     s += (env_type == CtEnvType::kProduction ? "PRODUCTION" : "SIMULATION");
+    s += " api_key_mode=";
+    s += (api_key_mode == CtApiKeyMode::kProduction
+              ? "PRODUCTION"
+              : (api_key_mode == CtApiKeyMode::kEvaluation ? "EVALUATION" : "AUTO"));
+    s += " bIsProductionMode=";
+    s += (productionMode() ? "true" : "false");
     return s;
   }
 };

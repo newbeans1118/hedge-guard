@@ -434,6 +434,70 @@ void test_config() {
     cfg.ctp_env_type = "simulation";  // 值域大小写敏感（CFG-22）
     HG_CHECK(!hg::app::validateAppConfig(cfg).ok);
   }
+
+  // ── W-10：hg.ctp.api_key_mode（SDK 握手密钥）与 env_type 治理语义解耦 ──
+  {
+    ::unsetenv("HG_CTP_API_KEY_MODE");
+    // ① 缺省 AUTO = 零回归：productionMode() 完全跟随 env_type（与 U1 用例一致）
+    AppConfig a;
+    HG_CHECK_EQ(a.ctp_api_key_mode, std::string("AUTO"));
+    HG_CHECK(hg::app::validateAppConfig(a).ok);
+    hg::ctp_adapter::CtConfig ca = a.toCtConfig();
+    HG_CHECK(ca.api_key_mode == hg::ctp_adapter::CtApiKeyMode::kAuto);
+    HG_CHECK(!ca.productionMode());  // 缺省 SIMULATION ⇒ false
+    HG_CHECK(hg::app::redactedSummary(a).find("hg.ctp.api_key_mode=AUTO") !=
+             std::string::npos);
+
+    // ② 值域校验：AUTO / PRODUCTION / EVALUATION 合法，其余（含大小写错误）拒绝
+    a.ctp_api_key_mode = "BOGUS";
+    HG_CHECK(!hg::app::validateAppConfig(a).ok);
+    a.ctp_api_key_mode = "production";  // 大小写敏感，与 CFG-22 同口径
+    HG_CHECK(!hg::app::validateAppConfig(a).ok);
+    a.ctp_api_key_mode = "PRODUCTION";
+    HG_CHECK(hg::app::validateAppConfig(a).ok);
+    a.ctp_api_key_mode = "EVALUATION";
+    HG_CHECK(hg::app::validateAppConfig(a).ok);
+    a.ctp_api_key_mode = "AUTO";
+    HG_CHECK(hg::app::validateAppConfig(a).ok);
+
+    // ③ 核心场景：治理上 SIMULATION（非实盘）+ SDK 生产密钥（SimNow 看穿式前置）
+    a.ctp_env_type = "SIMULATION";
+    a.ctp_api_key_mode = "PRODUCTION";
+    ca = a.toCtConfig();
+    HG_CHECK(ca.env_type == hg::ctp_adapter::CtEnvType::kSimulation);  // 治理语义不变
+    HG_CHECK(ca.api_key_mode == hg::ctp_adapter::CtApiKeyMode::kProduction);
+    HG_CHECK(ca.productionMode());  // ⇒ bIsProductionMode=true
+
+    // ④ EVALUATION 强制评测密钥（即使 env_type=PRODUCTION）
+    a.ctp_env_type = "PRODUCTION";
+    a.ctp_api_key_mode = "EVALUATION";
+    ca = a.toCtConfig();
+    HG_CHECK(!ca.productionMode());
+
+    // ⑤ AUTO 下 env_type=PRODUCTION 仍 ⇒ true（零回归再确认）
+    a.ctp_api_key_mode = "AUTO";
+    ca = a.toCtConfig();
+    HG_CHECK(ca.productionMode());
+  }
+
+  // ⑥ 键可达性：CLI 与 env 两来源均可装载（属性文件走同一 applyKey 路径）
+  {
+    std::vector<const char*> args;
+    args.push_back("--hg.ctp.api_key_mode");
+    args.push_back("PRODUCTION");
+    AppConfig c1;
+    HG_CHECK(loadWith(args, &c1).ok);
+    HG_CHECK_EQ(c1.ctp_api_key_mode, std::string("PRODUCTION"));
+    HG_CHECK(c1.toCtConfig().productionMode());
+
+    ::setenv("HG_CTP_API_KEY_MODE", "EVALUATION", 1);
+    AppConfig c2;
+    std::vector<const char*> noargs;
+    HG_CHECK(loadWith(noargs, &c2).ok);
+    HG_CHECK_EQ(c2.ctp_api_key_mode, std::string("EVALUATION"));
+    HG_CHECK(!c2.toCtConfig().productionMode());
+    ::unsetenv("HG_CTP_API_KEY_MODE");
+  }
 }
 
 // ── 2. 口令/令牌零回显（脱敏摘要）────────────────────────────────────────

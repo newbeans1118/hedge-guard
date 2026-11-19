@@ -17,6 +17,8 @@
 //   CFG-29  hg.flow.dir / hg.flow.fsync_mode / hg.flow.retain_days
 //                                                              （./data/flow / BATCH / 90）
 //   CFG-22  hg.ctp.env_type                                    （SIMULATION）
+//   W-10    hg.ctp.api_key_mode  AUTO / PRODUCTION / EVALUATION（AUTO）
+//           —— SDK 握手密钥模式，与 env_type 的实盘准入治理语义解耦；AUTO 跟随 env_type
 //   CTP 连接（非敏感）：hg.ctp.trade_front / hg.ctp.md_front /
 //           hg.ctp.broker_id / hg.ctp.user_id / hg.ctp.flow_path
 //           —— 架构无 `hg.ctp.*` 连接项的独立 CFG 编号；取 CFG-22 同族最小键集
@@ -64,7 +66,10 @@ struct AppConfig {
   std::size_t replay_progress_every;     // 1000
 
   // ---- CFG-22 + CTP 连接（非敏感）----
-  std::string ctp_env_type;    // SIMULATION / PRODUCTION
+  std::string ctp_env_type;    // SIMULATION / PRODUCTION（实盘准入治理语义）
+  // W-10：SDK 握手密钥模式（AUTO / PRODUCTION / EVALUATION，非敏感）。
+  // 仅决定 `bIsProductionMode`，与 ctp_env_type 的治理语义解耦；缺省 AUTO = 跟随 env_type。
+  std::string ctp_api_key_mode;
   std::string ctp_trade_front; // tcp://ip:port
   std::string ctp_md_front;
   std::string ctp_broker_id;

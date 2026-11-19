@@ -410,6 +410,39 @@ void config_env_type_maps_to_production_mode() {
   HG_CHECK(sim.redacted().find("env_type=SIMULATION") != std::string::npos);
 }
 
+// W-10：SDK 握手密钥模式（CtApiKeyMode）与 env_type 治理语义解耦。
+void api_key_mode_overrides_env_type() {
+  // ① 缺省 AUTO ⇒ 完全跟随 env_type（零回归：与 U1 用例行为逐字一致）
+  CtConfig d = makeConfig();
+  HG_CHECK(d.api_key_mode == hg::ctp_adapter::CtApiKeyMode::kAuto);
+  HG_CHECK(!d.productionMode());  // env_type 缺省 SIMULATION
+  d.env_type = hg::ctp_adapter::CtEnvType::kProduction;
+  HG_CHECK(d.productionMode());   // AUTO 下 PRODUCTION ⇒ true
+  HG_CHECK(d.redacted().find("api_key_mode=AUTO") != std::string::npos);
+  HG_CHECK(d.redacted().find("bIsProductionMode=true") != std::string::npos);
+
+  // ② 治理上 SIMULATION（非实盘）+ SDK 生产密钥（SimNow 看穿式前置场景）
+  CtConfig simnow = makeConfig();
+  simnow.env_type = hg::ctp_adapter::CtEnvType::kSimulation;
+  simnow.api_key_mode = hg::ctp_adapter::CtApiKeyMode::kProduction;
+  HG_CHECK(simnow.productionMode());  // 覆盖 env_type ⇒ true
+  HG_CHECK(simnow.redacted().find("env_type=SIMULATION") != std::string::npos);
+  HG_CHECK(simnow.redacted().find("api_key_mode=PRODUCTION") != std::string::npos);
+  HG_CHECK(simnow.redacted().find("bIsProductionMode=true") != std::string::npos);
+
+  // ③ EVALUATION 强制评测密钥（即使 env_type=PRODUCTION）
+  CtConfig eval = makeConfig();
+  eval.env_type = hg::ctp_adapter::CtEnvType::kProduction;
+  eval.api_key_mode = hg::ctp_adapter::CtApiKeyMode::kEvaluation;
+  HG_CHECK(!eval.productionMode());
+  HG_CHECK(eval.redacted().find("env_type=PRODUCTION") != std::string::npos);
+  HG_CHECK(eval.redacted().find("api_key_mode=EVALUATION") != std::string::npos);
+  HG_CHECK(eval.redacted().find("bIsProductionMode=false") != std::string::npos);
+
+  // ④ 口令仍不得出现在 redacted() 中（新字段不得破坏 NFR-SEC-1）
+  HG_CHECK(simnow.redacted().find("DUMMY_PASSWORD") == std::string::npos);
+}
+
 }  // namespace
 
 int main() {
@@ -432,5 +465,6 @@ int main() {
   quote_queue_drop_is_observable();
   credentials_are_never_echoed();
   config_env_type_maps_to_production_mode();
+  api_key_mode_overrides_env_type();
   return hg::ctp_adapter::testutil::report("ct_adapter_test");
 }

@@ -72,6 +72,8 @@ W-07 可独立于主线推进
 | 2026-11-13 | W-01 / W-03 / W-04 | 用户提供测试账号（`broker_id`/`user_id` 写入 `hg.properties`；**口令仅经一次性 env 注入，值不写入任何文件**）；测试前置「不做终端认证」⇒ `app_id`/`auth_code` 留空以跳过 `ReqAuthenticate`；实际启动并发起 CTP 登录 | **W-01 输入齐备、W-03 网络已通**（TCP 30001/30011 可达；运行期 `ss` 实测 `hg-trading` 与两前置均 `ESTAB`）；**但 W-04 未达成**：`ctp=DEGRADED CTP 登录请求失败：ReqUserLogin 未被 CTP 受理`，服务仍 `state=NOT_READY`。⇒ 根因为 **C++ 登录时序缺陷，非配置/凭据/网络问题** | 见下方 §7 诊断；本行不登记任何凭据值；源码零改动 |
 | 2026-11-13 | 全清单 / W-09 | 用户指令「裁定 OnFrontConnected 补登录授权及立项方式」⇒ 编排者作出裁定并登记 §8 | ① **准予授权** `OnFrontConnected` 补登录修复（最小改动集 + 测试 + 门禁）；② 立项方式裁定 **仅作 BACKLOG 工作项 `W-09`、暂不动正式台账**；账面维持 235 / 2235 / 全部闭环；不启用新轮次号 | 本文件纯追加 §8 与本行；源码 / 共享文档零改动；裁定已生效，`W-09` 实施待下一步指令 |
 | 2026-11-13 | W-09 / W-04 | 用户指令「开始实施 W-09 源码修复」；完成 5 文件源码改动 + 6 个新增单测；双轨构建 / ctest / E1–E9 门禁 + 真实评测前置实测 | **W-09 代码修复 DONE**（`ReqUserLogin 未被受理` 已消除、优雅退出恢复 `exit 0`、双轨 60/60 + 64/64、门禁 9/0/0）；**但 W-04 真联仍 BLOCKED** —— 阻塞原因**迁移**为 SDK 层 `Decrypt handshake data failed`（前置/SDK 密钥或版本形态不匹配），非 W-09 缺陷 | 见 §9 实施章；源码 5 文件 178+/19−；本行不登记任何凭据值；临时数据在 `/tmp` 已清理 |
+| 2026-11-19 | W-01 / W-03 / W-04 | 服务恢复（交易日）；批量 TCP 探测第一套三组 6/6 通；**`SIMULATION` vs `PRODUCTION` 双模式对照实测**（用户裁定「方案 1：不改代码，先试」，仅运行时 `HG_CTP_ENV_TYPE` 切换） | **`W-04 达成`**：`PRODUCTION`（`bIsProductionMode=true`）下 `Decrypt handshake data failed`=0、`ctp=LOGGED_IN CTP 登录成功（DEGRADED 解除）` 于启动后 +1.2s / +1.4s 两次稳定复现；`SIMULATION` 稳定失败（Decrypt=2、无 LOGGED_IN）⇒ **根因确认为 SDK 评测/生产密钥形态，非 SDK 包版本、非服务可用性** | 见 §10 验证章；仅一次性 env、零落盘、未改任何源码/配置/文档既有行；本行不登记任何凭据值；临时数据在 `/tmp` 已清理 |
+| 2026-11-19 | W-10 / W-04 | 用户裁定「方案 B」（新增独立配置解耦 SDK 密钥模式与 `env_type` 治理语义）；实施 5 文件源码改动 + 双轨构建 / ctest / E1–E9 门禁 + **零 env 覆盖**的固化启动验证 | **`W-10 DONE`**：新增 `hg.ctp.api_key_mode`（AUTO/PRODUCTION/EVALUATION，缺省 AUTO 零回归）；`env_type=SIMULATION`（治理：非实盘）+ `api_key_mode=PRODUCTION`（SDK：生产密钥）写入 `hg.properties` ⇒ 启动 +0.1s `LOGGED_IN`、95s 内 ESTAB 恒为 2、Decrypt=0、优雅退出 `exit 0`；`health-check.sh trading` = PASS=2 / FAIL=1（`NOT_READY` 需 Java 参数下发，属 W-05） | 见 §11 实施章；源码 154+/3−；双轨 60/60 + 64/64、门禁 9/0/0；本行不登记任何凭据值；`hg.properties` 被 `.gitignore` 忽略、不入库 |
 
 ## 7. CTP 登录失败诊断（2026-11-13 实测，W-04 阻塞根因）
 
@@ -249,3 +251,136 @@ W-07 可独立于主线推进
 - **账面维持**：235 任务 / 2235 人时 / 233 DONE / 2 REJECTED / 六区 `0/0/0/233/0/2` / 全部任务闭环 / 机读 221（本轮机读实测）。未立 `T-` 号、未改 `TASKS`/`BOARD`/`TEST_RESULT`/`REVIEW`/`CODEBUDDY` 任何一行。
 - **不启用新轮次号**（`BOARD.md` §5 未立行），避免跨账形差；不新增 `W-` 号（§9.5 待裁定项不单列工作项）。
 - 源码 5 文件 + `docs/BACKLOG.md` + `hg.properties` **均未提交**；提交 / push 需单独指令。
+
+## 10. SimNow 连通性验证与 W-04 达成（2026-11-19，编排者 · 单写者）
+
+> **依据**：§8 裁定（W-09 仅作 `BACKLOG` 工作项、不动正式台账）+ 用户裁定「方案 1，不改代码，先试」（仅运行时 `HG_CTP_ENV_TYPE` 对照）+ 用户确认「目标 = SimNow 服务、不做终端认证」。
+> **性质**：只读探测 + 受控启动 + **逐条留痕**；章节按追加时序落盘（物理顺序不回改）；全部计数 / 行号**以实时为准**。
+
+### 10.1 目标与服务状态（官网公告核对）
+
+- 用户确认目标为 **SimNow 仿真前置**，**不做终端认证**（`app_id`/`auth_code` 留空 ⇒ `ct_gateway_ctp.cc:85` 跳过 `ReqAuthenticate`）。
+- 官方首页公告（WebFetch 走服务端通道读到，2026-11-19 实测）：
+  - 2025/07/15：7x24 环境 `182.254.243.31:40001/40011`，**「看穿式前置，使用监控中心生产秘钥」**，BrokerID `9999`；服务时段「交易日 16:00～次日 09:00；非交易日 16:00～次日 12:00」。
+  - 2025/06/17：第一套环境 `30001/30011`（第一组）、`30002/30012`（第二组）、`30003/30013`（第三组）。
+- 11-14（周六非交易日）第一套 `30001/30011` 曾 `ECONNREFUSED`（errno 111）；当时用户即确认「服务确实不可用」⇒ 属服务端状态，非本地问题。
+
+### 10.2 连通性批量探测（2026-11-19 09:19 +0800，周四交易日）
+
+| 端口 | 用途 | 结果 |
+|---|---|---|
+| `30001` / `30002` / `30003` | 第一套三组交易 | **CONNECTED**（32 / 37 / 45 ms） |
+| `30011` / `30012` / `30013` | 第一套三组行情 | **CONNECTED**（34 / 37 / 42 ms） |
+| `40001` / `40011` | 7x24 交易 / 行情 | `ECONNREFUSED`（errno 111） |
+
+⇒ 服务已恢复，第一套 **6/6 全通**；当前配置 `30001/30011` 运行期 `ss` 实测 `hg-trading` 与两前置均 `ESTAB`。**TCP 层阻塞已排除**。
+
+### 10.3 根因确认：SDK 评测/生产密钥形态（双模式对照）
+
+- 官方 FAQ 22（`sdk/6.7.13_API接口说明.md:4104`，2026-11-14 实测）：`Decrypt handshake data failed` = 「终端使用的 api 与前置版本不匹配，应核对版本」。
+- SDK v6.7.11+ 已把评测/生产**合并进同一 `.so`**（§3377 / 头签名 `CreateFtdcTraderApi(flow, bool bIsProductionMode = true)`）；本地只有 `thosttraderapi_se.so` / `thostmduserapi_se.so`，**无需下载新 SDK 包**。
+- 本项目 `app_config.cc:376` 把 `SIMULATION` → `CtEnvType::kSimulation` → `productionMode()=false`（`ct_types.h:91`）；而 SimNow 前置用**生产密钥** ⇒ 评测密钥解不开 FTD 握手 ⇒ `OnFrontConnected` 不回调 ⇒ W-09 补登录无机会执行。
+
+**用户裁定「方案 1，不改代码，先试」**：仅运行时 `HG_CTP_ENV_TYPE=PRODUCTION`（连的仍是 SimNow 仿真前置、测试账号 `9999`/`121964`，**不下单、无实盘资金**）。Python 驱动的干净对照（排除 shell 变量丢失缺陷）：
+
+| 模式 | `Decrypt handshake data failed` | `ctp=LOGGED_IN` 时点 | exit |
+|---|---|---|---|
+| `SIMULATION`（`bIsProductionMode=false`） | **2** | 未出现 | 0 |
+| `PRODUCTION`（`bIsProductionMode=true`） | **0** | **+1.4s** | 0 |
+
+另一次独立复现 `PRODUCTION` 于 **+1.2s** 出现 `ctp=LOGGED_IN CTP 登录成功（DEGRADED 解除）`。三次有效实测一致，非偶然。
+
+### 10.4 W-04 达成范围（如实界定）
+
+- ✅ **达成**：TCP 连通 → FTD 握手通过 → `OnFrontConnected` → W-09 补发 `ReqUserLogin` → `OnRspUserLogin` → `isLoggedIn()==true` → `refreshCtpState` 自动 `ctp=LOGGED_IN` / DEGRADED 解除（`trading_app.cc:850`）。
+- ⏸ **未达成**：服务仍 `state=NOT_READY`（等 Java `hg-biz` 下发 `CMD_LOAD_RISK_PARAMS`），`REPLAYING → READY` 属 **W-05** 跨进程联调；本轮未发任何交易指令、未验证真联档 `T-057`。
+- ◐ `ctpflow` 未落 `.con` 流文件（SDK 可能写入工作目录），不影响登录判据；如需可另查。
+
+### 10.5 边界与治理提示（重要）
+
+- **未固化**：`PRODUCTION` 仅是本次授权的**一次性运行时 env**，未写入 `hg.properties`、未改源码、未改任何既有文档行。工作区干净、零落盘、口令仅 env 注入。
+- **语义冲突**：项目把 `env_type=PRODUCTION` 等同于「上实盘」（`CFG-22` 二次确认 + 双人复核、`T086` L3 准入、`TC-M4-24` 观察期），但此处仅表示 **SDK 密钥模式**，目标是 SimNow 仿真。若要把该模式变为常态配置或写进规程，**需用户做一次治理裁定**明确「SimNow 仿真下 `env_type=PRODUCTION` 仅用于密钥选择、不构成实盘准入」，否则每次需临时 env 且易与实盘治理混淆。
+- **可选解耦**（未授权）：把 `env_type` 与 `bIsProductionMode` 拆成独立配置，需另立工作项、改源码、走双轨 `ctest` + E1–E9 门禁。
+
+### 10.6 语义消解与账面
+
+- §6.4 / §7.4 / §8.3 / §9.5 / §9.6 中「W-04 仍 BLOCKED」「SDK/前置版本形态不匹配、待部署方提供 SDK 包」「均未提交」等均为**各时点陈述**，原文保留；**最新结论以本章为准**：根因是密钥模式（同一 SDK 包内切换即可），服务可用性已恢复，W-04 已达成。
+- **账面维持**：235 任务 / 2235 人时 / 233 DONE / 2 REJECTED / 六区 `0/0/0/233/0/2` / 全部任务闭环 / 机读 221（本轮未重算，沿用 §9.6 实测，以实时为准）。未立 `T-` 号、未新增 `W-` 号、未启用新轮次号、未改 `TASKS`/`BOARD`/`TEST_RESULT`/`REVIEW`/`CODEBUDDY` 任何一行。
+- 本轮仅追加 §5 进度行 + 本章；提交 / push 需单独指令。
+
+## 11. W-10 实施：SDK 密钥模式与 env_type 治理语义解耦（2026-11-19，编排者 · 单写者）
+
+> **依据**：§10.5 提出的方案 B + 用户裁定「B」（新增独立配置、不改 A 的治理歧义）；§8 裁定「仅作 `BACKLOG` 工作项、不动正式台账」继续适用。
+> **性质**：源码实施 + 逐条留痕；章节按追加时序落盘（物理顺序不回改）；全部计数 / 行号**以实时为准**。
+
+### 11.1 问题与方案选型
+
+`env_type` 同时承担两种语义：① `CFG-22` 的**实盘准入治理标识**（`PRODUCTION` 需二次确认 + 双人复核）；② 官方 SDK `Create*Api(..., bIsProductionMode)` 的**握手密钥选择**。SimNow 看穿式前置用监控中心**生产密钥**，却属仿真环境 ⇒ 二者冲突（§10.5）。
+
+| 方案 | 做法 | 裁定 |
+|---|---|---|
+| A | 写入 `env_type=PRODUCTION`（仅运行时或固化） | 未采纳：治理语义混淆 |
+| **B** | **新增独立配置 `hg.ctp.api_key_mode`，解耦密钥与治理** | **采纳**（语义最干净） |
+| C | 让 `SIMULATION` 也传 `bIsProductionMode=true` | 未采纳：违背 CFG-22 缺省保守与 U1 用例 |
+
+### 11.2 设计（三态、缺省零回归）
+
+- 新增 `CtApiKeyMode { kAuto, kProduction, kEvaluation }`（`ct_types.h`）：
+  - **`AUTO`（缺省）** ⇒ `productionMode()` **完全跟随 `env_type`** ⇒ 不配置新键时行为逐字不变，U1 用例 / CFG-22 / 既有部署零回归；
+  - `PRODUCTION` ⇒ 强制 `bIsProductionMode=true`（生产密钥）；
+  - `EVALUATION` ⇒ 强制 `false`（评测密钥）。
+- 该枚举**只决定 SDK 握手密钥**，不表示「是否实盘」；实盘准入仍由 `CFG-22` 治理。
+- 值域校验大小写敏感（`AUTO`/`PRODUCTION`/`EVALUATION`），非法值启动期拒绝（错误信息不含敏感值）。
+- 键非敏感（`isSecretKeyName` 不拦；`kKeys` 表 `secret=false`），`HG_CTP_API_KEY_MODE` / 属性文件 / CLI 三来源均可装载；`redactedSummary` 与 `CtConfig::redacted()` 均增可观测字段。
+
+### 11.3 改动清单（5 文件，154+ / 3−）
+
+| 文件 | 改动 |
+|---|---|
+| `cpp/src/ctp_adapter/include/hg/ctp_adapter/ct_types.h` | 新增 `CtApiKeyMode` 枚举 + `CtConfig::api_key_mode` 字段；`productionMode()` 三态逻辑；`redacted()` 增 `api_key_mode=` / `bIsProductionMode=` |
+| `cpp/src/app_config.h` | `AppConfig::ctp_api_key_mode` 字段 + 键集注释（`W-10`） |
+| `cpp/src/app_config.cc` | `kKeys` 表、构造缺省 `AUTO`、`applyKey`、`validateAppConfig` 值域、`toCtConfig()` 映射、`redactedSummary` |
+| `cpp/src/ctp_adapter/tests/ct_adapter_test.cc` | 新增 `api_key_mode_overrides_env_type`（三态覆盖 + 口令零回显） |
+| `cpp/src/tests/trading_app_test.cc` | `test_config()` 内补 W-10：缺省 AUTO 零回归 / 值域 / 治理 SIMULATION+生产密钥 / EVALUATION 覆盖 / CLI+env 可达性 |
+
+**冻结面核查**：`java/CONTRACTS.md` §4 冻结的是 Java 侧 `hg.web.*` 基础设施键，**不含 `hg.ctp.*`**；`hg.ctp.*` 归 C++ / `ARCHITECTURE.md` §11.2 `CFG-22` 同族最小键集 ⇒ 新增本地配置键不触碰 HGC-1.6，未新增协议字段。
+
+### 11.4 门禁与测试（本轮实测）
+
+| 门禁 | 结果 |
+|---|---|
+| stub / CTP 双轨增量构建（改公共头触发大范围重编） | 均 `rc=0`，零 `error:` / `warning:` |
+| `ctest --test-dir cpp/build_stub` | **60/60 Passed** |
+| `ctest --test-dir cpp/build` | **64/64 Passed** |
+| `mvn -B -o validate`（`java/`） | **E1–E9 9/0/0，arch-check 通过，BUILD SUCCESS** |
+| 值域实测 | `AUTO`/`PRODUCTION`/`EVALUATION` 生效；`BOGUS` 启动期拒绝 |
+
+### 11.5 固化启动验证（零 env 覆盖）
+
+`hg.properties`（被 `.gitignore:51` 忽略、不入库）纯追加 `hg.ctp.api_key_mode=PRODUCTION`；`env_type` 保持缺省 `SIMULATION`。**不设 `HG_CTP_ENV_TYPE` / `HG_CTP_API_KEY_MODE`**，仅口令按硬约束走 env：
+
+| 判据 | 结果 |
+|---|---|
+| `--dump-config` | `env_type=SIMULATION` + `api_key_mode=PRODUCTION` + `config_file=./hg.properties` |
+| CTP 登录 | `+0.1s` `ctp=LOGGED_IN CTP 登录成功（DEGRADED 解除）`，全程仅 1 次 |
+| 95s 稳定性 | 6 次采样到前置 **ESTAB 恒为 2**、`Decrypt`=0、后续 DEGRADED=0、SIGTERM → `stopped` → `exit 0` |
+| 对照 | `AUTO`（跟随 SIMULATION）仍 `Decrypt` 失败 ⇒ 新键只切密钥、不改治理语义 |
+
+### 11.6 可用性（按部署约定 `health-check.sh trading`）
+
+```
+[PASS] 进程存活
+[PASS] HGCP 回环端口可连 127.0.0.1:27400（CFG-20）
+[FAIL] 就绪态 = NOT_READY：交易指令将被拒（0x0401），须等 Java 参数下发/重放完成
+汇总：PASS=2 FAIL=1
+```
+
+**如实界定**：CTP 连接/会话层**可用且稳定**；业务就绪层按 §4.2.6 / `R-TRADE-13` 停在 `NOT_READY`，需 Java `hg-biz` 下发 `CMD_LOAD_RISK_PARAMS` 才能 `REPLAYING → READY`（**W-05**）。这是既定就绪门，非 C++ 缺陷；本轮未发任何交易指令、无实盘资金。
+
+### 11.7 语义消解与边界
+
+- §6.4 / §7.4 / §8.3 / §9.6 / §10.6 中「W-04 仍 BLOCKED」「待部署方提供 SDK 包」「仅一次性 env」「均未提交」等均为**各时点陈述**，原文保留；最新结论以 §10 / 本章为准：W-04 已达成、W-10 已固化、无需新 SDK 包。
+- **账面维持**：235 任务 / 2235 人时 / 233 DONE / 2 REJECTED / 六区 `0/0/0/233/0/2` / 全部任务闭环 / 机读 221。未立 `T-` 号、未新增 `W-` 号、未启用新轮次号、未改 `TASKS`/`BOARD`/`TEST_RESULT`/`REVIEW`/`CODEBUDDY` 任何一行。
+- 零落盘：口令仅一次性 env；源码/测试/文档无凭据值；`hg.properties` 只含非敏感键且被忽略。
+- 过程中两次 shell `&` 变量作用域陷阱导致日志/pid 路径异常与残留进程，已按 `comm` 精确 TERM 清理并复核（端口释放、无残留、误写文件已删）；最终验证改用 Python 驱动，结果可靠。
+- 源码 5 文件 + `docs/BACKLOG.md` 的提交 / push 由后续单独指令办理；`hg.properties` 永不入库。

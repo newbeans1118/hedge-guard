@@ -48,6 +48,8 @@ const KeyDef kKeys[] = {
     {"hg.replay.query_timeout_ms", "HG_REPLAY_QUERY_TIMEOUT_MS", false},
     // CFG-22
     {"hg.ctp.env_type", "HG_CTP_ENV_TYPE", false},
+    // W-10：SDK 握手密钥模式（与 env_type 治理语义解耦；非敏感）
+    {"hg.ctp.api_key_mode", "HG_CTP_API_KEY_MODE", false},
     // CTP 连接（非敏感；CFG-22 同族最小键集）
     {"hg.ctp.trade_front", "HG_CTP_TRADE_FRONT", false},
     {"hg.ctp.md_front", "HG_CTP_MD_FRONT", false},
@@ -177,6 +179,8 @@ bool applyKey(const std::string& key, const std::string& value, AppConfig* cfg,
     }
   } else if (key == "hg.ctp.env_type") {
     cfg->ctp_env_type = value;
+  } else if (key == "hg.ctp.api_key_mode") {
+    cfg->ctp_api_key_mode = value;  // 值域在 validateAppConfig 校验
   } else if (key == "hg.ctp.trade_front") {
     cfg->ctp_trade_front = value;
   } else if (key == "hg.ctp.md_front") {
@@ -360,6 +364,7 @@ AppConfig::AppConfig()
       replay_query_timeout_ms(20000),
       replay_progress_every(1000),
       ctp_env_type("SIMULATION"),
+      ctp_api_key_mode("AUTO"),
       pump_timeout_ms(50),
       verbose(false) {}
 
@@ -375,6 +380,14 @@ hg::ctp_adapter::CtConfig AppConfig::toCtConfig() const {
   c.app_id = ctp_app_id;
   c.env_type = (ctp_env_type == "PRODUCTION") ? hg::ctp_adapter::CtEnvType::kProduction
                                              : hg::ctp_adapter::CtEnvType::kSimulation;
+  // W-10：SDK 握手密钥模式独立覆盖；AUTO（缺省）⇒ 完全跟随 env_type，零回归。
+  if (ctp_api_key_mode == "PRODUCTION") {
+    c.api_key_mode = hg::ctp_adapter::CtApiKeyMode::kProduction;
+  } else if (ctp_api_key_mode == "EVALUATION") {
+    c.api_key_mode = hg::ctp_adapter::CtApiKeyMode::kEvaluation;
+  } else {
+    c.api_key_mode = hg::ctp_adapter::CtApiKeyMode::kAuto;
+  }
   return c;
 }
 
@@ -493,6 +506,16 @@ ConfigOutcome validateAppConfig(const AppConfig& cfg) {
     return oc;
   }
 
+  // W-10：SDK 握手密钥模式值域（大小写敏感，与 CFG-22 同口径）；
+  // AUTO（缺省）= 跟随 env_type。该键只影响 bIsProductionMode，不构成实盘准入。
+  if (cfg.ctp_api_key_mode != "AUTO" && cfg.ctp_api_key_mode != "PRODUCTION" &&
+      cfg.ctp_api_key_mode != "EVALUATION") {
+    oc.ok = false;
+    oc.error = "hg.ctp.api_key_mode 非法（应为 AUTO/PRODUCTION/EVALUATION）：" +
+               cfg.ctp_api_key_mode;
+    return oc;
+  }
+
   // CTP 前置形态（可空 = 不登录 ⇒ DEGRADED，不阻塞启动）
   const std::string* fronts[2] = {&cfg.ctp_trade_front, &cfg.ctp_md_front};
   for (int i = 0; i < 2; ++i) {
@@ -529,6 +552,7 @@ std::string redactedSummary(const AppConfig& cfg) {
   s += " hg.replay.query_timeout_ms=" +
        std::to_string(static_cast<long long>(cfg.replay_query_timeout_ms));
   s += " hg.ctp.env_type=" + cfg.ctp_env_type;
+  s += " hg.ctp.api_key_mode=" + cfg.ctp_api_key_mode;
   s += " hg.ctp.trade_front=" + (cfg.ctp_trade_front.empty() ? empty_mark : cfg.ctp_trade_front);
   s += " hg.ctp.md_front=" + (cfg.ctp_md_front.empty() ? empty_mark : cfg.ctp_md_front);
   s += " hg.ctp.broker_id=" + (cfg.ctp_broker_id.empty() ? empty_mark : cfg.ctp_broker_id);
