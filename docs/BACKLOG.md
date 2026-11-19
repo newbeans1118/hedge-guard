@@ -74,6 +74,7 @@ W-07 可独立于主线推进
 | 2026-11-13 | W-09 / W-04 | 用户指令「开始实施 W-09 源码修复」；完成 5 文件源码改动 + 6 个新增单测；双轨构建 / ctest / E1–E9 门禁 + 真实评测前置实测 | **W-09 代码修复 DONE**（`ReqUserLogin 未被受理` 已消除、优雅退出恢复 `exit 0`、双轨 60/60 + 64/64、门禁 9/0/0）；**但 W-04 真联仍 BLOCKED** —— 阻塞原因**迁移**为 SDK 层 `Decrypt handshake data failed`（前置/SDK 密钥或版本形态不匹配），非 W-09 缺陷 | 见 §9 实施章；源码 5 文件 178+/19−；本行不登记任何凭据值；临时数据在 `/tmp` 已清理 |
 | 2026-11-19 | W-01 / W-03 / W-04 | 服务恢复（交易日）；批量 TCP 探测第一套三组 6/6 通；**`SIMULATION` vs `PRODUCTION` 双模式对照实测**（用户裁定「方案 1：不改代码，先试」，仅运行时 `HG_CTP_ENV_TYPE` 切换） | **`W-04 达成`**：`PRODUCTION`（`bIsProductionMode=true`）下 `Decrypt handshake data failed`=0、`ctp=LOGGED_IN CTP 登录成功（DEGRADED 解除）` 于启动后 +1.2s / +1.4s 两次稳定复现；`SIMULATION` 稳定失败（Decrypt=2、无 LOGGED_IN）⇒ **根因确认为 SDK 评测/生产密钥形态，非 SDK 包版本、非服务可用性** | 见 §10 验证章；仅一次性 env、零落盘、未改任何源码/配置/文档既有行；本行不登记任何凭据值；临时数据在 `/tmp` 已清理 |
 | 2026-11-19 | W-10 / W-04 | 用户裁定「方案 B」（新增独立配置解耦 SDK 密钥模式与 `env_type` 治理语义）；实施 5 文件源码改动 + 双轨构建 / ctest / E1–E9 门禁 + **零 env 覆盖**的固化启动验证 | **`W-10 DONE`**：新增 `hg.ctp.api_key_mode`（AUTO/PRODUCTION/EVALUATION，缺省 AUTO 零回归）；`env_type=SIMULATION`（治理：非实盘）+ `api_key_mode=PRODUCTION`（SDK：生产密钥）写入 `hg.properties` ⇒ 启动 +0.1s `LOGGED_IN`、95s 内 ESTAB 恒为 2、Decrypt=0、优雅退出 `exit 0`；`health-check.sh trading` = PASS=2 / FAIL=1（`NOT_READY` 需 Java 参数下发，属 W-05） | 见 §11 实施章；源码 154+/3−；双轨 60/60 + 64/64、门禁 9/0/0；本行不登记任何凭据值；`hg.properties` 被 `.gitignore` 忽略、不入库 |
+| 2026-11-19 | W-05 | 用户指令「推进 W-05」；核查 Java 侧启动前置，用 `/tmp` 临时探针（不改产品代码）连真实 C++ 组件验证 HGCP 握手 | **W-05 前半段达成、后半段仍 BLOCKED**：`MSG_HELLO → HELLO_ACK` 握手成功（`authState=AUTHENTICATED`）；但发现 **Java `HgcpClient` 缺 `MSG_HEARTBEAT` 分支**，不回 C++ 主动心跳 ⇒ C++ 判死 `0x0301 ERR_HEARTBEAT_TIMEOUT` 关连接 ⇒ Java 反复重连；且 `CMD_LOAD_RISK_PARAMS` 需真 DM8 + `HG_DB_PASSWORD` + `DmJdbcDriver18.jar`（不随仓库分发） | 见 §12 W-05 章；探针在 `/tmp` 已清理、无残留进程；本行不登记任何凭据值；未改任何产品代码 |
 
 ## 7. CTP 登录失败诊断（2026-11-13 实测，W-04 阻塞根因）
 
@@ -384,3 +385,69 @@ W-07 可独立于主线推进
 - 零落盘：口令仅一次性 env；源码/测试/文档无凭据值；`hg.properties` 只含非敏感键且被忽略。
 - 过程中两次 shell `&` 变量作用域陷阱导致日志/pid 路径异常与残留进程，已按 `comm` 精确 TERM 清理并复核（端口释放、无残留、误写文件已删）；最终验证改用 Python 驱动，结果可靠。
 - 源码 5 文件 + `docs/BACKLOG.md` 的提交 / push 由后续单独指令办理；`hg.properties` 永不入库。
+
+## 12. W-05 推进：跨进程 HGCP 联调（2026-11-19，编排者 · 单写者）
+
+> **依据**：§2 `W-05`「与 Java `hg-biz` 跨进程联调」+ 用户指令「登记，提交，推进 W-05」。
+> **性质**：只读核查 + `/tmp` 临时探针（**不改任何产品代码**）+ 逐条留痕；章节按追加时序落盘；全部计数 / 行号**以实时为准**。
+
+### 12.1 前置核查（真实阻塞链）
+
+| 前置 | 现状 | 依据 |
+|---|---|---|
+| Java 运行 classpath | `java/target/classes` 存在（无 jar / 无 `target/dependency`）；本地 m2 有 `protobuf-java-3.21.12.jar` / `gson-2.10.1.jar` | 实测 `~/.m2`、`java/target/` |
+| HGCP 桥装配 | `Bootstrap.assembleHgcpClient()` **嵌在 `config.databaseConfigured()` 分支内**；`hg.db.url` 为空 ⇒ 连桥都不装配 | `Bootstrap.java:283-356`、`:454`；`Config.databaseConfigured()` = `databaseUrl()!=null` |
+| 凭据 | 缺 `HG_HGCP_AUTH_TOKEN` ⇒ 桥不装配；缺 `HG_DB_PASSWORD` ⇒ 不装配数据库 | `start-hg-biz.sh:46-50` |
+| 真库 | `DmJdbcDriver18.jar` 不随仓库分发，需部署方提供；`dm` profile system scope | `CODEBUDDY.md` / `java/pom.xml` |
+| C++ 侧鉴权 | 未配 `hg.hgcp_auth_token` ⇒ 不注入 `TokenVerifier` ⇒ **空 token 放行**（`auth_guard_.enabled()==false`） | `trading_app.cc:474`、`server_loop.cc:299`、`auth.cc:52` |
+
+⇒ 完整 `hg-biz`（含参数下发）需 **真 DM8 实例 + DM JDBC 驱动 + 两个凭据**，属外部硬前置，本地不可补。但 `HgcpClient` 构造**不依赖 DB**，故 W-05 的**握手/心跳前半段**可独立验证。
+
+### 12.2 前半段实测：`MSG_HELLO → HELLO_ACK` 握手成功
+
+`/tmp` 临时 Java 探针（`W05Probe`，仅引用现有 `HgcpClient` / `TcpHgcpTransport`，空 token、`tokenVersion=1`）连真实 `hg-trading`（`127.0.0.1:27400`）：
+
+```
+[+0.5s .. +2.0s] authState=AUTHENTICATED  isReady=false
+[+2.5s .. +3.0s] authState=HELLO_SENT     ← 断线重连
+[+3.5s .. +4.0s] authState=AUTHENTICATED
+stderr: INFO: HGCP 重连成功 / WARNING: HGCP 错误帧 0x301
+```
+
+C++ 侧同时：`listen=127.0.0.1:27400` → `ctp=LOGGED_IN`（SimNow）→ `state=NOT_READY`（等参数）。⇒ **握手门禁通过**（`AUTHENTICATED`），但**连接不稳定，反复重连**。探针在 `/tmp` 已清理、无残留进程、零落盘。
+
+### 12.3 发现：Java `HgcpClient` 缺心跳应答（真实产品缺陷）
+
+- **架构口径**：`docs/ARCHITECTURE.md:978` 明确心跳**双向**——「两侧各自定时发送 `MSG_HEARTBEAT`，对端回 `MSG_HEARTBEAT_ACK`」；`:976`「连续 3 次未收到 `HEARTBEAT_ACK`」判死；`:1360` `0x0301 ERR_HEARTBEAT_TIMEOUT` ⇒ 关闭连接 → 重连。
+- **实测**：Java `HgcpClient.onFrame()`（`HgcpClient.java:253-295`）只处理 `MSG_HELLO_ACK` / `MSG_AUTH_FAIL` / `MSG_HEARTBEAT_ACK` / `MSG_ACK` / `MSG_ERROR` / `MSG_RESUME_DATA`，**没有 `MSG_HEARTBEAT` 分支** ⇒ C++ 主动发来的心跳落进 `default` → `isEventType(0x0004)==false` → 仅 `LOG.fine` 忽略，**不回 ACK**。
+- C++ 侧 `session.on_tick()` 连发 3 次心跳未收 ACK ⇒ `0x0301` + `close_conn()`（`session.cc:146`、`server_loop.cc:208-216`）⇒ Java `onDisconnected()` 重连，循环。
+- `MSG_HEARTBEAT` 常量存在（`HgcpConstants.java:21`）；`HgcpClientGuardTest` 只覆盖下单/事件去重，**无心跳应答用例** ⇒ 该缺口此前未被跨进程真联暴露（既有 `M2EndToEndAcceptanceTest` 用 `InMemoryTradingBridge` 进程内桩，明载「不构成跨进程真联」）。
+
+**结论**：W-05 前半段（握手）达成，但**连接无法稳定保持**；这是 Java 侧产品缺陷，不是探针或 C++ 问题。
+
+### 12.4 后半段仍 BLOCKED
+
+`CMD_LOAD_RISK_PARAMS` 下发 → `state=REPLAYING → READY param_version=N`（§2 W-05 判据）需要：
+1. 修复 §12.3 心跳应答缺陷（否则连接反复重连，参数下发无法完成）；
+2. 真 DM8 实例 + `DmJdbcDriver18.jar` + `HG_DB_PASSWORD`（`ParamDispatchService` 依赖 `DmParamDispatchDao` / `TxTemplate`）；
+3. `HG_HGCP_AUTH_TOKEN`（若启用鉴权，C++ 侧也须配同值）。
+
+⇒ **W-05 未闭环**；`health-check.sh trading` 的 `NOT_READY` FAIL 在本轮仍如实成立。
+
+### 12.5 待裁定（未擅自实施）
+
+按项目纪律，改 Java 生产代码需先裁定。建议方案（**最小修复**）：
+
+| 方案 | 做法 | 影响面 |
+|---|---|---|
+| **A（推荐）** | 在 `HgcpClient.onFrame()` 增 `case MSG_HEARTBEAT:` → 解析 `MsgHeartbeat` 并回 `MSG_HEARTBEAT_ACK`（`echo_ts_ms` / `server_ts_ms`）；补 `HgcpClientGuardTest` 用例断言「收到 C++ 心跳必回 ACK」 | `HgcpClient.java` + 1 测试；符合 §4.2.8.5 双向心跳契约 |
+| B | 保持现状，先在 `docs/BACKLOG.md` 登记为已知缺陷 | 零代码改动，W-05 仍无法推进 |
+
+若采用 A，需另立工作项、改源码、跑 `mvn -B -o -Punit clean test` 全量 Java 门禁 + 双轨 ctest（Java 改动不触 C++，但按惯例复核）。
+
+### 12.6 边界与账面
+
+- 本轮**未改任何产品源码 / 共享台账 / 配置**；探针为 `/tmp` 临时类、已删除；工作区干净（W-10 提交 `d04a19c` 后仅本文件追加）。
+- 口令仅一次性 env、零落盘；未发交易指令、无实盘资金；未臆造公网地址。
+- **账面维持**：235 任务 / 2235 人时 / 233 DONE / 2 REJECTED / 六区 `0/0/0/233/0/2` / 全部任务闭环 / 机读 221。未立 `T-` 号、未新增 `W-` 号、未启用新轮次号。
+- 本轮仅追加 §5 进度行 + 本章；**提交 / push 需单独指令**。
