@@ -86,6 +86,25 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
      */
     private volatile HgcpEventListener eventListener;
 
+    /** 启动期全量参数下发钩子：HELLO_ACK 且组件非 READY 时异步触发（读线程不得阻塞）。 */
+    private volatile Runnable startupDispatchHook;
+    private final AtomicBoolean startupHookInFlight = new AtomicBoolean(false);
+    /** 重连串行化：readLoop / heartbeatLoop 可能同时判定断连，只允许一个线程执行重连。 */
+    private final AtomicBoolean reconnecting = new AtomicBoolean(false);
+    /** 连接代际：每次建连递增；过期读线程的迟到断连不得再触发重连（连锁循环根因）。 */
+    private final AtomicLong connectionEpoch = new AtomicLong(0);
+
+    /**
+     * 注册启动期全量参数下发钩子（可在 {@link #start()} 前后设置）。
+     *
+     * <p>仅当 {@code HELLO_ACK.accepted=true} 且 {@code server_state != SERVER_STATE_READY}
+     * 时触发：C++ 未就绪 ⇒ 需要 {@code CMD_LOAD_RISK_PARAMS} 点亮；已 READY ⇒ 不重复下发。
+     * 钩子在独立守护线程执行（DB 读 + 命令下发，不得占用读线程），且同一时刻仅一个在飞。
+     */
+    public void setStartupDispatchHook(Runnable hook) {
+        this.startupDispatchHook = hook;
+    }
+
     /**
      * 命令回执超时调度池（共享单线程、守护线程工厂）。每命令一线程改为共享池（{@code T-165}）；
      * {@code close()} 经 {@link #timeoutPool} 关停，close 后不再有悬挂超时任务。
@@ -147,7 +166,7 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
             return;
         }
         connectAndHandshake();
-        readerThread = new Thread(this::readLoop, "hgcp-reader");
+        readerThread = new Thread(() -> readLoop(connectionEpoch.get()), "hgcp-reader");
         readerThread.setDaemon(true);
         readerThread.start();
         heartbeatThread = new Thread(this::heartbeatLoop, "hgcp-heartbeat");
@@ -156,10 +175,21 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
     }
 
     private void connectAndHandshake() throws IOException {
+        HgcpTransport old = transport;
+        if (old != null) {
+            // 重连前必须关闭旧连接：否则服务端单连接治理仍视旧连接为 active，新连接被回
+            // 0x0302 ERR_DUPLICATE_CONNECTION 后立即关闭 ⇒ 读线程 EOF ⇒ 再次重连（实测循环根因）。
+            try {
+                old.close();
+            } catch (Exception ignored) {
+                // 旧连接已失效时关闭失败不影响新连接建立
+            }
+        }
         transport = transportFactory.get();
         transport.connect();
         reader.reset();
         authState = AuthState.HELLO_SENT;
+        connectionEpoch.incrementAndGet();
         sendHello();
     }
 
@@ -195,28 +225,42 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
 
     // ==================== 读循环 ====================
 
-    private void readLoop() {
+    private void readLoop(long epoch) {
         byte[] buf = new byte[65536];
-        while (running.get()) {
+        while (running.get() && connectionEpoch.get() == epoch) {
             try {
                 int n = transport.read(buf);
                 if (n < 0) {
-                    onDisconnected();
+                    // 仅当前代际的读线程可触发重连：重连完成后旧读线程的迟到 EOF/异常
+                    // 若再次调用 onDisconnected()，会形成「重连→关闭旧连接→旧线程报错→再重连」循环。
+                    if (connectionEpoch.get() == epoch) {
+                        onDisconnected();
+                    }
                     return;
                 }
                 reader.feed(buf, n);
                 for (HgcpFrame.Decoded d : reader.drain()) {
                     onFrame(d);
                 }
+            } catch (java.net.SocketTimeoutException e) {
+                // SO_TIMEOUT(1000ms) 只是读线程的可中断等待窗口，**不是断连**：
+                // 与服务端心跳间隔 hg.tcp.heartbeat_ms=1000 同值，心跳帧稍晚即超时。
+                // 误判为断连 ⇒ 重连 ⇒ 新连接再次超时 ⇒ 每约 1.5s 一次的周期循环（实测根因）。
+                // 继续读即可；借每次超时检查代际，过期读线程静默退出。
+                if (!running.get() || connectionEpoch.get() != epoch) {
+                    return;
+                }
             } catch (IOException e) {
-                if (running.get()) {
+                if (running.get() && connectionEpoch.get() == epoch) {
                     onDisconnected();
                 }
                 return;
             } catch (HgcpProtocolException e) {
                 // 成帧失败：帧边界不可信，与 C++ 侧同姿态——关闭并重连补数，不尝试重同步
                 LOG.log(Level.WARNING, "HGCP 成帧失败，关闭连接：" + e.getMessage());
-                onDisconnected();
+                if (connectionEpoch.get() == epoch) {
+                    onDisconnected();
+                }
                 return;
             }
         }
@@ -264,6 +308,12 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
                     break;
                 case HgcpConstants.MSG_HEARTBEAT_ACK:
                     break;
+                case HgcpConstants.MSG_HEARTBEAT:
+                    // W-11：心跳为双向契约（ARCHITECTURE.md §4.2.8.5 / §4.2.6 :978）——
+                    // C++ 服务端定时发 MSG_HEARTBEAT，本端必须回 MSG_HEARTBEAT_ACK；
+                    // 否则服务端连续 3 次未收 ACK ⇒ 0x0301 ERR_HEARTBEAT_TIMEOUT ⇒ 关连接重连。
+                    onHeartbeat(d);
+                    break;
                 case HgcpConstants.MSG_ACK:
                     onAck(d);
                     break;
@@ -295,6 +345,31 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
         }
     }
 
+    /**
+     * W-11：应答对端（C++ 服务端）的主动心跳。
+     *
+     * <p>按 {@code ARCHITECTURE.md §4.2.8.5 / §4.2.6 :978}「心跳双向」契约，收到
+     * {@code MSG_HEARTBEAT} 须回 {@code MSG_HEARTBEAT_ACK}：{@code echo_ts_ms} 原样回显
+     * 对端 {@code sent_ts_ms}，{@code server_ts_ms} 填本端时间（{@code proto/hgcp.proto:345-348}）。
+     *
+     * <p><b>写帧失败只告警、不主动重连</b>：本方法在读线程内执行，读循环自身会因
+     * {@code read()} 失败进入 {@link #onDisconnected()} 重连流程；此处再触发会与读线程重入。
+     */
+    private void onHeartbeat(HgcpFrame.Decoded d)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+        Hgcp.MsgHeartbeat hb = Hgcp.MsgHeartbeat.parseFrom(d.payload);
+        Hgcp.MsgHeartbeatAck ack = Hgcp.MsgHeartbeatAck.newBuilder()
+                .setEchoTsMs(hb.getSentTsMs())
+                .setServerTsMs(Clocks.epochMilli())
+                .build();
+        try {
+            writeFrame(HgcpConstants.MSG_HEARTBEAT_ACK, 0, ack.toByteArray());
+        } catch (IOException e) {
+            LOG.log(Level.WARNING, "回 MSG_HEARTBEAT_ACK 失败（交由读线程重连）："
+                    + e.getClass().getSimpleName());
+        }
+    }
+
     private void onHelloAck(HgcpFrame.Decoded d)
             throws com.google.protobuf.InvalidProtocolBufferException {
         Hgcp.MsgHelloAck ack = Hgcp.MsgHelloAck.parseFrom(d.payload);
@@ -305,10 +380,34 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
             if (ack.getParamVersion() > 0) {
                 mirror.setParamVersion(ack.getParamVersion());
             }
+            // 组件未 READY ⇒ 需 CMD_LOAD_RISK_PARAMS 全量预加载点亮；已 READY ⇒ 不重复下发。
+            if (ack.getServerState() != Hgcp.ServerState.SERVER_STATE_READY) {
+                fireStartupDispatch();
+            }
         } else {
             authState = AuthState.AUTH_FAILED;
             LOG.warning("HGCP 握手被拒（reason_code=" + ack.getReasonCode() + "）");
         }
+    }
+
+    /** 异步触发启动期全量参数下发（读线程不得阻塞；同一时刻仅一个在飞）。 */
+    private void fireStartupDispatch() {
+        Runnable hook = startupDispatchHook;
+        if (hook == null || !startupHookInFlight.compareAndSet(false, true)) {
+            return;
+        }
+        Thread t = new Thread(() -> {
+            try {
+                hook.run();
+            } catch (Exception e) {
+                LOG.log(Level.WARNING, "启动全量参数下发失败（组件可能仍 NOT_READY）："
+                        + e.getClass().getSimpleName() + ": " + e.getMessage(), e);
+            } finally {
+                startupHookInFlight.set(false);
+            }
+        }, "hgcp-startup-dispatch");
+        t.setDaemon(true);
+        t.start();
     }
 
     private void onAck(HgcpFrame.Decoded d)
@@ -638,26 +737,35 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
     }
 
     private void onDisconnected() {
-        failAllPending(new HgcpProtocolException("连接中断"));
-        if (!running.get()) {
+        // readLoop / heartbeatLoop / writeFrame 可能同时判定断连：只允许一个线程重连，
+        // 否则会并发建连并启动多个 reader 线程（0x0302 / 0x0301 周期循环的第二成因）。
+        if (!reconnecting.compareAndSet(false, true)) {
             return;
         }
-        // 指数退避重连：500ms 起、8000ms 封顶（CFG-28 / timing.h）
-        long backoff = HgcpConstants.RECONNECT_BASE_MS;
-        while (running.get()) {
-            try {
-                Thread.sleep(backoff);
-                connectAndHandshake();
-                sendResumeRequest();
-                restartReader();
-                LOG.info("HGCP 重连成功");
+        try {
+            failAllPending(new HgcpProtocolException("连接中断"));
+            if (!running.get()) {
                 return;
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            } catch (Exception e) {
-                backoff = Math.min(backoff * 2, HgcpConstants.RECONNECT_CAP_MS);
             }
+            // 指数退避重连：500ms 起、8000ms 封顶（CFG-28 / timing.h）
+            long backoff = HgcpConstants.RECONNECT_BASE_MS;
+            while (running.get()) {
+                try {
+                    Thread.sleep(backoff);
+                    connectAndHandshake();
+                    sendResumeRequest();
+                    restartReader();
+                    LOG.info("HGCP 重连成功");
+                    return;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                } catch (Exception e) {
+                    backoff = Math.min(backoff * 2, HgcpConstants.RECONNECT_CAP_MS);
+                }
+            }
+        } finally {
+            reconnecting.set(false);
         }
     }
 
@@ -670,10 +778,16 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
     }
 
     private void restartReader() {
-        Thread t = new Thread(this::readLoop, "hgcp-reader");
+        Thread old = readerThread;
+        if (old != null && old.isAlive()) {
+            // 旧读线程须先退出：避免两个线程同时消费同一 transport（半包/帧序错乱）。
+            old.interrupt();
+        }
+        long epoch = connectionEpoch.get();
+        Thread t = new Thread(() -> readLoop(epoch), "hgcp-reader");
         t.setDaemon(true);
-        t.start();
         readerThread = t;
+        t.start();
     }
 
     private void failAllPending(HgcpProtocolException ex) {

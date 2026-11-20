@@ -270,7 +270,11 @@ public final class ParamDispatchServiceImpl implements ParamDispatchService {
             throw BizException.of(ErrorCode.PARAM_INVALID,
                     "参数变更须显式给出 type：复现=构造 ParamChange(Type, ...) 后下发");
         }
-        if (!bridge.isReady()) {
+        // 启动期全量预加载（CMD_LOAD_RISK_PARAMS）是使组件进入 READY 的指令本身：
+        // 若仍要求 bridge.isReady() 会形成启动死锁（要 READY 才能下发，要下发才能 READY）。
+        // 其余类型维持 NFR-DEPLOY-5 守卫：组件未就绪一律显式拒绝，不得静默丢弃。
+        boolean startupLoad = change.type == ParamChange.Type.CMD_LOAD_RISK_PARAMS;
+        if (!startupLoad && !bridge.isReady()) {
             throw BizException.of(ErrorCode.COMPONENT_UNAVAILABLE,
                     "交易组件不可用（isReady=false），拒绝下发（不得静默丢弃）：type=" + change.type
                             + "；复现=检查组件进程与 HGCP 通道（NFR-DEPLOY-5）");

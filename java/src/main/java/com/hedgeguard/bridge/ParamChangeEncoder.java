@@ -23,6 +23,20 @@ import hgcp.v1.Hgcp;
  */
 public final class ParamChangeEncoder {
 
+    /** §4.2.8.6 {@code RiskThresholds} 的 16 个扁平字段名（§4.2.3 第 17 行；G-5 嵌套复用）。 */
+    private static final String[] THRESHOLD_KEYS = {
+            "scale_ratio_commodity", "scale_ratio_trade", "scale_base", "scale_scope",
+            "term_max_months", "term_grace_days", "term_action", "price_base",
+            "price_warn_pct", "price_block_pct", "position_check_mode",
+            "freq_intraday_warn", "freq_intraday_block", "freq_7d_rounds_warn",
+            "freq_min_hold_days", "margin_ratio_threshold"
+    };
+
+    /** {@code CMD_LOAD_RISK_PARAMS} 品种条目允许的字段名（{@code entries[n].<字段>}）。 */
+    private static final String[] VARIETY_ENTRY_KEYS = {
+            "product_id", "product_code", "category", "status", "unit_factor"
+    };
+
     private ParamChangeEncoder() {
     }
 
@@ -54,6 +68,8 @@ public final class ParamChangeEncoder {
                 return encodePermission(change);
             case CMD_UPDATE_RISK_THRESHOLD:
                 return encodeRiskThreshold(change);
+            case CMD_LOAD_RISK_PARAMS:
+                return encodeLoadRiskParams(change);
             default:
                 throw new IllegalArgumentException(
                         "本里程碑未实现的参数变更类型（payload 映射未定义）：" + change.type);
@@ -304,7 +320,18 @@ public final class ParamChangeEncoder {
      * @return protobuf 序列化字节
      */
     private static byte[] encodeRiskThreshold(ParamChange c) {
-        Hgcp.RiskThresholds.Builder t = Hgcp.RiskThresholds.newBuilder()
+        Hgcp.RiskThresholds t = buildRiskThresholds(c);
+        rejectUnknown(c, THRESHOLD_KEYS);
+        return Hgcp.CmdUpdateRiskThreshold.newBuilder()
+                .setParamVersion(c.paramVersion)
+                .setThresholds(t)
+                .build()
+                .toByteArray();
+    }
+
+    /** 组装 {@code RiskThresholds}（G-5：{@code CMD_UPDATE_RISK_THRESHOLD} 与 {@code CMD_LOAD_RISK_PARAMS.thresholds} 同型）。 */
+    private static Hgcp.RiskThresholds buildRiskThresholds(ParamChange c) {
+        return Hgcp.RiskThresholds.newBuilder()
                 .setScaleRatioCommodity(require(c, "scale_ratio_commodity"))
                 .setScaleRatioTrade(require(c, "scale_ratio_trade"))
                 .setScaleBase(mapScaleBase(require(c, "scale_base")))
@@ -320,16 +347,85 @@ public final class ParamChangeEncoder {
                 .setFreqIntradayBlock(intOf(require(c, "freq_intraday_block")))
                 .setFreq7DRoundsWarn(intOf(require(c, "freq_7d_rounds_warn")))
                 .setFreqMinHoldDays(intOf(require(c, "freq_min_hold_days")))
-                .setMarginRatioThreshold(require(c, "margin_ratio_threshold"));
-        rejectUnknown(c, "scale_ratio_commodity", "scale_ratio_trade", "scale_base", "scale_scope",
-                "term_max_months", "term_grace_days", "term_action", "price_base", "price_warn_pct",
-                "price_block_pct", "position_check_mode", "freq_intraday_warn", "freq_intraday_block",
-                "freq_7d_rounds_warn", "freq_min_hold_days", "margin_ratio_threshold");
-        return Hgcp.CmdUpdateRiskThreshold.newBuilder()
+                .setMarginRatioThreshold(require(c, "margin_ratio_threshold"))
+                .build();
+    }
+
+    // ==================== CMD_LOAD_RISK_PARAMS（启动全量预加载） ====================
+
+    /**
+     * 组装 {@code CMD_LOAD_RISK_PARAMS}（{@code 0x0111}；§4.2.3 控制指令族）。
+     *
+     * <p><b>启动期专用</b>：C++ 侧 {@code TradingApp::advanceStartup()} 须收到本指令、
+     * {@code RiskSnapshot} 非空且 {@code param_version > 0} 才迁移 READY。故载荷至少含
+     * 1 条 {@code varieties[n]}（空载荷会使快照仍为空 ⇒ 永不 READY，实测结论）。
+     *
+     * <p>payload 键：顶层 = {@code batch_index} / {@code batch_total} + 16 个阈值字段；
+     * 品种条目复用 §3.2.1 冻结的 {@code entries[n].<字段>} 前缀。其余 repeated 字段
+     * （白名单 / 额度 / 持仓上限 / 敞口 / 权限 / 总限额 / 年度因子）本期留空由后续增量
+     * {@code CMD_UPDATE_*} 补齐 —— 不改变线格式，仅启用 §4.2.3 已冻结的消息。
+     */
+    private static byte[] encodeLoadRiskParams(ParamChange c) {
+        Hgcp.CmdLoadRiskParams.Builder b = Hgcp.CmdLoadRiskParams.newBuilder()
                 .setParamVersion(c.paramVersion)
-                .setThresholds(t)
-                .build()
-                .toByteArray();
+                .setBatchIndex(uint(require(c, "batch_index")))
+                .setBatchTotal(uint(require(c, "batch_total")))
+                .setThresholds(buildRiskThresholds(c));
+        for (Map<String, String> e : entries(c)) {
+            b.addVarieties(Hgcp.VarietySpec.newBuilder()
+                    .setProductId(uint(e.getOrDefault("product_id", "0")))
+                    .setProductCode(e.getOrDefault("product_code", ""))
+                    .setCategory(mapProductCategory(e.get("category")))
+                    .setStatus(mapProductStatus(e.get("status")))
+                    .setUnitFactor(e.getOrDefault("unit_factor", "1.0000")));
+        }
+        rejectUnknownLoad(c);
+        return b.build().toByteArray();
+    }
+
+    /** {@code category} 字面量 → {@code ProductCategory}（§4.2.8.7 值域）。 */
+    private static Hgcp.ProductCategory mapProductCategory(String s) {
+        String v = String.valueOf(s).trim().toUpperCase(java.util.Locale.ROOT);
+        if (v.equals("TRADE") || v.equals("PRODUCT_CATEGORY_TRADE")) {
+            return Hgcp.ProductCategory.PRODUCT_CATEGORY_TRADE;
+        }
+        if (v.equals("COMMODITY") || v.equals("PRODUCT_CATEGORY_COMMODITY")) {
+            return Hgcp.ProductCategory.PRODUCT_CATEGORY_COMMODITY;
+        }
+        return Hgcp.ProductCategory.PRODUCT_CATEGORY_UNSET;
+    }
+
+    /** {@code status} 字面量 → {@code ProductStatus}（§4.2.8.7 值域）。 */
+    private static Hgcp.ProductStatus mapProductStatus(String s) {
+        String v = String.valueOf(s).trim().toUpperCase(java.util.Locale.ROOT);
+        if (v.equals("ENABLED") || v.equals("PRODUCT_STATUS_ENABLED")) {
+            return Hgcp.ProductStatus.PRODUCT_STATUS_ENABLED;
+        }
+        if (v.equals("DISABLED") || v.equals("PRODUCT_STATUS_DISABLED")) {
+            return Hgcp.ProductStatus.PRODUCT_STATUS_DISABLED;
+        }
+        return Hgcp.ProductStatus.PRODUCT_STATUS_UNSET;
+    }
+
+    /** LOAD 专用校验：顶层键与 {@code entries[n]} 键分别按白名单核对（HGC-1.6 不得静默丢弃）。 */
+    private static void rejectUnknownLoad(ParamChange c) {
+        java.util.Set<String> top = new java.util.HashSet<>(java.util.Arrays.asList(THRESHOLD_KEYS));
+        top.add("batch_index");
+        top.add("batch_total");
+        java.util.Set<String> entryKeys = new java.util.HashSet<>(java.util.Arrays.asList(VARIETY_ENTRY_KEYS));
+        for (String k : c.payload.keySet()) {
+            if (k.startsWith("entries[")) {
+                String field = k.substring(k.indexOf(']') + 1);
+                if (field.startsWith(".")) {
+                    field = field.substring(1);
+                }
+                if (!entryKeys.contains(field)) {
+                    throw new IllegalArgumentException("LOAD 品种条目含协议外键名：" + k);
+                }
+            } else if (!top.contains(k)) {
+                throw new IllegalArgumentException("payload 含 §4.2.3 协议外键名（HGC-1.6）：" + k);
+            }
+        }
     }
 
     /** {@code scale_base} 字面量 → 枚举（{@code §4.2.8.7} 值域）。 */

@@ -6,6 +6,12 @@ import com.hedgeguard.bridge.HgcpClient;
 import com.hedgeguard.bridge.HgcpEventListener;
 import com.hedgeguard.bridge.TcpHgcpTransport;
 import com.hedgeguard.bridge.TradingBridge;
+import com.hedgeguard.bridge.ParamChange;
+import com.hedgeguard.bridge.AckResult;
+import com.hedgeguard.service.RiskThresholdSpec;
+import com.hedgeguard.dao.entity.Product;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import com.hedgeguard.common.SensitiveLog;
 import com.hedgeguard.dao.AuthorizationDao;
 import com.hedgeguard.dao.ParamDispatchDao;
@@ -293,6 +299,8 @@ public final class Bootstrap {
         JdbcConnectionFactory factory = null;
         HgcpClient hgcpClient = null;
         ParamDispatchService paramDispatchService = null;
+        // HELLO_ACK 由读线程异步到达，可能早于下方服务装配完成：钩子经此引用取值并作有界等待。
+        AtomicReference<ParamDispatchService> dispatchRef = new AtomicReference<>();
         WsServerHolder wsServer = null;
         JobScheduler jobScheduler = null;
         AuthFilter authFilter;
@@ -313,7 +321,7 @@ public final class Bootstrap {
             TxTemplate tx = new TxTemplate(pool);
             // HGCP 组件桥：与数据库层同姿态的「受配置保护装配」——凭据（HG_HGCP_AUTH_TOKEN）缺失即不装配。
             // 刻意先于业务服务构造：ParamDispatchService 需要一个可观测其就绪状态的桥实例。
-            hgcpClient = assembleHgcpClient(config);
+            hgcpClient = assembleHgcpClient(config, () -> runStartupDispatch(dispatchRef, tx));
             // T-040 WS 行情/告警服务端：与数据库层同姿态的「受配置保护装配」——
             // CFG-32 hg.web.ws.port 未配置即不装配（A-2 落定形态：不得编造默认端口）。
             // 告警面经 RiskIntradayPersistenceSink 既有的 RiskAlertNotifier 端口注入
@@ -331,6 +339,7 @@ public final class Bootstrap {
                     ? "参数下发服务未装配（组件桥不可用）"
                     : "参数下发服务已装配（回执超时取 CFG-28 " + ParamDispatchServiceImpl.KEY_CMD_TIMEOUT_MS
                             + "）");
+            dispatchRef.set(paramDispatchService);
             BusinessAssembly business = registerBusinessRoutes(router, tx, sessionStore, config,
                     hgcpClient, paramDispatchService, wsServer);
             // 认证时经 AuthService.touchSession 续期 ⇒ 会话为「空闲 30 min」滑动超时（FR-AUTH-15 验收 2）
@@ -451,7 +460,19 @@ public final class Bootstrap {
      * @param config 配置
      * @return 已启动的客户端；凭据未配置时返回 {@code null}
      */
+    /** 单参重载：不注入启动下发钩子（保留既有装配级用例形态）。 */
     static HgcpClient assembleHgcpClient(Config config) {
+        return assembleHgcpClient(config, null);
+    }
+
+    /**
+     * 装配 HGCP 组件桥。
+     *
+     * @param config       配置
+     * @param startupHook  启动期全量参数下发钩子（{@code null} = 不启用）；须在
+     *                     {@code start()} 之前注入，因 HELLO_ACK 由读线程异步到达
+     */
+    static HgcpClient assembleHgcpClient(Config config, Runnable startupHook) {
         char[] token = config.hgcpAuthToken();
         if (token == null || token.length == 0) {
             LOG.info("未装配 HGCP 组件桥（" + Config.ENV_HGCP_AUTH_TOKEN + " 未设置）："
@@ -471,6 +492,7 @@ public final class Bootstrap {
         }
         HgcpClient client = new HgcpClient("hg-biz", tokenStr, clientBootId(),
                 Config.HGCP_TOKEN_VERSION, () -> new TcpHgcpTransport(bind, port));
+        client.setStartupDispatchHook(startupHook);
         try {
             client.start();
             LOG.info("已装配 HGCP 组件桥并建连成功：component_id=hg-biz，通道=" + bind + ":" + port
@@ -496,6 +518,73 @@ public final class Bootstrap {
     private static String clientBootId() {
         String pid = java.lang.management.ManagementFactory.getRuntimeMXBean().getName();
         return "hg-biz-" + pid + "-" + System.currentTimeMillis();
+    }
+
+    /**
+     * 启动期全量参数下发（由 {@link HgcpClient} 在 HELLO_ACK 且组件非 READY 时异步触发）。
+     *
+     * <p>与增量下发共用 {@link ParamDispatchService#dispatch}：先落 {@code t_param_dispatch}
+     * PENDING、下发、等回执、{@code requireEffective} 判生效，留痕口径一致。
+     * {@code CMD_LOAD_RISK_PARAMS} 在 {@code ParamDispatchServiceImpl} 豁免 isReady 守卫
+     * —— 否则「要 READY 才能下发、要下发才能 READY」形成启动死锁。
+     */
+    private static void runStartupDispatch(AtomicReference<ParamDispatchService> ref,
+                                           TxTemplate tx) {
+        ParamDispatchService svc = ref.get();
+        // HELLO_ACK 由读线程异步到达，可能早于参数下发服务装配完成：有界等待，避免静默跳过。
+        for (int i = 0; svc == null && i < 60; i++) {
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            svc = ref.get();
+        }
+        if (svc == null) {
+            LOG.warning("启动全量参数下发跳过：参数下发服务尚未装配");
+            return;
+        }
+        ParamChange snapshot = buildStartupSnapshot(tx);
+        try {
+            AckResult ack = svc.dispatch(snapshot).join();
+            svc.requireEffective(snapshot, ack);
+            LOG.info("启动全量参数下发已生效：paramVersion=" + ack.paramVersion);
+        } catch (RuntimeException e) {
+            LOG.log(Level.WARNING, "启动全量参数下发未生效（组件可能仍 NOT_READY）："
+                    + e.getClass().getSimpleName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 构造启动期全量参数快照（{@code CMD_LOAD_RISK_PARAMS} 单批 {@code 0/1}）。
+     *
+     * <p>阈值取 {@link RiskThresholdSpec} 缺省值作基线（后续变更走
+     * {@code CMD_UPDATE_RISK_THRESHOLD} 增量下发）；品种经 DAO 读取真实在册行 ——
+     * C++ 侧 {@code RiskSnapshot.empty() == (record_count == 0)}，空载荷会使
+     * {@code risk_state_.ready()} 恒假、永不迁移 READY（实测结论）。
+     * {@code unit_factor} 本期以 1.0000 承载（换算因子表未纳入启动快照，显式披露）。
+     */
+    private static ParamChange buildStartupSnapshot(TxTemplate tx) {
+        ParamChange c = new ParamChange(ParamChange.Type.CMD_LOAD_RISK_PARAMS, 0L, 0L);
+        c.with("batch_index", "0").with("batch_total", "1");
+        for (RiskThresholdSpec spec : RiskThresholdSpec.values()) {
+            c.with(spec.wireField(), spec.defaultValue());
+        }
+        List<Product> products = new DmProductDao(tx).findAllOrderByCode();
+        int i = 0;
+        for (Product p : products) {
+            if (p == null) {
+                continue;
+            }
+            c.with("entries[" + i + "].product_id", String.valueOf(p.id));
+            c.with("entries[" + i + "].product_code", String.valueOf(p.productCode));
+            c.with("entries[" + i + "].category", String.valueOf(p.category));
+            c.with("entries[" + i + "].status", String.valueOf(p.status));
+            c.with("entries[" + i + "].unit_factor", "1.0000");
+            i++;
+        }
+        return c;
     }
 
     /**

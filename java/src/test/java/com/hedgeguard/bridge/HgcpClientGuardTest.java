@@ -364,6 +364,55 @@ class HgcpClientGuardTest {
         return evt.toByteArray();
     }
 
+    // ==================== W-11：双向心跳（收到 C++ 主动心跳须回 ACK）====================
+
+    @Test
+    @DisplayName("W-11：收到 C++ 主动 MSG_HEARTBEAT 须回 MSG_HEARTBEAT_ACK，echo_ts_ms 逐字回显 sent_ts_ms")
+    void heartbeatFromComponentIsAcked() throws Exception {
+        RecordingTransport transport = new RecordingTransport();
+        HgcpClient client = authenticatedClient(transport);
+        final int before = transport.sent.size();
+        final long sentTs = 1_700_000_123_456L;
+
+        Hgcp.MsgHeartbeat hb = Hgcp.MsgHeartbeat.newBuilder()
+                .setSentTsMs(sentTs)
+                .setLastReceivedSeq(7L)
+                .setComponentState(Hgcp.ComponentState.COMPONENT_STATE_READY)
+                .build();
+        feed(client, HgcpConstants.MSG_HEARTBEAT, 0, 9L, 9L, hb.toByteArray());
+
+        assertEquals(before + 1, transport.sent.size(),
+                "收到对端心跳必须回一帧 ACK（否则服务端 0x0301 判死 → 反复重连）");
+        HgcpFrame.Decoded out = decode(transport.last());
+        assertEquals(HgcpConstants.MSG_HEARTBEAT_ACK, out.header.type,
+                "应答类型须为 MSG_HEARTBEAT_ACK(0x0005)");
+        Hgcp.MsgHeartbeatAck ack = Hgcp.MsgHeartbeatAck.parseFrom(out.payload);
+        assertEquals(sentTs, ack.getEchoTsMs(), "echo_ts_ms 须逐字回显对端 sent_ts_ms");
+        assertTrue(ack.getServerTsMs() > 0L, "server_ts_ms 须填入本端时间");
+    }
+
+    @Test
+    @DisplayName("W-11：补数批次内的心跳不应被当作事件消费、但仍须回 ACK")
+    void heartbeatIsNotTreatedAsEvent() throws Exception {
+        RecordingTransport transport = new RecordingTransport();
+        HgcpClient client = authenticatedClient(transport);
+        final int before = transport.sent.size();
+        final long sentTs = 1_700_000_999_999L;
+
+        Hgcp.MsgHeartbeat hb = Hgcp.MsgHeartbeat.newBuilder()
+                .setSentTsMs(sentTs)
+                .setLastReceivedSeq(0L)
+                .build();
+        // 非事件帧 ⇒ 走专用分支，不落入 isEventType 的 default
+        feed(client, HgcpConstants.MSG_HEARTBEAT, 0, 10L, 10L, hb.toByteArray());
+
+        assertEquals(before + 1, transport.sent.size());
+        HgcpFrame.Decoded out = decode(transport.last());
+        assertEquals(HgcpConstants.MSG_HEARTBEAT_ACK, out.header.type);
+        Hgcp.MsgHeartbeatAck ack = Hgcp.MsgHeartbeatAck.parseFrom(out.payload);
+        assertEquals(sentTs, ack.getEchoTsMs());
+    }
+
     private static byte[] fundReceiptPayload(String applyId, String amount) {
         Hgcp.EvtFundReceipt evt = Hgcp.EvtFundReceipt.newBuilder()
                 .setIdempotencyKey(applyId)

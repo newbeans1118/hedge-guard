@@ -75,6 +75,9 @@ W-07 可独立于主线推进
 | 2026-11-19 | W-01 / W-03 / W-04 | 服务恢复（交易日）；批量 TCP 探测第一套三组 6/6 通；**`SIMULATION` vs `PRODUCTION` 双模式对照实测**（用户裁定「方案 1：不改代码，先试」，仅运行时 `HG_CTP_ENV_TYPE` 切换） | **`W-04 达成`**：`PRODUCTION`（`bIsProductionMode=true`）下 `Decrypt handshake data failed`=0、`ctp=LOGGED_IN CTP 登录成功（DEGRADED 解除）` 于启动后 +1.2s / +1.4s 两次稳定复现；`SIMULATION` 稳定失败（Decrypt=2、无 LOGGED_IN）⇒ **根因确认为 SDK 评测/生产密钥形态，非 SDK 包版本、非服务可用性** | 见 §10 验证章；仅一次性 env、零落盘、未改任何源码/配置/文档既有行；本行不登记任何凭据值；临时数据在 `/tmp` 已清理 |
 | 2026-11-19 | W-10 / W-04 | 用户裁定「方案 B」（新增独立配置解耦 SDK 密钥模式与 `env_type` 治理语义）；实施 5 文件源码改动 + 双轨构建 / ctest / E1–E9 门禁 + **零 env 覆盖**的固化启动验证 | **`W-10 DONE`**：新增 `hg.ctp.api_key_mode`（AUTO/PRODUCTION/EVALUATION，缺省 AUTO 零回归）；`env_type=SIMULATION`（治理：非实盘）+ `api_key_mode=PRODUCTION`（SDK：生产密钥）写入 `hg.properties` ⇒ 启动 +0.1s `LOGGED_IN`、95s 内 ESTAB 恒为 2、Decrypt=0、优雅退出 `exit 0`；`health-check.sh trading` = PASS=2 / FAIL=1（`NOT_READY` 需 Java 参数下发，属 W-05） | 见 §11 实施章；源码 154+/3−；双轨 60/60 + 64/64、门禁 9/0/0；本行不登记任何凭据值；`hg.properties` 被 `.gitignore` 忽略、不入库 |
 | 2026-11-19 | W-05 | 用户指令「推进 W-05」；核查 Java 侧启动前置，用 `/tmp` 临时探针（不改产品代码）连真实 C++ 组件验证 HGCP 握手 | **W-05 前半段达成、后半段仍 BLOCKED**：`MSG_HELLO → HELLO_ACK` 握手成功（`authState=AUTHENTICATED`）；但发现 **Java `HgcpClient` 缺 `MSG_HEARTBEAT` 分支**，不回 C++ 主动心跳 ⇒ C++ 判死 `0x0301 ERR_HEARTBEAT_TIMEOUT` 关连接 ⇒ Java 反复重连；且 `CMD_LOAD_RISK_PARAMS` 需真 DM8 + `HG_DB_PASSWORD` + `DmJdbcDriver18.jar`（不随仓库分发） | 见 §12 W-05 章；探针在 `/tmp` 已清理、无残留进程；本行不登记任何凭据值；未改任何产品代码 |
+| 2026-11-19 | W-11 | 用户裁定「a,b」：a 提交 §12 登记（`b403a62`）；b 修心跳应答缺陷（方案 A）；实施 2 文件 Java 改动 + 2 用例 + 全量门禁 + **修复前/后公平对照实验** | **修复本身正确但因果判断被证伪**：`MSG_HEARTBEAT → MSG_HEARTBEAT_ACK` 分支补齐（符合 ARCH §4.2.8.5 双向心跳契约），单测 9/0/0、全量 1511/0/0/0、E1–E9 9/0/0、两文件零警告；但对照实验实测**修复前/后跨进程重连几乎一致**（`0x301` 各 3 次、`0x302` 8 vs 10）⇒ 缺 ACK **不是**跨进程重连主因；真实主因另待查（疑似 C++ 单连接治理 + 探针未走完整 `hg-biz` 装配）。W-05 仍 BLOCKED | 见 §13；改动 `HgcpClient.java` 31+ / `HgcpClientGuardTest.java` 49+；探针/基线在 `/tmp` 已清理、无残留进程；本行不登记任何凭据值 |
+| 2026-11-20 | dev/test 全流程可用性 | 用户裁定「测试阶段·非验收·SQLite 代 DM8·重点测全流程业务可用性」；派生 SQLite DDL 建库 + 重启 hg-biz + `/tmp` 探针点亮 C++ READY + 全流程 REST 复测 | **SQLite 档可用**：112 表 / 302 索引播种、175 路由、登录与 28 端点 25 绿、写链路落库；`health-check.sh all` = **PASS=6 / FAIL=0 / rc=0**；C++ `state=READY param_version=1`。**W-05 仍 BLOCKED**：产品侧无 `CMD_LOAD_RISK_PARAMS` 编码 / 构造点、`isReady` 守卫死锁；完整装配下 `0x301`/`0x302` 重连致参数下发回执 412/10014「连接中断」 | 见 §14；产物全在 `/tmp`；不改产品代码 / 共享台账；零落盘；账面维持 235 / 2235 / 全部闭环；提交需单独指令 |
+| 2026-11-20 | W-05 产品实现 | 用户指令「实现 CMD_LOAD_RISK_PARAMS 全量下发 并排查 HGCP 重连」；Java 4 文件 + 2 新测试类；逐层实测定位重连 4 根因 | **全链打通**：启动自动下发 LOAD ⇒ C++ `NOT_READY→REPLAYING→READY`、增量 `POST /risk/rule` 200/SUCCESS、**重连与 `0x106` 增量归零**、`health-check.sh all` PASS=6/FAIL=0；门禁 1521/0/0/0 + C++ 64/64 + 60/60 + 探针 9/9 | 见 §15；不改线格式 / 契约 / C++；账面维持 235 / 2235 / 全部闭环；提交需单独指令 |
 
 ## 7. CTP 登录失败诊断（2026-11-13 实测，W-04 阻塞根因）
 
@@ -451,3 +454,139 @@ C++ 侧同时：`listen=127.0.0.1:27400` → `ctp=LOGGED_IN`（SimNow）→ `sta
 - 口令仅一次性 env、零落盘；未发交易指令、无实盘资金；未臆造公网地址。
 - **账面维持**：235 任务 / 2235 人时 / 233 DONE / 2 REJECTED / 六区 `0/0/0/233/0/2` / 全部任务闭环 / 机读 221。未立 `T-` 号、未新增 `W-` 号、未启用新轮次号。
 - 本轮仅追加 §5 进度行 + 本章；**提交 / push 需单独指令**。
+
+## 13. W-11：心跳应答补齐与因果判断证伪（2026-11-19，编排者 · 单写者）
+
+> **依据**：§12.5 方案 A + 用户裁定「a,b」（a=提交 §12 登记，b=修心跳应答缺陷）。
+> **性质**：Java 源码实施 + 全量门禁 + **公平对照实验** + 逐条留痕；章节按追加时序落盘；全部计数 / 行号**以实时为准**。
+
+### 13.1 a：登记提交
+
+`b403a62` `ledger(W-05): 跨进程 HGCP 握手实测与心跳应答缺陷登记 —— BACKLOG §12 纯追加（0 删行·账面不变）`（1 文件 / 67+/0−）。
+
+### 13.2 b：修复内容（2 文件，31+ / 49+）
+
+| 文件 | 改动 |
+|---|---|
+| `java/src/main/java/com/hedgeguard/bridge/HgcpClient.java` | `onFrame()` 增 `case MSG_HEARTBEAT:` → `onHeartbeat(d)`；新方法解析 `MsgHeartbeat.sent_ts_ms`，回 `MSG_HEARTBEAT_ACK{echo_ts_ms=原样回显, server_ts_ms=Clocks.epochMilli()}`。写帧失败仅 `WARNING`（不主动重连，避免与读线程 `onDisconnected()` 重入） |
+| `java/src/test/java/com/hedgeguard/bridge/HgcpClientGuardTest.java` | +2 用例：`heartbeatFromComponentIsAcked`（收 C++ 心跳必回 ACK、echo 逐字回显、server_ts 非 0）、`heartbeatIsNotTreatedAsEvent`（心跳不落入事件消费分支、仍回 ACK） |
+
+**契约依据**：`docs/ARCHITECTURE.md:978`「心跳双向，两侧各自定时发 `MSG_HEARTBEAT`，对端回 `MSG_HEARTBEAT_ACK`」；`proto/hgcp.proto:338-348` 字段定义；`§4.2.8.5 / :1114` `MsgHeartbeatAck{echo_ts_ms, server_ts_ms}`。修复前 `HgcpClient.onFrame()` 无 `MSG_HEARTBEAT` 分支 ⇒ C++ 主动心跳落入 `default`/`isEventType==false` 被忽略、不回 ACK —— 该**协议层缺口属实**。
+
+### 13.3 门禁（本轮实测）
+
+| 门禁 | 结果 |
+|---|---|
+| `mvn -B -o -Punit -Dtest=HgcpClientGuardTest test` | **9/0/0**（原 7 → 9） |
+| `mvn -B -o clean test`（全量标准门禁） | **1511/0/0/0 BUILD SUCCESS**（原 1509） |
+| 本次两文件 `-Xlint:all` 警告 | **0**（日志中 unchecked 警告来自 HEAD 既有的 `Cas24SelfcheckServiceTest` 等，非本次引入） |
+| `mvn -B -o validate`（E1–E9） | **9/0/0，arch-check 通过** |
+
+### 13.4 关键：公平对照实验证伪 §12.3 的因果判断
+
+§12.3 曾判断「Java 缺心跳 ACK ⇒ C++ `0x0301` 判死 ⇒ 跨进程反复重连」。为验证，把 **HEAD（修复前）的 `HgcpClient.java` 单独编译到 `/tmp/hg-baseline`**（classpath 优先覆盖），用**同一探针、同样 12s、同一 C++ 组件**对照：
+
+| 版本 | state 迁移 | `0x301` | `0x302` | 重连成功 |
+|---|---|---|---|---|
+| 修复前 HEAD | 6 | 3 | 8 | 11 |
+| 修复后 W-11 | 7 | 3 | 10 | 13 |
+
+**结论**：两版几乎一致 ⇒ **缺心跳 ACK 不是跨进程重连的主因**，§12.3 的因果推断**证伪**。修复后 `0x301`（C++ 心跳判死）与 `0x302`（`ERR_DUPLICATE_CONNECTION`，C++ 单连接治理：旧连接未释放时新连接被拒）仍周期性出现；单次连接探针（8s）也在 +3.5s 断连。
+
+**可能的真实主因（未定论，不臆断）**：探针是**简化装配**（空 token、无 DB、无完整 `hg-biz` 参数下发/补数流程），与 C++ 服务端「单连接治理 + 重连补数 + SEQ 单调校验」交互；`onDisconnected()` 重连时 `restartReader()` 与旧连接释放存在时序竞态。需**完整 `hg-biz`（真 DM8 + 驱动 + 凭据）**才能定论，不在本轮可判定范围。
+
+### 13.5 处置与边界（重要）
+
+- **修复予以保留**：`MSG_HEARTBEAT → ACK` 分支在协议契约层**独立正确**、零回归、单测与全量门禁通过；即便它不是本次重连主因，也是架构明文要求且此前缺失的机制（既有 `M2EndToEndAcceptanceTest` 用进程内桩，明载「不构成跨进程真联」，故未暴露）。
+- **登记更正**：§12.3 的标题性结论「这就是跨进程重连主因」以本章为准；§5 / §12 各进度行与正文**原文逐字保留、零回改**，语义消解统一由本章（§13.4 / §13.5）显式登记 —— 符合「勘误不回改历史」且保持 diff 纯追加。
+- **W-05 仍 BLOCKED**：完整联调依赖 ① 真 DM8 + `DmJdbcDriver18.jar` + `HG_DB_PASSWORD` ② `HG_HGCP_AUTH_TOKEN`（可选）③ 查明 §13.4 的跨进程重连时序问题（需完整装配后复验，不擅自继续改产品代码）。
+- **未擅自扩大改动**：曾怀疑并发写（`onFrame` 读线程与 `heartbeatLoop` 共享无锁 `transport.send`），经对照实验后**未**据此加同步/改更多代码 —— 避免在无定论时引入未验证的改动。
+- 探针 / baseline 类均在 `/tmp`，已删除；无残留进程；口令仅一次性 env、零落盘；未发交易指令、无实盘资金。
+- **账面维持**：235 任务 / 2235 人时 / 233 DONE / 2 REJECTED / 六区 `0/0/0/233/0/2` / 全部任务闭环 / 机读 221。未立 `T-` 号、未新增 `W-` 号、未启用新轮次号、未改共享台账任何一行。
+- 本轮改动（Java 2 文件 + `docs/BACKLOG.md` 追加）**未提交**；提交 / push 需单独指令。
+
+## 14. dev/test 全流程业务可用性实跑（2026-11-20，编排者 · 单写者 · 纯追加）
+
+> **用户裁定**：当前连接 SimNow 属**测试阶段、非验收**；**允许以 SQLite 代替 DM8**；目标 = 重点测试全流程业务可用性。
+> **性质**：纯运行验证 + `/tmp` 测试探针，**不改产品代码、不改共享台账任何既有行**；产物全在 `/tmp`，不入库。
+> **时点**：2026-11-20；全部计数 / 行号 / 状态**以实时为准**。账面维持 235 任务 / 2235 人时 / 233 DONE / 2 REJECTED / 六区 `0/0/0/233/0/2` / 全部任务闭环 / 机读 221（沿用第 279 轮，未重算）。
+
+### 14.1 SQLite 落地（CH-016 dev/test 档）
+- 驱动 `org.xerial:sqlite-jdbc:3.36.0.3` 置于 `/tmp/sqlite-jdbc.jar`（无 SLF4J 传递类、含 SPI `java.sql.Driver`），仅加入 `HG_BIZ_CLASSPATH`，**不改 pom.xml、不新增 Maven 坐标**；本地 m2 无该 jar（T-087.1.1「SQLite 真实集成落点不可达」结论复现）。
+- `/tmp/hg_sqlite_ddl.py` 从 11 个 `m*.sql` 派生 `/tmp/hg-sqlite-schema.sql`：剥离 `COMMENT ON` 844 行、后置 `ALTER TABLE` 10 处、`IDENTITY(1,1)`→`INTEGER PRIMARY KEY`、删除表级单列主键、`SET IDENTITY_INSERT` 4 处；产物 `/tmp/hg-dev.db` = **112 表 / 302 索引**，播种 `t_config_item` 68 / `t_role` 7 / 系统行 2。
+- `hg.properties`（被 `.gitignore` 忽略、不入库）追加 2 个非敏感键 `hg.db.url=jdbc:sqlite:/tmp/hg-dev.db` / `hg.db.driver=org.sqlite.JDBC`；`JdbcConnectionFactory` 驱动类名 / URL 本就配置注入（`Config.java:62-66`、`Bootstrap.java:300-304`），**连接层零代码改动**。
+- 实测 `DmDialect` 的 6 个 DM 特有方法在生产 DAO 中调用数**全为 0**，唯一有调用的 `paginate` 返回 `LIMIT ? OFFSET ?`（SQLite 原生支持）⇒ 方言层无冲突，**未新增 `SqliteDialect`**。
+
+### 14.2 Java 侧全流程业务可用性（通过）
+- 装配：`已装配数据库层`、`HGCP 桥建连成功 127.0.0.1:27400`、`参数下发服务已装配`、18 业务服务 / **175 路由**。
+- `/tmp/hg_flow_test.py` 驱动：登录 200/code0 → 9 业务模块 + 支撑模块 28 个端点，**25 个 200+code0**；3 个 NON-OK 均为业务语义拒绝（品种不存在 10001 / 无历史价 10015 / 无结算单 10015），非系统故障。
+- 真实写链路：`POST /product` → SQLite `t_product` 落库 1 行 → `GET /product` 读回；重复编码 409/10010（唯一约束生效）、`t_product_change_log` 留痕 1 行。
+- 注：`start-hg-biz.sh:47` 的 warn「未设 `HG_DB_PASSWORD` ⇒ 不装配数据库」与实测不符 —— 真实开关是 `hg.db.url`（`Config#databaseConfigured()`，`Config.java:307-309`）。
+
+### 14.3 C++ READY 的产品缺口（与数据库选型无关）
+- `ParamChangeEncoder.java:36-60` 的 `encode()` **无 `CMD_LOAD_RISK_PARAMS` 分支**，落入 `default` 抛「本里程碑未实现的参数变更类型」；全仓无该类型构造点。
+- `ParamDispatchServiceImpl.java:272-277` 的 `bridge.isReady()` 守卫 ⇒ 启动期死锁（要 READY 才能下发，要下发才能 READY）；`POST /risk/rule` 实测 503/10002。
+- `HgcpClient.dispatch()` 本身仅查 `authState`，不查 isReady ⇒ 生产守卫在服务层。
+
+### 14.4 /tmp 探针点亮 C++ READY（不改产品代码）
+- `/tmp/HgLoadProbe.java`（复用 `HgcpFrame.encode` 帧编码）模拟 Java 侧全量下发：
+  1. 干净重启 `hg-trading`（`HG_FLOW_DIR=/tmp/hg-flow-clean`、真实 CTP 轨、`HG_CONFIG_FILE` 剔除 db 键）⇒ `HgcpSession.last_received_seq_=0`；
+  2. 首轮 `MSG_HELLO` 后 LOAD 被回 `0x0106 ERR_SEQ_OUT_OF_ORDER` —— 根因 `HgcpSession::on_connected()`（`session.cc:79-83`）**不重置 `last_received_seq_`**，历史连接累积 SEQ 使新连接 seq=1/2 被判回退；
+  3. 空载荷 LOAD 虽被受理（二次发同版本被 `0x0403` 拒，证明 version=1 已应用），但 `risk_state_.ready() == !mgr_.peek().empty()`（`risk_state.h:65`）⇒ 快照空 ⇒ 不 READY；
+  4. 携 1 条合法 `VarietySpec`（`product_id=1` / `COMMODITY` / `ENABLED` / `unit_factor=1.0000`）后：`MSG_ACK(result=0, applied_version=1)` + `EVT_SYSTEM_STATE(SERVER_STATE_READY, param_version_applied=1)` ⇒ **`state=REPLAYING reason=param_version=1` → `state=READY param_version=1 reason=重放一致且门卫通过`**。
+- 重启 `hg-biz`（带 token）后 HELLO_ACK 返回 READY ⇒ Java `isReady()=true`；`health-check.sh all` = **PASS=6 / FAIL=0 / rc=0**。
+
+### 14.5 剩余阻塞（W-05 未闭环，实测精确定位）
+- `POST /risk/rule` 不再被 isReady 拒绝，但回执 **412/10014「参数下发未生效…组件回执=连接中断」**，`t_param_dispatch` 落 1 行 `FAIL/连接中断`。
+- Java 日志在完整装配（真 DB + HGCP 桥 + token）下仍周期 `0x301`/`0x302`/`0x106` 重连；`javap` 实测运行字节码**已含 `onHeartbeat`**（W-11 已编译）⇒ **§13.4「缺心跳 ACK 不是重连主因」在完整装配下再次成立**，主因仍属单连接治理 / SEQ 时序竞态，未定论、不臆断、不擅自改代码。
+
+### 14.6 边界与账面
+- **测试档界定**：不作验收结论、不标真联档通过、不启动 `TC-M4-24` 实盘观察期、未发交易指令、无实盘资金；生产部署口径恒 DM8（`DEPLOY/README.md:29`），**不得以 SQLite 结论替代 DM8 验收**。
+- 探针仅为**测试手段**：产品侧 `CMD_LOAD_RISK_PARAMS` 全量下发仍未实现，C++ READY 由探针点亮**不等于**生产链路打通。
+- 零落盘：测试口令仅 Python 进程内存生成、`HG_HGCP_AUTH_TOKEN` 随机值仅 env；无任何凭据写入代码 / 文档 / 测试 / 属性文件。
+- 产物全在 `/tmp`：`hg-dev.db`、`hg-sqlite-schema.sql`、`sqlite-jdbc.jar`、`hg_sqlite_ddl.py`、`hg_flow_test.py`、`HgLoadProbe.java`、`hg-flow-result.json`；仓库共享台账 `TASKS/BOARD/TEST_RESULT/REVIEW/CODEBUDDY` 与源码**零改动**。
+- 本轮 `docs/BACKLOG.md` 追加未提交；提交 / push 需单独指令。
+
+## 15. CMD_LOAD_RISK_PARAMS 全量下发实现 + HGCP 重连排查（2026-11-20，编排者 · 单写者 · 纯追加）
+
+> **用户指令**：「实现 CMD_LOAD_RISK_PARAMS 全量下发 并排查 HGCP 重连」。
+> **性质**：改产品代码（Java 侧 4 文件）+ 新增 2 个测试类；**不改线格式**（§4.2.3 已冻结的 `CmdLoadRiskParams` 消息仅启用，字段名/号/类型零改动）、不改 `proto/hgcp.proto`、不改 `java/CONTRACTS.md`、不改 C++。
+> **时点**：2026-11-20；全部计数 / 行号 / 状态**以实时为准**。账面维持 235 任务 / 2235 人时 / 233 DONE / 2 REJECTED / 六区 `0/0/0/233/0/2` / 全部任务闭环 / 机读 221（未重算、未立 `T-` 号、未新增 `W-` 号、未启新轮次号）。
+
+### 15.1 改动清单
+| 文件 | 改动 |
+|---|---|
+| `ParamChangeEncoder.java` | `encode()` 补 `CMD_LOAD_RISK_PARAMS` 分支；抽 `buildRiskThresholds()` 复用 `RiskThresholds`（G-5）；新增 `encodeLoadRiskParams()`（版本 / `batch_index` / `batch_total` / 阈值 / `entries[n]` 品种）+ `mapProductCategory` / `mapProductStatus` / `rejectUnknownLoad`（HGC-1.6 不得静默丢弃） |
+| `ParamDispatchServiceImpl.java` | `dispatch()` 守卫对 `CMD_LOAD_RISK_PARAMS` **豁免** `bridge.isReady()` —— 否则「要 READY 才能下发、要下发才能 READY」启动死锁；其余类型维持 NFR-DEPLOY-5 显式拒绝 |
+| `HgcpClient.java` | 新增 `setStartupDispatchHook` + `fireStartupDispatch`（HELLO_ACK 且 `server_state != READY` 时异步触发、同一时刻仅一个在飞；已 READY 不重复）；重连修复（见 §15.2） |
+| `Bootstrap.java` | `assembleHgcpClient` 双参重载注入启动钩子；`runStartupDispatch`（有界等待装配引用 → `dispatch` + `requireEffective`）；`buildStartupSnapshot`（16 阈值取 `RiskThresholdSpec` 缺省基线 + `DmProductDao.findAllOrderByCode()` 真实品种使 `RiskSnapshot` 非空 + 单批 0/1） |
+| `ParamChangeEncoderLoadTest.java`（新） | 7 例：逐字段解析 / 阈值回归 / 缺键 / 未知顶层键 / 未知条目键 / 空载荷提示 |
+| `HgcpClientStartupDispatchTest.java`（新） | 3 例：hook 仅非 READY 触发 / 重连关闭旧 transport / `SocketTimeoutException` 不重连 |
+
+### 15.2 HGCP 重连根因链（逐层实测定位，非臆断）
+| # | 根因 | 证据 | 修复 |
+|---|---|---|---|
+| 1 | 重连 `connectAndHandshake()` **不关闭旧 transport** ⇒ 服务端单连接治理仍视旧连接 active ⇒ 新连接被回 `0x0302 ERR_DUPLICATE_CONNECTION` 后关闭 ⇒ 循环 | `HgcpClient` 原实现直接 `transport = factory.get()` | 新建前 `old.close()` |
+| 2 | `readLoop` / `heartbeatLoop` / `writeFrame` 可同时判断连 ⇒ 并发重连 + 多个 reader 线程 | 日志 `0x302`/`0x301` 交替、`restartReader()` 不中断旧线程 | `AtomicBoolean reconnecting` 串行化 + `restartReader()` 中断旧 reader |
+| 3 | 重连完成后**过期读线程**的迟到 EOF/异常仍调 `onDisconnected()` ⇒ 连锁重连 | 基线观测 20s +13 次重连、reader `elapsed=0.23s` 不断重建 | `AtomicLong connectionEpoch`，`readLoop(epoch)` 仅在当代际匹配时触发重连 |
+| 4 | **`SO_TIMEOUT_MS=1000`（`TcpHgcpTransport`）与服务端 `hg.tcp.heartbeat_ms=1000` 同值**，读超时 `SocketTimeoutException` 被 `catch (IOException)` 误判为断连 | 诊断日志 `HGCP-DIAG IOException java.net.SocketTimeoutException: Read timed out thread=hgcp-reader`（瞬时抓到 168 条） | `readLoop` 前置 `catch (SocketTimeoutException)` ⇒ 仅继续读、不重连（真断连仍由 EOF / `Connection reset` / 心跳 miss 判定） |
+
+> §13.4「缺心跳 ACK 不是重连主因」再次成立：`javap` 实测运行字节码已含 `onHeartbeat`（W-11 已编译）。真实主因为上表 4 项，均已定位并修复。
+
+### 15.3 门禁（全绿）
+- `mvn -B -o clean test` = **1521 / 0 / 0 / 0 + BUILD SUCCESS**（新增 10 例：7 + 3）；compile 阶段 arch-check **E1–E9 9/0/0 rc0**。
+- C++ 双轨 `ctest --test-dir cpp/build` = **64/64**、`cpp/build_stub` = **60/60**。
+  - ⚠️ 首次 `ctest --test-dir cpp` 报 `No tests were found`，且带组件运行时 `hgcp.event_emitter_test` 因 `srv.start()` 绑定 27400 失败（端口占用）；**停组件后重跑全绿** ⇒ 环境冲突，非代码缺陷。
+- 前端探针 **9/9 rc0**。
+
+### 15.4 端到端实跑（dev/test 档，非验收）
+- 同时干净重启双组件：C++ 起点 `NOT_READY` → Java `HELLO_ACK(NOT_READY)` 自动触发启动下发 → **`启动全量参数下发已生效：paramVersion=7`** → C++ `REPLAYING → READY param_version=7 reason=重放一致且门卫通过`。
+- `t_param_dispatch`：`LOAD_RISK_PARAMS / SUCCESS / 7`；增量 `POST /risk/rule` → **200 / code 0**，`UPDATE_RISK_THRESHOLD / SUCCESS / 8`（修复前为 412/10014「连接中断」）。
+- **稳定 25s 观测：重连增量 = 0、`0x106` 增量 = 0**（修复前每 20s +13 次重连）。
+- `health-check.sh all` = **PASS=6 / FAIL=0 / rc=0**；全流程 REST 复测 28 端点 25 绿（3 个为业务语义拒绝 10001/10015）、写链路落库、唯一约束生效。
+
+### 15.5 边界与账面
+- **测试档界定**：不作验收结论、不标真联档通过、不启动 `TC-M4-24` 实盘观察期、未发交易指令、无实盘资金；生产部署口径恒 DM8（`DEPLOY/README.md:29`），SQLite 结论不得替代 DM8 验收。
+- 零落盘：`HG_HGCP_AUTH_TOKEN` 随机值仅 env、测试口令仅进程内存；无凭据写入代码 / 文档 / 测试 / 属性文件。
+- 共享台账 `TASKS/BOARD/TEST_RESULT/REVIEW/CODEBUDDY` 零改动；`hg.properties` 仅本地非敏感键且被忽略；`/tmp` 产物不入库。
+- 本轮产品代码与 `docs/BACKLOG.md` 追加**未提交**；提交 / push 需单独指令。
