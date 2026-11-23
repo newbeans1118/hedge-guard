@@ -94,6 +94,14 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
     /** 连接代际：每次建连递增；过期读线程的迟到断连不得再触发重连（连锁循环根因）。 */
     private final AtomicLong connectionEpoch = new AtomicLong(0);
 
+    /** 组件运行状态快照（阶段 1 监控面；与 MirrorState 物理隔离，绝不回写镜像）。 */
+    private final ComponentStatus componentState = ComponentStatus.empty();
+    private final Object componentStateLock = new Object();
+    /** [链路] 最后收到任意 HGCP 帧的时点（epoch ms）。 */
+    private volatile long lastFrameAtMs;
+    /** [链路] 累计重连成功次数。 */
+    private final AtomicLong reconnectCount = new AtomicLong(0);
+
     /**
      * 注册启动期全量参数下发钩子（可在 {@link #start()} 前后设置）。
      *
@@ -296,6 +304,7 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
     private void onFrame(HgcpFrame.Decoded d, boolean fromResumeBatch) {
         lastReceivedSeq.set(Math.max(lastReceivedSeq.get(), d.header.seq));
         heartbeatMisses = 0;
+        lastFrameAtMs = Clocks.epochMilli();
         try {
             switch (d.header.type) {
                 case HgcpConstants.MSG_HELLO_ACK:
@@ -379,6 +388,15 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
             mirror.setReadyState(mapServerState(ack.getServerState()));
             if (ack.getParamVersion() > 0) {
                 mirror.setParamVersion(ack.getParamVersion());
+            }
+            // 阶段 1 监控面：握手回执即一次状态基线（[事件] 之外的链路侧基线）。
+            synchronized (componentStateLock) {
+                componentState.bridgeAssembled = true;
+                componentState.linkEstablished = true;
+                componentState.state = shortServerState(ack.getServerState());
+                componentState.ready = (ack.getServerState() == Hgcp.ServerState.SERVER_STATE_READY);
+                componentState.paramVersion = ack.getParamVersion();
+                componentState.stateTsMs = Clocks.epochMilli();
             }
             // 组件未 READY ⇒ 需 CMD_LOAD_RISK_PARAMS 全量预加载点亮；已 READY ⇒ 不重复下发。
             if (ack.getServerState() != Hgcp.ServerState.SERVER_STATE_READY) {
@@ -640,6 +658,57 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
                 mirror.setReadyState(mapServerState(e.getState()));
                 mirror.setParamVersion(e.getParamVersionApplied());
                 mirror.advanceWatermark(seq);
+                HgcpEventListener.SystemState out = new HgcpEventListener.SystemState();
+                out.state = e.getState().name();
+                out.paramVersionApplied = e.getParamVersionApplied();
+                out.loadedCounts = e.getLoadedCounts();
+                out.reason = e.getReason();
+                out.tsMs = e.getTsMs();
+                synchronized (componentStateLock) {
+                    componentState.state = shortServerState(e.getState());
+                    componentState.ready = (e.getState() == Hgcp.ServerState.SERVER_STATE_READY);
+                    componentState.paramVersion = e.getParamVersionApplied();
+                    componentState.loadedCounts = out.loadedCounts;
+                    componentState.stateReason = out.reason;
+                    componentState.stateTsMs = out.tsMs;
+                }
+                notifyListener(l -> l.onSystemState(out));
+                break;
+            }
+            case HgcpConstants.EVT_CTP_STATE: {
+                Hgcp.EvtCtpState e = Hgcp.EvtCtpState.parseFrom(d.payload);
+                mirror.advanceWatermark(seq);
+                HgcpEventListener.CtpState out = new HgcpEventListener.CtpState();
+                out.tradeConnected = e.getTradeConnected();
+                out.mdConnected = e.getMdConnected();
+                out.frontAddr = e.getFrontAddr();
+                out.stateChangeTsMs = e.getStateChangeTsMs();
+                out.reason = e.getReason();
+                synchronized (componentStateLock) {
+                    componentState.ctpTradeConnected = out.tradeConnected;
+                    componentState.ctpMdConnected = out.mdConnected;
+                    componentState.ctpFront = out.frontAddr;
+                    componentState.ctpStateChangeTsMs = out.stateChangeTsMs;
+                    componentState.ctpReason = out.reason;
+                }
+                notifyListener(l -> l.onCtpState(out));
+                break;
+            }
+            case HgcpConstants.EVT_TRADING_ALERT: {
+                Hgcp.EvtTradingAlert e = Hgcp.EvtTradingAlert.parseFrom(d.payload);
+                mirror.advanceWatermark(seq);
+                HgcpEventListener.TradingAlert out = new HgcpEventListener.TradingAlert();
+                out.alertCode = e.getAlertCode();
+                out.level = e.getLevel().name();
+                out.detail = e.getDetail();
+                out.alertTsMs = e.getAlertTsMs();
+                synchronized (componentStateLock) {
+                    componentState.lastAlertCode = out.alertCode;
+                    componentState.lastAlertLevel = out.level;
+                    componentState.lastAlertDetail = out.detail;
+                    componentState.lastAlertTsMs = out.alertTsMs;
+                }
+                notifyListener(l -> l.onTradingAlert(out));
                 break;
             }
             default:
@@ -755,6 +824,7 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
                     connectAndHandshake();
                     sendResumeRequest();
                     restartReader();
+                    reconnectCount.incrementAndGet();
                     LOG.info("HGCP 重连成功");
                     return;
                 } catch (InterruptedException e) {
@@ -1007,6 +1077,48 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
     @Override
     public MirrorSnapshot mirror() {
         return mirror.snapshot();
+    }
+
+    /**
+     * 主动查询 C++ 组件状态（{@code CMD_QUERY_STATUS 0x011C}，阶段 1 监控面）。
+     *
+     * <p><b>纪律</b>：仅供「按需核验 / 对账 / 健康探针」使用，<b>不得</b>定时轮询并把
+     * 结果同步回 {@link MirrorState}（{@code TradingBridge} §3.10 冻结纪律）。
+     * 本方法只发一帧、复用 {@link #sendCommand} 的 ACK 关联与超时，不新建连接、不改线格式；
+     * {@code what} 位语义由阶段 2 补全，阶段 1 传 {@code 0}（C++ 侧现忽略该字段并返回全量摘要）。
+     *
+     * @param what {@code CmdQueryStatus.what} bitmask（阶段 1 传 {@code 0}）
+     * @return 回执；{@link AckResult#message} 即 {@code MSG_ACK.detail}
+     */
+    public CompletableFuture<AckResult> queryStatus(int what) {
+        byte[] body = Hgcp.CmdQueryStatus.newBuilder().setWhat(what).build().toByteArray();
+        return sendCommand(HgcpConstants.CMD_QUERY_STATUS, body);
+    }
+
+    /**
+     * 组件运行状态只读快照（阶段 1 监控面）。
+     *
+     * <p><b>不查 C++、不查库</b>：只由 {@code [事件]} 推送与 {@code [链路]} 自身观测构建，
+     * 与 {@link #mirror()} 同为内存快照（{@code R-RISK-10}）。需要主动核验时由
+     * {@code ComponentMonitor.refresh()} 显式调 {@link #queryStatus(int)}，本方法绝不主动发帧。
+     */
+    public ComponentStatus componentStatus() {
+        synchronized (componentStateLock) {
+            componentState.bridgeAssembled = true;
+            componentState.linkEstablished = (authState == AuthState.AUTHENTICATED);
+            componentState.lastFrameAtMs = lastFrameAtMs;
+            componentState.connectionEpoch = connectionEpoch.get();
+            componentState.reconnectCount = reconnectCount.get();
+            componentState.watermarkEventSeq = mirror.snapshot().watermarkEventSeq;
+            componentState.takenAt = Clocks.now().toString();
+            return componentState.copy();
+        }
+    }
+
+    private static String shortServerState(Hgcp.ServerState s) {
+        String name = s.name();
+        final String prefix = "SERVER_STATE_";
+        return name.startsWith(prefix) ? name.substring(prefix.length()) : name;
     }
 
     /** 当前鉴权状态（诊断/测试用）。 */

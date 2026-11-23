@@ -17,9 +17,11 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <sstream>
 #include <string>
 #include <vector>
 
+#include "hg/flow_store/flow_store.h"
 #include "hg/hgcp/payload_codec.h"
 #include "hg/hgcp/protocol.h"
 #include "hg/hgcp/timing.h"
@@ -416,6 +418,7 @@ TradingApp::TradingApp(const AppConfig& cfg)
       ctp_login_attempted_(false),
       ctp_logged_in_observed_(false),
       last_expire_ms_(0),
+      started_ms_(systemNowMs(0)),
       replay_started_ms_(0),
       admin_dir_(),
       last_admin_poll_ms_(0),
@@ -470,6 +473,11 @@ TradingApp::TradingApp(const AppConfig& cfg)
   //   状态源同步求值、无副作用；见 `componentState`。
   loop_.set_component_state_fn(&TradingApp::componentState, this);
 
+  // ---- 阶段 2 监控面：CMD_QUERY_STATUS 的 state detail 由本类组装后注入 ----
+  //   与 componentState 同族（函数指针 + user）；未注入时 CommandHandler 自动降级
+  //   为阶段 1 的 key=value 摘要，故简化装配 / 单测夹具行为不变。
+  handler_.set_status_detail_fn(&TradingApp::statusDetail, this);
+
   // ---- 鉴权（可选；令牌仅内存，摘要持有）----
   if (!cfg_.hgcp_auth_token.empty()) {
     auth_verifier_ = hg::hgcp::TokenVerifier::from_token(cfg_.hgcp_auth_token);
@@ -499,6 +507,22 @@ void TradingApp::setState(AppState s, const std::string& note) {
   // 状态迁移每次都留痕（调用点均已按迁移条件判重 ⇒ 不会刷屏）；
   // 部署脚本的就绪等待依赖 `state=READY` / `listen=` 两类日志行。
   logLine(line);
+
+  // 阶段 2 监控面：补齐状态迁移的事件推送。此前只有 READY / FAILED / BLOCKED
+  //   由 `advanceStartup()` 在其既有调用点补发；kNotReady / kReplaying / kStopping
+  //   三段缺失 ⇒ Java 侧只能等下一次 QUERY_STATUS 才看得到。此处按映射补发，
+  //   **不新增 ServerState 枚举值**（kBlocked/kFailed 仍归 NOT_READY）。
+  //   READY 帧依旧只由启动编排发布（§4.5.3 ⑦），本分支刻意不介入，避免重复帧。
+  if (s == AppState::kNotReady || s == AppState::kReplaying
+      || s == AppState::kStopping) {
+    int pb_state = pbv1::SERVER_STATE_NOT_READY;
+    if (s == AppState::kReplaying) {
+      pb_state = pbv1::SERVER_STATE_REPLAYING;
+    } else if (s == AppState::kStopping) {
+      pb_state = pbv1::SERVER_STATE_STOPPING;
+    }
+    emitSystemState(pb_state, note);
+  }
 }
 
 bool TradingApp::start(std::string* error) {
@@ -766,6 +790,116 @@ void TradingApp::componentState(void* user, std::int32_t* server_state,
   //   `MSG_HELLO_ACK` 编码时读取的即当前权威状态。
   if (server_state != 0) *server_state = toServerState(app->state_);
   if (param_version != 0) *param_version = app->risk_state_.param_version();
+}
+
+// ---- 阶段 2 监控面：JSON detail 组装的纯函数辅助 ------------------------------
+namespace {
+
+// 极简 JSON 字符串转义（reason / front 等自由文本可能含引号或控制字符）。
+//   不引入 JSON 库（compile 白名单不含），输出严格合法 JSON 字符串内容。
+std::string jsonEscape(const std::string& in) {
+  std::string out;
+  out.reserve(in.size() + 8u);
+  for (std::size_t i = 0; i < in.size(); ++i) {
+    const unsigned char c = static_cast<unsigned char>(in[i]);
+    switch (c) {
+      case '"': out += "\\\""; break;
+      case '\\': out += "\\\\"; break;
+      case '\n': out += "\\n"; break;
+      case '\r': out += "\\r"; break;
+      case '\t': out += "\\t"; break;
+      default:
+        if (c < 0x20u) {
+          char buf[8];
+          std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned>(c));
+          out += buf;
+        } else {
+          out += static_cast<char>(c);
+        }
+    }
+  }
+  return out;
+}
+
+const char* serverStateName(std::int32_t s) {
+  switch (s) {
+    case pbv1::SERVER_STATE_NOT_READY: return "NOT_READY";
+    case pbv1::SERVER_STATE_REPLAYING: return "REPLAYING";
+    case pbv1::SERVER_STATE_READY: return "READY";
+    case pbv1::SERVER_STATE_STOPPING: return "STOPPING";
+    default: return "UNSET";
+  }
+}
+
+}  // namespace
+
+std::string TradingApp::statusDetail(void* user, std::uint32_t what) {
+  TradingApp* app = static_cast<TradingApp*>(user);
+  if (app == 0) {
+    return std::string("{\"v\":2,\"error\":\"status provider unavailable\"}");
+  }
+  // 位语义（阶段 2 定义）：0x01 状态 · 0x02 重放 · 0x04 参数批次 · 0x08 运行期。
+  // what==0 ⇒ 全量（兼容阶段 1 客户端）；未知位一律忽略，不臆造字段。
+  const std::uint32_t kState = 0x01u;
+  const std::uint32_t kReplay = 0x02u;
+  const std::uint32_t kLoad = 0x04u;
+  const std::uint32_t kRuntime = 0x08u;
+  const std::uint32_t kAll = kState | kReplay | kLoad | kRuntime;
+  const std::uint32_t w = (what == 0u) ? kAll : (what & kAll);
+  const std::int64_t now = app->now_ms();
+  std::int64_t uptime = now - app->started_ms_;
+  if (uptime < 0) uptime = 0;
+
+  std::ostringstream os;
+  os << "{\"v\":2,\"tsMs\":" << now << ",\"what\":" << w;
+  if ((w & kState) != 0u) {
+    // `state` 为 AppState 细名（可区分 BLOCKED/FAILED），`serverState` 为
+    // §4.2.8.7 映射后的协议态（BLOCKED/FAILED 归 NOT_READY，不新增枚举值）。
+    os << ",\"state\":\"" << jsonEscape(appStateName(app->state_)) << "\""
+       << ",\"serverState\":\""
+       << jsonEscape(serverStateName(toServerState(app->state_))) << "\""
+       << ",\"ready\":" << (app->handler_.system_ready() ? "true" : "false")
+       << ",\"paramVersion\":" << app->risk_state_.param_version();
+  }
+  if ((w & kReplay) != 0u) {
+    os << ",\"replay\":{\"runs\":" << app->stats_.replay_runs
+       << ",\"startedMs\":" << app->replay_started_ms_
+       << ",\"state\":\""
+       << jsonEscape(hg::flow_store::flowStateName(app->replay_.state())) << "\"}";
+  }
+  if ((w & kLoad) != 0u) {
+    os << ",\"load\":{\"received\":" << app->handler_.batches_received()
+       << ",\"total\":" << app->handler_.batches_total() << "}";
+  }
+  if ((w & kRuntime) != 0u) {
+    os << ",\"queues\":{\"event\":" << app->emitter_.retained()
+       << ",\"eventCapacity\":" << app->emitter_.capacity()
+       << ",\"backpressure\":" << app->emitter_.backpressure_count() << "}"
+       << ",\"counters\":{"
+       << "\"framesIn\":" << app->stats_.frames_in
+       << ",\"commands\":" << app->stats_.commands
+       << ",\"replies\":" << app->stats_.replies
+       << ",\"events\":" << app->stats_.events
+       << ",\"eventsDeferred\":" << app->stats_.events_deferred
+       << ",\"ctpEvents\":" << app->stats_.ctp_events
+       << ",\"quotesDropped\":" << app->stats_.quotes_dropped
+       << ",\"expireEvents\":" << app->stats_.expire_events
+       << ",\"replayRuns\":" << app->stats_.replay_runs
+       << ",\"acceptedConnections\":" << app->loop_.accepted_connections()
+       << ",\"rejectedDuplicates\":" << app->loop_.rejected_duplicates()
+       << ",\"disconnects\":" << app->loop_.disconnects()
+       << ",\"loopFramesIn\":" << app->loop_.frames_in()
+       << "}"
+       << ",\"ctp\":{\"tradeConnected\":"
+       << (app->ct_.isConnected() ? "true" : "false")
+       << ",\"mdConnected\":" << (app->ct_.isMdConnected() ? "true" : "false")
+       << ",\"front\":\"" << jsonEscape(app->cfg_.ctp_trade_front) << "\""
+       << ",\"loggedIn\":" << (app->ctp_logged_in_observed_ ? "true" : "false")
+       << ",\"degraded\":" << (app->ctp_degraded_ ? "true" : "false") << "}"
+       << ",\"uptimeMs\":" << uptime;
+  }
+  os << "}";
+  return os.str();
 }
 
 void TradingApp::emitEngineEvent(const hg::order_engine::EngineEvent& ev) {

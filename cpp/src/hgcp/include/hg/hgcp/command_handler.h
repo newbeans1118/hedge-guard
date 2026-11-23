@@ -123,12 +123,30 @@ class CommandHandler {
   // 生产装配（T-039）按 CFG-29 落值。
   void set_replay_controller(hg::flow_store::ReplayController* replay);
 
+  // ---- 阶段 2 监控面：状态详情注入（可空；不反向依赖 app 层）--------------------
+  //   CMD_QUERY_STATUS 的回执 detail 由上层按其自有的状态源组装；本层只透传
+  //   `CmdQueryStatus.what` 位掩码，**不感知** AppState/AppStats/CTP，避免 hgcp → app
+  //   的反向依赖（与 `HgcpServerLoop::ComponentStateFn` 同族的函数指针 + user 形态）。
+  //   未注入（缺省 null）⇒ 维持阶段 1 的 `ready=...;param_version=...;load=x/y`
+  //   key=value 摘要，既有夹具与客户端逐字节兼容。
+  typedef std::string (*StatusDetailFn)(void* user, std::uint32_t what);
+  void set_status_detail_fn(StatusDetailFn fn, void* user) {
+    status_detail_fn_ = fn;
+    status_detail_user_ = user;
+  }
+
+  // 参数重建会话的批次观测（供上层组装监控 detail；只读）。
+  std::uint32_t batches_received() const { return session_.batches_received(); }
+  std::uint32_t batches_total() const { return session_.batches_total(); }
+
  private:
   hg::risk_state::RiskState* state_;
   hg::risk_state::ParamRebuildSession session_;
   hg::order_engine::OrderEngine* engine_ = nullptr;
   hg::flow_store::ReplayController* replay_ = nullptr;
   hg::order_engine::RecoveryHook* recovery_ = nullptr;  // T-041 未闭环台账门禁（可空）
+  StatusDetailFn status_detail_fn_ = nullptr;  // 阶段 2 监控面（可空 ⇒ 阶段 1 摘要）
+  void* status_detail_user_ = nullptr;
 
   // 交易路径三指令的消费体（T-036；engine_ 注入后由 handle() 分派）。
   CommandOutcome handleTradePath(std::uint16_t type, const std::vector<std::uint8_t>& body,

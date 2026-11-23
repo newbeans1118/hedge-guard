@@ -109,7 +109,8 @@ class JobAssemblyTest {
             // 路由基线不因新增调度层而变化（调度层不注册任何 HTTP 端点）
             // 【T-131 增注】基线由 168 订正为 173：PRODUCT 写面 +5 对（见 BootstrapAssemblyTest 同轮注释）。
             // FR-PLAN-2 / FR-PLAN-5 试点：PLAN 面 +2 对 ⇒ 173 → 175（见 BootstrapAssemblyTest 同轮注释）。
-            assertEquals(175, assembly.routeCount());
+            // 【阶段 1 监控面增注】新增 1 对 GET /monitor/component ⇒ 175 → 176。
+            assertEquals(176, assembly.routeCount());
         } finally {
             Bootstrap.close(assembly);
         }

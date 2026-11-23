@@ -279,9 +279,12 @@ class BootstrapAssemblyTest {
             // 【FR-PLAN-2 / FR-PLAN-5 试点增注】断言值由 173 订正为 175：PLAN 面补齐 2 对
             // 已声明未注册的方法对（PUT /plan/{id}、GET /plan/{id}/doc），PLAN 18 → 20，
             // 业务路由 171 → 173，+ ping 2 = 175。非为过测试而放宽断言。
-            assertEquals(175, assembly.routeCount(),
-                    "业务路由必须全部注册：173（AUTH17/CONFIG18/PRODUCT18/SPOT15/PLAN20/RISK7/TRADE3/"
-                            + "SETTLE15/FUND16/AUDIT24/ACCT20）+ ping 2");
+            // 【阶段 1 监控面增注】新增 1 对 GET /monitor/component ⇒ 175 → 176。
+            //   非为过测试而放宽断言：路由等值判据（ModuleRoutesConsistencyTest）与穷举可达性判据
+            //   （RouteReachabilityExhaustiveTest / FullWebAssembly.ROUTE_COUNT）同步 +1。
+            assertEquals(176, assembly.routeCount(),
+                    "业务路由必须全部注册：174（AUTH17/CONFIG18/PRODUCT18/SPOT15/PLAN20/RISK7/TRADE3/"
+                            + "SETTLE15/FUND16/AUDIT24/ACCT20/MONITOR1）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。
             // （不真发 HTTP：经 RequestDispatcher 进程内分发；handler 因无真实库而 4xx/5xx 皆可，

@@ -1020,6 +1020,77 @@ void test_order_query_wiring() {
 // 用法：`hg_app_test [case]`
 //   无参 / all ⇒ 全跑；否则只跑指定用例（ctest 一例一进程，失败定位精确）：
 //   config | secret | listen | ready | progress | corrupt | release | order_query
+// ── 阶段 2 监控面：CMD_QUERY_STATUS 结构化 JSON detail + 状态迁移事件补推 ──
+//   纪律：JSON 仍装进既有 `MsgAck.detail` string 字段（不改 proto）；
+//   `what==0` 兼容阶段 1 客户端 ⇒ 全量；未知位忽略，不臆造字段。
+void test_status_detail() {
+  const std::string dir = makeTempDir("hgt2status");
+  const std::uint16_t port = probeFreePort();
+  HG_CHECK(port != 0);
+
+  TradingApp app(baseConfig(dir, port));
+  std::string err;
+  HG_CHECK(app.start(&err));
+
+  Client cli;
+  HG_CHECK(cli.connect(port));
+  Harness h(&app, &cli);
+  HG_CHECK(h.sendHello());
+  Frame hello_ack;
+  HG_CHECK(h.waitFrame(mt(MessageType::kMsgHelloAck), &hello_ack, 2000));
+
+  // ① what=0 ⇒ 全量（0x0F），各段齐备
+  pbv1::CmdQueryStatus q0;
+  q0.set_what(0u);
+  HG_CHECK(h.sendCommand(mt(MessageType::kCmdQueryStatus), enc(q0)));
+  Frame ack0;
+  HG_CHECK(h.waitFrame(mt(MessageType::kMsgAck), &ack0, 2000));
+  pbv1::MsgAck a0;
+  HG_CHECK(PbPayloadCodec::decode(ack0.body, &a0));
+  const std::string d0 = a0.detail();
+  HG_CHECK(d0.find("\"v\":2") != std::string::npos);
+  HG_CHECK(d0.find("\"state\":\"NOT_READY\"") != std::string::npos);
+  HG_CHECK(d0.find("\"serverState\":\"NOT_READY\"") != std::string::npos);
+  HG_CHECK(d0.find("\"ready\":false") != std::string::npos);
+  HG_CHECK(d0.find("\"replay\":{") != std::string::npos);
+  HG_CHECK(d0.find("\"load\":{") != std::string::npos);
+  HG_CHECK(d0.find("\"queues\":{") != std::string::npos);
+  HG_CHECK(d0.find("\"counters\":{") != std::string::npos);
+  HG_CHECK(d0.find("\"ctp\":{") != std::string::npos);
+  HG_CHECK(d0.find("\"uptimeMs\":") != std::string::npos);
+  HG_CHECK(d0.find("\"what\":15") != std::string::npos);
+  HG_CHECK(d0.find('\n') == std::string::npos);  // 无裸控制字符（转义生效）
+
+  // ② what=0x01 ⇒ 只状态段，不含运行期段
+  pbv1::CmdQueryStatus q1;
+  q1.set_what(0x01u);
+  HG_CHECK(h.sendCommand(mt(MessageType::kCmdQueryStatus), enc(q1)));
+  Frame ack1;
+  HG_CHECK(h.waitFrame(mt(MessageType::kMsgAck), &ack1, 2000));
+  pbv1::MsgAck a1;
+  HG_CHECK(PbPayloadCodec::decode(ack1.body, &a1));
+  const std::string d1 = a1.detail();
+  HG_CHECK(d1.find("\"state\":") != std::string::npos);
+  HG_CHECK(d1.find("\"counters\"") == std::string::npos);
+  HG_CHECK(d1.find("\"what\":1") != std::string::npos);
+
+  // ③ 阶段 2 补推的状态迁移事件：启动期 kNotReady 经保留队列在握手后补发
+  h.pump(10, 10);
+  std::vector<Frame> sys;
+  h.takeAll(mt(MessageType::kEvtSystemState), &sys);
+  bool saw_not_ready = false;
+  for (std::size_t i = 0; i < sys.size(); ++i) {
+    pbv1::EvtSystemState e;
+    if (PbPayloadCodec::decode(sys[i].body, &e)
+        && e.state() == pbv1::SERVER_STATE_NOT_READY) {
+      saw_not_ready = true;
+    }
+  }
+  HG_CHECK(saw_not_ready);
+
+  app.stop();
+}
+
 int main(int argc, char** argv) {
   const std::string only = (argc > 1 && argv[1] != 0) ? std::string(argv[1]) : std::string("all");
   const bool all = (only == "all");
@@ -1031,9 +1102,10 @@ int main(int argc, char** argv) {
   if (all || only == "corrupt") test_corrupt_flow_never_ready();
   if (all || only == "release") test_release_unknown_inflight();
   if (all || only == "order_query") test_order_query_wiring();
+  if (all || only == "status_detail") test_status_detail();
   if (!all && only != "config" && only != "secret" && only != "listen" && only != "ready" &&
       only != "progress" && only != "corrupt" && only != "release" &&
-      only != "order_query") {
+      only != "order_query" && only != "status_detail") {
     std::printf("[FATAL] 未知用例：%s\n", only.c_str());
     return 2;
   }

@@ -1217,6 +1217,15 @@ CommandOutcome CommandHandler::handle(std::uint16_t type,
         out.reply = invalid_payload(ack_msg_id, "unparseable");
         return out;
       }
+      // 阶段 2：上层已注入状态详情提供者 ⇒ 按 what 位掩码返回结构化 detail
+      //   （JSON 仍装进既有 `MsgAck.detail` string 字段，**不改 proto**）。
+      if (status_detail_fn_ != 0) {
+        out.reply = make_ack_with_detail(
+            ack_msg_id, status_detail_fn_(status_detail_user_, msg.what()));
+        return out;
+      }
+      // 降级（未注入提供者：单测夹具 / 简化装配）：阶段 1 的 key=value 摘要，
+      //   逐字节保持兼容，确保既有判据不因阶段 2 而返工。
       char buf[80];
       std::snprintf(buf, sizeof(buf), "ready=%s;param_version=%llu;load=%u/%u",
                     system_ready() ? "true" : "false",

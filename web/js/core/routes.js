@@ -175,6 +175,10 @@ export const ROUTES = {
     MIRROR_STATUS: '/risk/mirror-status',                   // GET 事中镜像状态（T-065；只读，非权威源）
     RULE: '/risk/rule'                                      // GET 阈值清单 / POST 变更下发（T-063；FR-CONFIG-5/6）
   },
+  // 阶段 1 监控面：C++ 组件运行状态只读观测（新增模块，纯增量）。
+  MONITOR: {
+    COMPONENT: '/monitor/component'                         // GET 组件状态快照；?refresh=1 才主动核验一次
+  },
   /** 未注册：仅登记路径，**禁止调用**（调用即 404；handler/ 下无 risk/trade 等模块目录）。 */
   NOT_REGISTERED: {
     // T-070 补登记：ApiRoutes RISK 路径表 10 路径中未注册方法对的 5 个（页面保留 Tab 框架 +

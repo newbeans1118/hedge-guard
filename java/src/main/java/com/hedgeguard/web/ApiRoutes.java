@@ -100,6 +100,8 @@ public final class ApiRoutes {
                 "/config/item", "/config/ctp", "/config/ctp/test", "/config/sub-account",
                 "/config/dict", "/config/subject", "/config/report-period", "/config/dispatch/{id}",
                 "/config/change-log", "/config/import", "/config/export"));
+        // 阶段 1 监控面：C++ 组件运行状态只读观测（新增模块，纯增量）。
+        BY_MODULE.put("MONITOR", Arrays.asList("/monitor/component"));
 
         BY_MODULE_ROUTES.put("PRODUCT", Arrays.asList(
                 "GET /product", "POST /product", "POST /product/whitelist",
@@ -212,6 +214,8 @@ public final class ApiRoutes {
                 "GET /config/report-period", "POST /config/report-period",
                 "GET /config/dispatch/{id}", "GET /config/change-log",
                 "POST /config/import", "GET /config/export"));
+        // 阶段 1 监控面：1 对（GET /monitor/component）。
+        BY_MODULE_ROUTES.put("MONITOR", Arrays.asList("GET /monitor/component"));
     }
 
     /** 平台级公开资源（不属于 11 个业务模块）。 */

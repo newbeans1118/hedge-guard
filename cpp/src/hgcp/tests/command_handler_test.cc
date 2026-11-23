@@ -5,6 +5,7 @@
 #include "hg/hgcp/command_handler.h"
 
 #include <cstring>
+#include <string>
 
 #include "hg/hgcp/protocol.h"
 #include "hgcp.pb.h"
@@ -544,6 +545,49 @@ void test_invalid_payload_rejected() {
 
 }  // namespace
 
+// 阶段 2 监控面：`StatusDetailFn` 注入接缝 —— hgcp 层不感知 app 状态，
+//   只把 `CmdQueryStatus.what` 原样透传给上层；未注入时降级为阶段 1 摘要。
+std::string injectedStatusDetail(void* /*user*/, std::uint32_t what) {
+  return std::string("{\"v\":2,\"injected\":true,\"what\":")
+      + std::to_string(what) + "}";
+}
+
+void test_status_detail_injection() {
+  RiskState st;
+  CommandHandler h(&st);
+  // ① 未注入 ⇒ 阶段 1 的 key=value 摘要（既有夹具逐字节兼容）
+  {
+    const CommandOutcome o =
+        h.handle(mt(MessageType::kCmdQueryStatus), enc(pbv1::CmdQueryStatus()), 1, 0);
+    HG_CHECK(is_ok_ack(o));
+    pbv1::MsgAck a;
+    HG_CHECK(decode_ack(o.reply.body, &a));
+    HG_CHECK(a.detail().find("ready=false") != std::string::npos);
+  }
+  // ② 注入后 ⇒ detail 由上层组装，what 位掩码原样透传
+  h.set_status_detail_fn(&injectedStatusDetail, 0);
+  {
+    pbv1::CmdQueryStatus q;
+    q.set_what(0x08u);
+    const CommandOutcome o = h.handle(mt(MessageType::kCmdQueryStatus), enc(q), 2, 0);
+    HG_CHECK(is_ok_ack(o));
+    pbv1::MsgAck a;
+    HG_CHECK(decode_ack(o.reply.body, &a));
+    HG_CHECK(a.detail().find("\"injected\":true") != std::string::npos);
+    HG_CHECK(a.detail().find("\"what\":8") != std::string::npos);
+  }
+  // ③ 撤除注入 ⇒ 回到降级路径（可空接缝不得留下隐式状态）
+  h.set_status_detail_fn(0, 0);
+  {
+    const CommandOutcome o =
+        h.handle(mt(MessageType::kCmdQueryStatus), enc(pbv1::CmdQueryStatus()), 3, 0);
+    HG_CHECK(is_ok_ack(o));
+    pbv1::MsgAck a;
+    HG_CHECK(decode_ack(o.reply.body, &a));
+    HG_CHECK(a.detail().find("ready=false") != std::string::npos);
+  }
+}
+
 int main() {
   test_all_17_consumed();
   test_permission_mapping_and_effect();
@@ -553,6 +597,7 @@ int main() {
   test_risk_threshold_floor();
   test_incremental_cmds_effect();
   test_readiness_gate_and_status();
+  test_status_detail_injection();
   test_permission_engine_integration();
   test_invalid_payload_rejected();
   return hg::hgcp::testutil::report("hgcp.command_handler_test");

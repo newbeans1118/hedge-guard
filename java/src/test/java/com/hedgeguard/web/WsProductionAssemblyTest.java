@@ -113,7 +113,8 @@ class WsProductionAssemblyTest {
         // 路由计数不受 WS 影响（WS 不注册 HTTP 路由，A′ 独立 ServerSocket）
         // 【T-131 增注】基线由 168 订正为 173（PRODUCT 写面 +5 对；WS 仍不注册 HTTP 路由）。
         // FR-PLAN-2 / FR-PLAN-5 试点：PLAN 面 +2 对 ⇒ 173 → 175（WS 仍不注册 HTTP 路由）。
-        assertEquals(175, a.routeCount(), "WS 装配不增减 HTTP 路由计数（装配前基线 175）");
+        // 【阶段 1 监控面增注】新增 1 对 GET /monitor/component ⇒ 175 → 176（WS 仍不注册 HTTP 路由）。
+        assertEquals(176, a.routeCount(), "WS 装配不增减 HTTP 路由计数（装配前基线 176）");
     }
 
     @Test

@@ -78,6 +78,7 @@ W-07 可独立于主线推进
 | 2026-11-19 | W-11 | 用户裁定「a,b」：a 提交 §12 登记（`b403a62`）；b 修心跳应答缺陷（方案 A）；实施 2 文件 Java 改动 + 2 用例 + 全量门禁 + **修复前/后公平对照实验** | **修复本身正确但因果判断被证伪**：`MSG_HEARTBEAT → MSG_HEARTBEAT_ACK` 分支补齐（符合 ARCH §4.2.8.5 双向心跳契约），单测 9/0/0、全量 1511/0/0/0、E1–E9 9/0/0、两文件零警告；但对照实验实测**修复前/后跨进程重连几乎一致**（`0x301` 各 3 次、`0x302` 8 vs 10）⇒ 缺 ACK **不是**跨进程重连主因；真实主因另待查（疑似 C++ 单连接治理 + 探针未走完整 `hg-biz` 装配）。W-05 仍 BLOCKED | 见 §13；改动 `HgcpClient.java` 31+ / `HgcpClientGuardTest.java` 49+；探针/基线在 `/tmp` 已清理、无残留进程；本行不登记任何凭据值 |
 | 2026-11-20 | dev/test 全流程可用性 | 用户裁定「测试阶段·非验收·SQLite 代 DM8·重点测全流程业务可用性」；派生 SQLite DDL 建库 + 重启 hg-biz + `/tmp` 探针点亮 C++ READY + 全流程 REST 复测 | **SQLite 档可用**：112 表 / 302 索引播种、175 路由、登录与 28 端点 25 绿、写链路落库；`health-check.sh all` = **PASS=6 / FAIL=0 / rc=0**；C++ `state=READY param_version=1`。**W-05 仍 BLOCKED**：产品侧无 `CMD_LOAD_RISK_PARAMS` 编码 / 构造点、`isReady` 守卫死锁；完整装配下 `0x301`/`0x302` 重连致参数下发回执 412/10014「连接中断」 | 见 §14；产物全在 `/tmp`；不改产品代码 / 共享台账；零落盘；账面维持 235 / 2235 / 全部闭环；提交需单独指令 |
 | 2026-11-20 | W-05 产品实现 | 用户指令「实现 CMD_LOAD_RISK_PARAMS 全量下发 并排查 HGCP 重连」；Java 4 文件 + 2 新测试类；逐层实测定位重连 4 根因 | **全链打通**：启动自动下发 LOAD ⇒ C++ `NOT_READY→REPLAYING→READY`、增量 `POST /risk/rule` 200/SUCCESS、**重连与 `0x106` 增量归零**、`health-check.sh all` PASS=6/FAIL=0；门禁 1521/0/0/0 + C++ 64/64 + 60/60 + 探针 9/9 | 见 §15；不改线格式 / 契约 / C++；账面维持 235 / 2235 / 全部闭环；提交需单独指令 |
+| 2026-11-22 | 组件监控面（阶段 1–3） | 用户指令链「设计监控方案 → 先完成阶段 1 → 进入阶段 2 → 阶段 3」；Java / C++ / 前端分阶段实现：`GET /api/v1/monitor/component`、`CMD_QUERY_STATUS.what` 位掩码 + JSON detail、状态变更事件补推、阈值告警 + 事件驱动 + `/ws/alert` 冻结内推送 | **三阶段全绿**：门禁 1547/0/0/0、E1–E9 9/0/0、C++ 双轨 65/65 + 61/61、前端探针 10/10；端到端 `?refresh=1` 返回 `what=15` 全量指标（replay / queues / counters / ctp / uptime），WS 经既有 `/ws/alert` 收到 `component.ctp` 告警帧，`health-check.sh all` PASS=6/FAIL=0、重连与 `0x106` 增量归零 | 见 §16；不改 `proto/hgcp.proto` / `TradingBridge` 签名 / `java/CONTRACTS.md` / `docs/ARCHITECTURE.md` / 共享台账 / `health-check.sh`；账面维持 235 / 2235 / 全部闭环；未立 `T-` 号、未新增 `W-` 号、未启新轮次号；本行不登记任何凭据值 |
 
 ## 7. CTP 登录失败诊断（2026-11-13 实测，W-04 阻塞根因）
 
@@ -590,3 +591,50 @@ C++ 侧同时：`listen=127.0.0.1:27400` → `ctp=LOGGED_IN`（SimNow）→ `sta
 - 零落盘：`HG_HGCP_AUTH_TOKEN` 随机值仅 env、测试口令仅进程内存；无凭据写入代码 / 文档 / 测试 / 属性文件。
 - 共享台账 `TASKS/BOARD/TEST_RESULT/REVIEW/CODEBUDDY` 零改动；`hg.properties` 仅本地非敏感键且被忽略；`/tmp` 产物不入库。
 - 本轮产品代码与 `docs/BACKLOG.md` 追加**未提交**；提交 / push 需单独指令。
+
+## 16. 组件监控面（阶段 1–3）：方案 → REST → QUERY_STATUS → 告警推送（2026-11-22，编排者 · 单写者 · 纯追加）
+
+> **用户指令链**：「设计 cpp 服务器监控接口，让 java 服务器通过接口连接服务器，用于监控 cpp 服务器的工作状态。先设计监控方案」→「先完成阶段 1」→「进入阶段 2」→「阶段 3」→「纯追加登记 `docs/BACKLOG.md` 后 提交并 push」。
+> **时点**：2026-11-22；全部计数 / 行号 / 状态**以实时为准**。账面维持 235 任务 / 2235 人时 / 233 DONE / 2 REJECTED / 六区 `0/0/0/233/0/2` / 全部任务闭环 / 机读 221（沿用第 279 轮，未重算）。
+> **边界**：本备忘录 `W-` 号不计正式台账；未立 `T-` 号、未新增 `W-` 号、未启新轮次号；dev/test 档（SQLite 代 DM8、CTP 未 `LOGGED_IN`），不作验收结论。
+
+### 16.1 方案的三条硬约束（决定设计走向）
+- **单连接治理 `0x0302`**（`docs/ARCHITECTURE.md:758`）：通道 A 同时只允许 1 条业务连接 ⇒ 监控**不得新开 socket / 端口 / 连接**，必须复用既有唯一 HGCP 长连接。
+- **`TradingBridge` §3.10「不得以定时轮询同步两侧状态」** ⇒ `CMD_QUERY_STATUS` 只作**按需核验**，绝不写回 `MirrorState`；监控 ≠ 状态同步，服务端不设任何定时器。
+- **冻结门禁 E7 / E9**（`proto/hgcp.proto` 字段级 schema、冻结不变量跨制品）⇒ **proto 零改动**，结构化数据全部装进既有 `MsgAck.detail` string 字段。
+- 现状盘点：协议层已冻结并可用 `CMD_QUERY_STATUS 0x011C` / `EVT_SYSTEM_STATE 0x020A` / `EVT_CTP_STATE 0x020D` / `EVT_TRADING_ALERT 0x020E`；C++ 已实现 QUERY_STATUS 但 `what` 被忽略、只回 key=value 摘要；Java 侧**从未发过** QUERY_STATUS，且 CTP/告警事件落 `default` 丢弃；`health-check.sh` 靠 `grep` 日志判就绪。
+
+### 16.2 阶段 1：REST 只读端点（零 proto / 零 C++ 改动）
+- 新增 `bridge/ComponentStatus.java`（不可变语义快照，与 `MirrorState` 物理隔离）、`bridge/StatusDetailParser.java`（key=value 宽松解析）、`monitor/ComponentMonitor.java`（**无定时器**、`refresh()` 严格单飞）、`web/handler/monitor/MonitorHandler.java` / `MonitorRoutes.java`。
+- `HgcpClient`：加 `queryStatus(what)` / `componentStatus()` / 链路观测字段（`lastFrameAtMs` / `connectionEpoch` / `reconnectCount`）；`HgcpEventListener` 增 3 个 `default` 回调，`CompositeHgcpEventListener` 显式转发。
+- `GET /api/v1/monitor/component`：默认**不查 C++、不查库**；仅 `?refresh=1` 发一帧查询，有界等待、超时返 `refreshPending` 缓存不抛 5xx；不在公开白名单 ⇒ 需会话（匿名实测 401）。
+- 登记 `ApiRoutes.java` + `web/js/core/routes.js`（`MONITOR` 模块），路由数 175 → 176（`FullWebAssembly.ROUTE_COUNT` 173 → 174；`BootstrapAssemblyTest` / `JobAssemblyTest` / `WsProductionAssemblyTest` / `ModuleRoutesConsistencyTest` 四处硬编码同批同步）。
+- 门禁 1537/0/0/0、E1–E9 9/0/0、C++ 64/64 + 60/60、探针 9/9；端到端默认 `lastQueryTsMs=0 / queryDetail=null`、`?refresh=1` 收到 `ready=true;param_version=9;load=0/0`、`health-check.sh all` PASS=6/FAIL=0。
+
+### 16.3 阶段 2：`what` 位掩码 + 结构化 detail + 状态事件补推
+- C++ `CommandHandler` 增 `StatusDetailFn` 注入接缝（函数指针 + user，**hgcp 不反向依赖 app**）；**未注入时保留阶段 1 的 key=value 降级路径**，既有夹具逐字节兼容（`command_handler_test` 原断言不受影响）。
+- `TradingApp::statusDetail` 按 `what` 位组装 JSON：`0x01` 状态 / `0x02` 重放 / `0x04` 参数批次 / `0x08` 队列·计数·CTP·uptime；`what==0` 视作全量（兼容阶段 1 客户端）。字段含 `state`（AppState 细名，可区分 BLOCKED/FAILED）/ `serverState`（§4.2.8.7 映射，BLOCKED/FAILED 仍归 `NOT_READY`，**不新增枚举值**）/ `replay` / `load` / `queues` / `counters` / `ctp` / `uptimeMs` / `tsMs` / `what`；纯内存聚合、不查库、不落盘（E1/E2）。
+- C++ 补推 `NOT_READY` / `REPLAYING` / `STOPPING` 三段 `EVT_SYSTEM_STATE`（READY 仍只由启动编排发布，§4.5.3 ⑦；`app.ready` 既有「READY 帧恰 1」判据不受影响）。
+- Java `StatusDetailParser` 双形态（gson JSON / key=value，非法 JSON 标 `unparsed` 不猜值）、`ComponentStatus` 扩指标、`ComponentMonitor.WHAT_ALL` 由 `0` → `0x0F`。
+- 新增 C++ `app.status_detail` 双轨用例 + `command_handler_test` 注入接缝用例；门禁 1542/0/0/0、C++ 65/65 + 61/61、探针 9/9。端到端 `what=15`、`replayRuns=1`、`eventQueueCapacity=16384`、`framesIn=55`、`ctp.degraded=true / loggedIn=false`（如实反映 CTP 凭据未注入，不粉饰状态）。
+
+### 16.4 阶段 3：阈值告警 + 事件驱动 + 冻结内 WS 推送
+- **关键裁定（零冻结面）**：`java/CONTRACTS.md §4.1` 把 WS 端点冻结为 `/ws/quote`、`/ws/alert`，文件头规定唯一写者 `backend-engineer#java`、新增路由/约定须投 `question` 落笔、不得先改后报；`WsServer.ALLOWED_PATHS` 与 `W-1 channels` 值域同族冻结 ⇒ **未新增 `/ws/monitor` 专用路径 / 通道 / 消息形态**，改为复用既有 `/ws/alert` 的 `{"type":"alert"}` 帧，以 `metric` 的 `component.` 前缀标识。专用通道仍待 `CH-xxx` 用户裁定 + 唯一写者落笔。
+- 新增 `bridge/ComponentAlert.java` / `monitor/ComponentAlertSink.java`；`ComponentMonitor` 加 5 类阈值（state / link / ctp / reconnect / queue）、去重（持续异常不刷屏、解除后可再触发）、有界内存历史（100 条，随 `alerts` 数组返回）、`implements HgcpEventListener` 事件驱动（**无轮询**）；出口异常不中断监控主链路。
+- 装配：`setAlertSink` → `wsServer.alertNotifier()` → `WsServer.publishAlert(0, …)`（账户级哨兵 0，仍经 W-2 `t_user_sub_account_perm` 授权过滤）；`ComponentMonitor` 加入 T-172 组合器（阶段 1「不加入」注释按「只追加不回改」补阶段 3 说明）。
+- 前端 `web/js/core/ws.js` 增并导出 `connectComponentAlerts(handlers)`：复用 `connect('alert')`、过滤 `component.` 前缀、其余帧原样透传；新增 `tools/probes/monitor_ws_probe.mjs`（8 例）。
+- **告警留痕仅内存**（`ComponentStatus.alerts`，重启不保留）。未落 `t_risk_alert`：其 `ck_risk_alert_type` CHECK 值域冻结为 8 类事中指标、无 `COMPONENT` 类型 ⇒ 落库需改 `docs/DATA_MODEL.md` / DDL + `CH-xxx`，本轮未擅自扩面。
+- 门禁 1547/0/0/0、E1–E9 9/0/0、C++ 双轨 65/65 + 61/61、前端探针 10/10。
+
+### 16.5 阶段 3 端到端实跑（dev/test 档，非验收）
+- 运行时启用 `hg.web.ws.port=27403`（**仅 `/tmp/hg-biz-stage3.properties`，仓库 `hg.properties` 仍 0 处 ws.port**）；为 `devtest` 播种账户级授权（`/tmp/hg-dev.db`，可逆）。
+- 实测链：登录 → WS 握手 `HTTP/1.1 101 Switching Protocols` → `subscribed channels=['alert'] subAccounts=[0]`（W-2 授权生效）→ `GET /api/v1/monitor/component?refresh=1` → `ctpDegraded=true` 触发 `component.ctp` → WS 收到 `{"type":"alert","level":"WARNING","metric":"component.ctp","value":"degraded=true,loggedIn=false","threshold":"loggedIn=true,degraded=false","subAccount":0,...}`；REST `alerts` 内存留痕 1 条。
+- 排查留痕：首次播种 `effective_from='2026-01-01'` 触发 sqlite-jdbc `Error parsing time stamp` ⇒ W-2 fail-closed 空集；改可解析格式后授权生效 —— 恰好验证「安全默认空集」未被绕过。
+- 12s 观测：重连 **+0**、`0x106` **+0**；`health-check.sh all` = **PASS=6 / FAIL=0 / rc=0**；C++ `state=READY`。
+
+### 16.6 边界、纪律与待裁定
+- **零改动**：`proto/hgcp.proto`、`java/CONTRACTS.md`、`TradingBridge` 签名、`docs/ARCHITECTURE.md`、`docs/DATA_MODEL.md`、TASKS / BOARD / TEST_RESULT / REVIEW / CODEBUDDY、`health-check.sh`（仍读日志，按方案建议保留；改为依赖 Java 端点会引入组件依赖，需单独裁定）。
+- 零落盘：`HG_HGCP_AUTH_TOKEN` 随机值仅 env、测试口令仅进程内存；`/tmp` 产物与运行时配置不入库；5 个 CTP SDK `*.con` 运行产物未纳入。
+- **`what` 位语义属冻结字段内语义补全**，与 `/ws/monitor` 专用通道、告警落库一样，均需 `CH-xxx` 显式裁定才能写入 `CONTRACTS.md` / `ARCHITECTURE.md` / `DATA_MODEL.md` —— 本轮按「勿为措辞统一改定版制品」未擅自登记。
+- 测试档界定：不作验收结论、不标真联档通过、不启动 `TC-M4-24` 实盘观察期、未发交易指令、无实盘资金；生产部署口径恒 DM8（`DEPLOY/README.md:29`），SQLite 结论不替代 DM8 验收。
+- 本轮登记后按用户指令提交并 push（提交号以 `git log` 实时为准）；§15.5 既有「未提交 / 提交需单独指令」为**时点快照原文**，按「勘误不回改历史」保留不改。

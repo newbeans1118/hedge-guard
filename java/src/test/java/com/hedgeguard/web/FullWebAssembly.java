@@ -20,6 +20,7 @@ import com.hedgeguard.web.handler.settle.SettleCheckRoutes;
 import com.hedgeguard.web.handler.settle.SettleRoutes;
 import com.hedgeguard.web.handler.spot.SpotRoutes;
 import com.hedgeguard.web.handler.trade.TradeRoutes;
+import com.hedgeguard.web.handler.monitor.MonitorRoutes;
 
 /**
  * 六模块（{@code AUTH}/{@code CONFIG}/{@code PRODUCT}/{@code SPOT}/{@code PLAN}/{@code RISK}）的**生产装配**，
@@ -164,8 +165,11 @@ final class FullWebAssembly {
      * ⇒ {@code 171 → 173}（PLAN 方法注册表键 18 → 20）。路径逐字取自
      * {@code ARCHITECTURE.md §4.1.1} PLAN 行，未新增路径、未改字段/错误码/信封。
      * 生产装配含平台级 {@code ping} 2 条后为 {@code 175}，与 {@code BootstrapAssemblyTest} 同锚。
+     *
+     * <p>【阶段 1 监控面】新增 1 对 {@code GET /monitor/component}
+     * ⇒ 本装配 {@code 173 → 174}；生产装配含 ping 2 条后 {@code 175 → 176}。
      */
-    static final int ROUTE_COUNT = 173;
+    static final int ROUTE_COUNT = 174;
 
     private FullWebAssembly() {
     }
@@ -228,6 +232,8 @@ final class FullWebAssembly {
         // T-066：红线复算与限额使用统计面（2 个 (方法,路径) 对：GET|POST /risk/limit-usage）。
         // 服务入参 null：装配期只调用 router.register(...)。
         RiskLimitUsageRoutes.register(router, null);
+        // 阶段 1 监控面（GET /api/v1/monitor/component）：1 对，注册序与生产装配一致。
+        MonitorRoutes.register(router, null);
         return router;
     }
 }

@@ -13,6 +13,7 @@ import com.hedgeguard.web.handler.audit.ViolationScreenRoutes;
 import com.hedgeguard.web.handler.auth.AuthRoutes;
 import com.hedgeguard.web.handler.config.ConfigRoutes;
 import com.hedgeguard.web.handler.fund.FundRoutes;
+import com.hedgeguard.web.handler.monitor.MonitorRoutes;
 import com.hedgeguard.web.handler.plan.PlanRoutes;
 import com.hedgeguard.web.handler.product.ProductRoutes;
 import com.hedgeguard.web.handler.risk.RiskAlertRoutes;
@@ -114,6 +115,8 @@ class ModuleRoutesConsistencyTest {
         // T-080：效果/上报面 4 对；T-197：CAS 24 自检面 3 对（GET|POST /acct/selfcheck、
         // GET /acct/export）⇒ ACCT 键 17 → 20（12 条已声明路径全量）。
         AcctRoutes.register(router, null, null);
+        // 阶段 1 监控面（GET /api/v1/monitor/component）：与生产装配同构重放，1 对。
+        MonitorRoutes.register(router, null);
         return router;
     }
 

@@ -82,6 +82,23 @@ public interface HgcpEventListener {
     default void onMarketQuote(MarketQuote e) {
     }
 
+    /**
+     * {@code EVT_SYSTEM_STATE}（{@code 0x020A}；阶段 1 监控面接线）。
+     *
+     * <p>{@code default} 空实现：既有消费者（T-172 组合器及两实现）零破坏。
+     * 载荷字段与 {@code proto/hgcp.proto:643-649} 逐字对应。
+     */
+    default void onSystemState(SystemState e) {
+    }
+
+    /** {@code EVT_CTP_STATE}（{@code 0x020D}；阶段 1 监控面接线）。 */
+    default void onCtpState(CtpState e) {
+    }
+
+    /** {@code EVT_TRADING_ALERT}（{@code 0x020E}；阶段 1 监控面接线）。 */
+    default void onTradingAlert(TradingAlert e) {
+    }
+
     // ==================== 中立载荷（字段 = 线格式字段，逐字对应；无自造字段） ====================
 
     /** {@code EvtMarketQuote} 载荷（{@code proto/hgcp.proto:663-673}，仅 9 字段）。 */
@@ -190,5 +207,34 @@ public interface HgcpEventListener {
         public String clientOrderRef;
         public long expiredTsMs;
         public long timeoutMs;
+    }
+
+    /** {@code EvtSystemState} 载荷（{@code proto/hgcp.proto:643-649}，仅 5 字段）。 */
+    final class SystemState {
+        /** {@code ServerState} 枚举名（如 {@code SERVER_STATE_READY}）。 */
+        public String state;
+        public long paramVersionApplied;
+        /** {@code loaded_counts} JSON 摘要，原样透传。 */
+        public String loadedCounts;
+        public String reason;
+        public long tsMs;
+    }
+
+    /** {@code EvtCtpState} 载荷（{@code proto/hgcp.proto:676-682}，仅 5 字段）。 */
+    final class CtpState {
+        public boolean tradeConnected;
+        public boolean mdConnected;
+        public String frontAddr;
+        public long stateChangeTsMs;
+        public String reason;
+    }
+
+    /** {@code EvtTradingAlert} 载荷（{@code proto/hgcp.proto:685-690}，仅 4 字段）。 */
+    final class TradingAlert {
+        public int alertCode;
+        /** {@code AlertLevel} 枚举名。 */
+        public String level;
+        public String detail;
+        public long alertTsMs;
     }
 }

@@ -17,6 +17,38 @@ function wsBase() {
 }
 
 /**
+ * 阶段 3：订阅 C++ 组件监控告警。
+ *
+ * <p><b>复用冻结通道</b>：仍连 {@code /ws/alert}、仍用既有 {@code type=alert} 帧
+ * （{@code CONTRACTS.md §4.1}），<b>不新增 WS 端点/通道/消息形态</b>。
+ * 服务端组件告警以 {@code metric} 的 {@code component.} 前缀标识；
+ * 命中时额外回调 {@code onComponentAlert}，其余帧仍按原语义透传 {@code onMessage}。
+ * 账户级告警须由会话的 {@code t_user_sub_account_perm} 授权集放行（W-2 安全默认空集）。
+ *
+ * @param {{onComponentAlert?:Function,onMessage?:Function,onOpen?:Function,
+ *          onClose?:Function,onError?:Function,onSubscribed?:Function}} handlers
+ * @return 连接句柄（subscribe/unsubscribe/close/isOpen）
+ */
+function connectComponentAlerts(handlers) {
+  handlers = handlers || {};
+  const conn = connect('alert', {
+    onMessage(msg) {
+      if (msg && msg.type === 'alert' && typeof msg.metric === 'string'
+          && msg.metric.indexOf('component.') === 0 && handlers.onComponentAlert) {
+        handlers.onComponentAlert(msg);
+      }
+      if (handlers.onMessage) handlers.onMessage(msg);
+    },
+    onOpen: handlers.onOpen,
+    onClose: handlers.onClose,
+    onError: handlers.onError,
+    onSubscribed: handlers.onSubscribed
+  });
+  conn.subscribe({ channels: ['alert'] });
+  return conn;
+}
+
+/**
  * 建立到某端点的连接，带自动重连与重订阅。
  * @param {'quote'|'alert'} endpoint
  * @param {{onMessage?:Function,onOpen?:Function,onClose?:Function,onError?:Function,onSubscribed?:Function}} handlers
@@ -115,5 +147,5 @@ function debounce(fn, waitMs) {
   };
 }
 
-HG.ws = { connect, throttle, debounce, WS_PATH };
+HG.ws = { connect, connectComponentAlerts, throttle, debounce, WS_PATH };
 export default HG.ws;

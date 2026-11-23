@@ -223,6 +223,15 @@ class TradingApp {
   static void componentState(void* user, std::int32_t* server_state,
                              std::uint64_t* param_version);
 
+  // ---- 阶段 2 监控面：CMD_QUERY_STATUS 的 detail 组装 ------------------------
+  //   经 `CommandHandler::set_status_detail_fn` 以函数指针 + user 注入（hgcp 不反向
+  //   依赖本类）。`what` 位掩码（阶段 2 定义）：
+  //     0x01 状态机/就绪/参数版本 · 0x02 重放 · 0x04 参数批次 · 0x08 队列/计数/CTP/uptime；
+  //   `what == 0` ⇒ 全量（兼容阶段 1 客户端）。输出为 JSON 文本，仍装入既有
+  //   `MsgAck.detail` string 字段，**不改 proto/hgcp.proto、不新增消息**。
+  //   纯内存聚合、无 I/O、不查库、不落盘（E1/E2）。
+  static std::string statusDetail(void* user, std::uint32_t what);
+
   void setState(AppState s, const std::string& note);
 
   const AppConfig cfg_;
@@ -253,6 +262,8 @@ class TradingApp {
   bool ctp_login_attempted_;
   bool ctp_logged_in_observed_;  // 上次观测到的 CTP 登录态（迁移检测）
   std::int64_t last_expire_ms_;
+  // 阶段 2 监控面：进程启动基准（uptime 用；与 now_ms() 同钟，负值夹取为 0）。
+  std::int64_t started_ms_;
   // 重放会话起点（T-210）：进入 REPLAYING 时记一次 ⇒ 同一份进度流内**多帧同值**。
   //   与 `CMD_TRIGGER_REPLAY` 路径（`command_handler.cc:159` 用 `ctx.started_ms`）
   //   同口径，作为 `EvtReplayProgress.started_ts_ms` 的**唯一来源**。

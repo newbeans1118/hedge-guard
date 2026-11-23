@@ -204,6 +204,8 @@ import com.hedgeguard.web.handler.spot.SpotRoutes;
 import com.hedgeguard.web.handler.settle.SettleCheckRoutes;
 import com.hedgeguard.web.handler.settle.SettleRoutes;
 import com.hedgeguard.web.handler.trade.TradeRoutes;
+import com.hedgeguard.web.handler.monitor.MonitorRoutes;
+import com.hedgeguard.monitor.ComponentMonitor;
 import com.hedgeguard.web.ws.WsAuthorizer;
 import com.hedgeguard.web.ws.WsServer;
 
@@ -888,6 +890,28 @@ public final class Bootstrap {
                 new DmUnauthorizedAttemptDao(tx));
         SettleCheckRoutes.register(router, settleCheckService);
 
+        // 阶段 1 监控面（GET /api/v1/monitor/component）：只读观测 C++ 组件状态。
+        // 组件桥未装配（凭据缺失/未配库）时传 null ⇒ 端点如实返回「未装配」快照，不假装可用。
+        // 注意：不加入 T-172 事件组合器——状态由 HgcpClient 内部快照承载（与 MirrorState 隔离），
+        // 这里只做 REST 装配；也不设任何定时器（TradingBridge §3.10 禁轮询同步状态）。
+        ComponentMonitor componentMonitor = new ComponentMonitor(
+                bridge instanceof HgcpClient ? (HgcpClient) bridge : null);
+        MonitorRoutes.register(router, componentMonitor);
+        // 【阶段 3 追加】上段「不加入 T-172 组合器」系阶段 1 的 REST-only 形态；阶段 3 为
+        //   事件驱动告警评估，本实例改在下方组合器装配处加入 consumers（仍不设任何定时器，
+        //   TradingBridge §3.10 禁轮询同步状态的纪律不变）。
+        //   告警出口复用既有冻结通道 /ws/alert（RiskAlertNotifier → WsServer.publishAlert），
+        //   不新增 WS 端点/通道/消息形态（CONTRACTS.md §4.1 冻结面零改动）。
+        //   hg.web.ws.port 未配置 ⇒ notifier 为 null ⇒ 仅进内存历史、不推送（既有形态）。
+        final com.hedgeguard.risk_intraday.RiskAlertNotifier componentNotifier =
+                wsServer == null ? null : wsServer.alertNotifier();
+        componentMonitor.setAlertSink(a -> {
+            if (componentNotifier != null) {
+                // 账户级哨兵 0；仍由 WsAuthorizer 按 t_user_sub_account_perm 授权集过滤（W-2）
+                componentNotifier.notify(0, a.level, a.metric, a.value, a.threshold);
+            }
+        });
+
         // M2 资金管理服务（T-049）：台账/出入金/双人复核/划拨/额度/对账。
         // 回执处理与 CTP 下发以「服务方法 + 接缝」承接（bridge 未承载 CMD_FUND_TRANSFER(0x011D)/
         // CMD_QUERY_FUND_RESULT(0x011E) 与 EVT_FUND_RECEIPT(0x020B) 监听载荷，缺口归 T-172 扩载；
@@ -991,6 +1015,10 @@ public final class Bootstrap {
             IntradayEventFeed feed = new IntradayEventFeed(monitor, tradeService::productIdForOrder);
             TradeService.HgcpEventSink sink = tradeService.new HgcpEventSink();
             java.util.List<HgcpEventListener> consumers = buildEventConsumers(feed, sink, wsServer);
+            // 阶段 3：组件监控作为事件消费者——状态/CTP/告警事件到达即评估阈值，
+            //   不设轮询（TradingBridge §3.10）。三个回调均为 default 空实现族，
+            //   CompositeHgcpEventListener 已显式转发，既有消费者零破坏。
+            consumers.add(componentMonitor);
             if (wsServer != null) {
                 LOG.info("已接线 WS 行情桥（T-040）：EVT_MARKET_QUOTE→/ws/quote（覆盖式节流）");
             }
@@ -1320,6 +1348,23 @@ public final class Bootstrap {
         @Override
         public void onOrderExpired(HgcpEventListener.OrderExpired e) {
             each(l -> l.onOrderExpired(e));
+        }
+
+        // 阶段 1 监控面新增的三个 default 回调：组合器须显式转发，避免「接口加了方法
+        // 但组合器只继承空实现」的隐性缺口（default 空实现不会被 each 自动调用）。
+        @Override
+        public void onSystemState(HgcpEventListener.SystemState e) {
+            each(l -> l.onSystemState(e));
+        }
+
+        @Override
+        public void onCtpState(HgcpEventListener.CtpState e) {
+            each(l -> l.onCtpState(e));
+        }
+
+        @Override
+        public void onTradingAlert(HgcpEventListener.TradingAlert e) {
+            each(l -> l.onTradingAlert(e));
         }
     }
 
