@@ -1,6 +1,8 @@
 # 接口冻结清单（FREEZE）
 
-> **冻结标识**：`HGC-1.6`（`HGC-1.5` → `HGC-1.6`：**`payload` 键名严格限定为协议表字段**（禁止协议外字段，含内部关联标识）+ `data-init.sql` 的 `t_product(id=0)` 保留行纳入机器校验；纯增量）
+> **冻结标识**：`HGC-1.7`
+> **`HGC-1.6` → `HGC-1.7` 差异说明（2026-11-24 `CH-026`，纯增量）**：**前端监听面配置键取值订正**（`hg.web.bind` 默认 `127.0.0.1` → `0.0.0.0`）+ 新增 `hg.web.ws.bind`（默认 `0.0.0.0`）；**不触及 REST 路由 / 方法签名 / HGCP 协议 / WS 帧形态**（未新增任何路由 / 方法 / 协议字段 / WS 帧形态，属配置键取值订正，不得借机扩面）
+> **`HGC-1.6`（前序）**：（`HGC-1.5` → `HGC-1.6`）**`payload` 键名严格限定为协议表字段**（禁止协议外字段，含内部关联标识）+ `data-init.sql` 的 `t_product(id=0)` 保留行纳入机器校验；纯增量
 > **`HGC-1.5`（前序）**：**`param_version` 取号口径收紧**（唯一基准 = `maxParamVersion()+1`、同临界区、**禁用行数代替**）+ **超时分支字段值明确**（`ack_time = NULL`）+ 新增 `ParamDispatchDao.maxParamVersion()`；纯增量）
 > **冻结时间**：2026-09-20（`HGC-1.0` = `T-003`/`T-004` 交付；`HGC-1.1` = 补 WebSocket 约定 + 选型论证；`HGC-1.2` = 裁定登记 + 编辑登记表 + `ParamChange.payload` 键名冻结；`HGC-1.3` = 键名对齐 + 锚点更新）
 > **`HGC-1.0` → `HGC-1.1` → `HGC-1.2` 差异（均**增量**，`#java2` 已开工的产出**无需返工**）**：
@@ -686,8 +688,9 @@ public interface HedgePlanExposureDao extends BaseDao<HedgePlanExposure, Long> {
 
 | 键 | 默认值 | 说明 | 文档出处 |
 |----|--------|------|---------|
-| `hg.web.bind` | `127.0.0.1` | **仅回环**；非回环 → 启动期拒绝（红线 9） | **`CFG-33` ✅（v1.5.3 登记）** |
-| `hg.web.port` | `27402` | HTTP 服务端口（REST + 静态托管；与 `hg.tcp.port` / `hg.web.ws.port` **分离**） | **`CFG-33` ✅** |
+| `hg.web.bind` | `0.0.0.0` | `CH-026` 后默认 `0.0.0.0` 可接受外部流量，仅沿用既有会话鉴权；**组件间 TCP 通道 `hg.tcp.bind` 仍仅回环**（`NFR-SEC-3` 适用范围澄清） | **`CFG-33` ✅（v1.5.3 登记）**；`CH-026` ✅（`PROJECT.md` v1.4 / `ARCHITECTURE.md` §11.2 `CFG-33`） |
+| `hg.web.ws.bind` | `0.0.0.0` | `CFG-32` Java 前端 WS 绑定地址，`CH-026` 新增，缺省对外 | `CH-026` ✅ |
+| `hg.web.port` | `80` | HTTP 服务端口（REST + 静态托管；与 `hg.tcp.port` / `hg.web.ws.port` **分离**） | **`CFG-33` ✅** |
 | `hg.web.threads` | **`16`** | HTTP 工作线程数（**取 `T-003` 实测实现值**；编排者不填数） | **`CFG-33` ✅** |
 | `hg.web.root` | `./web` | 静态资源目录 | `CFG-30` ✅ |
 | `hg.auth.session_cookie` | `HGSESSION` | 会话 Cookie 名 | §4.1.1 ✅ |
@@ -703,7 +706,10 @@ public interface HedgePlanExposureDao extends BaseDao<HedgePlanExposure, Long> {
 > 经 `tech-lead-15` 于 v1.5.3 同一修订轮订正为 **`16`**；**本组件实现与文档现已一致（16）**。
 > **规则（编排者立）**：**登记值取实测实现值，编排者不填数**。
 > 旧键 `hg.http.*` **已废弃**，不得在新代码中出现。
+>
+> ⚠️ **现行端口订正（2026-11-24，只追加、不回改原文）**：上列 `27402` 系 **v1.5.3 时点**登记值，按「勘误不回改历史」保留。现行内置默认已调整为 **`hg.web.port=80`**、**`hg.tcp.port=39000`**（自定义）；`hg.web.ws.port` 依 A-2 代码仍无默认值，本仓库 `hg.properties` 部署值为 **`81`**。三者互不相同，见上表与 `docs/ARCHITECTURE.md` §11.2。
 > 另：`CFG-32`（WS）= `hg.web.ws.port`（独立端口、仅回环）/ `hg.web.ws.heartbeat_ms` = **30000** / `hg.web.ws.max_connections` = **200**（v1.5.3 已填值）。
+> ⚠️ **`CH-026` 澄清注（2026-11-24，只追加、不回改原文）**：上列 `D-5`/`D-9` 闭环注中 `hg.web.bind` = `127.0.0.1` 系 **v1.5.3 时点**登记值，按「勘误不回改历史」逐字保留；**现行默认值以本章 §4 配置键表 + `PROJECT.md` v1.4 为准**（前端 HTTP/WS 默认 `0.0.0.0` 可接受外部流量，仅沿用既有会话鉴权）。组件间 TCP 通道 `hg.tcp.bind` 仍恒回环 + 连接鉴权（`NFR-SEC-3` 适用范围澄清）；本注上方「（独立端口、仅回环）」同为 v1.5.3 时点值，`hg.web.ws.bind` 现亦随 `CH-026` 缺省对外。
 
 ### 4.1 WebSocket 对外约定（`CH-006`；`T-028` 选型 + `T-040` 生产级服务端均归属 `#java`）
 
@@ -972,6 +978,7 @@ instantiated OK        # 同时打印 SLF4J: Defaulting to no-operation (NOP) lo
 | 2026-11-08（`T-235` 交付） | `backend-engineer#java2`（实例 `be-t235`；编排者代单写者登记） | **兼容性/描述性登记（`T-235`；回归 `ARCHITECTURE §4.1.1:625`）**：`JsonCodec` 注册 `LocalDate`（`yyyy-MM-dd`）/ `LocalDateTime`（ISO-8601 无时区）TypeAdapter，统一响应面时间线格式；读入兼容 string 与旧对象形态（不收紧请求面）；不改路径/字段名/错误码/信封 ⇒ 未升版（`HGC-1.6` 不变） | `HGC-1.6`（未升版） |
 | 2026-11-09（P1 试点；编排者代单写者登记） | 编排者（依 `T-131` 先例代单写者登记，非席位改写正文） | **兼容性增量登记（`FR-PLAN-2` / `FR-PLAN-5`）**：补齐 2 对**已声明未注册**的方法对 —— `PUT /plan/{id}`（`PlanDraftHandler`，修改草稿、部分更新）、`GET /plan/{id}/doc`（`PlanDocReadHandler`，读取当前书面文件正文 `DocView`）。路径与方法逐字取自 `ARCHITECTURE.md §4.1.1` PLAN 行（该行已声明 `PUT(草稿)` 与 `/plan/{id}/doc`），**未新增路径**；`ApiRoutes.BY_MODULE_ROUTES` PLAN 键 `18 → 20`，业务路由计数 `171 → 173` / 含 ping `173 → 175`。新增服务方法 `PlanService.updateDraft(long,HedgePlan,long)` / `currentDoc(long,long)`（该类不在 §2.2 冻结公共接口 ⇒ §0③ 兼容变更）；新增响应视图 `PlanDocReadHandler.DocView`（camelCase，时间字段由 `T-235` 适配器统一序列化）。**未改字段 / 未改错误码（复用 `PARAM_INVALID`/`STATE_NOT_ALLOWED`/`SUB_ACCOUNT_PERMISSION_DENIED`）/ 信封不变** ⇒ **未升版（`HGC-1.6` 不变）**。⚠️ **诚实披露**：`DELETE /plan/{id}`（`FR-PLAN-3`）**未注册、非本次范围** —— 草稿必带 `t_plan_state_log`（编制留痕）与 `t_hedge_plan_exposure`（绑定敞口）子行，二者 FK `ON DELETE RESTRICT`，且状态留痕表「只增不改不删」、全库禁级联（`DATA_MODEL.md §0.3/§0.4`）⇒ 物理删除在真 DM8 上必然被拒，内存引擎不校验 RESTRICT 会造成假绿；须先经 `CH/DC` 裁定删除留痕承载方案，已登记待裁定。FR-PLAN-2 的「完整 `R-PLAN-3` 六项阻断式预校验」仍归提交审批（`submitForApproval`），修改期只重跑编制期标量校验 + 期限红线（`FR-PLAN-2` 验收 4 口径），未重复提交门禁。 | `HGC-1.6`（未升版） |
 | 2026-11-10（P1 试点补正；编排者代单写者登记） | 编排者（依 `T-131` 先例代单写者登记，非席位改写正文） | **兼容性补正登记（`TE-P1PILOT-001`；独立复核 `te-verify-p1-pilot` 发现、用户裁定退回补正）**：`PlanService.updateDraft` 在套保方向 / 品种相对原值变化时，新增私有方法 `requireBoundExposureConsistency` 对已 `BOUND` 的绑定敞口重跑 `R-PLAN-1`（方向相反）/ `R-PLAN-7`（同品种 + 同子账户）判据，与 `createPlan`/`bindExposure` 同口径；无 `BOUND` 绑定行时放行，绑定 / 敞口取数入口缺失时 fail-closed 拒绝（不假绿）。**未新增路径 / 未改 wire 字段 / 未改错误码（复用 `PARAM_INVALID`/`SUB_ACCOUNT_PERMISSION_DENIED`/`DATA_INSUFFICIENT`）/ 信封不变 / 未动 §2.2 冻结公共接口**（新增方法为私有）⇒ **未升版（`HGC-1.6` 不变）**。`ApiRoutes` 与 `ARCHITECTURE §4.1.1` 声明面零改动；`R-PLAN-3` 六项阻断式预校验仍归 `submitForApproval`，修改期不重复。⚠️ 测试侧同步（非契约）：`PlanDraftAndDocReadEndpointTest` 注入 `FakeBindDao`/`FakeExposureDao`，新增 6 用例（用例数 `14 → 20`）；2 组自设变异（摘方向 / 摘品种校验）均验红并逐字节复位。 | `HGC-1.6`（未升版） |
+| 2026-11-24 | `backend-engineer#java` | **`CH-026` 配置键取值订正（用户 2026-11-24 裁定；应编排者 `Q-JAVA-002` `question` 落笔）**：§4 配置键表 `hg.web.bind` 默认值 `127.0.0.1` → **`0.0.0.0`**（说明改为「`CH-026` 后默认对外、仅沿用既有会话鉴权；组件间 TCP 通道 `hg.tcp.bind` 仍仅回环（`NFR-SEC-3` 适用范围澄清）」、出处列追加 `CH-026`）；**新增** `hg.web.ws.bind`（默认 `0.0.0.0`，`CFG-32`）一行；§4 下方 `D-5`/`D-9` 闭环注**原文逐字保留**、仅在段末追加一条 `CH-026` 澄清注（该处 `127.0.0.1` 为 v1.5.3 时点值，现行默认值以 §4 表 + `PROJECT.md` v1.4 为准）；文件头冻结标识 `HGC-1.6` → **`HGC-1.7`** + 补差异说明。**纯增量 · 配置键取值订正**：不触及 §1 REST 冻结对 / §2 包结构与公共接口签名 / §4.1·§4.3 WS 对外约定 / 错误码表 / HGCP 协议 / WS 帧形态，未新增任何路由·方法·协议字段 | `HGC-1.7` |
 
 ---
 

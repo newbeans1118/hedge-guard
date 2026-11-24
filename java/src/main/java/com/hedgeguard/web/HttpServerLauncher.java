@@ -27,7 +27,8 @@ import java.util.logging.Logger;
  *
  * <p>安全与运行约束：
  * <ul>
- *   <li><b>只绑定本地回环</b>（{@code NFR-SEC-3} / 附录 B 红线 9）——非回环配置在启动期直接失败；</li>
+ *   <li><b>前端 HTTP 绑定地址由 {@code CFG-33 hg.web.bind} 指定</b>（{@code CH-026}：缺省
+ *       {@code 0.0.0.0}，可接受外部流量）；组件间 TCP 通道仍恒回环，见 {@code Config.loopbackOnly}；</li>
  *   <li>请求体上限 {@value #MAX_BODY_BYTES} 字节，超限返回 {@code 10001}；</li>
  *   <li>响应头回写 {@code X-HG-TraceId}，便于前端报障时直接提供追踪号。</li>
  * </ul>
@@ -55,8 +56,8 @@ public final class HttpServerLauncher {
      */
     public HttpServerLauncher(Config config, RequestDispatcher dispatcher) {
         this.dispatcher = dispatcher;
-        String bind = config.loopbackOnly(Config.KEY_HTTP_BIND);
-        this.port = config.getInt(Config.KEY_HTTP_PORT, 27402);
+        String bind = config.webBind(Config.KEY_HTTP_BIND);
+        this.port = config.getInt(Config.KEY_HTTP_PORT, 80);
         int threads = config.getInt(Config.KEY_HTTP_THREADS, DEFAULT_HTTP_THREADS);
         this.executor = Executors.newFixedThreadPool(threads, new DaemonThreadFactory());
         try {

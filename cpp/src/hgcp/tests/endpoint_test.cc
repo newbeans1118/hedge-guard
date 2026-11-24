@@ -27,7 +27,7 @@ void test_loopback_whitelist() {
 void test_validate_bind() {
   TcpConfig ok = hg::hgcp::default_tcp_config();
   HG_CHECK_EQ(ok.bind_address, std::string("127.0.0.1"));
-  HG_CHECK_EQ(ok.port, static_cast<std::uint16_t>(27400));
+  HG_CHECK_EQ(ok.port, static_cast<std::uint16_t>(39000));
   HG_CHECK(hg::hgcp::validate_bind(ok) == BindStatus::kOk);
 
   TcpConfig bad = ok;

@@ -1,0 +1,9 @@
+# trade_order.tsv — t_trade_order — group=demo
+# 依据: TB-TRADE-1 / REQUIREMENTS/TRADE.md（order_sys_id 由回填报，播种置 NULL）
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；password_hash 留空 = 生成器注入非凭证明文标记（零落盘）
+# FK 列填父表自然键值（manifest.json fk_ref_columns）；instrument_id/underlying_instrument_id/subject_code 原样透传
+# source_id 为多态软外键：值 = source_type 对应父表 key 列以 | 拼接（manifest.json polymorphic_ref_columns）
+# 全部业务取值均为演示模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	sub_account_id	client_order_ref	order_id	order_sys_id	trade_plan_id	hedge_plan_id	exposure_id	product_id	instrument_id	instrument_type	direction	offset_flag	price_type	limit_price	volume	operator_id	strategy_id	leg_no	trade_reason_id	status	reject_rule_id	reject_code	reject_reason	confirm_operator_id	confirm_time	accept_time	submit_time	client_ts_ms	expire_time	cancel_reason	cancel_operator_id	cancel_time
+	SA-COMMODITY	ORD-2026-11-20-001			TP-2026-001	HP-2026-001	SNAP-2026-11-20-CU-001	CU	cu2612	FUTURES	BUY	OPEN	LIMIT	70000.0000	180	trader01				ALL_FILLED				finrisk01	2026-11-20 09:30:02	2026-11-20 09:30:05	2026-11-20 09:30:00	1795167000000				

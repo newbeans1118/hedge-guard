@@ -5,7 +5,7 @@
 //
 //   · 仅允许 IPv4 回环；绑定地址取值**白名单仅 `127.0.0.1`**；
 //     配置为其它值时系统**拒绝启动并告警**（`FR-CONFIG-9`）；
-//   · 端口来自配置，**不得硬编码**；未配置时默认 `HG_TCP_PORT=27400`；
+//   · 端口来自配置，**不得硬编码**；未配置时默认 `HG_TCP_PORT=39000`；
 //   · 单条连接同时只允许 **1 条**业务连接；重复连接被拒 **`0x0302`**。
 //
 // 本层为**纯校验/判定**（不建 socket）⇒ 可独立单测。socket 绑定在 tcp.cc 落地。
@@ -22,7 +22,7 @@ namespace hgcp {
 // 回环白名单（§4.2.1 `:737`：取值白名单仅 127.0.0.1）
 extern const char kLoopbackBindAddress[];
 // 默认端口 `HG_TCP_PORT`（§4.2.1 `:740`）
-const std::uint16_t kDefaultHgTcpPort = 27400u;
+const std::uint16_t kDefaultHgTcpPort = 39000u;
 
 // HGCP 组件通道监听配置。
 struct TcpConfig {

@@ -111,23 +111,26 @@ class ConfigServiceTest {
     }
 
     @Test
-    @DisplayName("绑定地址回环白名单：非 127.0.0.1 一律 10021（启动期与变更期同一入口）")
+    @DisplayName("CH-026：回环白名单仅约束组件通道 hg.tcp.bind；前端 hg.web.bind 变更放行")
     void loopbackBindWhitelistIsEnforced() {
         assertEquals("127.0.0.1", ConfigService.LOOPBACK_ONLY);
+        assertTrue(ConfigService.LOOPBACK_BIND_KEYS.contains("hg.tcp.bind"));
+        assertFalse(ConfigService.LOOPBACK_BIND_KEYS.contains("hg.web.bind"),
+                "CH-026：前端绑定键已从回环白名单移除");
         ConfigService.requireLoopbackBind("hg.tcp.bind", "127.0.0.1");
         ConfigService.requireLoopbackBind("hg.web.port", "0.0.0.0");   // 非绑定键 → 放行
+        ConfigService.requireLoopbackBind("hg.web.bind", "0.0.0.0");    // CH-026：前端键 → 放行
 
         BizException e = assertThrows(BizException.class,
                 () -> ConfigService.requireLoopbackBind("hg.tcp.bind", "0.0.0.0"));
-        assertEquals(ErrorCode.SECURITY_CONFIG_REJECTED, e.errorCode(), "应返回 10021");
+        assertEquals(ErrorCode.SECURITY_CONFIG_REJECTED, e.errorCode(), "组件通道仍返回 10021");
 
         ConfigItem bind = item("hg.web.bind", "STRING", null, null);
-        bind.configValue = "127.0.0.1";
+        bind.configValue = "0.0.0.0";
         configItemDao.store(bind);
-        BizException e2 = assertThrows(BizException.class,
-                () -> service.changeConfigValue("hg.web.bind", "192.168.1.10", 3L, null, "改绑定"));
-        assertEquals(ErrorCode.SECURITY_CONFIG_REJECTED, e2.errorCode(), "变更期同样拒绝");
-        assertEquals("127.0.0.1", configItemDao.findByKey("hg.web.bind").configValue, "取值不得被改写");
+        service.changeConfigValue("hg.web.bind", "192.168.1.10", 3L, null, "改绑定");
+        assertEquals("192.168.1.10", configItemDao.findByKey("hg.web.bind").configValue,
+                "CH-026：前端绑定键变更期放行，取值按配置生效");
     }
 
     // ------------------------------------------------------------ T-009 取值校验与留痕

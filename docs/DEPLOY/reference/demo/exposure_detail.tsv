@@ -1,0 +1,12 @@
+# exposure_detail.tsv — t_exposure_detail — group=demo
+# 依据: TB-SPOT-10（敞口分量明细，DDL 无 UNIQUE）
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；password_hash 留空 = 生成器注入非凭证明文标记（零落盘）
+# FK 列填父表自然键值（manifest.json fk_ref_columns）；instrument_id/underlying_instrument_id/subject_code 原样透传
+# source_id 为多态软外键：值 = source_type 对应父表 key 列以 | 拼接（manifest.json polymorphic_ref_columns）
+# 全部业务取值均为演示模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	sub_account_id	exposure_id	component_type	source_type	source_id	source_no	contributed_qty	unit	direction	calc_as_of_date
+	SA-COMMODITY	SNAP-2026-11-20-CU-001	CONTRACT_UNEXECUTED	PURCHASE_CONTRACT	PC-2026-001	PC-2026-001	400.0000	TON	BUY	2026-11-20
+	SA-COMMODITY	SNAP-2026-11-20-CU-001	INVENTORY	INVENTORY_LEDGER	SA-COMMODITY|CU|RAW_MATERIAL|2026-11-20	INV-CU-20261120	200.0000	TON	BUY	2026-11-20
+	SA-COMMODITY	SNAP-2026-11-20-CU-001	PRODUCTION_PLAN	PRODUCTION_PLAN	PP-2026-Q4	PP-2026-Q4	300.0000	TON	BUY	2026-11-20
+	SA-TRADE	SNAP-2026-11-20-SC-001	CONTRACT_UNEXECUTED	SALES_CONTRACT	SC-2026-001	SC-2026-001	500.0000	BARREL	SELL	2026-11-20

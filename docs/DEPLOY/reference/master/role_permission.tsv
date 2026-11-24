@@ -1,0 +1,10 @@
+# role_permission.tsv — t_role_permission — group=master
+# 依据: data-init.sql ③-4 / ARCHITECTURE §8.2③ / T-108
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；显式 id=0 = 保留系统行（dm8 目标包 SET IDENTITY_INSERT）
+# 外键列填父表自然键值（见 manifest.json fk_ref_columns）；值域以 DDL CHECK、口径以 INDEX.md §9.1 为准
+# 标注「示例」的业务取值属模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	role_id	perm_code	perm_category
+	FIN_RISK	PRODUCT:EDIT	FUNCTION
+	FIN_RISK	CONFIG:EDIT	FUNCTION
+	SETTLER	SETTLE:EDIT	FUNCTION

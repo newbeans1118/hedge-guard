@@ -1,0 +1,9 @@
+# check_task.tsv — t_check_task — group=demo
+# 依据: TB-SETTLE-12 / R-SETTLE-6,11（跨子账户核对取哨兵 0；period_key 在 demo 内唯一）
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；password_hash 留空 = 生成器注入非凭证明文标记（零落盘）
+# FK 列填父表自然键值（manifest.json fk_ref_columns）；instrument_id/underlying_instrument_id/subject_code 原样透传
+# source_id 为多态软外键：值 = source_type 对应父表 key 列以 | 拼接（manifest.json polymorphic_ref_columns）
+# 全部业务取值均为演示模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	check_type	period_key	sub_account_id	required_sign_roles	signed_roles	status	snapshot_hash	snapshot_json	check_items	check_conclusion	content_json	submitted_to	deadline_date	overdue_alerted	generated_time	completed_time
+	MONTHLY	2026-11	__ALL_ACCOUNT__	RISK,TRADE,FINANCE	RISK,TRADE,FINANCE	COMPLETED	DEMO-HASH-0001		加总对账,限额,签署	一致（示例）			2026-12-30	N	2026-11-30 09:00:00	2026-11-30 18:00:00

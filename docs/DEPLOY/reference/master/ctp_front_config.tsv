@@ -1,0 +1,9 @@
+# ctp_front_config.tsv — t_ctp_front_config — group=master
+# 依据: TB-CONFIG-7 / ARCHITECTURE §11.2 CFG-22（回环占位地址，生产前置由部署方注入后经 CONFIG API 登记；零落盘）
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；显式 id=0 = 保留系统行（dm8 目标包 SET IDENTITY_INSERT）
+# 外键列填父表自然键值（见 manifest.json fk_ref_columns）；值域以 DDL CHECK、口径以 INDEX.md §9.1 为准
+# 标注「示例」的业务取值属模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	env_type	front_type	front_addr	priority	broker_id	investor_id	connect_timeout_ms	reconnect_interval_ms	flow_path	is_enabled
+	SIMULATION	TRADE	tcp://127.0.0.1:30001	1	SIM_BROKER	SIM_INVESTOR	5000	3000	./data/flow	Y
+	SIMULATION	MD	tcp://127.0.0.1:30011	1	SIM_BROKER	SIM_INVESTOR	5000	3000	./data/flow	Y

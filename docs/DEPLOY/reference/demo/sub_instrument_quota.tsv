@@ -1,0 +1,10 @@
+# sub_instrument_quota.tsv — t_sub_instrument_quota — group=demo
+# 依据: CFG-16 限额层②（可选维度）
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；password_hash 留空 = 生成器注入非凭证明文标记（零落盘）
+# FK 列填父表自然键值（manifest.json fk_ref_columns）；instrument_id/underlying_instrument_id/subject_code 原样透传
+# source_id 为多态软外键：值 = source_type 对应父表 key 列以 | 拼接（manifest.json polymorphic_ref_columns）
+# 全部业务取值均为演示模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	sub_account_id	instrument_id	product_id	quota_limit	quota_unit	used_qty	frozen_qty	effective_from	effective_to	dispatch_status	dispatch_version
+	SA-COMMODITY	cu2612	CU	500.0000	LOT	180.0000	0.0000	2026-01-01		SUCCESS	1
+	SA-TRADE	sc2701	SC	200.0000	LOT	0.0000	0.0000	2026-01-01		SUCCESS	1

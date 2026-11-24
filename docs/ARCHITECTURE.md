@@ -75,7 +75,7 @@
 | G4 | **事件流不丢、不乱序、可补数**——吞吐 ≥ 1000 事件/秒，断连后两侧最终一致，关键事件零丢失 | `NFR-PERF-6`、`NFR-REL-2`；`R-TRADE-4` | 1000 笔事件数量与顺序逐条比对一致；模拟断连后重连，两侧状态一致且无缺口 |
 | G5 | **崩溃可恢复到正确额度状态**——重启后 ≤ 60 s 完成重放；重放期间拒绝一切新指令；无重复计入、无遗漏 | `NFR-REL-1`；`R-TRADE-13` | 在途指令场景强杀进程 → 重启 → 计时并核对额度与持仓 |
 | G6 | **子账户贯穿且可加总**——资金、持仓、交易、敞口、凭证五类数据**行级**携带子账户标识，可直接求和 | `PROJECT.md` §4.1.B / §4.1.E（三）；`R-SETTLE-9`、`R-FUND-1`、`R-TRADE-8` | Σ 子账户 = 真实账户（持仓/资金/盈亏三类）；人为构造不一致数据触发告警与阻断 |
-| G7 | **零落盘与通信安全**——密码/AuthCode/资金密码不落任何持久化介质；组件间通信仅监听 `127.0.0.1` 且强制鉴权；审计日志不可篡改 | `NFR-SEC-1`、`NFR-SEC-3`、`NFR-SEC-6`；`R-CONFIG-1`、`R-CONFIG-5` | 全库 grep + 日志 grep + 配置/核心转储审计三项零命中；`ss -lntp` 绑定地址为回环；篡改日志后校验未通过且导出被阻断 |
+| G7 | **零落盘与通信安全**——密码/AuthCode/资金密码不落任何持久化介质；组件间通信仅监听 `127.0.0.1` 且强制鉴权；审计日志不可篡改 | `NFR-SEC-1`、`NFR-SEC-3`、`NFR-SEC-6`；`R-CONFIG-1`、`R-CONFIG-5` | 全库 grep + 日志 grep + 配置/核心转储审计三项零命中；**`ss -lntp` 仅对 HGCP 组件通道 `39000` 判绑定地址为回环**（`CH-026`：前端 `:80`/`:81` 按 `hg.web.bind`/`hg.web.ws.bind` 配置判定，默认 `0.0.0.0`）；篡改日志后校验未通过且导出被阻断 |
 | G8 | **双组件同机双进程、零构建链前端、最小依赖**——非 JNI；前端无 `package.json`/`node_modules`；新依赖逐项论证 | `PROJECT.md` §4.2 / §5.3；`NFR-DEPLOY-1`、`NFR-MAINT-1`、`NFR-MAINT-2` | 部署拓扑审查；全库搜索零命中；依赖清单每项有理由与代价 |
 
 > **目标之间的张力（架构必须显式取舍的地方）**：
@@ -653,6 +653,14 @@ L5 前端 ──→ L4 接口层 ──→ L3 应用服务 ──→ L2a DAO ─
 | FUND | `/fund/ledger`、`/fund/flow`、`/fund/deposit`、`/fund/withdraw`、`/fund/{id}/review`、`/fund/transfer`、`/fund/transfer/{id}/approve`、`/fund/receipt`、`/fund/quota`、`/fund/margin`、`/fund/reconcile`、`/fund/export`、`/fund/apply-list` | GET/POST |
 | AUTH | `/auth/login`、`/auth/logout`、`/auth/user`、`/auth/role`、`/auth/position-group`、`/auth/authorization`、`/auth/sub-account-perm`、`/auth/change-log`、`/auth/unauthorized-attempt`、`/auth/password` | GET/POST/PUT |
 | CONFIG | `/config/item`、`/config/ctp`、`/config/ctp/test`、`/config/sub-account`、`/config/dict`、`/config/subject`、`/config/report-period`、`/config/dispatch/{id}`、`/config/change-log`、`/config/import`、`/config/export` | GET/POST/PUT |
+| SYSTEM | `/system/shutdown` | POST |
+
+> 📌 **管理端「关闭系统」（`SYSTEM` / `POST /api/v1/system/shutdown`）**：平台级管理端点，**不新增 `FR-*` 编号**（不属 14 模块需求面，故 `FR` 计数与本表冻结不变量不变）。
+> 语义（服务端强制，非仅前端提示）：① 会话鉴权 + 账户级配置权（`AuthService.assertCanConfigureAccountLevel`，沿用既有 `10003`，不新造错误码）；
+> ② 请求体须 `{confirm:true, reason}`（二次确认 + 停机原因，缺一 `10001`）；③ 原子状态机 `RUNNING → STOPPING`（重复关闭 `10009`）——`STOPPING` 期间经认证过滤器**拒绝一切新业务请求**（`10009`），仅放行本端点、`/ping`、`/auth/logout` 与静态资源；
+> ④ 经 `ParamDispatchService` 下发 `CMD_SET_READY_STATE(target_state=STOPPING)`（HGCP 既有冻结指令，见 §4.2.3 / `0x0404 ERR_STOPPING`），组件桥未装配时显式记日志、不静默假装成功；
+> ⑤ 排空在途请求后触发 JVM 停机钩子（`Bootstrap.main` 的 `hg-shutdown`），复用既有 `launcher.stop()` + `close(assembly)` 释放路径；停机动作与排空调度均为**可注入端口**（`NFR-TEST-4`），单测不触发真实 `System.exit`。
+> 留痕：`t_param_dispatch` 下发记录（操作人/原因）+ 访问日志 + 停机事件日志；**不新增表**（`DATA_MODEL.md` 零改动）。路径先于 `ApiRoutes` 声明（`NFR-MAINT-5`），前端只读镜像见 `web/js/core/routes.js`。
 
 > 📌 **路由声明与判据的目标形态（`v1.5.7` 新增；「路由判据盲区」裁定）**：`ApiRoutes` 应声明 **(方法, 路径) 对**（而非仅路径），
 > 判据 `ModuleRoutesConsistencyTest` 断言 **「运行时已注册的 (方法,路径) 集合 == `ApiRoutes` 声明集合」**——**等值**（非 `⊆`），
@@ -754,10 +762,10 @@ L5 前端 ──→ L4 接口层 ──→ L3 应用服务 ──→ L2a DAO ─
 > 组件通道**仅监听 `127.0.0.1` 且须鉴权**（`NFR-SEC-3`）。
 
 **网络层约束**：
-- 仅允许 IPv4 回环；绑定地址由配置项 `HG.TCP.BIND` 指定，**取值白名单仅 `127.0.0.1`**；配置为其它值时系统**拒绝启动并告警**（`FR-CONFIG-9`）。Java 侧前端 WebSocket 的监听地址**同样仅 `127.0.0.1`**（§11 `CFG-32`）。
+- 仅允许 IPv4 回环；绑定地址由配置项 `HG.TCP.BIND` 指定，**取值白名单仅 `127.0.0.1`**；配置为其它值时系统**拒绝启动并告警**（`FR-CONFIG-9`）。**本段约束对象为组件间 TCP 通道**；浏览器 ↔ Java 的前端 HTTP/WS 监听面由 `CH-026` 另行规定（§11 `CFG-32`/`CFG-33`，默认 `0.0.0.0`），不适用本段回环白名单。
 - 单条连接同时只允许 **1 条**业务连接；重复连接被拒（`0x0302`）。
 - `TCP_NODELAY` 开启（降低小包延迟）；`SO_KEEPALIVE` 关闭（由应用层心跳替代，避免与心跳语义混淆）。
-- 监听端口来自配置，**不得硬编码**；未配置时使用默认 `HG_TCP_PORT=27400`（HGCP 组件通道）。Java 侧前端 WebSocket 端口见 §11 `CFG-32`（**独立监听端口，仅回环 `127.0.0.1`**，与 HTTP 的 `hg.web.port` 分离）。
+- 监听端口来自配置，**不得硬编码**；未配置时使用默认 `HG_TCP_PORT=39000`（HGCP 组件通道，自定义端口）。Java 侧前端 WebSocket 端口见 §11 `CFG-32`（**独立监听端口**，与 HTTP 的 `hg.web.port` 分离；`CH-026` 后绑定地址由 `hg.web.ws.bind` 指定，默认 `0.0.0.0`）。
 
 **「行情通道 B」的组件定界（`CH-006` 后最易被误读处，显式写死）**
 
@@ -1073,7 +1081,7 @@ C++ (服务端, 监听 127.0.0.1:P)                        Java (客户端)
 | T5 | **心跳与检出** | 静默一侧 → 对侧 ≤ 5 s 内检出断连 |
 | T6 | **错误码** | 逐条构造 §4.3.2 中每一类错误码的触发条件，验证返回的码与期望一致 |
 | T7 | **鉴权** | 错误令牌 / 缺失令牌 / 令牌版本不符 三种情况均被拒 + 关闭连接 + 告警 |
-| T8 | **回环绑定** | `ss -lntp` 确认绑定 `127.0.0.1`；配置 `0.0.0.0` 时进程拒绝启动 |
+| T8 | **按配置绑定（`CH-026`）** | `ss -lntp`：HGCP 组件通道 `39000` **恒绑定 `127.0.0.1`**，配置 `0.0.0.0` 时进程拒绝启动（`NFR-SEC-3` 不失守）；前端 `:80`/`:81` 按 `hg.web.bind`/`hg.web.ws.bind` 判定（默认 `0.0.0.0` 时对外可连）；组件通道连接鉴权不变 |
 | T9 | **param_version 单调** | 连续下发两次变更（故意让旧版本后到）→ C++ 最终值 = 最后一次 |
 | T10 | **大消息分片** | 预加载 10 万条额度，分片传输后全部生效，条数与 Java 侧一致 |
 | T11 | **性能** | 通道 A 吞吐 ≥ 1000 帧/秒（`NFR-PERF-6`）；判定 P99 ≤ 5 ms（`NFR-PERF-1`） |
@@ -2197,7 +2205,7 @@ CTP 行情 ─▶ C++ ctp_md_spi(T3) ─▶ quoteQueue（满则丢旧）─▶ T
 
 > 🔒 **A′ 形态基线（`T-040` 实现基线，不得重新选型）**：`T-040` 在 §4.1.2 与 `java/CONTRACTS.md` §4.3 已冻结的契约之上实现**生产级** WS 服务端，
 > **不得重新选型**（改为 SSE 或引库均属**实质变更**，须先走 `CH-xxx`）。**形态要点**：
-> ① **独立 `ServerSocket` 监听 `CFG-32` 的 `hg.web.ws.port`**（**仅回环 `127.0.0.1`**；非回环值拒绝启动）；
+> ① **独立 `ServerSocket` 监听 `CFG-32` 的 `hg.web.ws.port`**（绑定地址由 `hg.web.ws.bind` 指定，**默认 `0.0.0.0`**，可接受外部流量；`CH-026`。组件通道 `hg.tcp.bind` 仍恒回环 + 鉴权）；
 > ② **每连接有界出站队列**，满时按通道语义处置而**绝不阻塞事件消费线程**（`J3`），即**不背压** `EVT_MARKET_QUOTE` 消费路径；
 > ③ **行情队列满 ⇒ 丢最旧并计数**（`/ws/quote` 允许丢帧）；**告警队列满 ⇒ `close(1013)`**（`/ws/alert` **不静默丢**）；
 > ④ **RFC 6455 原生 `ping` / `pong`** 心跳（间隔 `hg.web.ws.heartbeat_ms` ≥ 1000 ms；**连续 3 次无 `pong` ⇒ `close(1001)`**）。
@@ -2842,7 +2850,7 @@ CTP 行情 ─▶ C++ ctp_md_spi(T3) ─▶ quoteQueue（满则丢旧）─▶ T
 | 配置编号 | 配置键 | 用途 | 默认值 | 取值范围 | 下发 C++ | 持久化属性 |
 |---------|-------|------|--------|---------|---------|-----------|
 | `CFG-19` | `hg.security.sensitive_fields` | 敏感字段清单（供日志脱敏与配置模型过滤） | `password,auth_code,fund_password,auth_token` | 固定集合（**不得删减**） | ✅ | **零落盘（仅内存）** |
-| `CFG-20` | `hg.tcp.bind` / `hg.tcp.port` | **HGCP 组件通道**（本地 TCP 回环）绑定地址与端口 | `127.0.0.1` / `27400` | **bind 白名单仅 `127.0.0.1`** | — | 本地 admin 可持久化；**API 下发不落盘** |
+| `CFG-20` | `hg.tcp.bind` / `hg.tcp.port` | **HGCP 组件通道**（本地 TCP 回环）绑定地址与端口 | `127.0.0.1` / `39000`（自定义） | **bind 白名单仅 `127.0.0.1`** | — | 本地 admin 可持久化；**API 下发不落盘** |
 | `CFG-21` | `risk.margin_ratio_warn` / `_critical` | 风险度 / 保证金占用率告警与严重阈值 | `0.70` / `0.90` | (0,1] | ✅ | 可持久化 |
 | `CFG-21b` | `risk.limit_usage_hint` / `_warn` | 限额使用率提示线 / 警告线 | `0.80` / `0.95` | (0,1] | ⬜ | 可持久化 |
 | `CFG-22` | `hg.ctp.env_type` | **模拟盘 / 实盘显式标识** | `SIMULATION` | `SIMULATION` / `PRODUCTION` | ✅ | 可持久化；切为 `PRODUCTION` 须二次确认 + 双人复核 |
@@ -2856,8 +2864,8 @@ CTP 行情 ─▶ C++ ctp_md_spi(T3) ─▶ quoteQueue（满则丢旧）─▶ T
 | `CFG-29` | `hg.flow.dir` / `hg.flow.fsync_mode` / `hg.flow.retain_days` | 指令流水目录 / fsync 模式 / 保留天数 | `./data/flow` / `BATCH` / `90` | 见 §4.5.2 | ✅ | C++ 本地 admin 可持久化 |
 | `CFG-30` | `hg.web.root` | 前端静态资源目录 | `./web` | 任意合法路径 | ⬜ | 可持久化 |
 | `CFG-31` | `hg.db.*` | JDBC URL / 用户名 / 连接池参数 | 部署时填写 | — | ⬜ | **密码不落盘**；其余可持久化 |
-| `CFG-32`（**v1.5.3 取值登记**） | `hg.web.ws.port` / `hg.web.ws.heartbeat_ms` / `hg.web.ws.max_connections` | **Java 侧前端 WebSocket**（`/ws/quote`、`/ws/alert`）的**独立监听**端口 / 心跳间隔 / 最大连接数 | 部署时填写 / `30000` / `200` | 端口 1–65535（**独立端口**，须与 `CFG-33` 的 `hg.web.port`、`CFG-20` 的 `hg.tcp.port` **分离**）；**bind 仅回环 `127.0.0.1`**；心跳 **≥ 1000 ms**（RFC 6455 原生 `ping`/`pong`）；连接数 ≥ 1 | ⬜（仅 Java 侧） | 可持久化（本地 admin） |
-| `CFG-33`（**v1.5.3 补登记**） | `hg.web.bind` / `hg.web.port` / `hg.web.threads` | **Java 侧前端 HTTP**（REST + 静态托管）绑定地址 / 端口 / 处理线程数 | `127.0.0.1` / `27402` / `16`（**取 `T-003` 实测实现值**，可调） | **bind 白名单仅 `127.0.0.1`**（同 §4.2.1；取其它值**拒绝启动并告警**，`FR-CONFIG-9`）；端口 1–65535（**与 `CFG-32` 的 `hg.web.ws.port` 分离**）；线程数 ≥ 1 | ⬜（仅 Java 侧） | 可持久化（本地 admin） |
+| `CFG-32`（**v1.5.3 取值登记**；`CH-026` 补 `bind`） | `hg.web.ws.bind` / `hg.web.ws.port` / `hg.web.ws.heartbeat_ms` / `hg.web.ws.max_connections` | **Java 侧前端 WebSocket**（`/ws/quote`、`/ws/alert`）的绑定地址 / **独立监听**端口 / 心跳间隔 / 最大连接数 | `0.0.0.0` / 本仓库部署值 `81` / `30000` / `200`（`CH-026`：`bind` 默认 `0.0.0.0` 可接受外部流量；`port` **代码不设默认**，A-2；见 `hg.properties`） | 端口 1–65535（**独立端口**，须与 `CFG-33` 的 `hg.web.port`、`CFG-20` 的 `hg.tcp.port` **分离**）；`bind` 可配（默认 `0.0.0.0`，`CH-026`）；心跳 **≥ 1000 ms**（RFC 6455 原生 `ping`/`pong`）；连接数 ≥ 1 | ⬜（仅 Java 侧） | 可持久化（本地 admin） |
+| `CFG-33`（**v1.5.3 补登记**；`CH-026` 订正默认值） | `hg.web.bind` / `hg.web.port` / `hg.web.threads` | **Java 侧前端 HTTP**（REST + 静态托管）绑定地址 / 端口 / 处理线程数 | `0.0.0.0` / `80` / `16`（`CH-026`：`bind` 默认 `0.0.0.0` 可接受外部流量，仅沿用既有会话鉴权；`port`/`threads` 取 `T-003` 实测实现值，可调） | `bind` 可配（默认 `0.0.0.0`；`CH-026` 经用户裁定放宽，**组件间 TCP 通道 `hg.tcp.bind` 仍恒回环 + 鉴权**，见 §4.2.1）；端口 1–65535（**与 `CFG-32` 的 `hg.web.ws.port` 分离**）；线程数 ≥ 1 | ⬜（仅 Java 侧） | 可持久化（本地 admin） |
 | `CFG-26b`（**v1.5.24 落登**） | `audit.major_event.agg_inconsistency_timeout_hours` | 重大事项触发**条件①**：加总对账不一致且**超时未闭环**阈值（小时；`R-AUDIT-5` ①） | `24` | ≥ 1（INT） | ⬜ | 可持久化 |
 | `CFG-34`（**v1.5.24 落登**） | `hg.trade.fund_cap_enabled` | **L3 资金上限护栏启用态**（T-086 缺口 `G-6` 承载）：`Y` = 提交路径强制——子账户/账户两级任一占用 ≥ 额度 ⇒ `10012` 拒绝 + 告警留痕 + **不发 CTP**；与 `R-FUND-7`「告警不阻断」为**独立语义层**（`R-FUND-7` 告警面零改动）；语义与失效模式见 §3.8 注记 | `Y`（启用） | `Y` / `N`（BOOL） | ⬜（仅 Java 侧） | 可持久化 |
 | `CFG-35`（**v1.5.24 落登**） | `hg.trade.emergency_stop` | **L3 紧急停止开关**（T-086 缺口 `G-7` 承载）：`Y` = **全部新提交拒绝**（在途指令与既有流程不受影响，`R-TRADE-13`）；经既有 CONFIG 参数面切换、关闭须双人复核（`TC-M4-25` ≤1 操作停新开仓）；语义见 §3.8 注记 | `N`（未停止） | `Y` / `N`（BOOL） | ⬜（仅 Java 侧） | 可持久化 |
@@ -3049,7 +3057,7 @@ CTP 行情 ─▶ C++ ctp_md_spi(T3) ─▶ quoteQueue（满则丢旧）─▶ T
 6. **前端引入 `package.json` / `node_modules` / 打包产物** → 违反 `NFR-MAINT-1`（`E6`）。
 7. **把 90%/80% 红线默认值通过配置放宽而未双人复核** → 违反 `R-CONFIG-8`。
 8. **敏感字段写入配置/DB/日志/核心转储** → 违反 `NFR-SEC-1`（最高优先级红线）。
-9. **监听 `0.0.0.0` 或关闭连接鉴权** → 违反 `NFR-SEC-3`（最高优先级红线）。
+9. **监听 `0.0.0.0` 或关闭连接鉴权** → 违反 `NFR-SEC-3`（最高优先级红线）。**（`CH-026` 适用范围澄清：本条限组件间 TCP / HGCP；前端 HTTP/WS 的 `0.0.0.0` 绑定依用户裁定不在本条约束内，见 §11 `CFG-32`/`CFG-33` 与 `PROJECT.md` §6）**
 10. **在存在断点时输出"链条完整"结论** → 违反 `R-AUDIT-2`（审计诚信底线）。
 
 ---

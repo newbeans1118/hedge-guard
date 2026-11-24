@@ -1,0 +1,13 @@
+# report_period_config.tsv — t_report_period_config — group=master
+# 依据: data-init.sql ④-2 / TB-CONFIG-6 / Q-14
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；显式 id=0 = 保留系统行（dm8 目标包 SET IDENTITY_INSERT）
+# 外键列填父表自然键值（见 manifest.json fk_ref_columns）；值域以 DDL CHECK、口径以 INDEX.md §9.1 为准
+# 标注「示例」的业务取值属模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	report_type	period_unit	period_value	remind_advance_days	remind_role_codes	is_mandatory	is_enabled
+	DAILY_SETTLE	DAY	1	0	SETTLER,FIN_RISK	Y	Y
+	DAILY_RISK	DAY	1	0	FIN_RISK	Y	Y
+	MONTHLY_CHECK	MONTH	1	0	FIN_RISK,TRADER,SETTLER	Y	Y
+	QUARTERLY_REPORT	QUARTER	1	0	FIN_RISK,TRADER,APPROVER	Y	Y
+	ANNUAL_REPORT	YEAR	1	0	AUDITOR	Y	Y
+	MAJOR_EVENT	DAY	1	0	FIN_RISK,APPROVER,AUDITOR	Y	Y

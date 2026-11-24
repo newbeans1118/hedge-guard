@@ -60,7 +60,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class WsProductionAssemblyTest {
 
     private static final String[] WS_KEYS = {
-            Bootstrap.KEY_WS_PORT, Bootstrap.KEY_WS_HEARTBEAT_MS, Bootstrap.KEY_WS_MAX_CONNECTIONS,
+            Bootstrap.KEY_WS_BIND, Bootstrap.KEY_WS_PORT, Bootstrap.KEY_WS_HEARTBEAT_MS,
+            Bootstrap.KEY_WS_MAX_CONNECTIONS,
     };
     private static final String[] DB_KEYS = {
             Config.KEY_DB_URL, Config.KEY_DB_DRIVER, Config.KEY_DB_USER, Config.KEY_DB_POOL_INITIAL,
@@ -114,18 +115,19 @@ class WsProductionAssemblyTest {
         // 【T-131 增注】基线由 168 订正为 173（PRODUCT 写面 +5 对；WS 仍不注册 HTTP 路由）。
         // FR-PLAN-2 / FR-PLAN-5 试点：PLAN 面 +2 对 ⇒ 173 → 175（WS 仍不注册 HTTP 路由）。
         // 【阶段 1 监控面增注】新增 1 对 GET /monitor/component ⇒ 175 → 176（WS 仍不注册 HTTP 路由）。
-        assertEquals(176, a.routeCount(), "WS 装配不增减 HTTP 路由计数（装配前基线 176）");
+        // 【管理端「关闭系统」增注】新增 1 对 POST /system/shutdown ⇒ 176 → 177（WS 仍不注册 HTTP 路由）。
+        assertEquals(177, a.routeCount(), "WS 装配不增减 HTTP 路由计数（装配前基线 177）");
     }
 
     @Test
-    @DisplayName("CFG-32 已配置：WS 装配可观测 + 仅回环绑定 + 握手鉴权复用同源会话存储")
+    @DisplayName("CFG-32 已配置：WS 装配可观测 + 按 hg.web.ws.bind 绑定（CH-026 缺省 0.0.0.0）+ 握手鉴权同源")
     void wsAssembledWhenConfiguredAndLoopbackOnly() throws IOException {
         Bootstrap.Assembly a = assembleWithWs();
         assertNotNull(a.wsServer(), "CFG-32 已配置时须装配 WS 服务端（可观测，非只靠日志）");
         assertNotNull(a.wsServer().alertNotifier(), "告警 notifier 槽须随装配产出");
         assertNotNull(a.wsServer().server().boundAddress(), "须已绑定");
-        assertTrue(a.wsServer().server().boundAddress().getAddress().isLoopbackAddress(),
-                "WS 只允许回环绑定（NFR-SEC-3 / 红线 9）");
+        assertTrue(a.wsServer().server().boundAddress().getAddress().isAnyLocalAddress(),
+                "CH-026 后 WS 缺省绑定 0.0.0.0（组件通道 hg.tcp.bind 仍恒回环）");
 
         // 握手鉴权与 REST 同源：无会话凭据 → HTTP 401（不升级）
         Socket bad = new Socket(java.net.InetAddress.getLoopbackAddress(),

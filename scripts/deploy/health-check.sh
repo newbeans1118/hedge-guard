@@ -28,10 +28,12 @@ if ! command -v curl >/dev/null 2>&1; then
 fi
 WHAT="${1:-all}"
 
-BIND="$(hg_cfg hg.web.bind 127.0.0.1)"
-PORT="$(hg_cfg hg.web.port 27402)"
+BIND="$(hg_cfg hg.web.bind 0.0.0.0)"
+# CH-026：绑定地址可配（缺省 0.0.0.0）；存活/静态托管探测恒走回环（绑 0.0.0.0 时可达）。
+PROBE_HOST=127.0.0.1
+PORT="$(hg_cfg hg.web.port 80)"
 TCP_BIND="$(hg_cfg hg.tcp.bind 127.0.0.1)"
-TCP_PORT="$(hg_cfg hg.tcp.port 27400)"
+TCP_PORT="$(hg_cfg hg.tcp.port 39000)"
 WEB_ROOT="$(hg_cfg hg.web.root ./web)"
 
 pass=0 fail=0 skip=0
@@ -46,13 +48,13 @@ check_biz() {
   if pid_alive "${pid}"; then _ok "进程存活（pid=${pid}）"; else _bad "进程未运行（pidfile=${pidfile}）"; fi
 
   local body
-  if body="$(curl -fsS -m 5 "http://${BIND}:${PORT}/api/v1/ping" 2>/dev/null)"; then
+  if body="$(curl -fsS -m 5 "http://${PROBE_HOST}:${PORT}/api/v1/ping" 2>/dev/null)"; then
     _ok "存活探针 GET /api/v1/ping 可达（HTTP 200）：${body}"
   else
-    _bad "存活探针 GET http://${BIND}:${PORT}/api/v1/ping 不可达"
+    _bad "存活探针 GET http://${PROBE_HOST}:${PORT}/api/v1/ping 不可达（绑定地址=${BIND}）"
   fi
 
-  if curl -fsS -m 5 -o /dev/null "http://${BIND}:${PORT}/web/index.html" 2>/dev/null; then
+  if curl -fsS -m 5 -o /dev/null "http://${PROBE_HOST}:${PORT}/web/index.html" 2>/dev/null; then
     _ok "前端静态托管 GET /web/index.html 可达（零构建链，ARCH §7.1.9）"
   else
     _bad "前端静态托管 GET /web/index.html 不可达（检查 hg.web.root=${WEB_ROOT}）"

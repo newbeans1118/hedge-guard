@@ -1,0 +1,11 @@
+# check_signature.tsv — t_check_signature — group=demo
+# 依据: TB-SETTLE-13 / CFG-14（应签角色三方各自签署）
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；password_hash 留空 = 生成器注入非凭证明文标记（零落盘）
+# FK 列填父表自然键值（manifest.json fk_ref_columns）；instrument_id/underlying_instrument_id/subject_code 原样透传
+# source_id 为多态软外键：值 = source_type 对应父表 key 列以 | 拼接（manifest.json polymorphic_ref_columns）
+# 全部业务取值均为演示模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	sub_account_id	check_task_id	sign_role	signer_id	signer_role_code	sign_time	sign_ip	snapshot_hash	sign_result	sign_opinion	proxy_rejected	manage_role_trade_blocked
+	__ALL_ACCOUNT__	2026-11	RISK	finrisk01	FIN_RISK	2026-11-30 10:00:00	127.0.0.1	DEMO-HASH-0001	SIGNED	核对一致	N	N
+	__ALL_ACCOUNT__	2026-11	TRADE	trader01	TRADER	2026-11-30 11:00:00	127.0.0.1	DEMO-HASH-0001	SIGNED	核对一致	N	N
+	__ALL_ACCOUNT__	2026-11	FINANCE	cashier01	CASHIER	2026-11-30 12:00:00	127.0.0.1	DEMO-HASH-0001	SIGNED	核对一致	N	N

@@ -82,7 +82,7 @@ class SensitiveLoggingAndConfigTest {
     @DisplayName("属性文件中的敏感键被拒绝装载（零落盘红线）")
     void configRefusesSecretsInFile(@TempDir Path dir) throws IOException {
         Path f = dir.resolve("hg.properties");
-        Files.write(f, "hg.web.port=27402\nhg.db.password=plain-text\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(f, "hg.web.port=80\nhg.db.password=plain-text\n".getBytes(StandardCharsets.UTF_8));
         IllegalStateException e = assertThrows(IllegalStateException.class, () -> Config.load(f));
         assertTrue(e.getMessage().contains("敏感字段零落盘"));
         assertTrue(e.getMessage().contains("hg.db.password"));
@@ -94,14 +94,14 @@ class SensitiveLoggingAndConfigTest {
         Path f = dir.resolve("hg.properties");
         Files.write(f, "hg.web.port=28080\nhg.web.root=/srv/hg/web\n".getBytes(StandardCharsets.UTF_8));
         Config config = Config.load(f);
-        assertEquals(28080, config.getInt(Config.KEY_HTTP_PORT, 27402));
+        assertEquals(28080, config.getInt(Config.KEY_HTTP_PORT, 80));
         assertEquals("/srv/hg/web", config.get(Config.KEY_WEB_ROOT, "./web"));
         assertEquals("./web", Config.empty().get(Config.KEY_WEB_ROOT, "./web"));
         assertEquals(30, config.getInt(Config.KEY_SESSION_IDLE_MINUTES, 30));
 
         System.setProperty(Config.KEY_HTTP_PORT, "29090");
         try {
-            assertEquals(29090, config.getInt(Config.KEY_HTTP_PORT, 27402));
+            assertEquals(29090, config.getInt(Config.KEY_HTTP_PORT, 80));
             assertEquals("HGSESSION", config.sessionCookieName());
         } finally {
             System.clearProperty(Config.KEY_HTTP_PORT);
@@ -114,25 +114,33 @@ class SensitiveLoggingAndConfigTest {
         Path f = dir.resolve("hg.properties");
         Files.write(f, "hg.web.port=abc\n".getBytes(StandardCharsets.UTF_8));
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
-                () -> Config.load(f).getInt(Config.KEY_HTTP_PORT, 27402));
+                () -> Config.load(f).getInt(Config.KEY_HTTP_PORT, 80));
         assertTrue(e.getMessage().contains("hg.web.port"));
         assertTrue(e.getMessage().contains("abc"));
     }
 
     @Test
-    @DisplayName("绑定地址守卫：仅回环放行，对外暴露地址被拒绝（附录 B 红线 9）")
+    @DisplayName("CH-026：组件通道 hg.tcp.bind 仍恒回环（T8' 负向），前端键经 webBind 可配")
     void loopbackGuardRejectsPublicBind() {
-        System.setProperty(Config.KEY_HTTP_BIND, "0.0.0.0");
+        System.setProperty(Config.KEY_TCP_BIND, "0.0.0.0");
         try {
             IllegalStateException e = assertThrows(IllegalStateException.class,
-                    () -> Config.empty().loopbackOnly(Config.KEY_HTTP_BIND));
+                    () -> Config.empty().loopbackOnly(Config.KEY_TCP_BIND));
             assertTrue(e.getMessage().contains("禁止对外暴露"));
         } finally {
-            System.clearProperty(Config.KEY_HTTP_BIND);
+            System.clearProperty(Config.KEY_TCP_BIND);
         }
-        System.setProperty(Config.KEY_HTTP_BIND, "127.0.0.1");
+        System.setProperty(Config.KEY_TCP_BIND, "127.0.0.1");
         try {
-            assertEquals("127.0.0.1", Config.empty().loopbackOnly(Config.KEY_HTTP_BIND));
+            assertEquals("127.0.0.1", Config.empty().loopbackOnly(Config.KEY_TCP_BIND));
+        } finally {
+            System.clearProperty(Config.KEY_TCP_BIND);
+        }
+        // CH-026：前端 HTTP/WS 绑定不受回环白名单约束，缺省 0.0.0.0、可显式覆盖
+        assertEquals("0.0.0.0", Config.empty().webBind(Config.KEY_HTTP_BIND));
+        System.setProperty(Config.KEY_HTTP_BIND, "192.168.1.10");
+        try {
+            assertEquals("192.168.1.10", Config.empty().webBind(Config.KEY_HTTP_BIND));
         } finally {
             System.clearProperty(Config.KEY_HTTP_BIND);
         }

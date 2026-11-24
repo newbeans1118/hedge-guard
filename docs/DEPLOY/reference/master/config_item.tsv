@@ -1,0 +1,75 @@
+# config_item.tsv — t_config_item — group=master
+# 依据: data-init.sql ④-3 / ARCHITECTURE §11.1-11.3 / R-CONFIG-8（68 键，逐行由 data-init.sql 机械派生）
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；显式 id=0 = 保留系统行（dm8 目标包 SET IDENTITY_INSERT）
+# 外键列填父表自然键值（见 manifest.json fk_ref_columns）；值域以 DDL CHECK、口径以 INDEX.md §9.1 为准
+# 标注「示例」的业务取值属模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	config_key	config_category	config_value	value_type	enum_scope	min_value	max_value	default_value	is_sensitive	sensitive_state	persist_scope	dispatch_to_ctp	double_review_required	related_question_no	effective_version	description
+	hedge.scale.base	RISK_PARAM	EXPOSURE_QTY	ENUM	EXPOSURE_QTY,REVENUE,PURCHASE_QTY			EXPOSURE_QTY	N		LOCAL_ADMIN	Y	Y	Q-1	0	CFG-01 规模红线基数口径：年度现货敞口累计量（实物量），不用营业收入
+	hedge.scale.scope	RISK_PARAM	BOTH	ENUM	SUB_ACCOUNT,TOTAL_ACCOUNT,BOTH			BOTH	N		LOCAL_ADMIN	Y	Y	Q-1	0	CFG-02 规模红线计算范围：子账户与全账户双算、取严者
+	hedge.scale.ratio_commodity	RISK_PARAM	0.90	DECIMAL		0	1	0.90	N		LOCAL_ADMIN	Y	Y	Q-2	0	CFG-02b 商品类规模红线比例 90%
+	hedge.scale.ratio_trade	RISK_PARAM	0.80	DECIMAL		0	1	0.80	N		LOCAL_ADMIN	Y	Y	Q-2	0	CFG-02b 贸易类规模红线比例 80%
+	sub_account.category	SUB_ACCOUNT	COMMODITY	ENUM	COMMODITY,TRADE			COMMODITY	N		LOCAL_ADMIN	Y	Y	Q-2	0	CFG-02c 子账户分类默认商品类，允许品种级覆盖；变更风控岗发起+财务负责人审批
+	risk.term.max_months	RISK_PARAM	12	INT		1	120	12	N		LOCAL_ADMIN	Y	Y	Q-4	0	CFG-03 期限红线：建仓日 + N 个月
+	risk.term.grace_days	RISK_PARAM	30	INT		0	180	30	N		LOCAL_ADMIN	Y	Y	Q-4	0	CFG-03 实货合同到期宽限天数
+	risk.term.action	RISK_PARAM	WARN_THEN_BLOCK	ENUM	WARN_THEN_BLOCK,BLOCK,WARN_AND_APPROVE			WARN_THEN_BLOCK	N		LOCAL_ADMIN	Y	Y	Q-4	0	CFG-03b 超期限处置：剩余<=30天告警，超期未审批阻断新开仓；不阻断平仓与展期置换
+	risk.position.check_mode	RISK_PARAM	PRE_TRADE_AND_EOD	ENUM	PRE_TRADE_AND_EOD,ON_ORDER,EOD_ONLY			PRE_TRADE_AND_EOD	N		LOCAL_ADMIN	Y	Y	Q-3	0	CFG-04 时点净持仓校验时点：下单瞬间硬阻断+日终复核，不做盘中逐笔重算
+	exposure.snapshot.mode	RISK_PARAM	LATEST_SNAPSHOT_OF_DAY	ENUM	LATEST_SNAPSHOT_OF_DAY,CONTRACT_REMAINING			LATEST_SNAPSHOT_OF_DAY	N		LOCAL_ADMIN	N	N	Q-3	0	CFG-04b 校验用敞口时点：当日最新快照，须记录快照时点
+	risk.freq.intraday_warn	RISK_PARAM	6	INT		1	100	6	N		LOCAL_ADMIN	Y	Y	Q-5	0	CFG-05 频繁开平仓：日内滚动窗开平合计告警阈值
+	risk.freq.intraday_block	RISK_PARAM	10	INT		1	100	10	N		LOCAL_ADMIN	Y	Y	Q-5	0	CFG-05 频繁开平仓：日内滚动窗开平合计限制新开仓阈值
+	risk.freq.7d_rounds_warn	RISK_PARAM	5	INT		1	100	5	N		LOCAL_ADMIN	Y	Y	Q-5	0	CFG-05b 7 日滚动开平回合告警阈值
+	risk.freq.min_hold_days	RISK_PARAM	3	INT		1	60	3	N		LOCAL_ADMIN	Y	Y	Q-5	0	CFG-05b 平均持仓天数告警线（<3 且回合>=5 告警）
+	plan.ratio.custom.mode	RISK_PARAM	FIXED_RATIO_CAP_WITH_CONDITIONS	ENUM	FIXED_RATIO_CAP_WITH_CONDITIONS			FIXED_RATIO_CAP_WITH_CONDITIONS	N		LOCAL_ADMIN	N	N	Q-6	0	CFG-06 自定义规则法：固定比例上限+适用条件，不做表达式引擎；规则实体化 TB-PLAN-8
+	plan.ratio.minvar_min_samples	RISK_PARAM	30	INT		10	250	30	N		LOCAL_ADMIN	N	N		0	CFG-06b 最小方差法最小样本（交易日）
+	accounting.effectiveness.observers	RISK_PARAM	PRODUCT_LINKAGE,DIRECTION,TERM±3M	STRING				PRODUCT_LINKAGE,DIRECTION,TERM±3M	N		LOCAL_ADMIN	N	Y	Q-7	0	CFG-07 有效性三项定性观察点（三项均满足即有效）
+	accounting.effectiveness.monitor_threshold	RISK_PARAM	0.50	DECIMAL		0	5	0.50	N		LOCAL_ADMIN	N	Y	Q-7	0	CFG-07b 量化监测指标：偏离1超±50%提示复核；仅监测不判定有效性
+	accounting.rebalance.exposure_delta_pct	RISK_PARAM	0.20	DECIMAL		0	1	0.20	N		LOCAL_ADMIN	N	Y	Q-8	0	CFG-08 再平衡触发：敞口变动阈值（敞口侧）
+	accounting.rebalance.ratio_deviation_pct	RISK_PARAM	0.20	DECIMAL		0	1	0.20	N		LOCAL_ADMIN	N	Y	Q-8	0	CFG-08 再平衡触发：套期比率偏离阈值（工具侧）
+	accounting.subject.template	DICT_SUBJECT	HEDGE_TEMPLATE	STRING				HEDGE_TEMPLATE	N		LOCAL_ADMIN	N	Y	Q-9	0	CFG-09 科目表：含套期会计常用科目模板，企业可增删改（t_account_subject 载体）
+	accounting.voucher.mode	DICT_SUBJECT	DRAFT_ONLY	STRING				DRAFT_ONLY	N		LOCAL_ADMIN	N	Y	Q-9	0	CFG-09 凭证模式：草稿含科目建议，不做总账过账，标注待企业财务复核入账
+	sub_account.lifecycle	SUB_ACCOUNT	DISABLE_ONLY	ENUM	DISABLE_ONLY			DISABLE_ONLY	N		LOCAL_ADMIN	Y	Y	Q-10	0	CFG-10 子账户生命周期纪律：不可物理删除仅停用，历史永久只读且仍参与加总对账
+	settle.aggregation.block_scope	RISK_PARAM	DIFF_SUB_NON_CLOSE	ENUM	DIFF_SUB_NON_CLOSE,DIFF_SUB,ALL_SUB			DIFF_SUB_NON_CLOSE	N		LOCAL_ADMIN	Y	Y	Q-11	0	CFG-11 加总不一致阻断范围：仅差异所属子账户新开仓/资金划拨/日终关账；不阻断平仓
+	spot.price.gap_calc	RISK_PARAM	REJECT	ENUM	REJECT,INTERPOLATE_MAX_3D			REJECT	N		LOCAL_ADMIN	N	Y	Q-12	0	CFG-12 现货价缺口（套保比率计算用途）：拒绝计算并明确报错；插值可选默认关闭
+	spot.price.gap_valuation	RISK_PARAM	CARRY_FORWARD_LABELED	ENUM	CARRY_FORWARD_LABELED,REJECT			CARRY_FORWARD_LABELED	N		LOCAL_ADMIN	N	Y	Q-12	0	CFG-12b 现货价缺口（实货盈亏/敞口估值用途）：沿用最近一期但必须标注 price_as_of
+	trade.reason.mode	RISK_PARAM	STRUCTURED_MANDATORY	ENUM	STRUCTURED_MANDATORY			STRUCTURED_MANDATORY	N		LOCAL_ADMIN	N	N	Q-13	0	CFG-13 交易理由形式：关联类型+关联对象+时点说明三项必填，校验不通过即拒绝
+	settle.sign.roles	REPORT_PERIOD	RISK,TRADE,FINANCE	STRING				RISK,TRADE,FINANCE	N		LOCAL_ADMIN	N	Y	Q-14	0	CFG-14 核对任务应签角色：月度三方各自签署；季度 RISK+TRADE 后 MANAGE 签收；年度 AUDITOR
+	settle.sign.deadline_days	REPORT_PERIOD	30	INT		1	120	30	N		LOCAL_ADMIN	N	Y	Q-14	0	CFG-14 签署截止：期间结束后 N 天内
+	risk.price.base	RISK_PARAM	PREV_SETTLEMENT	ENUM	PREV_SETTLEMENT			PREV_SETTLEMENT	N		LOCAL_ADMIN	Y	Y	Q-15	0	CFG-15 价格偏离基准：昨结算价（CTP 提供）；市价单不适用并标注
+	risk.price.warn_pct	RISK_PARAM	0.02	DECIMAL		0	1	0.02	N		LOCAL_ADMIN	Y	Y	Q-15	0	CFG-15 价格偏离告警线：(2%,5%] 告警+二次确认（0x1018）
+	risk.price.block_pct	RISK_PARAM	0.05	DECIMAL		0	1	0.05	N		LOCAL_ADMIN	Y	Y	Q-15	0	CFG-15 价格偏离阻断线：>5% 阻断（0x1010）；品种级可覆盖
+	risk.limit.layers	RISK_PARAM	SUB_PRODUCT,SUB_INSTRUMENT,ACCOUNT_PRODUCT	LIST	SUB_PRODUCT,SUB_INSTRUMENT,ACCOUNT_PRODUCT			SUB_PRODUCT,SUB_INSTRUMENT,ACCOUNT_PRODUCT	N		LOCAL_ADMIN	Y	Y	Q-16	0	CFG-16 限额三层全保留：层①主维度/层②可选/层③总账户防串用；层①不可关闭
+	exposure.components	RISK_PARAM	CONTRACT_UNEXECUTED,INVENTORY,PRODUCTION_PLAN	LIST	CONTRACT_UNEXECUTED,INVENTORY,PRODUCTION_PLAN			CONTRACT_UNEXECUTED,INVENTORY,PRODUCTION_PLAN	N		LOCAL_ADMIN	Y	Y	Q-17	0	CFG-17 实货敞口默认口径（组合，含生产计划）：三分量全开；快照必须存三类分量
+	exposure.component.gap_calc	RISK_PARAM	REJECT	ENUM	REJECT,CARRY_FORWARD_LABELED			REJECT	N		LOCAL_ADMIN	Y	Y	Q-17	0	CFG-17b 敞口分量缺失/不一致：写入侧拒绝；展示侧重算+告警+留痕；比率计算一律拒绝
+	audit.chain.inflight_max_cycles	RISK_PARAM	1	INT		1	3	1	N		LOCAL_ADMIN	N	Y		0	CFG-17c 追溯链在途时窗上限（结算周期数）：逾时 UNKNOWN+告警，再逾则 HAS_BREAK
+	spot.price.scope	RISK_PARAM	GLOBAL	ENUM	GLOBAL			GLOBAL	N		LOCAL_ADMIN	Y	N		0	CFG-18 现货价子账户口径：唯一取值 GLOBAL（CH-003 收敛）；PER_SUB_ACCOUNT 已废弃禁止启用
+	hg.tcp.bind	COMPONENT_COMM	127.0.0.1	STRING				127.0.0.1	N		LOCAL_ADMIN	N	N		0	CFG-20 HGCP 组件通道绑定地址：bind 白名单仅 127.0.0.1（R-CONFIG-5）
+	hg.tcp.port	COMPONENT_COMM	39000	INT		1	65535	39000	N		LOCAL_ADMIN	N	N		0	CFG-20 HGCP 组件通道端口
+	risk.margin_ratio_warn	RISK_PARAM	0.70	DECIMAL		0	1	0.70	N		LOCAL_ADMIN	Y	N		0	CFG-21 风险度告警阈值
+	risk.margin_ratio_critical	RISK_PARAM	0.90	DECIMAL		0	1	0.90	N		LOCAL_ADMIN	Y	N		0	CFG-21 保证金占用率严重阈值
+	risk.limit_usage_hint	RISK_PARAM	0.80	DECIMAL		0	1	0.80	N		LOCAL_ADMIN	N	N		0	CFG-21b 限额使用率提示线
+	risk.limit_usage_warn	RISK_PARAM	0.95	DECIMAL		0	1	0.95	N		LOCAL_ADMIN	N	N		0	CFG-21b 限额使用率警告线
+	hg.ctp.env_type	CTP_CONN	SIMULATION	ENUM	SIMULATION,PRODUCTION			SIMULATION	N		LOCAL_ADMIN	Y	Y		0	CFG-22 模拟盘/实盘显式标识；切为 PRODUCTION 须二次确认+双人复核（R-CONFIG-9）
+	hg.auth.login_fail_limit	SYSTEM	5	INT		1	20	5	N		LOCAL_ADMIN	N	N		0	CFG-23 登录失败锁定阈值（FR-AUTH-17）
+	hg.auth.login_lock_minutes	SYSTEM	5	INT		1	1440	5	N		LOCAL_ADMIN	N	N		0	CFG-23 登录失败锁定时长（分钟）
+	hg.auth.session_idle_minutes	SYSTEM	30	INT		5	120	30	N		LOCAL_ADMIN	N	N		0	CFG-23b 会话空闲超时（分钟）
+	hg.auth.password_min_length	SYSTEM	12	INT		8	64	12	N		LOCAL_ADMIN	N	N		0	CFG-23b 口令强度最小长度
+	hg.auth.password_history_size	SYSTEM	5	INT		0	24	5	N		LOCAL_ADMIN	N	N		0	CFG-23b 口令历史重用检查深度
+	plan.expiry_remind_days	REPORT_PERIOD	30	INT		1	180	30	N		LOCAL_ADMIN	N	N		0	CFG-24 计划到期提前提醒期
+	fund.quota.alert_levels	RISK_PARAM	0.80,0.95,1.00	STRING				0.80,0.95,1.00	N		LOCAL_ADMIN	N	N		0	CFG-25 资金额度告警级别阈值（递增序列）
+	audit.major_event.loss_threshold	REPORT_PERIOD	100000	INT		1		100000	N		LOCAL_ADMIN	N	N		0	CFG-26 重大事项触发：单笔/当日亏损阈值（元）；触发 MAJOR_EVENT 报告
+	audit.major_event.agg_inconsistency_timeout_hours	REPORT_PERIOD	24	INT		1		24	N		LOCAL_ADMIN	N	N		0	CFG-26b 重大事项触发条件①：加总对账不一致且超时未闭环阈值（小时；R-AUDIT-5 ①/T-081）
+	settle.stress.scenarios	REPORT_PERIOD	-3%,-5%,-10%;+10%	STRING				-3%,-5%,-10%;+10%	N		LOCAL_ADMIN	N	N		0	CFG-27 压力测试情景参数
+	hg.tcp.heartbeat_ms	COMPONENT_COMM	1000	INT				1000	N		LOCAL_ADMIN	N	N		0	CFG-28 HGCP 心跳间隔（毫秒）
+	hg.cmd_timeout_ms	COMPONENT_COMM	3000	INT				3000	N		LOCAL_ADMIN	N	N		0	CFG-28 命令超时（毫秒）
+	hg.trade.confirm_timeout_ms	COMPONENT_COMM	60000	INT				60000	N		LOCAL_ADMIN	Y	N		0	CFG-28 人工确认超时（毫秒）
+	hg.flow.dir	COMPONENT_COMM	./data/flow	STRING				./data/flow	N		LOCAL_ADMIN	Y	N		0	CFG-29 指令流水目录（非敏感，不得存放明文凭证）
+	hg.flow.fsync_mode	COMPONENT_COMM	BATCH	STRING				BATCH	N		LOCAL_ADMIN	Y	N		0	CFG-29 指令流水 fsync 模式
+	hg.flow.retain_days	COMPONENT_COMM	90	INT				90	N		LOCAL_ADMIN	Y	N		0	CFG-29 指令流水保留天数
+	hg.web.root	SYSTEM	./web	STRING				./web	N		LOCAL_ADMIN	N	N		0	CFG-30 前端静态资源目录
+	hg.web.ws.heartbeat_ms	COMPONENT_COMM	30000	INT		1000		30000	N		LOCAL_ADMIN	N	N		0	CFG-32 Java WebSocket 心跳间隔（毫秒，>=1000，RFC 6455 原生 ping/pong）
+	hg.web.ws.max_connections	COMPONENT_COMM	200	INT		1		200	N		LOCAL_ADMIN	N	N		0	CFG-32 Java WebSocket 最大连接数
+	hg.web.bind	COMPONENT_COMM	0.0.0.0	STRING				0.0.0.0	N		LOCAL_ADMIN	N	N		0	CFG-33 Java 前端 HTTP 绑定地址：CH-026 后默认 0.0.0.0 可接受外部流量；组件通道 hg.tcp.bind 仍白名单仅 127.0.0.1
+	hg.web.port	COMPONENT_COMM	80	INT		1	65535	80	N		LOCAL_ADMIN	N	N		0	CFG-33 Java 前端 HTTP 端口（与 hg.web.ws.port / hg.tcp.port 分离）
+	hg.web.threads	COMPONENT_COMM	16	INT		1		16	N		LOCAL_ADMIN	N	N		0	CFG-33 Java 前端 HTTP 处理线程数（取 T-003 实测实现值，可调）
+	hg.trade.fund_cap_enabled	RISK_PARAM	Y	BOOL				Y	N		LOCAL_ADMIN	N	N		0	CFG-34 L3 资金上限护栏启用态（T-205/G-6）：Y=提交路径强制（占用≥额度即拒绝+告警留痕+不发 CTP，子账户/账户两级）；与 R-FUND-7 告警不阻断为独立语义层，R-FUND-7 告警面零改动
+	hg.trade.emergency_stop	RISK_PARAM	N	BOOL				N	N		LOCAL_ADMIN	N	N		0	CFG-35 L3 紧急停止开关（T-205/G-7）：Y=全部新提交拒绝（在途指令与既有流程不受影响，R-TRADE-13）；经既有 CONFIG 参数面切换、双人复核关（TC-M4-25 ≤1 操作停新开仓）

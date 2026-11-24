@@ -1,0 +1,12 @@
+# position_conflict.tsv — t_position_conflict — group=master
+# 依据: data-init.sql ③-3 / TB-AUTH-6 / R-AUTH-3 / R-AUTH-13
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；显式 id=0 = 保留系统行（dm8 目标包 SET IDENTITY_INSERT）
+# 外键列填父表自然键值（见 manifest.json fk_ref_columns）；值域以 DDL CHECK、口径以 INDEX.md §9.1 为准
+# 标注「示例」的业务取值属模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	group_a_id	group_b_id	conflict_reason	is_mandatory	reviewer_id
+	TRADER	FIN_RISK	8 号文 四(一)：交易岗与风控岗不得由同一人担任	Y	
+	TRADER	SETTLER	8 号文 四(一)：交易岗与结算岗不得由同一人担任	Y	
+	FIN_RISK	SETTLER	8 号文 四(一)：风控岗与结算岗不得由同一人担任	Y	
+	TRADER	CASHIER	R-AUTH-3：资金岗与交易岗互斥	Y	
+	TRADER	APPROVER	R-AUTH-13 / CH-002：管理层的签署权与交易权互斥（禁操盘）	Y	

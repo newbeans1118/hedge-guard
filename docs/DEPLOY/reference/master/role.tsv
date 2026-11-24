@@ -1,0 +1,14 @@
+# role.tsv — t_role — group=master
+# 依据: data-init.sql ③-2 / TB-AUTH-2 / R-AUTH-10
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；显式 id=0 = 保留系统行（dm8 目标包 SET IDENTITY_INSERT）
+# 外键列填父表自然键值（见 manifest.json fk_ref_columns）；值域以 DDL CHECK、口径以 INDEX.md §9.1 为准
+# 标注「示例」的业务取值属模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	role_code	role_name	position_group_id	is_preset	is_business_role	has_trading_operation	status
+	TRADER	期货交易岗	TRADER	Y	Y	Y	ENABLED
+	FIN_RISK	财务/风控岗	FIN_RISK	Y	Y	N	ENABLED
+	SETTLER	结算岗	SETTLER	Y	Y	N	ENABLED
+	CASHIER	资金岗	CASHIER	Y	Y	N	ENABLED
+	APPROVER	管理层（审批人）	APPROVER	Y	Y	N	ENABLED
+	AUDITOR	审计/合规岗	AUDITOR	Y	Y	N	ENABLED
+	SYS_ADMIN	系统管理员	SYS_ADMIN	Y	N	N	ENABLED

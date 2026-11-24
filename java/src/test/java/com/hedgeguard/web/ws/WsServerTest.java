@@ -98,14 +98,29 @@ class WsServerTest {
     // ---------------------------------------------------------------- 绑定与握手
 
     @Test
-    @DisplayName("🔴 仅绑定回环 127.0.0.1（红线 9：绝不 0.0.0.0）")
-    void bindsLoopbackOnly() {
+    @DisplayName("CH-026：缺省绑定 0.0.0.0（可接受外部流量）")
+    void bindsAnyLocalByDefault() {
         assertTrue(server.boundPort() > 0, "应已绑定端口");
         assertNotNull(server.boundAddress());
-        assertTrue(server.boundAddress().getAddress().isLoopbackAddress(),
-                "WS 必须仅监听回环，实际=" + server.boundAddress());
-        assertFalse(server.boundAddress().getAddress().isAnyLocalAddress(),
-                "绝不允许通配地址（0.0.0.0）");
+        assertTrue(server.boundAddress().getAddress().isAnyLocalAddress(),
+                "CH-026 后 WS 缺省应监听 0.0.0.0，实际=" + server.boundAddress());
+        assertFalse(server.boundAddress().getAddress().isLoopbackAddress(),
+                "缺省不再是仅回环");
+    }
+
+    @Test
+    @DisplayName("CH-026：显式指定回环绑定仍生效（部署方可收敛监听面）")
+    void bindsExplicitLoopback() throws IOException {
+        WsServer loopback = new WsServer("127.0.0.1", 0, 30000, 4,
+                new SessionAuthFilter(store, "HGSESSION"),
+                new WsAuthorizer(this::grants, violations::add), null);
+        try {
+            loopback.start();
+            assertTrue(loopback.boundAddress().getAddress().isLoopbackAddress(),
+                    "显式 127.0.0.1 应仅回环绑定");
+        } finally {
+            loopback.close();
+        }
     }
 
     @Test

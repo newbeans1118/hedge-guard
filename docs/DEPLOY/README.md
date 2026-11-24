@@ -39,18 +39,19 @@
        ┌──────────────────────── 同一台主机（建议 Ubuntu 22.04 LTS）────────────────────────┐
        │                                                                                  │
        │   hg-trading（C++11，先启动，长驻）                    hg-biz（Java 11，后启动，长驻）│
-       │   · HGCP TCP 服务端  127.0.0.1:27400 (CFG-20)   ◀──TCP──▶  · HGCP TCP 客户端        │
-       │   · 前端 HTTP/WS：不提供（CH-006）                          · 前端 HTTP 127.0.0.1:27402│
-       │   · 指令流水 ./data/flow (CFG-29)                          · 前端 WS  127.0.0.1:27401│
+       │   · HGCP TCP 服务端  127.0.0.1:39000 (CFG-20)   ◀──TCP──▶  · HGCP TCP 客户端        │
+       │   · 前端 HTTP/WS：不提供（CH-006）                          · 前端 HTTP 127.0.0.1:80   │
+       │   · 指令流水 ./data/flow (CFG-29)                          · 前端 WS  127.0.0.1:81    │
        │   · 零 DB I/O（E1 红线）                                   · 唯一写库入口（DM8）    │
        │                                                             · /web/** 静态托管(零构建)│
        └──────────────────────────────────────────────────────────────────────────────────┘
                                             ▲
-                               浏览器（仅本机/内网，访问 Java 的 HTTP/WS）
+                               浏览器（CH-026 后可从外部访问 Java 的 HTTP/WS）
 ```
 
-- **端口分离**（`ARCHITECTURE.md` §11.2）：`hg.tcp.port=27400`（组件通道）/ `hg.web.ws.port=27401`（前端 WS）/ `hg.web.port=27402`（前端 HTTP）；三者互不相同。
-- **仅回环**：`hg.tcp.bind` / `hg.web.bind` 白名单仅 `127.0.0.1`；非回环配置**拒绝启动并告警**（`NFR-SEC-3` / `FR-CONFIG-9`）。
+- **端口分离**（`ARCHITECTURE.md` §11.2）：`hg.tcp.port=39000`（组件通道，自定义）/ `hg.web.ws.port=81`（前端 WS）/ `hg.web.port=80`（前端 HTTP）；三者互不相同。`80`/`81` 属特权端口（<1024），绑定回环仍须 root 或 `CAP_NET_BIND_SERVICE`。
+- **组件通道仅回环**：`hg.tcp.bind` 白名单仅 `127.0.0.1`；非回环配置**拒绝启动并告警**（`NFR-SEC-3` / `FR-CONFIG-9`）。**前端 HTTP/WS 依 `CH-026` 默认绑定 `0.0.0.0`**（`hg.web.bind` / `hg.web.ws.bind`），可接受外部流量，仅沿用既有会话鉴权。
+- ⚠️ **外部暴露风险（`CH-026`，用户已确认）**：前端 `:80`/`:81` 默认对外且为**明文 HTTP**；登录口令、会话 Cookie、业务数据与 WS 帧可被嗅探；无 TLS / 来源 ACL / 速率限制；既有部署重启即自动对外，生产同效。部署方须自行在**反向代理 / 网络层**承担 TLS 终止与访问控制（本系统代码不强制、不新增依赖）。详见 `CH-026-external-bind.md §5`（R1~R5）。
 - **单一 HGCP 本地 TCP 回环通道**承载事件流与控制指令（行情经事件 `EVT_MARKET_QUOTE` 承载）；**C++ 侧不提供 HTTP/WebSocket**（`CH-006`）。
 
 ---
@@ -135,7 +136,7 @@
 | 配置编号 | 配置键 | 用途 | 默认值 | 持久化属性 |
 |---------|--------|------|--------|-----------|
 | `CFG-19` | `hg.security.sensitive_fields` | 敏感字段清单（日志脱敏/配置过滤） | `password,auth_code,fund_password,auth_token` | **零落盘（仅内存）** |
-| `CFG-20` | `hg.tcp.bind` / `hg.tcp.port` | HGCP 组件通道（本地 TCP 回环） | `127.0.0.1` / `27400` | 本地 admin 可持久化；API 下发不落盘 |
+| `CFG-20` | `hg.tcp.bind` / `hg.tcp.port` | HGCP 组件通道（本地 TCP 回环） | `127.0.0.1` / `39000` | 本地 admin 可持久化；API 下发不落盘 |
 | `CFG-21` | `risk.margin_ratio_warn` / `_critical` | 风险度/保证金占用率告警阈值 | `0.70` / `0.90` | 可持久化 |
 | `CFG-22` | `hg.ctp.env_type` | 模拟盘/实盘显式标识 | `SIMULATION` | 可持久化；切 `PRODUCTION` 须二次确认+双人复核 |
 | `CFG-23` | `hg.auth.login_fail_limit` / `_lock_minutes` | 登录失败锁定阈值/时长 | `5` / `5` | 可持久化 |
@@ -144,8 +145,8 @@
 | `CFG-29` | `hg.flow.dir` / `hg.flow.fsync_mode` / `hg.flow.retain_days` | 指令流水目录/fsync 模式/保留天数 | `./data/flow` / `BATCH` / `90` | C++ 本地 admin 可持久化 |
 | `CFG-30` | `hg.web.root` | 前端静态资源目录 | `./web` | 可持久化 |
 | `CFG-31` | `hg.db.*` | JDBC URL / 用户名 / 连接池参数 | 部署时填写 | **密码不落盘**；其余可持久化 |
-| `CFG-32` | `hg.web.ws.port` / `heartbeat_ms` / `max_connections` | 前端 WebSocket（`/ws/quote`、`/ws/alert`） | 部署时填写 / `30000` / `200` | 可持久化（本地 admin） |
-| `CFG-33` | `hg.web.bind` / `hg.web.port` / `hg.web.threads` | 前端 HTTP（REST+静态） | `127.0.0.1` / `27402` / `16` | 可持久化（本地 admin） |
+| `CFG-32` | `hg.web.ws.bind` / `hg.web.ws.port` / `heartbeat_ms` / `max_connections` | 前端 WebSocket（`/ws/quote`、`/ws/alert`） | `0.0.0.0` / 部署值 `81`（见 `hg.properties`；`port` 代码无默认，`A-2`） / `30000` / `200` | 可持久化（本地 admin） |
+| `CFG-33` | `hg.web.bind` / `hg.web.port` / `hg.web.threads` | 前端 HTTP（REST+静态） | `0.0.0.0` / `80` / `16`（`CH-026` 订正 `bind` 默认值） | 可持久化（本地 admin） |
 
 ### 3.2 配置管理分级（`NFR-DEPLOY-4` / `ARCHITECTURE.md` §11.3）
 
@@ -172,7 +173,7 @@
 
 ```text
 C++ 启动时序（§4.5.3）：
-  ① 读配置(NOT_READY) → ② 打开流水目录/CRC 校验 → ③ 建 HGCP 监听(127.0.0.1:27400，暂不受业务指令)
+  ① 读配置(NOT_READY) → ② 打开流水目录/CRC 校验 → ③ 建 HGCP 监听(127.0.0.1:39000，暂不受业务指令)
   → ④ 等 Java 下发 CMD_LOAD_RISK_PARAMS(未收齐对下单回 0x0401) → ⑤ REPLAYING 重放流水(每 1000 条发 EVT_REPLAY_PROGRESS)
   → ⑥ 与 CTP 对账 → ⑦ READY 发 EVT_SYSTEM_STATE(READY) → ⑧ 接受业务指令
 ```
@@ -228,7 +229,7 @@ C++ 启动时序（§4.5.3）：
 | 组件 | 检查项 | 依据 |
 |------|--------|------|
 | hg-biz | 进程存活；`GET /api/v1/ping`（公开存活探针，不返回业务数据）；`GET /web/index.html`（静态托管） | `SessionAuthFilter` 公开路径 |
-| hg-trading | 进程存活；HGCP 回环端口可连 `127.0.0.1:27400`；**就绪态**（日志 `state=` 行：`READY` 通过；`NOT_READY`/`REPLAYING`/`FAILED`/`BLOCKED` 判不健康） | `CFG-20`、`ARCHITECTURE.md` §4.5.3 |
+| hg-trading | 进程存活；HGCP 回环端口可连 `127.0.0.1:39000`；**就绪态**（日志 `state=` 行：`READY` 通过；`NOT_READY`/`REPLAYING`/`FAILED`/`BLOCKED` 判不健康） | `CFG-20`、`ARCHITECTURE.md` §4.5.3 |
 
 - **退出码**：`0` 全通过；`1` 有 FAIL；`2` 前置缺失。
 - **本机实测（T-207 交付时点）**：`hg-trading` 由进程级用例覆盖（`ctest app.startup_signal`）——启动后 `listen=` 可达、`SIGTERM` 退出码 **0**、`state=NOT_READY` 如实出现；无 Java 参数下发时保持 `NOT_READY`（健康检查按**不健康**报告，符合 `R-TRADE-13`「未就绪即拒单」）。`hg-biz` 侧历史实测见 §5 上一版记录（3/3 PASS，2026-10-05）。
@@ -284,6 +285,36 @@ C++ 启动时序（§4.5.3）：
 
 > `m1_config_auth.sql` / `m1_plan.sql` / `m2_settle.sql` 的跨模块外键段均已由脚本作者显式置于文件末尾并注明「暂缓」；三处两阶段后置**消解了 CONFIG↔PRODUCT、PLAN↔TRADE、SETTLE↔FUND 三个跨模块环**（§8.4）。
 > 判据（可复跑）：`python3 docs/DEPLOY/tools/fk-order-check.py` —— 按本顺序静态断言各 FK 父表在建表/回补时已存在，退出码 0=PASS。
+
+### 7.2 参考数据（`docs/DEPLOY/reference/`，可选追加登记）
+
+> 本节系**只追加**登记，不改变 §7 步 6 与 §7.1 的既有执行顺序，也不改写 `data-init.sql` 原文。
+
+§7 步 6 的 `docs/DEPLOY/schema/data-init.sql` 仍是**必需**步骤：播种两条保留系统行（`t_sub_account(id=0)` / `t_product(id=0)`）、AUTH 岗位组/角色/互斥/功能权限、CONFIG 字典/报告周期/68 键配置。
+
+在此之上，部署方可**按需选装** `docs/DEPLOY/reference/` 的中立参考数据（TSV，零构建、语言中立）：
+
+| 组 | 内容 | 选装 |
+|----|------|------|
+| `master` | 全局主数据/基准数据（14 文件 / 140 行），含 `data-init.sql` ② 残留「待 ACCT」的 `t_account_subject` 科目模板；与 ③④ 重叠段同源 | 恒必需 |
+| `demo` | 一条 `敞口→计划→审批→成交→结算→凭证草稿` 的可演示业务基线（40 文件 / 106 行） | 可选，依赖 `master` |
+
+```bash
+# 静态校验（不改任何文件）
+python3 docs/DEPLOY/reference/tools/gen_reference.py --check --groups master
+python3 docs/DEPLOY/reference/tools/gen_reference.py --check --groups master,demo
+
+# 按目标环境生成装载脚本（派生制品，勿入库；默认输出到 docs/DEPLOY/reference/out/）
+python3 docs/DEPLOY/reference/tools/gen_reference.py --target dm8 --groups master,demo --out <装载.sql>
+python3 docs/DEPLOY/reference/tools/gen_reference.py --target sqlite --groups master,demo --out <测试库.sql>
+python3 docs/DEPLOY/reference/tools/gen_reference.py --target java-fixture --groups master,demo \
+        --out java/src/test/java/com/hedgeguard/dao/testsupport/ReferenceSeed.java
+```
+
+- **执行顺序不变**：`dm8` 目标产物仍须在 §7.1 全部建表脚本（含两阶段后置外键回补）**之后**执行；不得与 `data-init.sql` 混跑或替代之。
+- **幂等**：生成脚本每条 `INSERT` 带 `WHERE NOT EXISTS`（按自然键判重），重复执行不产生重复行；哨兵行由 `SET IDENTITY_INSERT` 处理。
+- **零落盘**：数据文件与生成物均不含口令/哈希/令牌；`t_user` 的 `password_hash` 由生成器注入非凭证明文标记并置 `must_change_password='Y'`，真实凭据仍按 §7 步 8 经环境变量注入后用系统 API 设置。
+- **CI 判据**：`java/src/test/java/com/hedgeguard/dao/ReferenceDataLoadTest.java`（7 用例）在 `InMemoryDmEngine` 上证明 `master`(140 行) / `master,demo`(246 行) 两种初始化、重复装载幂等、FK/多态软外键解析、科目模板 8 场景覆盖、零凭据落盘，且 NOT NULL / UNIQUE / FK / CHECK 四类拒绝计数全为 0。该用例是**无 DM8 实例下的等价执行证据**，不替代 §8 的 DM8 实机验证（U-1）。
 
 ---
 

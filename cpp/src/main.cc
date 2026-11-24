@@ -119,7 +119,7 @@ void usage(const char* prog) {
       "  --dump-config          打印**脱敏**配置摘要后退出（口令永不回显）\n"
       "  --verbose              详细日志（不含敏感值）\n"
       "  --config <path>        属性文件路径（缺省 ./hg.properties 或 $HG_CONFIG_FILE）\n"
-      "  --hg.<key> <value>     覆盖任一配置键（如 --hg.tcp.port 27400）\n"
+      "  --hg.<key> <value>     覆盖任一配置键（如 --hg.tcp.port 39000）\n"
       "  -h, --help             本帮助\n"
       "\n"
       "配置优先级：CLI > 环境变量 > 属性文件 > 内置缺省。\n"

@@ -21,6 +21,7 @@ import com.hedgeguard.web.handler.settle.SettleRoutes;
 import com.hedgeguard.web.handler.spot.SpotRoutes;
 import com.hedgeguard.web.handler.trade.TradeRoutes;
 import com.hedgeguard.web.handler.monitor.MonitorRoutes;
+import com.hedgeguard.web.handler.system.SystemRoutes;
 
 /**
  * 六模块（{@code AUTH}/{@code CONFIG}/{@code PRODUCT}/{@code SPOT}/{@code PLAN}/{@code RISK}）的**生产装配**，
@@ -168,8 +169,11 @@ final class FullWebAssembly {
      *
      * <p>【阶段 1 监控面】新增 1 对 {@code GET /monitor/component}
      * ⇒ 本装配 {@code 173 → 174}；生产装配含 ping 2 条后 {@code 175 → 176}。
+     *
+     * <p>【管理端「关闭系统」】新增 1 对 {@code POST /system/shutdown}
+     * ⇒ 本装配 {@code 174 → 175}；生产装配含 ping 2 条后 {@code 176 → 177}。
      */
-    static final int ROUTE_COUNT = 174;
+    static final int ROUTE_COUNT = 175;
 
     private FullWebAssembly() {
     }
@@ -234,6 +238,8 @@ final class FullWebAssembly {
         RiskLimitUsageRoutes.register(router, null);
         // 阶段 1 监控面（GET /api/v1/monitor/component）：1 对，注册序与生产装配一致。
         MonitorRoutes.register(router, null);
+        // 管理端「关闭系统」（POST /api/v1/system/shutdown）：1 对，注册序与生产装配一致。
+        SystemRoutes.register(router, null);
         return router;
     }
 }

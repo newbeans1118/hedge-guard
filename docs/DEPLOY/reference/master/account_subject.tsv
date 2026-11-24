@@ -1,0 +1,18 @@
+# account_subject.tsv — t_account_subject — group=master
+# 依据: data-init.sql ② #4（原文标「待 ACCT」）/ TB-CONFIG-5 / Q-9 / CFG-09 / R-ACCT-11
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；显式 id=0 = 保留系统行（dm8 目标包 SET IDENTITY_INSERT）
+# 外键列填父表自然键值（见 manifest.json fk_ref_columns）；值域以 DDL CHECK、口径以 INDEX.md §9.1 为准
+# 标注「示例」的业务取值属模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	subject_code	subject_name	parent_code	subject_level	direction	biz_scene	is_template_default	editable_by_enterprise	status
+	1002	银行存款		1	DEBIT	MARGIN_CHANGE	Y	Y	ENABLED
+	3101	衍生工具		1	DEBIT	OPEN_POSITION	Y	Y	ENABLED
+	3201	套期工具		1	DEBIT	OPEN_POSITION	Y	Y	ENABLED
+	320101	套期工具—期权权利金	3201	2	DEBIT	PREMIUM	Y	Y	ENABLED
+	3202	被套期项目		1	DEBIT	HEDGE_EFFECT	Y	Y	ENABLED
+	6101	公允价值变动损益		1	CREDIT	FLOAT_PNL	Y	Y	ENABLED
+	6111	投资收益		1	CREDIT	CLOSE_PNL	Y	Y	ENABLED
+	6401	主营业务成本		1	DEBIT	CLOSE_PNL	Y	Y	ENABLED
+	6603	财务费用		1	DEBIT	COMMISSION	Y	Y	ENABLED
+	660301	财务费用—手续费	6603	2	DEBIT	COMMISSION	Y	Y	ENABLED
+	6901	以前年度损益调整		1	CREDIT	OTHER	Y	Y	ENABLED

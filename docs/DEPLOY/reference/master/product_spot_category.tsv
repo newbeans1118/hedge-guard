@@ -1,0 +1,15 @@
+# product_spot_category.tsv — t_product_spot_category — group=master
+# 依据: TB-PRODUCT-4 / FR-PRODUCT-10（同一品类+方向至多一个主映射）
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；显式 id=0 = 保留系统行（dm8 目标包 SET IDENTITY_INSERT）
+# 外键列填父表自然键值（见 manifest.json fk_ref_columns）；值域以 DDL CHECK、口径以 INDEX.md §9.1 为准
+# 标注「示例」的业务取值属模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	spot_category_code	spot_category_name	product_id	mapping_direction	is_primary	status	change_desc
+	SPOT-CU-CATHODE	阴极铜现货	CU	BOTH	Y	ENABLED	
+	SPOT-AL-INGOT	铝锭现货	AL	BOTH	Y	ENABLED	
+	SPOT-RB-REBAR	螺纹钢现货	RB	BOTH	Y	ENABLED	
+	SPOT-M-SOYMEAL	豆粕现货	M	BOTH	Y	ENABLED	
+	SPOT-AU-GOLD	黄金现货	AU	BOTH	Y	ENABLED	
+	SPOT-SC-CRUDE	原油现货	SC	BOTH	Y	ENABLED	
+	SPOT-NONFERROUS	有色金属现货	CU	PURCHASE	Y	ENABLED	示例：一个现货品类映射到两个品种时指定主映射
+	SPOT-NONFERROUS	有色金属现货	AL	PURCHASE	N	ENABLED	示例：非主映射

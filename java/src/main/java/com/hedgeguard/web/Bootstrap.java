@@ -11,6 +11,7 @@ import com.hedgeguard.bridge.AckResult;
 import com.hedgeguard.service.RiskThresholdSpec;
 import com.hedgeguard.dao.entity.Product;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import com.hedgeguard.common.SensitiveLog;
 import com.hedgeguard.dao.AuthorizationDao;
@@ -205,6 +206,8 @@ import com.hedgeguard.web.handler.settle.SettleCheckRoutes;
 import com.hedgeguard.web.handler.settle.SettleRoutes;
 import com.hedgeguard.web.handler.trade.TradeRoutes;
 import com.hedgeguard.web.handler.monitor.MonitorRoutes;
+import com.hedgeguard.web.handler.system.SystemRoutes;
+import com.hedgeguard.web.handler.system.SystemShutdownHandler;
 import com.hedgeguard.monitor.ComponentMonitor;
 import com.hedgeguard.web.ws.WsAuthorizer;
 import com.hedgeguard.web.ws.WsServer;
@@ -260,6 +263,8 @@ public final class Bootstrap {
      * <p>承载于本类而非 {@code Config}：{@code Config} 的键常量面属既有冻结形态，
      * 非本单写域；键名以契约文档为准，本类只做装配侧读取（D-19 同族「受配置保护装配」）。
      */
+    /** {@code CFG-32 hg.web.ws.bind}（{@code CH-026} 新增；缺省 `0.0.0.0`，见 `Config.webBind`）。 */
+    public static final String KEY_WS_BIND = "hg.web.ws.bind";
     public static final String KEY_WS_PORT = "hg.web.ws.port";
     /** {@code CFG-32 hg.web.ws.heartbeat_ms}（缺省 30000，CONTRACTS v1.5.3 已填值）。 */
     public static final String KEY_WS_HEARTBEAT_MS = "hg.web.ws.heartbeat_ms";
@@ -283,12 +288,27 @@ public final class Bootstrap {
     }
 
     /**
-     * 装配并返回<b>可释放资源</b>（包内可见：供 {@link #main} 与单测使用）。
+     * 装配并返回<b>可释放资源</b>（包内可见：供单测使用）。
      *
      * @param config 配置
      * @return 装配产物（含分发器与可关闭资源）
      */
     static Assembly assembleWithResources(Config config) {
+        return assembleWithResources(config, new ShutdownCoordinator());
+    }
+
+    /**
+     * 装配并返回可释放资源（供 {@link #main} 注入停机协调器）。
+     *
+     * <p>{@code main} 单独持有 {@code coordinator}，以便在装配完成后注入
+     * {@code System.exit(0)} 停机动作；单测经 {@link #assembleWithResources(Config)} 取得的是
+     * <b>空停机动作</b>的协调器，绝不触发真实进程退出（{@code NFR-TEST-4}）。
+     *
+     * @param config      配置
+     * @param coordinator 停机状态协调器
+     * @return 装配产物（含分发器与可关闭资源）
+     */
+    static Assembly assembleWithResources(Config config, ShutdownCoordinator coordinator) {
         // ---- 无条件装配（与既有实现一致）：会话、静态托管、路由、ping ----
         SessionStore sessionStore = new SessionStore.InMemory();
         StaticHandler staticHandler = new StaticHandler(config.webRoot());
@@ -306,6 +326,8 @@ public final class Bootstrap {
         WsServerHolder wsServer = null;
         JobScheduler jobScheduler = null;
         AuthFilter authFilter;
+        // 管理端「关闭系统」：装配期留存认证服务引用，用于服务端账户级配置权断言（fail-closed）。
+        AuthService shutdownAuthService = null;
 
         // ---- 条件装配：仅当 hg.db.url 已配置时才接入数据库层 ----
         if (config.databaseConfigured()) {
@@ -344,6 +366,7 @@ public final class Bootstrap {
             dispatchRef.set(paramDispatchService);
             BusinessAssembly business = registerBusinessRoutes(router, tx, sessionStore, config,
                     hgcpClient, paramDispatchService, wsServer);
+            shutdownAuthService = business.authService;
             // 认证时经 AuthService.touchSession 续期 ⇒ 会话为「空闲 30 min」滑动超时（FR-AUTH-15 验收 2）
             authFilter = new SessionAuthFilter(sessionStore, config.sessionCookieName(),
                     business.authService::touchSession);
@@ -359,6 +382,17 @@ public final class Bootstrap {
                     + ApiRoutes.full(ApiRoutes.PING) + " 与 " + StaticHandler.URL_PREFIX + "/**；"
                     + "业务接口不可达（受配置保护装配，进程保持可用，不因缺配置而启动失败）");
         }
+
+        // 管理端「关闭系统」（SYSTEM）：与数据库层同姿态「受配置保护装配」——鉴权服务缺失即
+        // 不注册（无 AuthService 便无法做账户级配置权断言，fail-closed 优于注册一个恒拒的死端点）。
+        // 注册在业务路由之后；路径先经 §4.1.1 声明（NFR-MAINT-5）。
+        if (shutdownAuthService != null) {
+            SystemRoutes.register(router, new SystemShutdownHandler(coordinator,
+                    shutdownAuthService::assertCanConfigureAccountLevel,
+                    buildStoppingNotifier(paramDispatchService)));
+        }
+        // STOPPING 期间拒新业务请求：装饰既有认证过滤器，不改 RequestDispatcher 的构造形态。
+        authFilter = new StoppingGuardFilter(authFilter, coordinator);
 
         RequestDispatcher dispatcher = new RequestDispatcher(router, staticHandler, authFilter);
         return new Assembly(dispatcher, sessionStore, pool, factory, hgcpClient,
@@ -398,6 +432,45 @@ public final class Bootstrap {
         }
     }
 
+    /**
+     * 构造「向 C++ 下发 {@code CMD_SET_READY_STATE(target_state=STOPPING)}」的通知端口。
+     *
+     * <p>统一走 {@link ParamDispatchService#dispatch(ParamChange)}：由它分配单调
+     * {@code paramVersion}、先落 {@code t_param_dispatch} PENDING 留痕、再经组件桥下发并等回执
+     * （{@code ARCHITECTURE.md §3.8 / §4.2.3}）。<b>不新增表、不新增协议消息、不新增错误码</b>。
+     *
+     * <p>best-effort 语义：组件桥/参数下发服务未装配或回执失败时<b>显式记日志</b>，不静默假装
+     * 已生效，也<b>不阻断</b>本地停机（C++ 侧在 Java 进程退出、TCP 连接断开后自行收口）。
+     * 用 {@code whenComplete} 异步收口回执，不阻塞关闭接口的响应写回。
+     *
+     * @param service 参数下发服务（未装配时为 {@code null}）
+     * @return 通知端口
+     */
+    private static SystemShutdownHandler.StoppingNotifier buildStoppingNotifier(
+            ParamDispatchService service) {
+        if (service == null) {
+            return (operatorId, reason) -> LOG.warning(
+                    "参数下发服务未装配：跳过 CMD_SET_READY_STATE(STOPPING) 下发"
+                            + "（不静默视为已生效；C++ 侧随 Java 进程退出、连接断开而收口）");
+        }
+        return (operatorId, reason) -> {
+            ParamChange change = new ParamChange(
+                    ParamChange.Type.CMD_SET_READY_STATE, 0L, operatorId);
+            change.payload.put("target_state", "STOPPING");
+            change.payload.put("reason", reason);
+            CompletableFuture<AckResult> future = service.dispatch(change);
+            future.whenComplete((ack, error) -> {
+                if (error != null) {
+                    LOG.warning("CMD_SET_READY_STATE(STOPPING) 回执失败：" + error.getMessage());
+                } else if (ack == null || !ack.acknowledged) {
+                    LOG.warning("CMD_SET_READY_STATE(STOPPING) 未获确认回执："
+                            + (ack == null ? "null" : ack.message));
+                } else {
+                    LOG.info("CMD_SET_READY_STATE(STOPPING) 已获回执确认");
+                }
+            });
+        };
+    }
 
 
     /**
@@ -635,7 +708,8 @@ public final class Bootstrap {
         int port = Integer.parseInt(rawPort.trim());
         int heartbeat = config.getInt(KEY_WS_HEARTBEAT_MS, 30000);
         int maxConnections = config.getInt(KEY_WS_MAX_CONNECTIONS, 200);
-        WsServer server = new WsServer(port, heartbeat, maxConnections,
+        String bind = config.webBind(KEY_WS_BIND);
+        WsServer server = new WsServer(bind, port, heartbeat, maxConnections,
                 new SessionAuthFilter(sessionStore, config.sessionCookieName()),
                 new WsAuthorizer(failClosedGrantReader(tx), violation -> recordWsViolation(tx, violation)),
                 null);
@@ -648,7 +722,7 @@ public final class Bootstrap {
             server.close();
             return null;
         }
-        LOG.info("已装配 WS 服务端（T-040）：ws://127.0.0.1:" + server.boundPort()
+        LOG.info("已装配 WS 服务端（T-040）：ws://" + bind + ":" + server.boundPort()
                 + "（/ws/quote 行情桥=已接线·覆盖式节流 ≤5条/秒/合约；/ws/alert 告警推送=已接线"
                 + "（子账户可见性经 t_user_sub_account_perm·W-2 安全默认空集）；"
                 + "心跳=" + heartbeat + "ms；上限=" + maxConnections + " 连接；"
@@ -1417,7 +1491,12 @@ public final class Bootstrap {
                     + "请以 JVM 参数启动：" + REQUIRED_JVM_FLAGS);
         }
         Config config = Config.bootstrap();
-        Assembly assembly = assembleWithResources(config);
+        // 管理端「关闭系统」：main 单独持有协调器并注入真实停机动作（仅生产入口）；
+        // System.exit(0) 触发既有 hg-shutdown 钩子完成 launcher.stop() + close(assembly) 释放。
+        // 单测经 assembleWithResources(Config) 取得的是空动作协调器，绝不退出 JVM。
+        ShutdownCoordinator shutdownCoordinator = new ShutdownCoordinator();
+        Assembly assembly = assembleWithResources(config, shutdownCoordinator);
+        shutdownCoordinator.onShutdown(() -> System.exit(0));
         HttpServerLauncher launcher = new HttpServerLauncher(config, assembly.dispatcher());
         // T-051 J6：生产节拍器（守护线程，不阻塞 JVM 退出）。真正「是否到点 / 业务日期」由
         // JobScheduler 内注入的 JobClock 决定，此处只提供心跳；close() 会取消节拍。

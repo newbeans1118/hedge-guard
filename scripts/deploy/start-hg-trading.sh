@@ -7,7 +7,7 @@
 #
 # ★ T-207 起 `hg-trading` **已实化**（不再是工程骨架）：
 #     · 配置装载：CLI > env > 属性文件（`HG_CONFIG_FILE`，缺省 ${HG_ROOT}/hg.properties）> 缺省；
-#     · 启动即监听 127.0.0.1:${hg.tcp.port}（默认 27400），初始状态 **NOT_READY**；
+#     · 启动即监听 127.0.0.1:${hg.tcp.port}（默认 39000），初始状态 **NOT_READY**；
 #     · 等 Java 分批下发 `CMD_LOAD_RISK_PARAMS` 收齐 → 重放/在途对账 → **READY**；
 #       流水损坏/对账不一致 ⇒ **FAILED（永不 READY）**；存在未闭环未知在途 ⇒ **BLOCKED**；
 #     · `SIGINT`/`SIGTERM` ⇒ 优雅停机（退出码 0）。
@@ -50,7 +50,7 @@ if [ -f "${PIDFILE}" ] && pid_alive "$(cat "${PIDFILE}")"; then
 fi
 
 TCP_BIND="$(hg_cfg hg.tcp.bind 127.0.0.1)"
-TCP_PORT="$(hg_cfg hg.tcp.port 27400)"
+TCP_PORT="$(hg_cfg hg.tcp.port 39000)"
 WAIT_S="${HG_START_WAIT_S:-10}"
 
 # 属性文件（非敏感）经 `--config` 显式传入（与 hg-biz 共用同一份部署配置）。

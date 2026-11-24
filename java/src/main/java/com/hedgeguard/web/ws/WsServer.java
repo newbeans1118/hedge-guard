@@ -1,5 +1,6 @@
 package com.hedgeguard.web.ws;
 
+import com.hedgeguard.common.Config;
 import com.hedgeguard.web.AuthFilter;
 import com.hedgeguard.web.BizException;
 import com.hedgeguard.web.JsonCodec;
@@ -93,6 +94,7 @@ public final class WsServer implements AutoCloseable {
         List<String> pendingAlertFrames(Set<Integer> subAccounts);
     }
 
+    private final String bind;
     private final int port;
     private final int heartbeatMillis;
     private final int maxConnections;
@@ -115,7 +117,7 @@ public final class WsServer implements AutoCloseable {
     private ScheduledExecutorService quoteTicker;
 
     /**
-     * 构造。
+     * 构造（绑定地址取缺省 {@link Config#DEFAULT_WEB_BIND}，{@code CH-026}）。
      *
      * @param port           监听端口（{@code hg.web.ws.port}）
      * @param heartbeatMillis 心跳间隔（{@code hg.web.ws.heartbeat_ms}，≥1000）
@@ -126,6 +128,26 @@ public final class WsServer implements AutoCloseable {
      */
     public WsServer(int port, int heartbeatMillis, int maxConnections, AuthFilter authFilter,
                     WsAuthorizer authorizer, SnapshotSource snapshotSource) {
+        this(Config.DEFAULT_WEB_BIND, port, heartbeatMillis, maxConnections,
+                authFilter, authorizer, snapshotSource);
+    }
+
+    /**
+     * 构造（显式绑定地址；{@code CH-026} 后前端 WS 可接受外部流量）。
+     *
+     * @param bind           绑定地址（{@code hg.web.ws.bind}；缺省 {@code 0.0.0.0}）
+     * @param port           监听端口（{@code hg.web.ws.port}）
+     * @param heartbeatMillis 心跳间隔（{@code hg.web.ws.heartbeat_ms}，≥1000）
+     * @param maxConnections 最大并发连接数（{@code hg.web.ws.max_connections}）
+     * @param authFilter     握手鉴权（与 REST 同口径）
+     * @param authorizer     `W-2` 子账户授权裁决
+     * @param snapshotSource 首帧快照来源（可为 {@code null}）
+     */
+    public WsServer(String bind, int port, int heartbeatMillis, int maxConnections,
+                    AuthFilter authFilter, WsAuthorizer authorizer, SnapshotSource snapshotSource) {
+        if (bind == null || bind.trim().isEmpty()) {
+            throw new IllegalArgumentException("WS 绑定地址不得为空：复现=核对 CFG-32 hg.web.ws.bind");
+        }
         if (port < 0 || port > 65535) {
             throw new IllegalArgumentException("WS 端口须在 0..65535（0 = 由系统分配，仅供单测）：值=" + port
                     + "；复现=核对 CFG-32 hg.web.ws.port");
@@ -137,6 +159,7 @@ public final class WsServer implements AutoCloseable {
         if (maxConnections < 1) {
             throw new IllegalArgumentException("WS 最大连接数须 ≥1：值=" + maxConnections);
         }
+        this.bind = bind.trim();
         this.port = port;
         this.heartbeatMillis = heartbeatMillis;
         this.maxConnections = maxConnections;
@@ -146,14 +169,14 @@ public final class WsServer implements AutoCloseable {
     }
 
     /**
-     * 启动监听（**仅回环**）。
+     * 启动监听（绑定地址由构造参数指定；{@code CH-026} 缺省 {@code 0.0.0.0}）。
      *
      * @throws IOException 绑定失败
      */
     public void start() throws IOException {
         ServerSocket ss = new ServerSocket();
-        // 仅回环绑定（红线 9 / NFR-SEC-3）：显式指定 127.0.0.1，绝不 0.0.0.0
-        ss.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 64);
+        // CH-026：前端 WS 绑定地址可配，缺省 0.0.0.0；组件间 TCP 通道仍恒回环（见 Config.loopbackOnly）。
+        ss.bind(new InetSocketAddress(bind, port), 64);
         this.serverSocket = ss;
         acceptThread = new Thread(this::acceptLoop, "hg-ws-accept");
         acceptThread.setDaemon(true);

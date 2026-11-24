@@ -1,0 +1,9 @@
+# hedge_ratio_calc.tsv — t_hedge_ratio_calc — group=demo
+# 依据: TB-PLAN-3 / CFG-06 自定义规则法固定比例上限（DDL 无 UNIQUE）
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；password_hash 留空 = 生成器注入非凭证明文标记（零落盘）
+# FK 列填父表自然键值（manifest.json fk_ref_columns）；instrument_id/underlying_instrument_id/subject_code 原样透传
+# source_id 为多态软外键：值 = source_type 对应父表 key 列以 | 拼接（manifest.json polymorphic_ref_columns）
+# 全部业务取值均为演示模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	sub_account_id	hedge_plan_id	exposure_id	ratio_method	input_json	output_ratio	rho	sigma_spot	sigma_futures	sample_count	sample_start_date	sample_end_date	custom_rule_id	custom_rule_desc	applied_ratio_cap	applied_rule_id	hit_rule_count	result_code	fail_detail	operator_id	calc_time
+	SA-COMMODITY	HP-2026-001	SNAP-2026-11-20-CU-001	SIMPLE	{"spot_qty":900,"futures_qty":900}	0.90				32	2026-10-08	2026-11-20			0.90			SUCCESS		finrisk01	2026-11-20 15:30:00

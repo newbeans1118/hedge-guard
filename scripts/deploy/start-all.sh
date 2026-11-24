@@ -21,7 +21,7 @@ _here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${_here}/common.sh"
 
 TCP_BIND="$(hg_cfg hg.tcp.bind 127.0.0.1)"
-TCP_PORT="$(hg_cfg hg.tcp.port 27400)"
+TCP_PORT="$(hg_cfg hg.tcp.port 39000)"
 TIMEOUT="${HG_TRADING_READY_TIMEOUT:-60}"
 
 log "① 启动 hg-trading（C++ 交易组件）"

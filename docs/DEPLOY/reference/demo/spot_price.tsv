@@ -1,0 +1,40 @@
+# spot_price.tsv — t_spot_price — group=demo
+# 依据: TB-SPOT-8 / CFG-18 现货价 GLOBAL 唯一口径（CH-003）；>=30 交易日供 CFG-06b 最小方差法最小样本
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；password_hash 留空 = 生成器注入非凭证明文标记（零落盘）
+# FK 列填父表自然键值（manifest.json fk_ref_columns）；instrument_id/underlying_instrument_id/subject_code 原样透传
+# source_id 为多态软外键：值 = source_type 对应父表 key 列以 | 拼接（manifest.json polymorphic_ref_columns）
+# 全部业务取值均为演示模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	sub_account_id	product_id	price_date	spot_price	source_type	source_desc	import_file_name	operator_id	entry_time	is_shared	overwritten_price	overwrite_confirmed	price_unit
+	__ALL_ACCOUNT__	CU	2026-10-08	70000.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-10-08 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-10-09	70050.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-10-09 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-10-12	70100.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-10-12 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-10-13	70150.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-10-13 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-10-14	70200.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-10-14 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-10-15	70250.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-10-15 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-10-16	70300.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-10-16 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-10-19	70350.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-10-19 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-10-20	70400.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-10-20 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-10-21	70450.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-10-21 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-10-22	70500.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-10-22 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-10-23	70550.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-10-23 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-10-26	70600.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-10-26 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-10-27	70650.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-10-27 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-10-28	70700.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-10-28 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-10-29	70750.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-10-29 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-10-30	70800.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-10-30 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-11-02	70850.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-11-02 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-11-03	70900.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-11-03 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-11-04	70950.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-11-04 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-11-05	71000.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-11-05 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-11-06	71050.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-11-06 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-11-09	71100.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-11-09 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-11-10	71150.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-11-10 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-11-11	71200.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-11-11 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-11-12	71250.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-11-12 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-11-13	71300.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-11-13 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-11-16	71350.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-11-16 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-11-17	71400.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-11-17 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-11-18	71450.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-11-18 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-11-19	71500.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-11-19 09:00:00	Y		N	CNY/TON
+	__ALL_ACCOUNT__	CU	2026-11-20	71550.0000	CSV_IMPORT	示例现货价序列（演示数据，非真实行情）	spot_price_demo.csv	finrisk01	2026-11-20 09:00:00	Y		N	CNY/TON

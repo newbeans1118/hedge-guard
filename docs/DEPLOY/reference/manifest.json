@@ -1,0 +1,222 @@
+{
+  "schema_version": "1.0",
+  "artifact": "docs/DEPLOY/reference/manifest.json",
+  "status": "步骤 1–6 全部交付：规格 + master/*.tsv(14/140) + demo/*.tsv(40/106) + tools/gen_reference.py + java/.../ReferenceSeed.java + java/.../ReferenceDataLoadTest.java(7 用例) + docs/DEPLOY/README.md §7.2 登记。全量门禁：--check 两组 PASS、fk-order-check.py PASS、arch-check.sh E1–E9 全 0、mvn -B -o validate BUILD SUCCESS、mvn -B -o clean test 1554/0/0/0。未闭环：dm8 实机执行(U-1)、reconcile-schema.py 既有 FAIL(非本次引入，已登记未修)",
+  "authority": {
+    "fact_source": "PROJECT.md",
+    "schema": "docs/DATA_MODEL.md",
+    "ddl": "docs/DEPLOY/schema/*.sql",
+    "requirements": "docs/REQUIREMENTS/",
+    "flows": "docs/REQUIREMENTS/FLOWS.md",
+    "confirmed_defaults": "docs/REQUIREMENTS/INDEX.md §9.1",
+    "config_keys": "docs/ARCHITECTURE.md §11",
+    "existing_seed": "docs/DEPLOY/schema/data-init.sql",
+    "deploy_order": "docs/DEPLOY/README.md §7.1",
+    "note": "列名 / 唯一键 / CHECK / FK 以 DDL 实时解析为准；本文件不复制列清单，避免双真值漂移。版本 / md5 / 行号引用以实时为准。"
+  },
+  "conventions": {
+    "format": "TSV (UTF-8 无 BOM, LF)",
+    "header": "首行 = DDL 列名 (snake_case) 扣除 injected_columns 后的子集，相对顺序同 DDL；列数/列名由 gen_reference.py --check 解析 DDL 校验",
+    "comment": "以 # 开头的行与空行跳过",
+    "null": "空串或 \\N 视为 NULL",
+    "datetime": "yyyy-MM-dd / yyyy-MM-dd HH:mm:ss，由生成器按目标环境转 DATE / TIMESTAMP / LocalDateTime",
+    "id_column": "留空 = 目标环境自增 / 生成器赋值（DDL 虽 NOT NULL，属生成器解析列，--check 显式豁免空值）；显式 0 = 保留系统行，dm8 目标包 SET IDENTITY_INSERT ON/OFF；除 0 外不允许其它显式 id",
+    "generator_resolved_columns": ["id", "created_by", "created_time", "updated_by", "updated_time", "row_version", "password_hash"],
+    "password_hash_note": "t_user.password_hash 在 DDL 中 NOT NULL，但零落盘红线禁止写入任何口令/哈希。demo/user.tsv 中该列留空（--check 豁免其 NOT NULL 空值），由生成器注入固定的非凭证明文标记（如 __PENDING_SETUP__），并配合 must_change_password='Y'；真实凭据由部署方经环境变量 + AuthService API 设置。",
+    "fk_values": "外键列填父表自然键值（非数值 id），由 fk_ref_columns 解析为实际 id",
+    "one_file_one_table": true,
+    "same_table_multi_file": "t_sub_account 与 t_product 在 master/ 与 demo/ 各有一文件；按 (load_order, file_order) 排序拼接，master 文件恒在前",
+    "encoding_note": "wire 字段为 camelCase (java/CONTRACTS.md)，本目录 TSV 表头恒为 DDL snake_case 列名"
+  },
+  "groups": {
+    "master": {
+      "meaning": "全局主数据 / 基准数据 + 两条保留系统行",
+      "required": true,
+      "depends_on": []
+    },
+    "demo": {
+      "meaning": "可演示业务基线：一条 敞口→计划→审批→成交→结算→凭证草稿 最小闭环",
+      "required": false,
+      "depends_on": ["master"],
+      "note": "不支持只装 demo：FK 大量指向 master 的哨兵行与品种行"
+    }
+  },
+  "fk_ref_columns": {
+    "sub_account_id":            {"table": "t_sub_account",        "key": "sub_account_code"},
+    "product_id":                {"table": "t_product",            "key": "product_code"},
+    "quota_product_id":          {"table": "t_product",            "key": "product_code"},
+    "position_group_id":         {"table": "t_position_group",     "key": "group_code"},
+    "group_a_id":                {"table": "t_position_group",     "key": "group_code"},
+    "group_b_id":                {"table": "t_position_group",     "key": "group_code"},
+    "role_id":                   {"table": "t_role",               "key": "role_code"},
+    "user_id":                   {"table": "t_user",               "key": "username"},
+    "signer_id":                 {"table": "t_user",               "key": "username"},
+    "applicant_id":              {"table": "t_user",               "key": "username"},
+    "reviewer_id":               {"table": "t_user",               "key": "username"},
+    "operator_id":               {"table": "t_user",               "key": "username"},
+    "granted_by":                {"table": "t_user",               "key": "username"},
+    "approver_id":               {"table": "t_user",               "key": "username"},
+    "confirm_operator_id":       {"table": "t_user",               "key": "username"},
+    "confirmed_by":              {"table": "t_user",               "key": "username"},
+    "generated_by":              {"table": "t_user",               "key": "username"},
+    "leader_flag_reviewer_id":   {"table": "t_user",               "key": "username"},
+    "production_plan_id":        {"table": "t_production_plan",    "key": "plan_no"},
+    "exposure_id":               {"table": "t_exposure",           "key": "snapshot_id"},
+    "hedged_item_exposure_id":   {"table": "t_exposure",           "key": "snapshot_id"},
+    "related_exposure_id":       {"table": "t_exposure",           "key": "snapshot_id"},
+    "hedge_plan_id":             {"table": "t_hedge_plan",         "key": "plan_no"},
+    "related_plan_id":           {"table": "t_hedge_plan",         "key": "plan_no"},
+    "trade_plan_id":             {"table": "t_trade_plan",         "key": "trade_plan_no"},
+    "order_id":                  {"table": "t_trade_order",        "key": "client_order_ref"},
+    "trade_order_id":            {"table": "t_trade_order",        "key": "client_order_ref"},
+    "trade_fill_id":             {"table": "t_trade_fill",         "key": "trade_id"},
+    "settle_cycle_id":           {"table": "t_settle_cycle",       "key": "settle_no"},
+    "check_task_id":             {"table": "t_check_task",         "key": "period_key", "note": "demo 场景内 period_key 须唯一"},
+    "hedge_doc_id":              {"table": "t_hedge_doc",          "key": "doc_no"},
+    "voucher_id":                {"table": "t_voucher",            "key": "voucher_no"},
+    "reversal_of_id":            {"table": "t_voucher",            "key": "voucher_no"},
+    "reversed_by_id":            {"table": "t_voucher",            "key": "voucher_no"},
+    "hedge_relation_id":         {"table": "t_hedge_relation",     "key": "relation_no"}
+  },
+  "fk_ref_columns_note": "适用于两类列：① DDL 中 FOREIGN KEY 父列为 parent.id 的列（需「自然键值 → 实际 id」解析）；② 无 DB FK 但存放用户自然键的软引用列（如 granted_by / reviewer_id / operator_id / applicant_id / approver_id / confirm_operator_id / generated_by / confirmed_by / signer_id / leader_flag_reviewer_id），同样按 t_user.username 解析。同一列名在不同表可能不是 FK（见 plain_value_overrides）；生成器以 DDL 的 FK 定义 + 本表为准。未列入本表且非多态的列一律原样透传。",
+  "plain_value_overrides": ["t_trade_order.order_id"],
+  "plain_value_overrides_note": "t_trade_order.order_id 是普通可空的 C++ 指令号（BIGINT），并非指向 t_user/t_trade_order 的自然键引用；虽列名命中 fk_ref_columns 的 order_id 条目（该条目服务于 t_trade_fill.order_id），此处须按普通值原样透传，不做解析。",
+  "passthrough_columns": {
+    "meaning": "不是指向父表 id 的 FK：instrument_id 在 t_sub_instrument_quota 中外键指向 t_product_contract.instrument_id（自然键，值即代码）、在其余表根本无 FK；underlying_instrument_id 为自引用业务代码；subject_code 外键指向 t_account_subject.subject_code（自然键）。这些列一律原样透传，不做 id 解析，但 --check 须校验其值存在于目标父表自然键集。",
+    "columns": ["instrument_id", "underlying_instrument_id", "subject_code"],
+    "targets": {
+      "instrument_id":            {"table": "t_product_contract", "key": "instrument_id"},
+      "underlying_instrument_id": {"table": "t_product_contract", "key": "instrument_id"},
+      "subject_code":             {"table": "t_account_subject",  "key": "subject_code"}
+    }
+  },
+  "polymorphic_ref_columns": {
+    "source_id": {
+      "table": "t_exposure_detail",
+      "discriminator": "source_type",
+      "join": "|",
+      "note": "source_id 是多态软外键（DATA_MODEL §TB-SPOT-9 备注：全模型唯一的软外键，无 DB FK 约束，由服务层校验）。TSV 值 = 父行 key 列按序以 | 拼接的自然键值；生成器按 (source_type, 值) 查父行实际 id。复合键中的 sub_account_id / product_id 用 TSV 内的符号值（查表键而非 FK 解析）。",
+      "mapping": {
+        "PURCHASE_CONTRACT": {"table": "t_purchase_contract", "key": ["contract_no"]},
+        "SALES_CONTRACT":    {"table": "t_sales_contract",    "key": ["contract_no"]},
+        "PRODUCTION_PLAN":   {"table": "t_production_plan",   "key": ["plan_no"]},
+        "WIP_RECORD":        {"table": "t_wip_record",        "key": ["sub_account_id", "product_id", "record_date"]},
+        "INVENTORY_LEDGER":  {"table": "t_inventory_ledger",  "key": ["sub_account_id", "product_id", "inventory_type", "record_date"]}
+      }
+    }
+  },
+  "out_of_scope_ref_columns": {
+    "strategy_id": "t_option_strategy",
+    "custom_rule_id": "t_custom_hedge_rule",
+    "fund_ledger_id": "t_fund_ledger",
+    "rule": "父表不在本目录播种范围，一律留 NULL；--check 校验未解析引用为 0"
+  },
+  "injected_columns": {
+    "columns": ["created_by", "created_time", "updated_by", "updated_time", "row_version"],
+    "defaults": {
+      "created_by": "0",
+      "created_time": "CURRENT_TIMESTAMP (dm8/sqlite) / LocalDateTime.now() (java-fixture)",
+      "updated_by": "NULL",
+      "updated_time": "NULL",
+      "row_version": "dm8/sqlite 沿用 data-init.sql 口径 (哨兵行 0)；java-fixture 恒 >= 1"
+    },
+    "java_fixture_rules": [
+      "InMemoryDmEngine 的 DDL DEFAULT 不生效 → insert 显式给全列",
+      "时间戳传 LocalDateTime，禁止 java.sql.Timestamp（会 ClassCastException）",
+      "engine.table(name) 表名区分大小写",
+      "引擎强制表级 UNIQUE → 装载前按 natural_key 去重",
+      "引擎 rollback 为 no-op → 装载测试不依赖回滚语义",
+      "生成类落 com/hedgeguard/dao/testsupport/ 命名空间（E5：dao 外无 SQL）"
+    ]
+  },
+  "red_lines": [
+    "零落盘：TSV / 生成脚本 / 生成物不得含口令、口令哈希、鉴权令牌、资金密码",
+    "demo/user.tsv 的 password_hash 列留空（由生成器注入非凭证明文标记）；账号标 must_change_password='Y'，凭据经环境变量 + AuthService API 设置",
+    "ctp_front_config.tsv 仅非敏感前置字段；口令类不落盘（docs/DEPLOY/README.md §10 装载守卫）",
+    "不新增 Maven 依赖；生成器纯 Python3 stdlib",
+    "不回改 data-init.sql 原文、不改冻结制品、不改写 docs/TEST_RESULT.md 既有内容",
+    "仅 INSERT，无存储过程 / 触发器 / 自定义函数（PROJECT.md §6）",
+    "不以 SQLite 冒充 DM8（CH-016）；C++ 侧零 SQL / 零 DB 直连（E1）"
+  ],
+  "datasets": [
+    {"file":"master/sub_account.tsv","table":"t_sub_account","group":"master","load_order":1,"file_order":1,"explicit_id":true,"natural_key":["sub_account_code"],"key_source":"ddl","depends_on":[],"source":"data-init.sql ① (id=0 保留行) / DATA_MODEL §2.1 TB-CONFIG-1 / DC-020 作用域哨兵"},
+    {"file":"master/product.tsv","table":"t_product","group":"master","load_order":2,"file_order":1,"explicit_id":true,"natural_key":["product_code"],"key_source":"ddl","depends_on":[],"source":"data-init.sql ①-bis (id=0 保留行) / DATA_MODEL §2.3 TB-PRODUCT-1 / DC-041 / R-PRODUCT-7"},
+    {"file":"master/position_group.tsv","table":"t_position_group","group":"master","load_order":3,"file_order":1,"explicit_id":false,"natural_key":["group_code"],"key_source":"ddl","depends_on":[],"source":"data-init.sql ③-1 / TB-AUTH-5 / REQUIREMENTS/AUTH.md §2（7 组 front_mid_back 5 类归并）"},
+    {"file":"master/role.tsv","table":"t_role","group":"master","load_order":4,"file_order":1,"explicit_id":false,"natural_key":["role_code"],"key_source":"ddl","depends_on":["t_position_group"],"source":"data-init.sql ③-2 / TB-AUTH-2 / R-AUTH-10（SYS_ADMIN 非业务角色）"},
+    {"file":"master/position_conflict.tsv","table":"t_position_conflict","group":"master","load_order":5,"file_order":1,"explicit_id":false,"natural_key":["group_a_id","group_b_id"],"key_source":"ddl","depends_on":["t_position_group"],"source":"data-init.sql ③-3 / TB-AUTH-6 / R-AUTH-3 / R-AUTH-13（5 对默认互斥，is_mandatory='Y'）"},
+    {"file":"master/role_permission.tsv","table":"t_role_permission","group":"master","load_order":6,"file_order":1,"explicit_id":false,"natural_key":["role_id","perm_code"],"key_source":"ddl","depends_on":["t_role"],"source":"data-init.sql ③-4 / ARCHITECTURE §8.2③ / T-108（perm_category 恒 FUNCTION）"},
+    {"file":"master/dict_item.tsv","table":"t_dict_item","group":"master","load_order":7,"file_order":1,"explicit_id":false,"natural_key":["dict_type","item_code"],"key_source":"ddl","depends_on":[],"source":"data-init.sql ④-1 / TB-CONFIG-4（只播代码实际消费的 EXPOSURE_DIRECTION BUY/SELL）"},
+    {"file":"master/account_subject.tsv","table":"t_account_subject","group":"master","load_order":8,"file_order":1,"explicit_id":false,"natural_key":["subject_code"],"key_source":"ddl","depends_on":[],"source":"data-init.sql ② #4（原文标「待 ACCT」）/ TB-CONFIG-5 / Q-9 / CFG-09 套期会计常用科目模板 is_template_default='Y'"},
+    {"file":"master/report_period_config.tsv","table":"t_report_period_config","group":"master","load_order":9,"file_order":1,"explicit_id":false,"natural_key":["report_type"],"key_source":"ddl","depends_on":[],"source":"data-init.sql ④-2 / TB-CONFIG-6 / Q-14 / R-SETTLE-6,11（6 行，remind_role_codes 取已播角色）"},
+    {"file":"master/config_item.tsv","table":"t_config_item","group":"master","load_order":10,"file_order":1,"explicit_id":false,"natural_key":["config_key"],"key_source":"ddl","depends_on":[],"source":"data-init.sql ④-3 / ARCHITECTURE §11.1-11.3 / R-CONFIG-8（68 键；CFG-19/31/32 ws.port 不播）"},
+    {"file":"master/ctp_front_config.tsv","table":"t_ctp_front_config","group":"master","load_order":11,"file_order":1,"explicit_id":false,"natural_key":["env_type","front_type","front_addr"],"key_source":"ddl","depends_on":[],"source":"TB-CONFIG-7 / ARCHITECTURE §11.2 CFG-22 / NFR-DEPLOY-4（仅非敏感前置字段；零落盘）"},
+    {"file":"master/product_unit.tsv","table":"t_product_unit","group":"master","load_order":12,"file_order":1,"explicit_id":false,"natural_key":["product_id","effective_from"],"key_source":"ddl","depends_on":["t_product"],"source":"TB-PRODUCT-2 / R-PRODUCT-7（计量单位与换算关系，全局主数据）"},
+    {"file":"master/product_contract.tsv","table":"t_product_contract","group":"master","load_order":13,"file_order":1,"explicit_id":false,"natural_key":["product_id","instrument_id"],"key_source":"ddl","depends_on":["t_product"],"source":"TB-PRODUCT-3 / FR-PRODUCT-*（instrument_id 全表唯一，供 instrument_id FK 解析）"},
+    {"file":"master/product_spot_category.tsv","table":"t_product_spot_category","group":"master","load_order":14,"file_order":1,"explicit_id":false,"natural_key":["spot_category_code","product_id","mapping_direction"],"key_source":"ddl","depends_on":["t_product"],"source":"TB-PRODUCT-4 / CH-008 未映射清单粒度（同一 spot_category_code+mapping_direction 仅一个 primary）"},
+
+    {"file":"demo/sub_account.tsv","table":"t_sub_account","group":"demo","load_order":1,"file_order":2,"explicit_id":false,"natural_key":["sub_account_code"],"key_source":"ddl","depends_on":[],"source":"REQUIREMENTS/CONFIG.md / CFG-02c（业务子账户 2~3 个：COMMODITY 与 TRADE 两类）"},
+    {"file":"demo/user.tsv","table":"t_user","group":"demo","load_order":15,"file_order":1,"explicit_id":false,"natural_key":["username"],"key_source":"ddl","depends_on":[],"source":"REQUIREMENTS/AUTH.md / R-AUTH-3,10,13（7 岗位用户；不含 password_hash，must_change_password='Y'）"},
+    {"file":"demo/user_role.tsv","table":"t_user_role","group":"demo","load_order":16,"file_order":1,"explicit_id":false,"natural_key":["user_id","role_id"],"key_source":"ddl","depends_on":["t_role","t_user"],"source":"TB-AUTH-4 / R-AUTH-3（交易/风控/结算两两互斥，资金岗与交易岗互斥）"},
+    {"file":"demo/user_sub_account_perm.tsv","table":"t_user_sub_account_perm","group":"demo","load_order":17,"file_order":1,"explicit_id":false,"natural_key":["user_id","sub_account_id"],"key_source":"ddl","depends_on":["t_sub_account","t_user"],"source":"TB-AUTH-8 / CH-012（perm_type: LIMITED / CROSS_READONLY）"},
+    {"file":"demo/authorization.tsv","table":"t_authorization","group":"demo","load_order":18,"file_order":1,"explicit_id":false,"natural_key":["user_id","sub_account_id","product_id","effective_from"],"key_source":"ddl","depends_on":["t_sub_account","t_user"],"source":"TB-AUTH-7 / FR-PRODUCT-11 账户级写面授权口径"},
+    {"file":"demo/product_quota.tsv","table":"t_product_quota","group":"demo","load_order":19,"file_order":1,"explicit_id":false,"natural_key":["limit_layer","sub_account_id","product_id","effective_from"],"key_source":"ddl","depends_on":["t_product","t_sub_account"],"source":"TB-PRODUCT-6 / CFG-16（三层限额全保留：SUB_PRODUCT / SUB_INSTRUMENT / ACCOUNT_PRODUCT，层③取哨兵 0）"},
+    {"file":"demo/sub_product_whitelist.tsv","table":"t_sub_product_whitelist","group":"demo","load_order":20,"file_order":1,"explicit_id":false,"natural_key":["sub_account_id","product_id"],"key_source":"ddl","depends_on":["t_product","t_sub_account"],"source":"TB-PRODUCT-5 / R-PRODUCT-7（品种一份，白名单多份）"},
+    {"file":"demo/sub_instrument_quota.tsv","table":"t_sub_instrument_quota","group":"demo","load_order":21,"file_order":1,"explicit_id":false,"natural_key":["sub_account_id","instrument_id","effective_from"],"key_source":"ddl","depends_on":["t_product","t_product_contract","t_sub_account"],"source":"CFG-16 限额层②（可选维度）"},
+    {"file":"demo/fund_quota.tsv","table":"t_fund_quota","group":"demo","load_order":22,"file_order":1,"explicit_id":false,"natural_key":["quota_scope","sub_account_id","effective_from"],"key_source":"ddl","depends_on":["t_sub_account"],"source":"REQUIREMENTS/FUND.md / CFG-25 资金额度告警级别"},
+    {"file":"demo/annual_scale.tsv","table":"t_annual_scale","group":"demo","load_order":23,"file_order":1,"explicit_id":false,"natural_key":["scope_type","sub_account_id","product_id","scale_year"],"key_source":"ddl","depends_on":["t_product","t_sub_account"],"source":"CFG-01/02/02b / Q-1,Q-2（规模红线 90% 商品 / 80% 贸易；全账户口径取哨兵 0）"},
+    {"file":"demo/purchase_contract.tsv","table":"t_purchase_contract","group":"demo","load_order":24,"file_order":1,"explicit_id":false,"natural_key":["sub_account_id","contract_no"],"key_source":"ddl","depends_on":["t_product","t_sub_account"],"source":"TB-SPOT-1 / REQUIREMENTS/SPOT.md（采购/原料侧 BUY 敞口；DRAFT 态方可物理删）"},
+    {"file":"demo/sales_contract.tsv","table":"t_sales_contract","group":"demo","load_order":25,"file_order":1,"explicit_id":false,"natural_key":["sub_account_id","contract_no"],"key_source":"ddl","depends_on":["t_product","t_sub_account"],"source":"TB-SPOT-2 / REQUIREMENTS/SPOT.md（销售/产成品侧 SELL 敞口；has_dual_direction 双向）"},
+    {"file":"demo/production_plan.tsv","table":"t_production_plan","group":"demo","load_order":26,"file_order":1,"explicit_id":false,"natural_key":["sub_account_id","plan_no"],"key_source":"ddl","depends_on":["t_sub_account"],"source":"TB-SPOT-4 / Q-17（生产计划为敞口第三分量）"},
+    {"file":"demo/production_plan_line.tsv","table":"t_production_plan_line","group":"demo","load_order":27,"file_order":1,"explicit_id":false,"natural_key":["production_plan_id","line_type","product_id"],"key_source":"derived","depends_on":["t_product","t_production_plan","t_sub_account"],"source":"TB-SPOT-5（DDL 无 UNIQUE，派生业务去重键）"},
+    {"file":"demo/wip_record.tsv","table":"t_wip_record","group":"demo","load_order":28,"file_order":1,"explicit_id":false,"natural_key":["production_plan_id","product_id","record_date"],"key_source":"derived","depends_on":["t_product","t_production_plan","t_sub_account"],"source":"TB-SPOT-6（在制品记录，DDL 无 UNIQUE）"},
+    {"file":"demo/inventory_ledger.tsv","table":"t_inventory_ledger","group":"demo","load_order":29,"file_order":1,"explicit_id":false,"natural_key":["sub_account_id","product_id","inventory_type","record_date"],"key_source":"ddl","depends_on":["t_product","t_sub_account"],"source":"TB-SPOT-7 / Q-17（库存为敞口第二分量）"},
+    {"file":"demo/spot_price.tsv","table":"t_spot_price","group":"demo","load_order":30,"file_order":1,"explicit_id":false,"natural_key":["product_id","price_date","is_shared"],"key_source":"ddl","depends_on":["t_product","t_sub_account"],"source":"TB-SPOT-8 / CFG-18 现货价 GLOBAL 唯一口径（CH-003）；>=30 交易日供 CFG-06b 最小方差法最小样本"},
+    {"file":"demo/exposure.tsv","table":"t_exposure","group":"demo","load_order":31,"file_order":1,"explicit_id":false,"natural_key":["snapshot_id"],"key_source":"ddl","depends_on":["t_product","t_sub_account"],"source":"TB-SPOT-9 / Q-17 三分量全开 + FR-SPOT-14 未映射哨兵 product_id=0；snapshot_id 全表唯一供 FK 解析"},
+    {"file":"demo/exposure_detail.tsv","table":"t_exposure_detail","group":"demo","load_order":32,"file_order":1,"explicit_id":false,"natural_key":["exposure_id","component_type","source_type","source_id"],"key_source":"derived","depends_on":["t_exposure","t_sub_account"],"source":"TB-SPOT-10（敞口分量明细，DDL 无 UNIQUE）"},
+    {"file":"demo/hedge_plan.tsv","table":"t_hedge_plan","group":"demo","load_order":33,"file_order":1,"explicit_id":false,"natural_key":["plan_no"],"key_source":"ddl","depends_on":["t_product","t_sub_account"],"source":"TB-PLAN-1 / REQUIREMENTS/PLAN.md（plan_no 全库唯一，见 BUG-003 跨子账户冲突修复）"},
+    {"file":"demo/hedge_plan_exposure.tsv","table":"t_hedge_plan_exposure","group":"demo","load_order":34,"file_order":1,"explicit_id":false,"natural_key":["hedge_plan_id","exposure_id"],"key_source":"ddl","depends_on":["t_exposure","t_hedge_plan","t_sub_account"],"source":"TB-PLAN-2（计划↔敞口绑定）"},
+    {"file":"demo/hedge_ratio_calc.tsv","table":"t_hedge_ratio_calc","group":"demo","load_order":35,"file_order":1,"explicit_id":false,"natural_key":["hedge_plan_id","exposure_id","ratio_method"],"key_source":"derived","depends_on":["t_exposure","t_hedge_plan","t_sub_account"],"source":"TB-PLAN-3 / CFG-06 自定义规则法固定比例上限（DDL 无 UNIQUE）"},
+    {"file":"demo/hedge_doc.tsv","table":"t_hedge_doc","group":"demo","load_order":36,"file_order":1,"explicit_id":false,"natural_key":["doc_no"],"key_source":"ddl","depends_on":["t_exposure","t_hedge_plan","t_sub_account"],"source":"TB-PLAN-4 / FR-PLAN-10 合规预校验（正式指定书面文件；uk_hedge_doc_current 每计划仅一版 current）"},
+    {"file":"demo/plan_approval.tsv","table":"t_plan_approval","group":"demo","load_order":37,"file_order":1,"explicit_id":false,"natural_key":["hedge_plan_id","node_seq"],"key_source":"derived","depends_on":["t_hedge_plan","t_sub_account"],"source":"TB-PLAN-5（审批流节点，DDL 无 UNIQUE）"},
+    {"file":"demo/trade_plan.tsv","table":"t_trade_plan","group":"demo","load_order":38,"file_order":1,"explicit_id":false,"natural_key":["trade_plan_no"],"key_source":"ddl","depends_on":["t_exposure","t_hedge_plan","t_product","t_sub_account"],"source":"TB-PLAN-6（交易计划，strategy_id 留 NULL）"},
+    {"file":"demo/plan_state_log.tsv","table":"t_plan_state_log","group":"demo","load_order":39,"file_order":1,"explicit_id":false,"natural_key":["hedge_plan_id","from_status","to_status"],"key_source":"derived","depends_on":["t_hedge_plan","t_product","t_sub_account"],"source":"TB-PLAN-7（状态流转留痕，DDL 无 UNIQUE）"},
+    {"file":"demo/trade_order.tsv","table":"t_trade_order","group":"demo","load_order":40,"file_order":1,"explicit_id":false,"natural_key":["client_order_ref"],"key_source":"ddl","depends_on":["t_exposure","t_hedge_plan","t_product","t_sub_account","t_trade_plan"],"source":"TB-TRADE-1 / REQUIREMENTS/TRADE.md（order_sys_id 由回填报，播种置 NULL）"},
+    {"file":"demo/trade_fill.tsv","table":"t_trade_fill","group":"demo","load_order":41,"file_order":1,"explicit_id":false,"natural_key":["trade_id"],"key_source":"ddl","depends_on":["t_exposure","t_hedge_plan","t_product","t_sub_account","t_trade_order","t_trade_plan"],"source":"TB-TRADE-3（成交回报，direction 域 LONG/SHORT，见 T-187 方案 A 摄取映射）"},
+    {"file":"demo/trade_reason.tsv","table":"t_trade_reason","group":"demo","load_order":42,"file_order":1,"explicit_id":false,"natural_key":["trade_order_id"],"key_source":"ddl","depends_on":["t_exposure","t_hedge_plan","t_sub_account","t_trade_order"],"source":"TB-TRADE-4 / CFG-13（关联类型 + 关联对象 + 时点说明三项必填）"},
+    {"file":"demo/position.tsv","table":"t_position","group":"demo","load_order":43,"file_order":1,"explicit_id":false,"natural_key":["sub_account_id","instrument_id","direction","position_type"],"key_source":"ddl","depends_on":["t_hedge_plan","t_product","t_sub_account"],"source":"TB-TRADE-5（t_position.direction 域 LONG/SHORT，非 BUY/SELL）"},
+    {"file":"demo/settle_cycle.tsv","table":"t_settle_cycle","group":"demo","load_order":44,"file_order":1,"explicit_id":false,"natural_key":["settle_no"],"key_source":"ddl","depends_on":["t_sub_account"],"source":"TB-SETTLE-5 / REQUIREMENTS/SETTLE.md（日终结算周期）"},
+    {"file":"demo/settle_position.tsv","table":"t_settle_position","group":"demo","load_order":45,"file_order":1,"explicit_id":false,"natural_key":["trade_date","sub_account_id","instrument_id","direction","position_type"],"key_source":"ddl","depends_on":["t_product","t_settle_cycle","t_sub_account"],"source":"TB-SETTLE-6（结算持仓，子账户拆分结果）"},
+    {"file":"demo/settle_fund.tsv","table":"t_settle_fund","group":"demo","load_order":46,"file_order":1,"explicit_id":false,"natural_key":["trade_date","sub_account_id"],"key_source":"ddl","depends_on":["t_settle_cycle","t_sub_account"],"source":"TB-SETTLE-7（fund_ledger_id 后置 FK，播种留 NULL）"},
+    {"file":"demo/settle_pnl.tsv","table":"t_settle_pnl","group":"demo","load_order":47,"file_order":1,"explicit_id":false,"natural_key":["trade_date","sub_account_id","instrument_id","pnl_type"],"key_source":"ddl","depends_on":["t_hedge_plan","t_product","t_settle_cycle","t_sub_account"],"source":"TB-SETTLE-8（结算盈亏）"},
+    {"file":"demo/check_task.tsv","table":"t_check_task","group":"demo","load_order":48,"file_order":1,"explicit_id":false,"natural_key":["check_type","period_key","sub_account_id"],"key_source":"ddl","depends_on":["t_sub_account"],"source":"TB-SETTLE-12 / R-SETTLE-6,11（跨子账户核对取哨兵 0；period_key 在 demo 内唯一）"},
+    {"file":"demo/check_signature.tsv","table":"t_check_signature","group":"demo","load_order":49,"file_order":1,"explicit_id":false,"natural_key":["check_task_id","sign_role"],"key_source":"ddl","depends_on":["t_check_task","t_sub_account","t_user"],"source":"TB-SETTLE-13 / CFG-14（应签角色三方各自签署）"},
+    {"file":"demo/hedge_relation.tsv","table":"t_hedge_relation","group":"demo","load_order":50,"file_order":1,"explicit_id":false,"natural_key":["relation_no"],"key_source":"ddl","depends_on":["t_exposure","t_hedge_doc","t_hedge_plan","t_sub_account"],"source":"TB-ACCT-1 / FR-ACCT-*（套期关系指定）"},
+    {"file":"demo/accounting_period.tsv","table":"t_accounting_period","group":"demo","load_order":51,"file_order":1,"explicit_id":false,"natural_key":["period_key"],"key_source":"ddl","depends_on":[],"source":"TB-ACCT-6 / DATA_MODEL 例外 E2（全局会计期间）"},
+    {"file":"demo/voucher.tsv","table":"t_voucher","group":"demo","load_order":52,"file_order":1,"explicit_id":false,"natural_key":["voucher_no"],"key_source":"ddl","depends_on":["t_exposure","t_hedge_plan","t_hedge_relation","t_settle_cycle","t_sub_account"],"source":"TB-ACCT-4 / CFG-09（草稿 DRAFT_ONLY，不做总账过账；reversal_* 自引用留 NULL）"},
+    {"file":"demo/voucher_line.tsv","table":"t_voucher_line","group":"demo","load_order":53,"file_order":1,"explicit_id":false,"natural_key":["voucher_id","line_no"],"key_source":"ddl","depends_on":["t_account_subject","t_sub_account","t_trade_fill","t_voucher"],"source":"TB-ACCT-5 / R-ACCT-11（科目编码引用 t_account_subject，禁硬编码）"}
+  ],
+  "excluded_tables": {
+    "reason": "运行期由系统自身产生，或属外部导入数据，不是可播种的参考数据",
+    "runtime_generated": ["t_config_change_log","t_permission_change_log","t_login_session","t_login_log","t_password_history","t_unauthorized_attempt","t_operation_log","t_audit_log","t_audit_log_checksum","t_violation_screen_run","t_violation_screen_item","t_audit_report","t_evidence_export","t_major_event","t_param_dispatch","t_risk_alert","t_risk_disposal","t_risk_metric_snapshot","t_command_flow","t_replay_log","t_pre_trade_reject","t_trade_l3_reject","t_mirror_watermark","t_fund_flow","t_fund_ledger"],
+    "external_import": ["t_ctp_settle_batch","t_ctp_settle_position","t_ctp_settle_fund","t_ctp_settle_trade"],
+    "external_import_note": "DATA_MODEL 例外 E1：期货公司侧合并数据，属外部基准数据，由对接文件导入而非播种"
+  },
+  "validation": {
+    "check_command": "python3 docs/DEPLOY/reference/tools/gen_reference.py --check",
+    "assertions": [
+      "TSV 表头为 DDL 列扣除 injected_columns 后的子集且相对顺序一致；id 留空属生成器解析列，豁免 NOT NULL 空值检查",
+      "值落在 DDL CHECK / NOT NULL 域内",
+      "natural_key 在文件内唯一；无唯一约束的表按 key_source=derived 校验",
+      "fk_ref_columns 全部可解析，未解析引用数 = 0",
+      "load_order 与 FK 拓扑一致，且不与 docs/DEPLOY/tools/fk-order-check.py 判据冲突",
+      "零敏感字段扫描通过（口令/哈希/令牌）",
+      "与 data-init.sql ③④ 重叠段只读一致性（不重写）"
+    ],
+    "downstream": [
+      "python3 docs/DEPLOY/tools/reconcile-schema.py",
+      "python3 docs/DEPLOY/tools/fk-order-check.py",
+      "gen_reference.py --target java-fixture --groups master,demo → mvn -B -o clean test / mvn -B -o validate / arch-check.sh rc0",
+      "ReferenceDataLoadTest：master 与 master,demo 两种装载 FK/CHECK/UNIQUE 全过且复跑幂等"
+    ]
+  }
+}

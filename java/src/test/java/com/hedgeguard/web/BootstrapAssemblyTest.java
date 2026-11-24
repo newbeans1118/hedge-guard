@@ -282,9 +282,12 @@ class BootstrapAssemblyTest {
             // 【阶段 1 监控面增注】新增 1 对 GET /monitor/component ⇒ 175 → 176。
             //   非为过测试而放宽断言：路由等值判据（ModuleRoutesConsistencyTest）与穷举可达性判据
             //   （RouteReachabilityExhaustiveTest / FullWebAssembly.ROUTE_COUNT）同步 +1。
-            assertEquals(176, assembly.routeCount(),
-                    "业务路由必须全部注册：174（AUTH17/CONFIG18/PRODUCT18/SPOT15/PLAN20/RISK7/TRADE3/"
-                            + "SETTLE15/FUND16/AUDIT24/ACCT20/MONITOR1）+ ping 2");
+            // 【管理端「关闭系统」增注】新增 1 对 POST /system/shutdown ⇒ 176 → 177。
+            //   非为过测试而放宽断言：SYSTEM 路径先经 §4.1.1 声明，再由 ApiRoutes / routes.js /
+            //   FullWebAssembly / ModuleRoutesConsistencyTest 同批同步；停机动作可注入，装配不触发退出。
+            assertEquals(177, assembly.routeCount(),
+                    "业务路由必须全部注册：175（AUTH17/CONFIG18/PRODUCT18/SPOT15/PLAN20/RISK7/TRADE3/"
+                            + "SETTLE15/FUND16/AUDIT24/ACCT20/MONITOR1/SYSTEM1）+ ping 2");
 
             // 抽查 2 条具体业务路径：命中处理（非 404）即证明该路由已注册。
             // （不真发 HTTP：经 RequestDispatcher 进程内分发；handler 因无真实库而 4xx/5xx 皆可，

@@ -1,0 +1,9 @@
+# settle_cycle.tsv — t_settle_cycle — group=demo
+# 依据: TB-SETTLE-5 / REQUIREMENTS/SETTLE.md（日终结算周期）
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；password_hash 留空 = 生成器注入非凭证明文标记（零落盘）
+# FK 列填父表自然键值（manifest.json fk_ref_columns）；instrument_id/underlying_instrument_id/subject_code 原样透传
+# source_id 为多态软外键：值 = source_type 对应父表 key 列以 | 拼接（manifest.json polymorphic_ref_columns）
+# 全部业务取值均为演示模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	sub_account_id	settle_no	trade_date	is_aggregate	status	close_pnl	float_pnl	commission	margin_occupied	available_fund	equity	risk_ratio	negative_fund_flag	confirmed_by	confirmed_time	voided_flag	void_reason
+	SA-COMMODITY	SET-2026-11-20-01	2026-11-20	N	CONFIRMED	0.0000	18000.0000	500.0000	630000.0000	9369500.0000	10000000.0000	0.063	N	settler01	2026-11-20 18:00:00	N	

@@ -434,7 +434,7 @@ FROM (
            NULL, NULL, NULL,
            'LOCAL_ADMIN', 'N', 'N', NULL,
            'CFG-20 HGCP 组件通道绑定地址：bind 白名单仅 127.0.0.1（R-CONFIG-5）'
-    UNION ALL SELECT 'hg.tcp.port', 'COMPONENT_COMM', '27400', 'INT',
+    UNION ALL SELECT 'hg.tcp.port', 'COMPONENT_COMM', '39000', 'INT',
            NULL, 1, 65535,
            'LOCAL_ADMIN', 'N', 'N', NULL,
            'CFG-20 HGCP 组件通道端口'
@@ -538,7 +538,7 @@ FROM (
            NULL, NULL, NULL,
            'LOCAL_ADMIN', 'N', 'N', NULL,
            'CFG-33 Java 前端 HTTP 绑定地址：白名单仅 127.0.0.1，取其它值拒绝启动（FR-CONFIG-9）'
-    UNION ALL SELECT 'hg.web.port', 'COMPONENT_COMM', '27402', 'INT',
+    UNION ALL SELECT 'hg.web.port', 'COMPONENT_COMM', '80', 'INT',
            NULL, 1, 65535,
            'LOCAL_ADMIN', 'N', 'N', NULL,
            'CFG-33 Java 前端 HTTP 端口（与 hg.web.ws.port / hg.tcp.port 分离）'

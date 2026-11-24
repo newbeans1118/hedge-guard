@@ -1,0 +1,13 @@
+# product_unit.tsv — t_product_unit — group=master
+# 依据: TB-PRODUCT-2 / R-PRODUCT-6（换算系数 > 0）
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；显式 id=0 = 保留系统行（dm8 目标包 SET IDENTITY_INSERT）
+# 外键列填父表自然键值（见 manifest.json fk_ref_columns）；值域以 DDL CHECK、口径以 INDEX.md §9.1 为准
+# 标注「示例」的业务取值属模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	product_id	spot_unit	futures_unit	convert_factor	convert_desc	status	effective_from
+	CU	TON	LOT	5	1 手 = 5 吨	ENABLED	2026-01-01
+	AL	TON	LOT	5	1 手 = 5 吨	ENABLED	2026-01-01
+	RB	TON	LOT	10	1 手 = 10 吨	ENABLED	2026-01-01
+	M	TON	LOT	10	1 手 = 10 吨	ENABLED	2026-01-01
+	AU	KG	LOT	1	1 手 = 1 千克（1000 克）	ENABLED	2026-01-01
+	SC	BARREL	LOT	1000	1 手 = 1000 桶	ENABLED	2026-01-01

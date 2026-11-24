@@ -1,0 +1,14 @@
+# product.tsv — t_product — group=master
+# 依据: data-init.sql ①-bis (id=0 保留行) / DATA_MODEL §2.3 TB-PRODUCT-1 / DC-041 / R-PRODUCT-7
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；显式 id=0 = 保留系统行（dm8 目标包 SET IDENTITY_INSERT）
+# 外键列填父表自然键值（见 manifest.json fk_ref_columns）；值域以 DDL CHECK、口径以 INDEX.md §9.1 为准
+# 标注「示例」的业务取值属模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	product_code	product_name	category	category_managed	status	is_domestic_exchange	currency	remark	disabled_reason
+0	__UNMAPPED__	未映射（系统保留）	COMMODITY	Y	DISABLED	Y	CNY		系统保留行：未映射实货敞口的品种哨兵值载体
+	CU	阴极铜	COMMODITY	Y	ENABLED	Y	CNY	境内场内 SHFE 阴极铜（示例，企业可增删改）	
+	AL	铝	COMMODITY	Y	ENABLED	Y	CNY	境内场内 SHFE 铝（示例，企业可增删改）	
+	RB	螺纹钢	COMMODITY	Y	ENABLED	Y	CNY	境内场内 SHFE 螺纹钢（示例，企业可增删改）	
+	M	豆粕	COMMODITY	Y	ENABLED	Y	CNY	境内场内 DCE 豆粕（示例，企业可增删改）	
+	AU	黄金	COMMODITY	Y	ENABLED	Y	CNY	境内场内 SHFE 黄金（示例，企业可增删改）	
+	SC	原油	TRADE	Y	ENABLED	Y	CNY	境内场内 INE 原油（示例：品种级覆盖为贸易类，80% 红线）	

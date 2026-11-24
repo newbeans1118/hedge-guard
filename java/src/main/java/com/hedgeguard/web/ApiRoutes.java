@@ -36,6 +36,9 @@ public final class ApiRoutes {
     /** REST 基础路径。 */
     public static final String BASE = "/api/v1";
 
+    /** 管理端「关闭系统」端点（平台级控制资源，非 11 个业务模块之一）。 */
+    public static final String SYSTEM_SHUTDOWN = "/system/shutdown";
+
     /** 模块 → 资源路径（§4.1.1 完整镜像；含后续里程碑待交付模块）。 */
     private static final Map<String, List<String>> BY_MODULE = new LinkedHashMap<>();
 
@@ -102,6 +105,9 @@ public final class ApiRoutes {
                 "/config/change-log", "/config/import", "/config/export"));
         // 阶段 1 监控面：C++ 组件运行状态只读观测（新增模块，纯增量）。
         BY_MODULE.put("MONITOR", Arrays.asList("/monitor/component"));
+        // 管理端「关闭系统」：平台级控制端点（§4.1.1 已先声明，NFR-MAINT-5）。
+        // 非 11 个业务模块之一，独立成键以便 ModuleRoutesConsistencyTest 对级等值核对。
+        BY_MODULE.put("SYSTEM", Collections.singletonList(SYSTEM_SHUTDOWN));
 
         BY_MODULE_ROUTES.put("PRODUCT", Arrays.asList(
                 "GET /product", "POST /product", "POST /product/whitelist",
@@ -216,6 +222,9 @@ public final class ApiRoutes {
                 "POST /config/import", "GET /config/export"));
         // 阶段 1 监控面：1 对（GET /monitor/component）。
         BY_MODULE_ROUTES.put("MONITOR", Arrays.asList("GET /monitor/component"));
+        // 管理端「关闭系统」：1 对（POST /system/shutdown）；路径逐字取自本类 SYSTEM 路径级声明。
+        BY_MODULE_ROUTES.put("SYSTEM",
+                Collections.singletonList("POST " + SYSTEM_SHUTDOWN));
     }
 
     /** 平台级公开资源（不属于 11 个业务模块）。 */
@@ -244,7 +253,7 @@ public final class ApiRoutes {
      * {@code PLAN}/{@code TRADE}/{@code SETTLE}/{@code RISK}/{@code FUND}，以及 {@code T-067} 接入、
      * {@code T-069} 补齐、{@code T-194} 追加核对任务查询 2 对的 {@code AUDIT}，
      * 与 {@code T-077} 首批 4 对、经 {@code T-078}/{@code T-079}/{@code T-080}/{@code T-197}
-     * 增至 20 对的 {@code ACCT}）；
+     * 增至 20 对的 {@code ACCT}），以及阶段 1 监控面 {@code MONITOR}、管理端关闭系统 {@code SYSTEM}；
      *
      * @return 模块 → {@code "METHOD /module-relative-path"} 清单
      */

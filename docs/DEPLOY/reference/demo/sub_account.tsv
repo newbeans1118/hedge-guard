@@ -1,0 +1,10 @@
+# sub_account.tsv — t_sub_account — group=demo
+# 依据: REQUIREMENTS/CONFIG.md / CFG-02c（业务子账户 2~3 个：COMMODITY 与 TRADE 两类）
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；password_hash 留空 = 生成器注入非凭证明文标记（零落盘）
+# FK 列填父表自然键值（manifest.json fk_ref_columns）；instrument_id/underlying_instrument_id/subject_code 原样透传
+# source_id 为多态软外键：值 = source_type 对应父表 key 列以 | 拼接（manifest.json polymorphic_ref_columns）
+# 全部业务取值均为演示模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	sub_account_code	sub_account_name	business_line_desc	status	category	category_approved_by	is_default	initial_fund	ledger_start_date	remark	disabled_reason	disable_precheck_json	archive_export_id
+	SA-COMMODITY	商品类子账户A	境内商品期货套保（示例）	ENABLED	COMMODITY		Y	10000000.0000	2026-01-01	示例业务子账户A，企业可增删改			
+	SA-TRADE	贸易类子账户B	现货贸易配套套保（示例）	ENABLED	TRADE		N	5000000.0000	2026-01-01	示例业务子账户B，企业可增删改			

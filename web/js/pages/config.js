@@ -35,6 +35,8 @@
  *   GET  /config/change-log?category&from&to&page&size&sort → PageData<LogView>
  *   POST /config/import {mode:INSERT_ONLY|OVERWRITE, items:[Item]} → {written}
  *   GET  /config/export                          → text/csv（强制排除敏感字段取值）
+ *   POST /system/shutdown {confirm:true, reason} → {state, operatorId, operator, reason,
+ *        drainMillis, requestedAt}（管理端关闭系统；账户级配置权 + 二次确认 + 服务端状态机，见 ARCHITECTURE.md §4.1.1 SYSTEM）
  *
  * ## 端点的 (方法,路径) 对来源（`ROUTES` 对象只含路径不含方法，方法取自 Java `router.register`）
  *   ConfigRoutes.java:41/42 → GET|PUT /config/item；:43/44 → GET|POST /config/sub-account；
@@ -1076,6 +1078,74 @@ function importProblemsHTML(err) {
 }
 
 /* ------------------------------------------------------------------ *
+ * 管理端「关闭系统」（SYSTEM / POST /system/shutdown）
+ *
+ * 前端只做：① 二次确认（ui.confirm，danger）；② 停机原因输入；
+ * ③ 调用后端唯一端点；④ 回显停机状态。鉴权、状态机、C++ 下发、拒新请求
+ * 全部由服务端强制执行（不依赖前端校验，见 ARCHITECTURE.md §4.1.1）。
+ * ------------------------------------------------------------------ */
+function shutdownTab(container) {
+  const card = ui.el('div', { class: 'hg-card' });
+  card.appendChild(ui.el('h3', { class: 'hg-card__title', text: '关闭系统（POST /system/shutdown）' }));
+  card.appendChild(ui.banner(
+    '<strong>危险操作 · 需二次确认</strong>：关闭系统后 hg-biz 将停止接收新请求、向 C++ 交易组件下发 '
+      + '<span class="hg-mono">STOPPING</span> 并排空在途请求后退出进程。'
+      + '重启须由运维执行 <span class="hg-mono">scripts/deploy/start-all.sh</span>。'
+      + '仅财务/风控岗或系统管理员可执行；本页不缓存任何凭据。',
+    'warn'));
+
+  const stateBox = ui.el('div', { role: 'status', 'aria-live': 'polite' });
+  card.appendChild(stateBox);
+
+  const form = ui.el('form', { novalidate: 'novalidate' });
+  const reason = ui.el('textarea', {
+    id: 'cf-shutdown-reason', rows: '3',
+    placeholder: '停机原因（必填，如：日终收市、版本升级、应急停机）'
+  });
+  form.appendChild(ui.field({
+    id: 'cf-shutdown-reason', label: '停机原因', required: true,
+    help: '将随关闭请求进入留痕；请勿填写任何口令或认证码（零落盘红线）。',
+    control: reason
+  }));
+  const btn = ui.el('button', { class: 'hg-btn hg-btn--danger', type: 'submit', text: '关闭系统' });
+  form.appendChild(ui.el('div', { class: 'hg-form-actions' }, btn));
+  card.appendChild(form);
+  container.appendChild(card);
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const why = String(reason.value || '').trim();
+    if (!why) { ui.setFieldError(reason, '请填写停机原因'); return; }
+    ui.setFieldError(reason, '');
+    const ok = await ui.confirm(
+      '<strong>确认关闭系统？</strong><br>停机原因：<span class="hg-mono">' + F.esc(why) + '</span><br>'
+        + '关闭后本服务将停止响应，需运维按启动脚本重新启动。',
+      { title: '关闭系统（危险操作）', okText: '确认关闭', cancelText: '取消', danger: true });
+    if (!ok) return;
+    btn.disabled = true;
+    ui.clear(stateBox);
+    stateBox.appendChild(ui.el('div', { class: 'hg-muted', text: '正在提交关闭系统请求…' }));
+    try {
+      const res = await HG.api.post(HG.routes.SYSTEM.SHUTDOWN,
+        { confirm: true, reason: why }, { idempotencyKey: HG.api.newIdempotencyKey() });
+      ui.clear(stateBox);
+      stateBox.appendChild(ui.el('div', { class: 'hg-state', role: 'status' }, [
+        ui.el('div', { class: 'hg-state__title', text: '系统正在停机（' + F.esc(res.state) + '）' }),
+        ui.el('div', { text: '受理时间：' + F.esc(res.requestedAt) + '；排空窗口：' + F.esc(res.drainMillis) + ' ms' }),
+        ui.el('div', { class: 'hg-muted', text: '排空结束后进程退出，本页将不可访问；请由运维按启动脚本重启。' })
+      ]));
+    } catch (err) {
+      btn.disabled = false;
+      ui.clear(stateBox);
+      stateBox.appendChild(ui.el('div', { class: 'hg-state hg-state--error', role: 'alert' }, [
+        ui.el('div', { class: 'hg-state__title', text: '关闭系统未受理' }),
+        ui.el('div', { html: ui.blockedHTML(err) })
+      ]));
+    }
+  });
+}
+
+/* ------------------------------------------------------------------ *
  * 页面装配
  * ------------------------------------------------------------------ */
 const TABS = [
@@ -1087,12 +1157,13 @@ const TABS = [
   { key: 'period', label: '报告周期', build: periodTab },
   { key: 'dispatch', label: '参数下发', build: dispatchTab },
   { key: 'changelog', label: '配置变更留痕', build: changeLogTab },
-  { key: 'io', label: '导入导出', build: ioTab }
+  { key: 'io', label: '导入导出', build: ioTab },
+  { key: 'shutdown', label: '关闭系统', build: shutdownTab }
 ];
 
 function renderConfig(root, ctx) {
   root.appendChild(ui.el('h2', { class: 'hg-page__title', text: '系统配置（CONFIG）' }));
-  root.appendChild(ui.el('p', { class: 'hg-page__desc', text: '配置项 / 子账户 / CTP 前置 / 枚举字典 / 会计科目 / 报告周期 / 参数下发 / 变更留痕 / 导入导出（FR-CONFIG-1~15）。' }));
+  root.appendChild(ui.el('p', { class: 'hg-page__desc', text: '配置项 / 子账户 / CTP 前置 / 枚举字典 / 会计科目 / 报告周期 / 参数下发 / 变更留痕 / 导入导出 / 关闭系统（FR-CONFIG-1~15 + 管理端系统控制）。' }));
   root.appendChild(ui.banner(
     '<strong>零落盘红线（NFR-SEC-1 / R-CONFIG-1）</strong>：密码 / 期货认证码 AuthCode / 资金密码<strong>仅内存持有、'
       + '启动手工填写、重启后须重新输入</strong>；敏感项界面<strong>只显示"已设置/未设置"状态、不可读取取值</strong>，'

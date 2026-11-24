@@ -22,6 +22,7 @@ import com.hedgeguard.web.handler.risk.RiskRuleRoutes;
 import com.hedgeguard.web.handler.settle.SettleCheckRoutes;
 import com.hedgeguard.web.handler.settle.SettleRoutes;
 import com.hedgeguard.web.handler.spot.SpotRoutes;
+import com.hedgeguard.web.handler.system.SystemRoutes;
 import com.hedgeguard.web.handler.trade.TradeRoutes;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -117,6 +118,8 @@ class ModuleRoutesConsistencyTest {
         AcctRoutes.register(router, null, null);
         // 阶段 1 监控面（GET /api/v1/monitor/component）：与生产装配同构重放，1 对。
         MonitorRoutes.register(router, null);
+        // 管理端「关闭系统」（POST /api/v1/system/shutdown）：与生产装配同构重放，1 对。
+        SystemRoutes.register(router, null);
         return router;
     }
 

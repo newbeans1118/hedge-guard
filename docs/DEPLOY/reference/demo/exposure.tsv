@@ -1,0 +1,10 @@
+# exposure.tsv — t_exposure — group=demo
+# 依据: TB-SPOT-9 / Q-17 三分量全开 + FR-SPOT-14 未映射哨兵 product_id=0；snapshot_id 全表唯一供 FK 解析
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；password_hash 留空 = 生成器注入非凭证明文标记（零落盘）
+# FK 列填父表自然键值（manifest.json fk_ref_columns）；instrument_id/underlying_instrument_id/subject_code 原样透传
+# source_id 为多态软外键：值 = source_type 对应父表 key 列以 | 拼接（manifest.json polymorphic_ref_columns）
+# 全部业务取值均为演示模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	sub_account_id	product_id	spot_category_code	direction	calc_mode	contract_unexecuted_qty	inventory_qty	production_plan_qty	components_enabled	snapshot_id	snapshot_time	combined_components	as_of_date	calc_time	exposure_qty	unit	exposure_amount	price_missing_flag	price_as_of	non_current_price_flag	snapshot_as_of	covered_qty	status	unmapped_flag
+	SA-COMMODITY	CU	__MAPPED__	BUY	COMBINED	400.0000	200.0000	300.0000	CONTRACT_UNEXECUTED,INVENTORY,PRODUCTION_PLAN	SNAP-2026-11-20-CU-001	2026-11-20 15:00:00	CONTRACT_UNEXECUTED+INVENTORY+PRODUCTION_PLAN	2026-11-20	2026-11-20 15:30:00	900.0000	TON	63000000.0000	N	2026-11-20	N	2026-11-20 15:00:00	0.0000	PENDING_HEDGE	N
+	SA-TRADE	SC	__MAPPED__	SELL	COMBINED	500.0000	0.0000	0.0000	CONTRACT_UNEXECUTED,INVENTORY,PRODUCTION_PLAN	SNAP-2026-11-20-SC-001	2026-11-20 15:00:00	CONTRACT_UNEXECUTED	2026-11-20	2026-11-20 15:30:00	500.0000	BARREL	250000.0000	N	2026-11-20	N	2026-11-20 15:00:00	0.0000	PENDING_HEDGE	N

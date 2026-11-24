@@ -51,8 +51,10 @@ import java.util.Set;
  *       {@code password} / {@code auth_code} / {@code fund_password} / {@code auth_token} 取值的路径——
  *       命中即 {@code 10020}；敏感项只能变更 {@code sensitive_state}（{@code UNSET}/{@code SET}），
  *       取值由环境变量在运行期直接注入组件，永不经过本服务、永不入库。</li>
- *   <li><b>绑定地址仅回环</b>（{@code FR-CONFIG-9} / {@code CFG-20}）：{@link #requireLoopbackBind} 为
- *       启动期与配置变更期的同一校验入口，非 {@code 127.0.0.1} 即 {@code 10021}。</li>
+ *   <li><b>组件通道绑定地址仅回环</b>（{@code FR-CONFIG-9} / {@code CFG-20}；{@code CH-026} 适用范围澄清）：
+ *       {@link #requireLoopbackBind} 为启动期与配置变更期的同一校验入口，仅对
+ *       {@code hg.tcp.bind} 生效，非 {@code 127.0.0.1} 即 {@code 10021}；前端 HTTP/WS 绑定键
+ *       （{@code hg.web.bind} / {@code hg.web.ws.bind}）依 {@code CH-026} 不受本守卫约束。</li>
  *   <li><b>子账户不可物理删除</b>（{@code CFG-10}）：本类<b>只有</b> {@link #disableSubAccount} 一个
  *       下线入口，条件为「资金 0 + 持仓 0 + 无在途指令 + 当日已结算」四条同时满足（{@code DISABLE_ONLY}）；
  *       停用后行仍在库中——历史数据只读且<b>仍参与加总对账</b>。</li>
@@ -94,13 +96,14 @@ public final class ConfigService {
      *   <li>{@code hg.tcp.bind}（{@code CFG-20}，HGCP 组件通道）；</li>
      *   <li>{@code hg.web.bind}（{@code CFG-33}，前端 HTTP 服务）。</li>
      * </ul>
-     * 说明：已废止的 {@code hg.http.bind} 与不存在的 {@code hg.ws.bind} 均<b>不</b>列入。
-     * WebSocket 无独立绑定键（{@code CFG-32} 仅 {@code hg.web.ws.port}/{@code _heartbeat_ms}/
-     * {@code _max_connections}），其"仅回环"由 {@code §4.2.1} 正文约束 + 实现侧强制。
+     * 说明（`CH-026`）：本集合**仅含组件间 TCP 通道** {@code hg.tcp.bind}。已废止的
+     * {@code hg.http.bind}、不存在的 {@code hg.ws.bind} 不列入；前端 {@code hg.web.bind} 与
+     * {@code hg.web.ws.bind}（{@code CFG-32} 新增）依用户裁定 `CH-026` **不受回环白名单约束**，
+     * 故从本集合移除，由 `Config.webBind` 读取（缺省 {@code 0.0.0.0}）。
      */
     public static final Set<String> LOOPBACK_BIND_KEYS =
             Collections.unmodifiableSet(new LinkedHashSet<>(Arrays.asList(
-                    "hg.tcp.bind", "hg.web.bind")));
+                    "hg.tcp.bind")));
 
     /** 唯一允许的绑定地址。 */
     public static final String LOOPBACK_ONLY = "127.0.0.1";

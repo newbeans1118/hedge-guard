@@ -1,0 +1,9 @@
+# hedge_doc.tsv — t_hedge_doc — group=demo
+# 依据: TB-PLAN-4 / FR-PLAN-10 合规预校验（正式指定书面文件；uk_hedge_doc_current 每计划仅一版 current）
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；password_hash 留空 = 生成器注入非凭证明文标记（零落盘）
+# FK 列填父表自然键值（manifest.json fk_ref_columns）；instrument_id/underlying_instrument_id/subject_code 原样透传
+# source_id 为多态软外键：值 = source_type 对应父表 key 列以 | 拼接（manifest.json polymorphic_ref_columns）
+# 全部业务取值均为演示模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	sub_account_id	hedge_plan_id	doc_no	doc_version	is_current	elem_formal_designation	elem_effectiveness_method	elem_rebalance_mechanism	hedged_item_exposure_id	hedging_instrument	custom_rule_id	pending_external_review	generated_by	generated_time	invalidated_time
+	SA-COMMODITY	HP-2026-001	HD-2026-001	1	Y	正式指定：采购合同 PC-2026-001 未执行敞口 400 吨 + 库存 200 吨 + 生产计划 300 吨，合计 900 吨，以 cu2612 期货买入套保。	定性观察：品种相关性、方向一致性、期限对应性（±3 个月）；量化监测偏离 1 超 ±50% 仅提示复核。	敞口变动 ≥20% 或套期比率偏离 ≥20% 触发再平衡，须审批留痕。	SNAP-2026-11-20-CU-001	cu2612（SHFE 阴极铜期货）		Y	finrisk01	2026-11-20 16:30:00	

@@ -1,0 +1,10 @@
+# authorization.tsv — t_authorization — group=demo
+# 依据: TB-AUTH-7 / FR-PRODUCT-11 账户级写面授权口径
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；password_hash 留空 = 生成器注入非凭证明文标记（零落盘）
+# FK 列填父表自然键值（manifest.json fk_ref_columns）；instrument_id/underlying_instrument_id/subject_code 原样透传
+# source_id 为多态软外键：值 = source_type 对应父表 key 列以 | 拼接（manifest.json polymorphic_ref_columns）
+# 全部业务取值均为演示模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	user_id	sub_account_id	product_id	quota_limit	effective_from	effective_to	status	applicant_id	reviewer_id	dispatch_status	dispatch_version	reject_reason
+	trader01	SA-COMMODITY	CU	1000.0000	2026-01-01		EFFECTIVE	trader01	finrisk01	SUCCESS	1	
+	trader01	SA-TRADE	SC	500.0000	2026-01-01		EFFECTIVE	trader01	finrisk01	SUCCESS	1	

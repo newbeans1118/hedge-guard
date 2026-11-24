@@ -11,7 +11,7 @@
 //   （TASKS 原文「非敏感项从 CLI/env/属性文件读取」）。
 //
 // 键集（ARCH §11.2 逐字对齐，**不自创协议字段**）：
-//   CFG-20  hg.tcp.bind / hg.tcp.port                         （缺省 127.0.0.1 / 27400）
+//   CFG-20  hg.tcp.bind / hg.tcp.port                         （缺省 127.0.0.1 / 39000）
 //   CFG-28  hg.tcp.heartbeat_ms / hg.cmd_timeout_ms /
 //           hg.trade.confirm_timeout_ms                        （1000 / 3000 / 60000）
 //   CFG-29  hg.flow.dir / hg.flow.fsync_mode / hg.flow.retain_days

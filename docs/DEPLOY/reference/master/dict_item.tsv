@@ -1,0 +1,9 @@
+# dict_item.tsv — t_dict_item — group=master
+# 依据: data-init.sql ④-1 / TB-CONFIG-4
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；显式 id=0 = 保留系统行（dm8 目标包 SET IDENTITY_INSERT）
+# 外键列填父表自然键值（见 manifest.json fk_ref_columns）；值域以 DDL CHECK、口径以 INDEX.md §9.1 为准
+# 标注「示例」的业务取值属模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	dict_type	item_code	item_name	item_desc	sort_no	status	is_system
+	EXPOSURE_DIRECTION	BUY	买入	买入套保方向：对应采购/原料侧实货敞口（exposure_direction=BUY，ck_*_direction 取值域）	1	ENABLED	Y
+	EXPOSURE_DIRECTION	SELL	卖出	卖出套保方向：对应销售/产成品侧实货敞口（exposure_direction=SELL，ck_*_direction 取值域）	2	ENABLED	Y

@@ -38,8 +38,11 @@ CP="$(find_hg_biz_cp)" || die "未找到 hg-biz 运行 classpath（target/classe
     mvn -B -o dependency:copy-dependencies -DoutputDirectory=target/dependency
   并将 DM JDBC 驱动放到 java/lib/（见 README §3.1 环境依赖清单）。"
 
-BIND="$(hg_cfg hg.web.bind 127.0.0.1)"
-PORT="$(hg_cfg hg.web.port 27402)"
+BIND="$(hg_cfg hg.web.bind 0.0.0.0)"
+# CH-026：绑定地址可配（缺省 0.0.0.0）；就绪探测恒走回环 —— 绑 0.0.0.0 时回环仍可达，
+# 若部署方把 hg.web.bind 配成具体外部网卡 IP，请同步调整 PROBE_HOST。
+PROBE_HOST=127.0.0.1
+PORT="$(hg_cfg hg.web.port 80)"
 WEB_ROOT="$(hg_cfg hg.web.root ./web)"
 
 # 敏感项：只判「是否已注入」，绝不打印值
@@ -77,8 +80,8 @@ echo "${pid}" >"${PIDFILE}"
 
 # 就绪探测：轮询 /api/v1/ping
 for i in $(seq 1 "${HG_BIZ_START_TIMEOUT:-30}"); do
-  if pid_alive "${pid}" && curl -fsS -m 2 "http://${BIND}:${PORT}/api/v1/ping" >/dev/null 2>&1; then
-    log "hg-biz 已就绪（pid=${pid}；http://${BIND}:${PORT}/api/v1/ping）"
+  if pid_alive "${pid}" && curl -fsS -m 2 "http://${PROBE_HOST}:${PORT}/api/v1/ping" >/dev/null 2>&1; then
+    log "hg-biz 已就绪（pid=${pid}；bind=${BIND}:${PORT}，探测 http://${PROBE_HOST}:${PORT}/api/v1/ping）"
     exit 0
   fi
   if ! pid_alive "${pid}"; then

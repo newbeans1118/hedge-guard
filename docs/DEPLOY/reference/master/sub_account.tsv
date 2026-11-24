@@ -1,0 +1,8 @@
+# sub_account.tsv — t_sub_account — group=master
+# 依据: data-init.sql ① (id=0 保留行) / DATA_MODEL §2.1 TB-CONFIG-1 / DC-020
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；显式 id=0 = 保留系统行（dm8 目标包 SET IDENTITY_INSERT）
+# 外键列填父表自然键值（见 manifest.json fk_ref_columns）；值域以 DDL CHECK、口径以 INDEX.md §9.1 为准
+# 标注「示例」的业务取值属模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	sub_account_code	sub_account_name	business_line_desc	status	category	category_approved_by	is_default	initial_fund	ledger_start_date	remark	disabled_reason	disable_precheck_json	archive_export_id
+0	__ALL_ACCOUNT__	全账户（系统保留）		DISABLED	COMMODITY		N				系统保留行：账户级/全账户口径的作用域哨兵值载体		

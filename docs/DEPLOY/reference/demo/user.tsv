@@ -1,0 +1,15 @@
+# user.tsv — t_user — group=demo
+# 依据: REQUIREMENTS/AUTH.md / R-AUTH-3,10,13（7 岗位用户；不含 password_hash，must_change_password='Y'）
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；password_hash 留空 = 生成器注入非凭证明文标记（零落盘）
+# FK 列填父表自然键值（manifest.json fk_ref_columns）；instrument_id/underlying_instrument_id/subject_code 原样透传
+# source_id 为多态软外键：值 = source_type 对应父表 key 列以 | 拼接（manifest.json polymorphic_ref_columns）
+# 全部业务取值均为演示模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	username	real_name	natural_person_key	department	is_enterprise_leader	leader_flag_reviewer_id	status	password_hash	must_change_password	password_updated_time	fail_count	locked_until	last_login_time	disabled_reason
+	trader01	张交易	NP-001	交易部	N		ENABLED		Y		0			
+	finrisk01	李风控	NP-002	财务/风控部	N		ENABLED		Y		0			
+	settler01	王结算	NP-003	结算部	N		ENABLED		Y		0			
+	cashier01	赵资金	NP-004	资金部	N		ENABLED		Y		0			
+	approver01	陈管理	NP-005	管理层	Y	auditor01	ENABLED		Y		0			
+	auditor01	周审计	NP-006	审计/合规部	N		ENABLED		Y		0			
+	sysadmin01	系统管理员	NP-007	信息技术部	N		ENABLED		Y		0			

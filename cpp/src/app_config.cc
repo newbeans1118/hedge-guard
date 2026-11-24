@@ -2,7 +2,7 @@
 //
 // 分层：① 属性文件（非敏感，缺省 ./hg.properties，可用 --config / HG_CONFIG_FILE 指定）
 //       ② 环境变量（`hg.tcp.port` → `HG_TCP_PORT`；**敏感项仅此层**）
-//       ③ CLI（`--hg.tcp.port 27400` / `--hg.tcp.port=27400`）
+//       ③ CLI（`--hg.tcp.port 39000` / `--hg.tcp.port=39000`）
 //   应用顺序 = ① → ② → ③ ⇒ 后者覆盖前者，即 **CLI > env > 文件 > 内置缺省**。
 // 安全：敏感键出现在 CLI / 属性文件 ⇒ **拒绝启动**（防 shell history / ps / 落盘泄露）；
 //   原文与长度/片段一律不进日志（`NFR-SEC-1` / `R-CONFIG-5`）。

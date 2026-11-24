@@ -425,7 +425,7 @@ void test_config() {
     HG_CHECK(hg::app::validateAppConfig(cfg).ok);
     cfg.tcp_port = 0;
     HG_CHECK(!hg::app::validateAppConfig(cfg).ok);
-    cfg.tcp_port = 27400;
+    cfg.tcp_port = 39000;
     cfg.flow_fsync_mode = "BOGUS";
     HG_CHECK(!hg::app::validateAppConfig(cfg).ok);
     cfg.flow_fsync_mode = "BATCH";

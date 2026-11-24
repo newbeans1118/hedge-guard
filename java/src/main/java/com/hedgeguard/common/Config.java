@@ -25,10 +25,10 @@ import java.util.Properties;
 public final class Config {
 
     /**
-     * HTTP 服务绑定地址（`CFG-33 hg.web.bind`；仅允许回环，见 {@link #loopbackOnly()}）。
+     * HTTP 服务绑定地址（`CFG-33 hg.web.bind`；`CH-026` 后可配，默认见 {@link #DEFAULT_WEB_BIND}）。
      */
     public static final String KEY_HTTP_BIND = "hg.web.bind";
-    /** HTTP 服务端口（`CFG-33 hg.web.port`，默认 27402；与 `hg.tcp.port` / `hg.web.ws.port` 分离）。 */
+    /** HTTP 服务端口（`CFG-33 hg.web.port`，默认 80；与 `hg.tcp.port` / `hg.web.ws.port` 分离）。 */
     public static final String KEY_HTTP_PORT = "hg.web.port";
     /** HTTP 服务工作线程数（`CFG-33 hg.web.threads`，默认 16）。 */
     public static final String KEY_HTTP_THREADS = "hg.web.threads";
@@ -94,7 +94,15 @@ public final class Config {
     /**
      * HGCP 组件接口默认端口（{@code CFG-20 hg.tcp.port} 缺省值；见 {@link #tcpPort()}）。
      */
-    public static final int DEFAULT_HGCP_PORT = 27400;
+    public static final int DEFAULT_HGCP_PORT = 39000;
+
+    /**
+     * 前端 HTTP/WS 绑定地址缺省值（`CH-026`：默认 `0.0.0.0`，可接受外部流量）。
+     *
+     * <p>仅适用于浏览器 ↔ Java 的前端监听面（`CFG-32`/`CFG-33`）；
+     * **组件间 TCP 通道**仍须经 {@link #loopbackOnly(String)} 恒回环 + 连接鉴权。
+     */
+    public static final String DEFAULT_WEB_BIND = "0.0.0.0";
 
     /**
      * HGCP 协议令牌版本（{@code MsgHello.token_version}，{@code CH-013} {@code I-1}）。
@@ -213,6 +221,9 @@ public final class Config {
     /**
      * 绑定地址守卫：只允许回环地址（{@code NFR-SEC-3} / 附录 B 红线 9）。
      *
+     * <p>`CH-026` 后**仅用于组件间 TCP 通道**（{@link #KEY_TCP_BIND}）；前端 HTTP/WS
+     * 监听面改由 {@link #webBind(String)} 读取，不适用本守卫。
+     *
      * @param key 绑定地址配置键
      * @return 校验通过的绑定地址
      */
@@ -221,10 +232,25 @@ public final class Config {
         if (!"127.0.0.1".equals(bind) && !"localhost".equals(bind) && !"::1".equals(bind)) {
             throw new IllegalStateException(
                     "拒绝启动：绑定地址=" + bind + "（键 " + key + "）；"
-                            + "原因=只允许监听本地回环，禁止对外暴露（NFR-SEC-3 / 附录 B 红线 9）；"
+                            + "原因=组件间 TCP 通道只允许监听本地回环，禁止对外暴露（NFR-SEC-3 / 附录 B 红线 9）；"
                             + "处置=改回 127.0.0.1 后重启");
         }
         return bind;
+    }
+
+    /**
+     * 前端 HTTP/WS 绑定地址（`CFG-32`/`CFG-33`；`CH-026` 后可由配置指定，缺省
+     * {@link #DEFAULT_WEB_BIND} = {@code 0.0.0.0}）。
+     *
+     * <p>与 {@link #loopbackOnly(String)} **刻意分离**：本方法服务浏览器 ↔ Java 的前端监听面，
+     * 不施加回环白名单；组件间 TCP 通道（HGCP）仍须经 `loopbackOnly` 恒回环 + 连接鉴权，
+     * 故本方法不得用于 {@link #KEY_TCP_BIND}。
+     *
+     * @param key 绑定地址配置键（`hg.web.bind` / `hg.web.ws.bind`）
+     * @return 绑定地址（系统属性 &gt; 属性文件 &gt; 缺省 `0.0.0.0`）
+     */
+    public String webBind(String key) {
+        return get(key, DEFAULT_WEB_BIND);
     }
 
     /** 静态资源根目录。 */

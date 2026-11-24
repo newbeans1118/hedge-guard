@@ -1,0 +1,9 @@
+# settle_fund.tsv — t_settle_fund — group=demo
+# 依据: TB-SETTLE-7（fund_ledger_id 后置 FK，播种留 NULL）
+# 表头 = DDL 列名（排除 5 个注入审计列 created_by/created_time/updated_by/updated_time/row_version），顺序同 DDL
+# 空串 = NULL；id 留空 = 目标环境自增；password_hash 留空 = 生成器注入非凭证明文标记（零落盘）
+# FK 列填父表自然键值（manifest.json fk_ref_columns）；instrument_id/underlying_instrument_id/subject_code 原样透传
+# source_id 为多态软外键：值 = source_type 对应父表 key 列以 | 拼接（manifest.json polymorphic_ref_columns）
+# 全部业务取值均为演示模板建议值，企业可增删改；零落盘（无口令/哈希/令牌）
+id	sub_account_id	settle_cycle_id	trade_date	begin_balance	equity	available_fund	margin_occupied	frozen_margin	amount_in	amount_out	transfer_in	transfer_out	close_pnl	float_pnl	commission	margin_change	end_balance	fund_ledger_id	attribution_source
+	SA-COMMODITY	SET-2026-11-20-01	2026-11-20	10000000.0000	10018000.0000	9369500.0000	630000.0000		0.0000	0.0000	0.0000	0.0000	0.0000	18000.0000	500.0000	630000.0000	10018000.0000		LEDGER
