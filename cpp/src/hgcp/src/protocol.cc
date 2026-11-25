@@ -11,7 +11,7 @@ bool is_known_message_type(std::uint16_t type) {
     case 0x0101: case 0x0102: case 0x0103:
     case 0x0111: case 0x0112: case 0x0113: case 0x0114: case 0x0115:
     case 0x0116: case 0x0117: case 0x0118: case 0x0119: case 0x011A:
-    case 0x011B: case 0x011C: case 0x011D: case 0x011E:
+    case 0x011B: case 0x011C: case 0x011D: case 0x011E: case 0x011F:
     case 0x0201: case 0x0202: case 0x0203: case 0x0204: case 0x0205:
     case 0x0206: case 0x0207: case 0x0208: case 0x0209: case 0x020A:
     case 0x020B: case 0x020C: case 0x020D: case 0x020E:
@@ -49,6 +49,7 @@ const char* to_string(MessageType type) {
     case MessageType::kCmdQueryStatus: return "CMD_QUERY_STATUS";
     case MessageType::kCmdFundTransfer: return "CMD_FUND_TRANSFER";
     case MessageType::kCmdQueryFundResult: return "CMD_QUERY_FUND_RESULT";
+    case MessageType::kCmdSetQuoteSubscription: return "CMD_SET_QUOTE_SUBSCRIPTION";
     case MessageType::kEvtOrderAccepted: return "EVT_ORDER_ACCEPTED";
     case MessageType::kEvtPreTradeReject: return "EVT_PRE_TRADE_REJECT";
     case MessageType::kEvtOrderReport: return "EVT_ORDER_REPORT";

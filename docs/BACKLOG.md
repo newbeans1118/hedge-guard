@@ -638,3 +638,359 @@ C++ 侧同时：`listen=127.0.0.1:27400` → `ctp=LOGGED_IN`（SimNow）→ `sta
 - **`what` 位语义属冻结字段内语义补全**，与 `/ws/monitor` 专用通道、告警落库一样，均需 `CH-xxx` 显式裁定才能写入 `CONTRACTS.md` / `ARCHITECTURE.md` / `DATA_MODEL.md` —— 本轮按「勿为措辞统一改定版制品」未擅自登记。
 - 测试档界定：不作验收结论、不标真联档通过、不启动 `TC-M4-24` 实盘观察期、未发交易指令、无实盘资金；生产部署口径恒 DM8（`DEPLOY/README.md:29`），SQLite 结论不替代 DM8 验收。
 - 本轮登记后按用户指令提交并 push（提交号以 `git log` 实时为准）；§15.5 既有「未提交 / 提交需单独指令」为**时点快照原文**，按「勘误不回改历史」保留不改。
+
+## 17. 浏览器 WS 断线根因修复（2026-11-24，编排者 · 单写者；用户裁定「批准最小修复」）
+
+> **性质**：只读排查 + 受控最小改动 + 仅重启 hg-biz + 逐条留痕；章节按追加时序落盘，原文不回改。全部计数 / 行号 / 时点**以实时为准**。
+
+### 17.1 两段根因（逐层暴露）
+
+1. **端口错配（方案 A，零 Java 改动）**：`web/js/core/ws.js` 原 `wsBase()` 取 `window.location.host`（同源 :80），而 `CFG-32` 的 WS 独立监听 `hg.web.ws.port=81` ⇒ 浏览器握手打到 HTTP :80，`GET /ws/quote status=404` 按指数退避反复（封顶 15s，实测日志节奏吻合），徽标恒为「已断线（自动重连中）」。
+   - 修复：`web/index.html` 增 `<meta name="hg-ws-port" content="81">`；`ws.js` 的 `wsBase()` 优先读 meta 拼 `ws://<hostname>:<port>`，无 `document` / 无 meta 退回同源（兼容反向代理部署）；`tools/probes/monitor_ws_probe.mjs` 补 2 例覆盖新分支（PASS 8 → 10）。**未动** `CONTRACTS.md` / `ApiRoutes.java` / `web/js/core/routes.js` / `FullWebAssembly.ROUTE_COUNT` / C++ 双轨。
+   - 生效证据：22:30:27 浏览器完整刷新后，:80 的 `/ws/quote` 404 **停止新增**；`ss` 见 `183.211.200.246 → :81` 的 TCP 连接（TIME-WAIT / FIN-WAIT-1）。
+2. **握手拒绝浏览器默认扩展头（本轮修复）**：`ss` 证明浏览器已连到 :81，但 WsServer 既无「连接建立」也无「鉴权失败」日志，且 FIN-WAIT-1 有 ~229 字节待发 ⇒ 卡在 `validateUpgrade`。实测（同一会话、:81）：不带 `Sec-WebSocket-Extensions` → `101`；带 `permessage-deflate; client_max_window_bits`（浏览器默认）→ `400 {"code":10001,"message":"不支持扩展协商（permessage-deflate 等）"}`；扩展+子协议 → `400`。
+   - 根因：`java/src/main/java/com/hedgeguard/web/ws/WsHandshake.java` 原 `validateUpgrade` 对任何 `Sec-WebSocket-Extensions` 一律返回 400。真实浏览器默认携带该 offer 且前端 API 无法关闭 ⇒ **所有真实浏览器都连不上**；此前 localhost 裸握手 / Python 脚本不带该头 ⇒ 101，故一直未暴露（历史日志里成功的 WS 连接全部来自本机脚本，无一次真浏览器）。
+
+### 17.2 修复内容与冻结面处置（用户裁定「批准最小修复」）
+
+- **改动 2 个 Java 文件**：`WsHandshake.validateUpgrade` 删除「请求扩展即拒」分支，改按 RFC 6455 忽略 offer —— 101 响应（`upgradeResponse` 本来就不含 `Sec-WebSocket-Extensions` / `Sec-WebSocket-Protocol`）不回显相应头即表示不协商、不产生压缩帧；`WsHandshakeTest.validatesUpgrade` 把原「扩展请求被拒」断言改为「offer 不拒绝 + 101 不回显两个头」。
+- **冻结契约**：`java/CONTRACTS.md:882`「非法 Upgrade（缺头/版本≠13/**请求扩展**）⇒ 400」与 `:855`「不得改动本节已冻结项」为既有冻结原文，按「勘误不回改历史」**保留不改**；本次行为变更仅在本节追加登记，**待 `CH-xxx` 显式裁定**后再由唯一写者决定是否修订冻结行 / 升版。在此之前代码与该冻结行**存在已知不一致**，如实披露、不粉饰。
+- 未动：`proto/hgcp.proto`、`java/CONTRACTS.md`、`TradingBridge`、`docs/ARCHITECTURE.md`、`docs/DATA_MODEL.md`、TASKS / BOARD / TEST_RESULT / REVIEW / CODEBUDDY、`health-check.sh`、`docs/DEPLOY/`。
+
+### 17.3 验证（实测数值，以实时为准）
+
+| 项 | 结果 |
+|---|---|
+| Java 全量单测 `mvn -B -o clean test` | **1563 / 0 / 0 / 0，BUILD SUCCESS** |
+| E1–E9 `mvn -B -o validate` | **9 / 0 / 0，arch-check 通过** |
+| 前端探针全量 10 个 `.mjs` | **0 失败**（monitor_ws_probe PASS=10、t053 129、t070 104） |
+| 编译产物 | `WsHandshake.class` 已无「不支持扩展协商」字样 |
+| 重启范围 | **仅 hg-biz**（pid 478859 → 614301）；hg-trading pid 478806 未动，CTP `:40001` / `:40011` 与 HGCP `:39000` 连接保持 |
+| 浏览器式握手（带 `permessage-deflate`） | `:81/ws/quote` → **101 Switching Protocols** + `subscribed` 回帧；不带扩展头回归仍 101 |
+| 组件状态 `?refresh=1` | `linkEstablished=true` / `state=READY` / `paramVersion=19` / `ctpTradeConnected=true` / `ctpMdConnected=true` / `ctpLoggedIn=true` / `ctpDegraded=false` / `reconnectCount=0` / `alerts=[]` |
+| `health-check.sh all` | **PASS=6 / FAIL=0 / rc=0** |
+| :80 `/ws/quote` 404 | 本次重启后 **0 条** |
+
+- 重启瞬间日志出现 2 条 `HGCP 错误帧 0x106`（跨进程重连时序，§13.4 同族）；最终 `linkEstablished=true`、`reconnectCount=0`、`alerts=[]`、`health-check` 全绿 ⇒ 已收敛，按「如实登记」保留。
+- 重启清空内存会话：22:45:22 真实浏览器 `183.211.200.246` 的一次 WS 握手返回 `401 WS 握手鉴权失败`（旧 `HGSESSION` 失效）。**用户须重新登录再刷新页面**，之后浏览器即按修复后的链路连 :81。
+
+### 17.4 边界、纪律与遗留
+
+- **前端仍需一步人工操作**：重新登录 + 刷新页面（静态文件 `Cache-Control: no-store`，刷新即生效）。`hg-ws-port` 的 meta 值须与 `hg.web.ws.port` 同步；若页面改走 HTTPS，需 `wss://` 且证书覆盖 81（本轮仍明文 `ws://`）。
+- 徽标变「已连接」后行情表仍可能「暂无行情」：C++ 侧未调 `SubscribeMarketData`（`ct_adapter.cc:232` 按需订阅），`ctpEvents=0`，与本次断线是两个独立问题，未在本轮扩面。
+- 零落盘：`HG_HGCP_AUTH_TOKEN` / `HG_CTP_PASSWORD` / devtest 测试口令仅驻进程内存（重启凭据从 `/proc/<pid>/environ` 注入本次 shell，未回显、未写盘）；`/tmp` 产物与运行时配置不入库。
+- 仍为 dev/test 档（`env_type=SIMULATION` + SQLite），非实盘、非验收；未发交易指令、无实盘资金；生产部署口径恒 DM8。
+- 改动未提交 git；提交 / push 需单独指令。
+
+## 18. CTP 行情链路装配（2026-11-24，编排者 · 单写者；用户裁定「A 配置键 + 最小登记」）
+
+> **性质**：受控最小改动 + 只重启 hg-trading + 逐条留痕；章节按追加时序落盘，原文不回改。全部计数 / 行号 / 时点**以实时为准**。
+
+### 18.1 故障与两段断点
+
+页面「已连接」但行情表恒「暂无行情」。实测（`:81/ws/quote` 订阅带 `instruments` 后等 12s）只收到 `subscribed` 控制帧、**零 `type=quote` 帧** ⇒ 前端渲染逻辑（`web/js/pages/trade.js:442`）无数据，非连接故障。
+说明：前端「订阅」是 WS 层 `WsSubscription` 过滤登记（`WsServer.java:503`），**不驱动 CTP 的 `SubscribeMarketData`**；页面文案隐含的上游数据源当时不成立。
+
+- **断点 A（C++ 发布）**：`cpp/src/trading_app.cc` 原 `pollCtp` 把行情队列排空计数（`while (ct_.pollQuoteEvent(&q)) ++stats_.quotes_dropped;`），注释明写「发布未在本单装配」；`emitEngineEvent` 无行情分支 ⇒ 即使 CTP 推了行情也出不了 C++。
+- **断点 B（CTP 订阅）**：`ct_gateway_ctp.cc:157` 的 MD `connect()` 只 `RegisterSpi → RegisterFront → Init`，无 `SubscribeMarketData`；`CtAdapter::subscribeMarket`（`ct_adapter.cc:232`）全仓生产代码零调用点（仅 `ct_adapter_test.cc` 调用）⇒ `OnRtnDepthMarketData` 永不触发。佐证 `ctpEvents=0` / `quotesDropped=0`（不是收到后丢弃，是没收到）。
+- **底层全就绪**：`proto/hgcp.proto:663` 的 `EvtMarketQuote`、`event_emitter.cc:143` 的 `emit_market_quote`（可丢例外）、`payload_codec.cc:72`、Java `WsQuoteBridge`（`Bootstrap.java:1463`）、`WsServer.publishQuote`、前端渲染 —— 只差两处装配。
+
+### 18.2 改动内容（用户裁定「A 配置键 + 最小登记」）
+
+| 文件 | 改动 |
+|---|---|
+| `cpp/src/app_config.h/.cc` | 新增非敏感键 `hg.ctp.subscribe_instruments` / `HG_CTP_SUBSCRIBE_INSTRUMENTS`：逗号分隔、装载时大写归一 / 去空白 / 去重 / 保序；`redactedSummary` 照实回显；键集注释补登 |
+| `cpp/src/trading_app.h/.cc` | `pollCtp` 改为 `publishQuotes(now)`：`CtQuoteEvent → EvtMarketQuote` 编码 + `emitter_.emit_market_quote`；**按合约 200ms 节流**（与 Java `WsServer.QUOTE_TICK_MILLIS=200` 对齐，`emit_quote` 直发不排队故须 C++ 侧限流）；`priceToString` 定点十进制并把 CTP `DBL_MAX` 哨兵价归一为空串；`quote_events` 计数与 statusDetail `quoteEvents` 字段；`isMdLoggedIn()` false→true 时调 `ct_.subscribeMarket` 一次，断线重连自动重订阅 |
+| `cpp/src/tests/trading_app_test.cc`、`cpp/src/CMakeLists.txt` | 新增 `quote_config`（配置归一 / env 覆盖，6 checks）、`quote_publish`（发布载荷 / 节流 / 空合约 / 哨兵价，29 checks）两用例双轨注册 |
+| `hg.properties`、`/tmp/hg-verify-run.properties` | 填入当前挂牌活跃合约集 11 个（**勿填已交割月份**；上一轮页面填的 `RB2601` 属 2026-01 已到期） |
+| `docs/DEPLOY/hg.properties.template` | 补注释说明该键、留空语义、前端过滤须有交集 |
+
+- **零改动**：`proto/hgcp.proto`、`java/CONTRACTS.md`、Java 源码、`docs/ARCHITECTURE.md` / `DATA_MODEL.md`、`data-init.sql` 68 键、E9 四项不变量、TASKS / BOARD / TEST_RESULT / REVIEW / CODEBUDDY、`web/`（除 §17 的 3 文件）。
+- 按「最小登记」裁定，本节只在 `docs/BACKLOG.md` 追加；`ARCHITECTURE.md §11.2` 配置表 / `CH-xxx` / `T-` 号台账**未立**，如需正式登记另案。
+
+### 18.3 验证（实测数值，以实时为准）
+
+| 项 | 结果 |
+|---|---|
+| C++ 双轨编译 | 真轨 / stub 轨均 `Built target hg-trading` + `hg_app_test`，无 warning |
+| 新用例双轨 | `quote_config` 6/6、`quote_publish` 29/29，真轨与 stub 轨均 PASS |
+| C++ 双轨 ctest 全量 | 干净环境真轨 **66/66**、stub 轨 **62/62** 全通过（另见 18.4 端口冲突说明） |
+| Java `mvn -B -o clean test` | **1563 / 0 / 0 / 0，BUILD SUCCESS**（含 E1–E9 validate 9/0/0） |
+| 前端探针全量 10 个 `.mjs` | **0 失败** |
+| 重启范围 | **仅 hg-trading**（pid 478806 → 655230，真 CTP 轨二进制）；hg-biz 未动 |
+| 启动日志 | `hg.ctp.subscribe_instruments=RB2701,CU2612,…,SC2612` 生效；`ctp.md subscribe instruments=11 code=0 accepted=11`；`ctp=LOGGED_IN`；`state=READY param_version=20` |
+| 组件计数 | `quoteEvents=209`、`quotesDropped=3`、`ctpMdConnected=true`、`ctpDegraded=false` |
+| 端到端 WS | 会话 + `:81/ws/quote` 握手 101 → 订阅（instruments 留空=全部）→ **12s 内 17 条 `type=quote` 帧**（如 `IF2612 last=3910.0000 bid=3909.8000 ask=3910.0000`），前端「暂无行情」已解除 |
+| `health-check.sh all` | 前一轮 §17 已 PASS=6/FAIL=0；本轮 hg-trading 重启后 C++ `state=READY` |
+
+### 18.4 环境性失败说明（如实登记，非代码回归）
+
+- `hgcp.event_emitter_test` 用 `default_tcp_config()` 固定端口 **39000**，与长驻 hg-trading 冲突 ⇒ 服务运行时跑 ctest 该项 FAIL；在**停 hg-trading 的窗口**（39000 空闲）复跑该项 **PASS**。故按「排除固定端口冲突项」在干净环境跑全量得 66/66、62/62，且停服务窗口已单独验证该项通过。
+- 一次 ctest 中 `app.config` FAIL 系排查用 shell **导出了 `HG_*` 环境变量**污染子进程（`app.config` 本身测 env 优先级）；干净环境（`env -u HG_*`）复跑 **39/39 PASS**。两者均非本轮改动引起。
+
+### 18.5 边界、纪律与遗留
+
+- **前端使用口径**：`/ws/quote` 的「合约过滤」**留空 = 全部**；若填写，须与 `hg.ctp.subscribe_instruments` 有交集（`WsSubscription.matchesQuote` 大写归一过滤）。页面若改走 HTTPS 需 `wss://` 且证书覆盖 81。
+- **W-5 首帧快照仍未接**（`Bootstrap.java:691` 如实披露「行情最近值缓存无承载」）：新连接需等下一帧才有值，按 W-5「不影响正确性」未扩面。
+- **已知冻结面不一致**：`java/CONTRACTS.md:882`「请求扩展⇒400」（§17 WS 修复）原文保留，**待 `CH-xxx` 裁定**；本轮不回改。
+- 仍为 dev/test 档（`env_type=SIMULATION` + SQLite），非实盘、非验收；未发交易指令、无实盘资金；生产部署口径恒 DM8。SimNow 7x24 服务时段（交易日 16:00～次日 09:00）外无行情属服务端状态，不算故障。
+- 零落盘：`HG_HGCP_AUTH_TOKEN` / `HG_CTP_PASSWORD` / devtest 测试口令仅驻进程内存（重启凭据从 `/proc/<pid>/environ` 注入本次 shell，未回显、未写盘）；`/tmp` 产物与运行时配置不入库；改动未提交 git，提交 / push 需单独指令。
+
+## 19. 只展示 IF2612 的根因订正（2026-11-25，编排者 · 单写者；用户裁定「按清单修复」）
+
+> **性质**：§18 交付后用户实测「订阅全部合约却只展示 `IF2612`」⇒ 只读排查 + 独立对照实验 + 最小订正 + 逐条留痕。§18 原文**按「勘误不回改历史」保留不改**，本节为最新结论。全部计数 / 行号 / 时点**以实时为准**。
+
+### 19.1 根因：CTP 合约代码大小写敏感，§18 误把 WS 过滤口径套到 CTP 订阅
+
+- §18 在 `app_config.cc` 新增的 `normalizeInstruments()` 做了 `upper()` 大写归一，把部署配置里的交易所原生代码改成全大写；同时 §18 填写的合约集本身也不规范（郑商所写成 4 位 `SR2701`/`TA2701`）。
+- **CTP `InstrumentID` 大小写敏感且各所位数不同**：SHFE / DCE / INE 小写 4 位（`rb2701`/`cu2612`/`sc2612`）、CFFEX 大写 4 位（`IF2612`）、CZCE 大写 3 位（`SR701`/`TA701`）。项目既有单测（`ct_mapping_test.cc` / `ct_adapter_test.cc` 的 `rb2601`、`risk_state/data_model_test.cc` 的 `cu2612`）全用小写，可作旁证。
+- ⇒ 11 个订阅代码里**只有 `IF2612` 恰好不受大写归一影响**，其余 10 个对 CTP 均为无效代码 ⇒ 只有它推送行情。这就是「只展示一个合约」的全部原因。
+- **混淆来源**：`web/js/core/ws.js:107` 与 `WsSubscription.java:89` 的 `toUpperCase` 属 **W-1 前端 WS 订阅过滤**（比较入口），与 CTP `SubscribeMarketData` 的 `InstrumentID` 是两套语义；§18 把前者误当成后者的一致口径。
+
+### 19.2 对照实验（独立 CTP 探针直连 SimNow `:40011`，不触碰运行服务）
+
+临时探针 `/tmp/ctp_quote_probe.cpp`（仓库内零残留）：登录 → `OnRspSubMarketData` 逐合约应答 → 收 8s `OnRtnDepthMarketData` 按合约计数。
+
+| 组 | 订阅集 | 逐合约应答 | 行情结果 |
+|---|---|---|---|
+| **A**：§18 当前配置（全大写） | `RB2701,CU2612,AU2612,AG2612,RU2701,I2701,M2701,SR2701,TA2701,IF2612,SC2612` | 11 个全部 `ErrorID=0 CTP:No Error` | **1 个合约 / 19 ticks，仅 `IF2612`** —— 完全复现 |
+| **B**：原生大小写 + 位数变体集（13 个） | `rb2701,cu2612,au2612,ag2612,ru2701,i2701,m2701,sc2612,SR2701,TA2701,SR701,TA701,IF2612` | 13 个全部 `ErrorID=0` | **11 个合约 / 164 ticks**；`SR2701`/`TA2701`（大写 4 位）**无行情**，`SR701`/`TA701`（大写 3 位）**有行情** |
+
+⇒ 根因确证（大小写 + 郑商所位数），并排除「SimNow 只回放 IF2612」这一替代解释。
+
+### 19.3 三层遮蔽：为何 §18 的验证没能发现
+
+1. **CTP 订阅应答不校验代码有效性**：A 组 11 个无效/有效代码的 `OnRspSubMarketData` 全部 `ErrorID=0`；`SubscribeMarketData` 返回 0 也只表示请求被受理。故 §18 日志 `ctp.md subscribe instruments=11 code=0 accepted=11` 与探针 `[subscribe] rc=0` **不能证明 11 个合约有效** —— §18.3 把它记为「订阅成功」系误判，此处订正。
+2. **项目 SPI 未实现 `OnRspSubMarketData`**（`ct_spi_impl.cc:218` 的 `OnRspError` 为空实现），逐合约应答未被消费 ⇒ 运行日志无任何线索。
+3. **§18 的 `test_quote_config` 断言把缺陷固化**：期望 `"RB2601,RU2701,AU2712"`，等于把大写归一锁成「正确行为」。
+
+### 19.4 订正内容（用户裁定「按清单修复」）
+
+| 文件 | 改动 |
+|---|---|
+| `cpp/src/app_config.cc/.h` | `normalizeInstruments()` **删除 `upper()`**（并删去不再使用的 `upper()` helper），仅保留 trim / 去空 / 去重 / 保序；两处键集注释改为「保留交易所原生大小写与位数，SHFE/DCE/INE 小写 4 位 / CFFEX 大写 4 位 / CZCE 大写 3 位」 |
+| `cpp/src/trading_app.cc` | `splitInstruments` 注释同步（不再称「大写归一」） |
+| `cpp/src/tests/trading_app_test.cc` | `test_quote_config` 断言改为混合原生写法期望 `rb2701,IF2612,SR701,cu2612`，并补「不含 `RB2701`/`sr701`」「大小写不同不去重」两条回归断言，锁死「不归一」 |
+| `hg.properties`、`/tmp/hg-verify-run.properties` | 合约集改为 `rb2701,cu2612,au2612,ag2612,ru2701,i2701,m2701,SR701,TA701,IF2612,sc2612`；注释写明大小写/位数规则 |
+| `docs/DEPLOY/hg.properties.template` | 注释补「★ 不得大写归一」及各所位数示例 |
+| `web/`、`java/`、`proto/`、`CONTRACTS.md` | **零改动**：WS 过滤的 `toUpperCase` 属 W-1 且自洽，不动 |
+
+### 19.5 验证（实测，以实时为准）
+
+| 项 | 结果 |
+|---|---|
+| 双轨重编译 | 真轨 / stub 轨均成功，无 warning |
+| `quote_config` 双轨 | **8 checks / 0 failures**（含新增大小写回归） |
+| `quote_publish` 双轨 | 29 checks / 0 failures（未受影响） |
+| 双轨 ctest 全量（干净环境，排除固定端口冲突项 `hgcp.event_emitter_test`，见 §18.4） | 真轨 **66/66**、stub 轨 **62/62** |
+| Java / 前端 | 源码零改动 ⇒ §18 的 1563 单测、10 探针结论继续有效 |
+| 重启范围 | **仅 hg-trading**（真 CTP 轨），hg-biz 未动 |
+| 端到端 WS | 会话 → `:81/ws/quote` 101 → 订阅（留空 = 全部）→ **20s 内 352 条 `type=quote` 帧 / 10 个不同合约**：`ag2612`41、`rb2701`40、`m2701`40、`au2612`40、`ru2701`40、`IF2612`39、`i2701`37、`cu2612`36、`SR701`20、`TA701`19（`sc2612` 本时段无回放帧，属服务端数据，非订阅失败）⇒ 多合约展示已恢复 |
+
+### 19.6 边界与遗留
+
+- **前端使用口径不变**：「合约过滤」留空 = 全部；若填写，前端 `toUpperCase` 与服务端 `WsSubscription.matchesQuote` 的 `toUpperCase` 自洽（CTP 推来的小写代码会被比较前归一），故填写 `RB2701` 仍可匹配 `rb2701` 的行情。CTP 订阅侧**不得**做同样归一。
+- 配置须填当前挂牌活跃合约；已交割月份、错误大小写/位数均会被 CTP 静默忽略（`code=0` 但不推行情），**日志无法区分** ⇒ 部署后应以端到端帧数核验，不能只看 `ctp.md subscribe code=0`。
+- §18 的「订阅 11 个合约成功」表述以本节 19.3 订正为准；§18 原文按「勘误不回改历史」保留。
+- 仍为 dev/test 档、非实盘非验收；零落盘；改动未提交 git，提交 / push 需单独指令。
+
+## 20. 行情展示页终端化重构（2026-11-25，编排者 · 单写者；用户裁定「A 纯前端 / 局部深色 / 四模块」）
+
+> **性质**：用户「重新设计行情展示页面，风格与内容参照主流行情终端（大智慧 / 同花顺）；先做计划，等用户确认」⇒ 计划经 `AskUserQuestion` 三项确认后实施。本节只追加，§17–§19 原文不回改。全部计数 / 行号 / 时点**以实时为准**。
+
+### 20.1 裁定与边界
+
+- 三项确认：**数据范围 A（纯前端重构，零 wire/契约改动）**、**视觉 局部深色终端面板**、**四模块全做**（报价板排序/搜索/选中、红涨绿跌与闪烁、选中合约盘口 + sparkline、自选持久化）。
+- **硬约束**（`java/CONTRACTS.md:727` 冻结）：`/ws/quote` 消息仅 `instrument / last / bid / ask / ts` 五字段；`Bootstrap.java:1459` 明确 proto 其余字段「在 W-1 冻结的 quote 消息形态中无承载位，据实不透传」。故**不臆造涨跌幅 / 成交量 / 开高低 / 五档盘口 / 分时 K 线**。
+- **口径披露**（写进页面）：「会话变动」以本会话首帧价为基准，**非昨结算价、非真实涨跌幅**；红涨绿跌仅表示会话内方向；走势为**会话内最近值，非完整分时**；行情只展示、不驱动任何自动决策（R-TRADE-11）。
+- 零构建链：不引入 npm / 打包器 / 第三方图表库；sparkline 用 **inline SVG 字符串**（探针 DOM 桩无 `canvas.getContext` / `createElementNS`）。
+- 局部深色：新增 `.hg-q-*` 命名空间，**不覆盖既有类、不改全局浅色主题**（其余 12 个页面不受影响）。
+
+### 20.2 改动内容
+
+| 文件 | 改动 |
+|---|---|
+| `web/js/pages/trade.js` | 仅替换 `quoteTab`（TABS / 路由 / 其余 11 个 Tab 不动）。状态层 `quotes / sessionOpen / prevLast / hist(60) / rows / sortKey / sortDir / filter / selected / dense / favorites / frames`；差量渲染（`data-instr` 行索引，只更新单元格，顺序变化才 `reorder`）；四模块；`HG.ws.throttle(renderFeed, 300)` 保留 |
+| `web/css/hg.css` | **纯追加** `.hg-q-*`：深色变量、红涨绿跌、等宽 `tabular-nums`、闪烁 keyframes、紧凑密度、sticky 表头、盘口比例条、SVG sparkline 容器；既有类零改动 |
+| `tools/probes/t053_trade_probe.mjs` | 既有 15 条行情断言**逐字保留全绿**；新增 22 条 UI 断言（新列 / 口径 / 状态条 / 图例 / 差量行 / 新鲜度锚 / 红涨 / 排序 / 选中详情盘口 + SVG / 搜索 / 自选持久化 / 密度），补内存版 `window.localStorage` 桩 |
+| `docs/BACKLOG.md` | 本节纯追加 |
+| Java / C++ / proto / `CONTRACTS.md` / `routes.js` / `ApiRoutes.java` | **零改动**（无新端点、无 wire 变更、无 RBAC 变更） |
+
+**保留的探针/纪律锚点**：`HG.ws.connect('quote')` + 防僵尸 `close()`、`subscribe channels=["quote"]` 与 instruments 大写归一由 `ws.js` 承担（页面传原始列表）、标题「实时行情（/ws/quote）」、`ui.banner` 原文案（`/ws/quote` / `允许丢帧` / `不用于任何自动决策` / `CH-007` / `数据时间` / `行情延迟/过期` / R-TRADE-11）、`data-ws-state`、`data-quote-stale="stale|fresh"`（带引号 HTML 字面）、「已连接」/「已断线（自动重连中）」、`F.dateTime` 数据时间、`QUOTE_STALE_MS=15000`、`tr-q-instr` 输入框与「订阅」按钮。
+
+### 20.3 实施中修正的两处真实浏览器缺陷（DOM 桩不覆盖）
+
+1. **星标点击冒泡到行选中**：`hg-q-fav` 的 click 会冒泡到 `tr` 的行选中 handler ⇒ 真实浏览器点星标会误选中行。修为 `e.stopPropagation()`（防御式调用，探针桩无该方法不报错）。DOM 桩不模拟冒泡 ⇒ 探针未发现，人工复核补上。
+2. **筛选后无匹配的空态**：搜索 / 「仅自选」把可见行过滤为 0 时原逻辑仍显示空表格。修为按 `keys.length` 切换「无匹配合约（调整搜索词或「仅自选」筛选）。」空态与表格显隐。
+
+### 20.4 验证（实测，以实时为准）
+
+| 项 | 结果 |
+|---|---|
+| `node --check web/js/pages/trade.js` | OK |
+| `t053_trade_probe.mjs` | **151 assertions ALL PASS**（既有 129 → +22 新 UI） |
+| 全量前端探针 10 个 `.mjs` | **0 失败** |
+| `mvn -B -o validate`（E1–E9） | **9 / 0 / 0，arch-check 通过**（E6 零构建链 + 跨模块引用） |
+| 静态资源 served | `/web/js/pages/trade.js` 含 60 处 `hg-q`、`/web/css/hg.css` 含 93 行 `hg-q`；`Cache-Control: no-store` ⇒ **刷新即生效，无需重启 hg-biz** |
+| `health-check.sh all` | **PASS=6 / FAIL=0**；双组件进程未重启（hg-biz 614301 / hg-trading 887910） |
+
+**验证边界（如实披露）**：本环境无真实浏览器（无系统 chrome / playwright / puppeteer），DOM 结构、事件绑定、差量渲染、四模块交互均由 `t053` 的 **headless DOM 桩**断言覆盖（151 条），CSS 仅经静态 served + E6 零构建链门禁校验，**未经真实浏览器像素级渲染验证**；深色视觉、sticky 表头、闪烁动画、SVG sparkline 的最终呈现需在浏览器刷新后人工目视确认。§20.3 两处缺陷即因 DOM 桩不覆盖事件冒泡/真实布局而由人工复核补上。前端未引入任何真实浏览器专属 API（`canvas` / `createElementNS` 均未用）。
+
+### 20.5 端到端数据源与时段边界（如实披露）
+
+- 改造前 §19.5 已实测 20s / 352 帧 / 10 合约；本次改造**只动前端**，C++/Java/wire 零改动，数据源链路不变。
+- 本次端到端复测时（2026-11-25 09:18 +0800，周三）：`:81/ws/quote` 握手 101、订阅成功，但 **10s 内 0 帧**。核因：`ctpMdConnected=false`、`ctpLoggedIn=false`、无到 `:40011` 的 TCP 连接、日志 `ctp=DEGRADED CTP 未登录/连接断开`，而累计 `quoteEvents=18881`（改造前行情一直正常）。⇒ **SimNow 7x24 服务时段结束**（交易日 16:00～次日 09:00，§19.6 已登记）导致前置断开，属服务端状态，**非 UI 改造故障**；待下一服务时段自动恢复连接后，刷新页面即可见多合约行情。
+- 前端「已连接」徽标仅表示浏览器↔hg-biz 的 WS 通道，**不代表 CTP 前置有行情源**；断线/过期标识与 §17–§19 口径一致。
+
+### 20.6 边界与遗留
+
+- 无新端点 ⇒ `web/ApiRoutes.java` / `web/js/core/routes.js` 镜像不动；无新依赖（G8）；高频渲染仍经 throttle + 差量（§5.3）；行情不驱动决策（R-TRADE-11）未新增任何下单入口。
+- 名称字典为**前端静态常量**（约 40 条，仅展示、不可配置、映射不到回退代码），非 wire 字段、不参与决策；如需名称可配置或真实涨跌幅，须另案走 `CH-xxx` 扩字段（本轮裁定 A 明确不做）。
+- 自选持久化用 `window.localStorage` 键 `hg.q.favs`（非敏感），try/catch 降级；未引入 cookie/口令落盘。
+- 仍为 dev/test 档、非实盘非验收；零落盘；改动未提交 git，提交 / push 需单独指令。
+
+## 21. SimNow 前置切回第一组 30001/30011（2026-11-25，编排者 · 单写者）
+
+> **性质**：用户「将地址切换到第一组 simnow，即 30001 端口后 30011 端口」⇒ 配置切换 + 只重启 hg-trading + 逐条留痕。§17–§20 原文不回改。全部计数 / 行号 / 时点**以实时为准**。
+
+### 21.1 背景与预检
+
+- §17 曾由第一组 `30001/30011` 切到 7x24 组 `40001/40011`；§20.5 记录 7x24 服务时段（交易日 16:00～次日 09:00）结束后 `ctpMdConnected=false`、端到端 0 帧。本次为交易日白天（09:53 +0800，周三）切回第一组。
+- 切换前 TCP 预检（实测）：**`30001` 19 ms / `30011` 21 ms 均 CONNECTED**；`40001`/`40011` 均 `ECONNREFUSED`（errno 111）⇒ 印证切换原因，且第一组服务时段可用。
+
+### 21.2 密钥形态裁定（保持 `api_key_mode=PRODUCTION`）
+
+- `hg.ctp.api_key_mode=PRODUCTION` 是 §17 为 7x24「看穿式前置、监控中心生产秘钥」引入（W-10：SDK 握手密钥与 `CFG-22` 治理语义解耦，强制 `bIsProductionMode=true`，`env_type` 仍 `SIMULATION`）。
+- **切回第一组不改此值**：§10.3 正是在第一组 `30001/30011` 上做的双模式对照 —— 评测密钥（`bIsProductionMode=false`）⇒ `Decrypt handshake data failed` ×2、无 LOGGED_IN；生产密钥（`true`）⇒ 0 次失败、+1.4s `ctp=LOGGED_IN`。本次重启后第一组同样 `ctp=LOGGED_IN`（见 21.4），复证该结论。
+- 根 `hg.properties` 第 5 行日期/组名与 W-10 注释同步订正为「两组前置均需生产密钥」并附 §10.3 / §17 依据（**只改配置注释，非定版制品**）；`env_type=SIMULATION` 保持（治理：非实盘、测试账号 `9999`/`121964`、不下单）。
+
+### 21.3 改动内容
+
+| 文件 | 改动 |
+|---|---|
+| `hg.properties` | `trade_front` / `md_front`：`40001/40011` → **`30001/30011`**；第 5 行与 W-10 注释订正 |
+| `/tmp/hg-verify-run.properties` | 同上两行地址（运行时派生配置，两个进程实际加载；不入库） |
+| `docs/BACKLOG.md` | 本节纯追加 |
+| 代码 / proto / 契约 / `subscribe_instruments` / `broker_id` / `user_id` / 端口分离 | **零改动**（仅地址，合约集 11 个与凭据不变） |
+
+- `--dump-config --config /tmp/hg-verify-run.properties` 预校验回显 `trade_front=tcp://182.254.243.31:30001` / `md_front=...:30011` / `env_type=SIMULATION` / `api_key_mode=PRODUCTION`。
+- 只重启 **hg-trading**（pid 887910 → 915249，真 CTP 轨二进制）；hg-biz 未动（不直连 CTP）。凭据仍从 `/proc/<pid>/environ` 内存注入，零落盘。
+
+### 21.4 验证（实测）
+
+| 项 | 结果 |
+|---|---|
+| 启动日志 | `state=NOT_READY` → `ctp=LOGGED_IN CTP 登录成功（DEGRADED 解除）` → `ctp.md subscribe instruments=11 code=0 accepted=11` → `state=READY param_version=22`；**无 `Decrypt handshake data failed`** |
+| 组件状态 `?refresh=1` | `state=READY` / `ready=true` / `paramVersion=22` / `ctpTradeConnected=true` / `ctpMdConnected=true` / `ctpLoggedIn=true` / `ctpDegraded=false` / `ctpFront=tcp://182.254.243.31:30001` |
+| CTP TCP | 两条 `ESTAB` → `182.254.243.31:30001`（fd=15）与 `:30011`（fd=13），无 40001/40011 残留 |
+| 行情计数 | `quoteEvents=124` 并持续增长、`quotesDropped=65` |
+| `health-check.sh all` | **PASS=6 / FAIL=0 / rc=0** |
+| 端到端 WS | `:81/ws/quote` 握手 101 → 订阅（留空=全部）→ **12s 内 186 条 `type=quote` / 10 个不同合约**：`ag2612`20、`au2612`20、`rb2701`19、`IF2612`19、`i2701`19、`TA701`19、`ru2701`19、`m2701`18、`SR701`17、`cu2612`16 ⇒ 前端多合约行情恢复 |
+
+**如实披露**：`alerts` 中残留 `component.ctp degraded=true,loggedIn=false`（09:18，7x24 时段结束）与 `component.state STOPPING`（09:55 本次重启）等历史内存告警（§16.5 已登记「告警留痕仅内存、重启不保留」——本次未重启 hg-biz，故留痕仍在），均为**时点快照**，与当前 `ctpDegraded=false` / `READY` 不一致属预期；`reconnectCount=6` 同为 Java 侧累计值（未重启 hg-biz）。当前连接态以 21.4 实时快照为准。
+
+### 21.5 边界与遗留
+
+- 第一组为常规交易时段服务，**非 7x24**；非交易时段/收盘后可能再次断连 ⇒ 属服务端状态，届时如需可切回 7x24 组（时段 16:00～次日 09:00），两组前置均用 `api_key_mode=PRODUCTION`，仅端口不同。
+- 前端行情终端（§20）零改动；`Cache-Control: no-store`，刷新页面即看到第一组行情。
+- 仍为 dev/test 档（`env_type=SIMULATION` + SQLite），非实盘、非验收；未发交易指令、无实盘资金；生产部署口径恒 DM8。零落盘；改动未提交 git，提交 / push 需单独指令。
+
+## 22. CH-027 行情订阅动态化：实施落地与验证（2026-11-25，编排者 · 单写者）
+
+> **性质**：用户「通过订阅改变行情合约未成功……增加查询合约并选择订阅」+ 三档通道裁定选 **C 新增 HGCP 命令** + 见到 40→41 连锁代价后**坚持 C** ⇒ L3 契约级实施。裁定单见 `docs/DECISIONS/CH-027-quote-subscription-command.md`。§17–§21 原文不回改，本节纯追加；全部计数 / 版本 / 行号 / 时点**以实时为准**。
+
+### 22.1 实施落地清单
+
+| 层 | 制品 | 改动 |
+|---|---|---|
+| wire | `proto/hgcp.proto` | `CMD_SET_QUOTE_SUBSCRIPTION=0x011F` + `message CmdSetQuoteSubscription{repeated string instruments=1}`；消息集 **40→41** |
+| Java 生成 | `java/.../hgcp/v1/Hgcp.java` | `protoc 3.21.12` 重生成（先逐字校验原文件） |
+| C++ 协议 | `protocol.h/cc`、`payload_codec.cc`、`command_handler.h/cc`、`frame_test.cc` | 枚举 / `is_known` / `to_string` / 解码分支 / 回调注入 `QuoteSubscriptionFn` / 消息表 41 项 |
+| Java 契约 | `HgcpConstants.java`、`TradingBridge.java`（第八方法 `setQuoteSubscription`）、`HgcpClient.java`（覆写发令）、`java/CONTRACTS.md`（`HGC-1.8`）、`TradingBridgeContractTest`（7→8 方法） | |
+| CTP 适配 | `ct_gateway.h` / `ct_gateway_ctp.cc`（`UnSubscribeMarketData` 封装）、`ct_adapter.h/cc`（`setQuoteSubscription` 完整替换：等价短路、退订旧集、订阅新集、空集=全退订、`subscribed_instruments_` 记录） | |
+| C++ 应用 | `trading_app.h/cc`（`handler_.set_quote_subscription_fn` 注入 + `setQuoteSubscription` 回调 + 日志 `ctp.md set-subscription`） | |
+| REST | 新增 `QuoteSubscriptionHandler.java`（`POST /api/v1/trade/quote-subscription`，**原生大小写不归一**）、`TradeRoutes.java`（3 参 `register`）、`Bootstrap.java`、`ApiRoutes.java`、`web/js/core/routes.js` | |
+| WS | `WsServer.java#flushQuotes` 应用 `matchesQuote(instrument)` —— 修复既有缺陷（此前仅判 `wantsQuote()`，W-1 `instruments` 对实时帧零生效） | |
+| 前端 | `web/js/pages/trade.js`（静态目录 `QUOTE_CATALOG`、交易所/品种/主力筛选、`applyContracts` POST 原生大小写 + WS 大写过滤）、`web/css/hg.css`、探针 `t053_trade_probe.mjs` | |
+| 冻结面 | `docs/ARCHITECTURE.md`（§4.2.3 41 种 / §4.2.8.1 215 / §4.2.8.3 控制 18 条 78）、`scan_hgcp_schema.py`(E7)、`scan_frozen_invariants.py`(E9)、四处 `ROUTE_COUNT` 硬编码 | |
+
+### 22.2 离线门禁与测试（本轮实测 2026-11-25 12:26–12:33 +0800）
+
+| 门禁 | 结果 |
+|---|---|
+| `mvn -B -o clean test` | **1564 tests / 0 failures / 0 errors**（较上轮 +1：新增 `WsServerTest#realtimeQuoteRespectsInstrumentWhitelist`，W-1 白名单**负向**回归） |
+| `mvn -B -o validate`（E1–E9） | **通过(0)=9 / 命中(1)=0 / 前置错误(2)=0**；E9 四项冻结不变量：消息 **41** / 错误码 **62** / VER **0x0100** / FR **184** 全部一致 |
+| C++ 双轨 ctest（clean env，上轮） | 真轨 **67/67**、stub 轨 **63/63**（本轮仅改 Java 测试，C++ 制品未动，不重跑） |
+| 前端探针（上轮） | 全量 **10/10**；`t053_trade_probe.mjs` **167 断言 ALL PASS**（本轮未动前端，不重跑） |
+| 新增 W-1 回归定向 | `mvn -B -o -Dtest=WsServerTest test` **16/16**；先单跑确认负向用例不 flake（700ms 观察窗 ≥3 个 200ms 节拍、心跳 30000ms 不干扰） |
+| `health-check.sh all`（12:33） | **PASS=6 / FAIL=0**；两进程存活、`state=READY param_version=23` |
+
+- 编译 `-Xlint:all`：本轮新增测试**零新增告警**；日志中存量 test-scope `unchecked conversion` 与业务 `WARNING:` 输出非本轮引入。
+
+### 22.3 运行期命令链实测（本轮关键增量，2026-11-25 12:18–12:22 +0800）
+
+> 不依赖 CTP 交易前置登录、不依赖真实行情帧；验证「REST → HGCP → C++ 回调 → `CtAdapter`」是否真正贯通。会话走 `devtest`（`must_change_password=N`），凭据取自 `/tmp` 运行期助手（零落盘、不入库、不写本文字面值）。
+
+| 步骤 | 实测 |
+|---|---|
+| 组件鉴权令牌 | 两进程 `HG_HGCP_AUTH_TOKEN` 摘要**一致** ⇒ HGCP 通道可用 |
+| `POST /api/v1/trade/quote-subscription` `{"instruments":["rb2701","IF2612","SR701","cu2612"]}` | `HTTP 200` `{"code":0,...,"acknowledged":true,"componentCode":0,"message":"quote subscription applied: count=4"}`；**原生大小写逐字回显** |
+| hg-trading 日志 | `ctp.md set-subscription count=4 detail=quote subscription applied: count=4` ⇒ `CMD_SET_QUOTE_SUBSCRIPTION` 已抵达 C++ 并触发回调 |
+| 恢复原 11 合约 | `POST` 原集 ⇒ `applied: count=11`；日志 `count=11 detail=…count=11`，**系统状态复原**（退订旧集 + 订阅新集路径均实走） |
+
+**结论**：`CH-027` 的 Java REST → HGCP `0x011F` → C++ `CommandHandler` → `TradingApp::setQuoteSubscription` → `CtAdapter::setQuoteSubscription` 全链**已在运行期贯通并留有日志证据**；`acknowledged=true` 且 `componentCode=0`。
+
+### 22.4 端到端行情帧：未完成（如实披露，含口径澄清）
+
+- 12:20 +0800 于 `:81/ws/quote` 握手 101、订阅（留空=全部）后 **12s 内 0 帧 `type=quote`**。
+- **口径澄清（本轮实测）**：`GET /api/v1/monitor/component?refresh=1` 返回 `ctpLoggedIn=false` / `ctpDegraded=true` / `ctpReason="CTP 前置连接已发起，登录结果待异步回调"`，且 `hg.ctp.password=<empty>`。但 `CtAdapter::isLoggedIn()` 取的是 **`trade_logged_in_`**（交易前置，ct_adapter.cc:186），而行情订阅守卫取 **`md_logged_in_`**（行情前置，ct_adapter.cc:259）。§22.3 返回 `applied` 而非 `rejected: MD not logged in` ⇒ **行情前置 30011 的登录回调已成功**（CTP MD 前置常接受空/任意口令，与交易前置不同）；两条 `:30001`/`:30011` TCP 均 ESTAB。
+- ⇒ 0 帧的**主因是时段**，而非行情前置未登录：12:20 处于国内期货 **11:30–13:00 午间休市**，全市场无 tick；§21.4 于 09:53（早盘）实测 12s / 186 帧 / 10 合约可复证「时段外自然 0 帧」。
+- ⇒ **「页面选合约 → WS 行情帧集合随订阅改变」这一帧级端到端尚未闭环**。命令链（§22.3）已闭环；帧级闭环只需 **① 交易时段内**（午休结束后），行情前置已登录且订阅集已就位；`WsServer.flushQuotes` 白名单过滤已由离线 `WsServerTest` 负向用例覆盖。
+- **交易前置 DEGRADED 是独立事项**：`ctpLoggedIn=false` 仅因交易前置 30001 未完成登录（一次性口令丢失，§22.5）；它影响组件就绪观感与交易能力，**不影响行情帧**（行情走 MD 前置）。恢复完整态需重注口令。
+
+### 22.5 运行期凭据事故与现状（如实披露）
+
+- 上轮为腾出 `:39000` 跑 clean-env ctest，**同时停止** hg-trading / hg-biz；一次性 `HG_CTP_PASSWORD` 与原 `HG_HGCP_AUTH_TOKEN` 仅存在于两进程 `/proc/<pid>/environ`（零落盘设计）⇒ 停机即**不可恢复**。
+- 本轮实测：遍历全部 `/proc/*/environ` **无任何进程持有非空 `HG_CTP_PASSWORD`**；仓内 / `/tmp` 无字面值。
+- 现状：两进程已用**新生成且一致**的 `HG_HGCP_AUTH_TOKEN` 恢复（12:06），`health-check.sh all` PASS=6、`state=READY param_version=23`；`hg.ctp.password=<empty>`、交易前置 DEGRADED、行情前置已登录。
+- 恢复动作（若用户要求完整态，待重注一次性口令后执行并**另追加**结论，不回改 22.4）：重注 `HG_CTP_PASSWORD` → 以一致 token 重启两进程 → 核 `ctpLoggedIn=true` / `ctpDegraded=false` → 交易时段内做帧级端到端复验。
+
+### 22.6 边界与遗留
+
+- 前端静态合约为「非权威全市场、随换月维护」，主力为「按月份规则近似、非实时持仓量判定」—— 均为裁定②③明确的展示层口径，不扩 wire 字段。
+- 仍为 dev/test 档（`env_type=SIMULATION` + SQLite），非实盘、非验收；行情只展示不驱动决策（R-TRADE-11）；未发交易指令、无实盘资金；生产部署口径恒 DM8。
+- 零落盘：订阅集仅内存；口令/令牌不落盘、不入库、不写本文字面值。
+- 改动未提交 git，提交 / push 需单独指令。
+
+## 23. CH-027 帧级端到端复验结论（2026-11-25 13:07–13:09 +0800，编排者 · 单写者）
+
+> **性质**：用户裁定「13:00 后自动复验」；§22.4 已写明「后续帧级复验结论追加至 `BACKLOG.md`，不改写本节」⇒ 本节纯追加，§22.4 的 ⏸ 状态由本节**显式登记结清**。§17–§22 原文不回改；全部计数 / 时点**以实时为准**。
+
+### 23.1 条件与前提
+
+- 时点 13:07（午间休市 11:30–13:00 已结束，交易时段恢复）；**无需重注口令、未重启进程、未改配置**。
+- 会话 `devtest`；`:81/ws/quote` 握手 101，`subscribe{instruments:[]}`（**留空=全部**）⇒ 刻意不改 WS 白名单，以隔离出 **CTP 侧重订阅**的真实效果（W-1 前端过滤另由 §22.2 离线回归覆盖）。
+- 三次 REST 均经 `POST /api/v1/trade/quote-subscription`，全部 `acknowledged=true` / `componentCode=0`。
+
+### 23.2 实测（帧级）
+
+| 阶段 | 动作 | WS 观察窗内 `type=quote` 帧 | 合约集 |
+|---|---|---|---|
+| ① 基线 | 原 11 合约 | 12s / 21 帧 | `IF2612`×21（其余 10 合约该窗口无 tick） |
+| ② 动态改 2 合约 | `POST ["rb2701","IF2612"]` → `applied: count=2` | 14s / 32 帧 | **`{IF2612, RB2701}`**（`RB2701`×1 为订阅初始快照；其余 9 合约 **0 帧**） |
+| ③ 恢复 11 合约 | `POST` 原集 → `applied: count=11` | 10s / 35 帧 | **全部 11 合约**（`IF2612`×25 + 其余各 1 帧初始快照） |
+
+- C++ 日志逐条对应：`ctp.md set-subscription count=2 detail=…applied: count=2`（日志行 379）、`count=11`（380）；连同 §22.3 的 377 / 378，共 **4 次下发全部留痕**。
+- **判定**：阶段② 合约集 `{IF2612, RB2701}` ⊆ 所选 `{rb2701, IF2612}`，**旧集合约零残留帧**；阶段③ 11 合约全部回归 ⇒ 「选合约 → C++ 重订阅 → WS 帧集合随订阅改变」**闭环成立**。
+
+### 23.3 如实披露（帧分布口径）
+
+- 本窗口行情极度不均：`IF2612`（CFFEX 股指）持续 tick（21→31→25 帧），其余 10 个商品合约多数仅收到 CTP 订阅后的 **1 帧初始快照**。属 SimNow 第一组该时段数据源活跃度差异，与 §21.4（09:53 早盘 12s / 186 帧 / 10 合约）可对照，**非 CH-027 故障**；订阅集与帧集合的对应关系不受影响。
+- `ctpLoggedIn` 仍为 `false`（交易前置 30001 未完成登录，§22.5 一次性口令丢失）；**行情帧走 MD 前置，不受影响** —— 本轮在 DEGRADED 观感下仍收到真实行情帧，复证 §22.4 口径澄清。
+- 未重启进程、未改配置、未动 C++ / 前端制品；订阅集最终**已恢复为原 11 合约**。
+
+### 23.4 CH-027 结案
+
+- 裁定 ①②③④⑤ 全部兑现；冻结面 40→41 / `HGC-1.8` / 第八方法 / E7/E9 同步经门禁自洽。
+- 验收矩阵（§22.2 全部门禁 + §22.3 运行期命令链 + 本节帧级端到端）**全部通过**；§22.4 / 裁定单 §6 的 ⏸ 条目由本节显式登记结清（原文保留、不回改）。
+- 仍为 dev/test 档（`env_type=SIMULATION` + SQLite），非实盘非验收；行情只展示不驱动决策（R-TRADE-11）；零落盘；改动未提交 git，提交 / push 需单独指令。

@@ -63,10 +63,12 @@ public final class HgcpConstants {
     public static final int CMD_QUERY_STATUS = 0x011C;
     /** CMD_FUND_TRANSFER。 */
     public static final int CMD_FUND_TRANSFER = 0x011D;
-    /** CMD_QUERY_FUND_RESULT。 */
-    public static final int CMD_QUERY_FUND_RESULT = 0x011E;
+        /** CMD_QUERY_FUND_RESULT。 */
+        public static final int CMD_QUERY_FUND_RESULT = 0x011E;
+        /** CMD_SET_QUOTE_SUBSCRIPTION（CH-027 动态行情订阅）。 */
+        public static final int CMD_SET_QUOTE_SUBSCRIPTION = 0x011F;
 
-    // ---- 事件流（C++ → Java）----
+        // ---- 事件流（C++ → Java）----
     /** EVT_ORDER_ACCEPTED。 */
     public static final int EVT_ORDER_ACCEPTED = 0x0201;
     /** EVT_PRE_TRADE_REJECT。 */
@@ -96,8 +98,8 @@ public final class HgcpConstants {
     /** EVT_TRADING_ALERT。 */
     public static final int EVT_TRADING_ALERT = 0x020E;
 
-    /** 消息类型总数（冻结不变量）。 */
-    public static final int MESSAGE_TYPE_COUNT = 40;
+        /** 消息类型总数（冻结不变量；CH-027 由 40→41）。 */
+        public static final int MESSAGE_TYPE_COUNT = 41;
 
     // ---- 时序（CFG-28 / timing.h / resume_buffer.h）----
     /** 心跳间隔 1000 ms。 */
@@ -137,9 +139,9 @@ public final class HgcpConstants {
         if (type >= CMD_PLACE_ORDER && type <= CMD_CANCEL_ORDER) {
             return true;
         }
-        if (type >= CMD_LOAD_RISK_PARAMS && type <= CMD_QUERY_FUND_RESULT) {
-            return true;
-        }
+            if (type >= CMD_LOAD_RISK_PARAMS && type <= CMD_SET_QUOTE_SUBSCRIPTION) {
+                return true;
+            }
         return type >= EVT_ORDER_ACCEPTED && type <= EVT_TRADING_ALERT;
     }
 }

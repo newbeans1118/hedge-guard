@@ -166,7 +166,8 @@ ok(R.ORDER === '/trade/order', 'TRADE.ORDER 逐字一致（POST /trade/order）'
 ok(typeof R.orderAction === 'function' && R.orderAction(5, 'confirm') === '/trade/order/5/confirm', 'TRADE.orderAction 函数键 → /trade/order/5/confirm');
 ok(R.orderAction(9, 'cancel') === '/trade/order/9/cancel', 'TRADE.orderAction 函数键 → /trade/order/9/cancel');
 ok(R.orderAction('a/b', 'confirm') === '/trade/order/a%2Fb/confirm', 'TRADE.orderAction 走 encodeURIComponent（enc 先例）');
-ok(Object.keys(R).length === 2, 'TRADE 键恰 2 个（ORDER/orderAction；不得混入未注册路径）');
+ok(R.QUOTE_SUBSCRIPTION === '/trade/quote-subscription', 'TRADE.QUOTE_SUBSCRIPTION 登记（CH-027 动态行情订阅）');
+ok(Object.keys(R).length === 3, 'TRADE 键恰 3 个（ORDER/orderAction/QUOTE_SUBSCRIPTION；CH-027 同步）');
 // 未注册 9 路径恰在 NOT_REGISTERED（T-053 补登记；TRADE_ORDER 历史键保留勿删）
 const NR = HG.routes.NOT_REGISTERED;
 ok(NR.TRADE_ORDER === '/trade/order', 'NOT_REGISTERED.TRADE_ORDER 历史键保留（既有探针锚不回退）');
@@ -394,6 +395,151 @@ switchTab('quote');
   ok(textOf(root).includes('已断线'), 'quote：断线徽标（自动重连中）');
   ws.handlers.onOpen();
   ok(textOf(root).includes('已连接'), 'quote：重连后徽标恢复');
+}
+
+/* ===== 行情终端重构：状态层 / 差量渲染 / 交互层（局部深色 · 四模块） ===== */
+{
+  // 探针 window 桩无 localStorage ⇒ 补内存版以验自选持久化（非敏感）
+  const store = {};
+  window.localStorage = {
+    getItem(k) { return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null; },
+    setItem(k, v) { store[k] = String(v); },
+    removeItem(k) { delete store[k]; }
+  };
+  function collect(node, pred, out) {
+    out = out || [];
+    (node.children || []).forEach((c) => { if (pred(c)) out.push(c); collect(c, pred, out); });
+    return out;
+  }
+  const html = allHTML(root);
+  const txt = textOf(root);
+
+  // ① 报价板新列 + 口径披露（仅现有 wire 字段，不臆造涨跌幅）
+  ok(txt.includes('会话变动') && txt.includes('买一') && txt.includes('卖一') && txt.includes('价差'),
+    'quote-ui：报价板含 会话变动 / 买一 / 卖一 / 价差 列');
+  ok(txt.includes('非昨结算价') && txt.includes('非真实涨跌幅'),
+    'quote-ui：会话变动口径披露（非昨结算价、非真实涨跌幅）');
+  ok(txt.includes('非完整分时') || html.includes('非完整分时'),
+    'quote-ui：走势口径披露（会话内最近值，非完整分时/K线）');
+  ok(txt.includes('合约数') && txt.includes('累计帧'), 'quote-ui：顶部状态条含 合约数 / 累计帧');
+  ok(html.includes('仅现有 wire 字段') && html.includes('点击表头排序'),
+    'quote-ui：图例披露 wire 字段边界与交互提示');
+
+  // ② 差量行索引（data-instr）+ 既有新鲜度锚点不回退
+  const rows = collect(root, (n) => n.tagName === 'TR' && n.attrs && n.attrs['data-instr']);
+  ok(rows.length >= 2, 'quote-ui：每合约一行 DOM（data-instr 索引，差量更新）');
+  ok(html.includes('data-quote-stale="stale"'), 'quote-ui：过期帧仍带 data-quote-stale="stale" 锚');
+
+  // ③ 红涨绿跌（会话内方向）：CU2506 首帧 70500 → 70600
+  const upCells = collect(root, (n) => (n.className || '').split(/\s+/).indexOf('hg-q-up') !== -1);
+  ok(upCells.length > 0, 'quote-ui：会话内上涨标记 hg-q-up（红涨）');
+  ok(txt.includes('+100.00'), 'quote-ui：会话变动 +100.00（相对首帧，非涨跌幅）');
+
+  // ④ 表头点击排序（按最新价数值升序）
+  const ths = collect(root, (n) => n.tagName === 'TH');
+  ok(ths.length >= 8, 'quote-ui：可排序表头（8+ 列）');
+  const thLast = ths.filter((n) => (n.innerHTML || '').indexOf('最新') !== -1)[0];
+  ok(!!thLast, 'quote-ui：最新价表头可定位');
+  if (thLast) thLast.click();
+  const tbody = collect(root, (n) => n.tagName === 'TBODY')[0];
+  const order = tbody ? tbody.children.map((r) => r.attrs && r.attrs['data-instr']) : [];
+  ok(order.length >= 2 && order[0] === 'AU2512',
+    'quote-ui：点击「最新」表头按数值升序（AU2512 480 < CU2506 70600）');
+
+  // ⑤ 选中行联动详情：盘口 + inline SVG sparkline（DOM 桩无 canvas）
+  const cuRow = rows.filter((r) => r.attrs['data-instr'] === 'CU2506')[0];
+  if (cuRow) cuRow.click();
+  const dhtml = allHTML(root);
+  ok(dhtml.includes('hg-q-detail__last') && dhtml.includes('hg-q-depth__fill--bid'),
+    'quote-ui：选中合约详情含大字最新价与买一/卖一盘口条');
+  ok(dhtml.includes('<svg') && dhtml.includes('hg-q-spark__line'),
+    'quote-ui：选中合约含 inline SVG sparkline（零依赖、DOM 桩兼容）');
+
+  // ⑥ 搜索过滤
+  const sInput = findInput(root, 'tr-q-search');
+  ok(!!sInput, 'quote-ui：搜索框存在');
+  if (sInput) {
+    sInput.value = 'CU';
+    (sInput.listeners.input || []).forEach((fn) => fn({}));
+  }
+  const tbody2 = collect(root, (n) => n.tagName === 'TBODY')[0];
+  const shown = tbody2 ? tbody2.children.filter((r) => r.attrs && r.attrs['data-instr']) : [];
+  ok(shown.length === 1 && shown[0].attrs['data-instr'] === 'CU2506',
+    'quote-ui：搜索「CU」仅保留匹配合约行');
+
+  // ⑦ 自选星标 + localStorage 持久化 + 仅自选筛选
+  const favBtns = collect(root, (n) => (n.className || '').split(/\s+/).indexOf('hg-q-fav') !== -1);
+  ok(favBtns.length >= 1, 'quote-ui：每行含自选星标按钮');
+  if (favBtns.length) {
+    favBtns[0].click();
+    ok(String(window.localStorage.getItem('hg.q.favs') || '').includes('CU2506'),
+      'quote-ui：星标写入 localStorage（hg.q.favs，非敏感）');
+  }
+  ok(!!findBtnByText(root, '仅自选'), 'quote-ui：仅自选筛选按钮存在');
+
+  // ⑧ 密度切换（局部深色面板，不改全局主题）
+  const denseBtn = findBtnByText(root, '紧凑');
+  ok(!!denseBtn, 'quote-ui：密度切换按钮存在');
+  const panel = collect(root, (n) => (n.className || '').split(/\s+/).indexOf('hg-q') !== -1)[0];
+  ok(!!panel, 'quote-ui：局部深色面板 .hg-q');
+  if (denseBtn && panel) {
+    denseBtn.click();
+    ok((panel.className || '').indexOf('hg-q--compact') !== -1,
+      'quote-ui：紧凑密度切换生效（.hg-q--compact）');
+  }
+
+  // ⑨ CH-027 合约选择面板：交易所/品种筛选 + 多选 + 主力一键 + REST 动态订阅
+
+  const exSel = findInput(root, 'tr-q-ex');
+  ok(!!exSel, 'quote-ui：交易所筛选下拉存在（CH-027 分交易所）');
+  const prodSel = findInput(root, 'tr-q-prod');
+  ok(!!prodSel, 'quote-ui：品种筛选下拉存在（CH-027 分品种）');
+  const catSearch = findInput(root, 'tr-q-cat-search');
+  ok(!!catSearch, 'quote-ui：合约搜索框存在（CH-027）');
+  ok(!!findBtnByText(root, '主力一键选'), 'quote-ui：主力一键选按钮存在（CH-027 需求 2）');
+  ok(!!findBtnByText(root, '应用所选'), 'quote-ui：应用所选按钮存在（CH-027 需求 1）');
+  ok(!!findBtnByText(root, '清空'), 'quote-ui：清空按钮存在');
+  const pickList = collect(root, (n) => (n.className || '').split(/\s+/).indexOf('hg-q-pick__list') !== -1)[0];
+  ok(!!pickList, 'quote-ui：合约勾选列表容器存在');
+  ok(textOf(root).includes('静态合约目录') && textOf(root).includes('非权威全市场'),
+    'quote-ui：静态目录口径披露（非权威全市场、随换月维护）');
+  ok(textOf(root).includes('月份规则近似') || textOf(root).includes('非实时持仓量判定'),
+    'quote-ui：主力口径披露（月份规则近似、非实时持仓量判定）');
+  // 交易所筛选项应含 5 个交易所 + 「全部交易所」
+  if (exSel) {
+    const vals = (exSel.children || []).map((o) => o.attrs && o.attrs.value);
+    ok(vals.filter((v) => v && v !== '').length === 5,
+      'quote-ui：交易所下拉恰 5 个交易所（SHFE/DCE/CZCE/CFFEX/INE）');
+  }
+  // 交易所切换 → 品种下拉只含该所品种
+  if (exSel && prodSel) {
+    exSel.value = 'SHFE';
+    (exSel.listeners.change || []).forEach((fn) => fn({}));
+    const prodVals = (prodSel.children || []).map((o) => o.attrs && o.attrs.value).filter(Boolean);
+    ok(prodVals.every((v) => String(v).indexOf('SHFE:') === 0),
+      'quote-ui：选上期所后品种下拉仅含 SHFE 品种');
+  }
+  // 「主力一键选」→ 调用 REST POST /trade/quote-subscription（带原生大小写合约集）
+  {
+    const apiCalls = [];
+    const realPost = HG.api.post;
+    HG.api.post = function (path, body) {
+      apiCalls.push({ path: path, body: body });
+      return Promise.resolve({ code: 0, data: {} });
+    };
+    const mainBtn = findBtnByText(root, '主力一键选');
+    if (mainBtn) { mainBtn.click(); await tick(); }
+    HG.api.post = realPost;
+    const hit = apiCalls.filter((c) => c.path === '/trade/quote-subscription');
+    ok(hit.length === 1, 'quote-ui：主力一键选下发 POST /trade/quote-subscription（CH-027）');
+    if (hit.length) {
+      const arr = hit[0].body && hit[0].body.instruments;
+      ok(Array.isArray(arr) && arr.length > 0, 'quote-ui：请求体 instruments 为非空数组');
+      ok(arr.every((s) => typeof s === 'string' && s.length > 0), 'quote-ui：合约代码原生大小写保留（非全大写）');
+      ok(arr.some((s) => /^[a-z]/.test(s)), 'quote-ui：含小写交易所代码（SHFE/DCE/INE 原生小写）');
+    }
+  }
+  delete window.localStorage;
 }
 
 /* ================= Tab 未注册 9 面：诚实提示 + 零调用（负例 ②） ================= */

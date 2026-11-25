@@ -63,11 +63,12 @@ public final class ApiRoutes {
                 "/plan/{id}/freeze", "/plan/{id}/unfreeze", "/plan/{id}/terminate", "/plan/{id}/extend",
                 "/plan/{id}/trade-plans", "/plan/ratio/simple", "/plan/ratio/minvar",
                 "/plan/ratio/custom"));
-        BY_MODULE.put("TRADE", Arrays.asList(
-                "/trade/order", "/trade/order/{id}/confirm", "/trade/order/{id}/cancel",
-                "/trade/order-report", "/trade/fill", "/trade/position", "/trade/reason",
-                "/trade/reject-record", "/trade/flow", "/trade/quote/{instrument}",
-                "/trade/strategy", "/trade/export"));
+            BY_MODULE.put("TRADE", Arrays.asList(
+                    "/trade/order", "/trade/order/{id}/confirm", "/trade/order/{id}/cancel",
+                    "/trade/order-report", "/trade/fill", "/trade/position", "/trade/reason",
+                    "/trade/reject-record", "/trade/flow", "/trade/quote/{instrument}",
+                    "/trade/strategy", "/trade/export",
+                    "/trade/quote-subscription"));  // CH-027 动态行情订阅
         BY_MODULE.put("SETTLE", Arrays.asList(
                 "/settle/ctp-data", "/settle/cycle", "/settle/cycle/{id}/reconcile",
                 "/settle/cycle/{id}/aggregate", "/settle/cycle/{id}/close", "/settle/difference",
@@ -138,9 +139,10 @@ public final class ApiRoutes {
                 // FR-PLAN-2 / FR-PLAN-5：路径逐字取自 ARCHITECTURE.md §4.1.1 PLAN 行（已声明
                 // PUT(草稿) 与 /plan/{id}/doc），补齐「已声明未注册」的方法对。
                 "PUT /plan/{id}", "GET /plan/{id}/doc"));
-        BY_MODULE_ROUTES.put("TRADE", Arrays.asList(
-                "POST /trade/order", "POST /trade/order/{id}/confirm",
-                "POST /trade/order/{id}/cancel"));
+            BY_MODULE_ROUTES.put("TRADE", Arrays.asList(
+                    "POST /trade/order", "POST /trade/order/{id}/confirm",
+                    "POST /trade/order/{id}/cancel",
+                    "POST /trade/quote-subscription"));  // CH-027
         BY_MODULE_ROUTES.put("SETTLE", Arrays.asList(
                 "POST /settle/ctp-data", "GET /settle/cycle", "POST /settle/cycle",
                 "POST /settle/cycle/{id}/reconcile", "POST /settle/cycle/{id}/aggregate",

@@ -47,6 +47,17 @@ hg.auth.session_idle_minutes=30
 hg.auth.login_fail_limit=5
 hg.auth.login_lock_minutes=5
 
+# ---- CTP 行情订阅合约集（hg-trading 读取；非敏感，部署时填写）----
+# 逗号分隔，装载时仅去空白 / 去重 / 保序；留空 = 不订阅任何合约 ⇒ /ws/quote 无行情。
+# ★ 必须保留交易所原生大小写与位数，不得大写归一（CTP 代码大小写敏感）：
+#     SHFE/DCE/INE 小写 4 位（rb2701 / cu2612 / sc2612）
+#     CFFEX     大写 4 位（IF2612）
+#     CZCE      大写 3 位（SR701 / TA701，不是 SR2701）
+#   大小写或位数写错，CTP 的 SubscribeMarketData 仍回 code=0 但静默不推送行情。
+# 须填当前挂牌的活跃合约（已交割月份不会推送）。
+# 前端 /ws/quote 的「合约过滤」留空 = 全部；若填写，须与本集合有交集。
+#hg.ctp.subscribe_instruments=rb2701,cu2612,au2612,SR701,TA701,IF2612
+
 # ---- CFG-31 DM8 数据库（部署时填写；口令见文件头说明，绝不写入本文件）----
 #hg.db.url=jdbc:dm://127.0.0.1:5236/HG
 #hg.db.user=HG_APP

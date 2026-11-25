@@ -207,10 +207,28 @@ class CtpMdGateway : public CtMdGateway {
     for (std::size_t i = 0; i < buffers.size(); ++i) {
       pointers.push_back(&buffers[i][0]);
     }
-    return api_->SubscribeMarketData(&pointers[0], static_cast<int>(pointers.size()));
-  }
+        return api_->SubscribeMarketData(&pointers[0], static_cast<int>(pointers.size()));
+      }
 
-  virtual const char* apiVersion() const { return CThostFtdcMdApi::GetApiVersion(); }
+      // CH-027：退订旧集（完整替换订阅集时先退订）。
+      virtual int unsubscribeMarket(const std::vector<std::string>& instruments,
+                                    int /*request_id*/) {
+        if (api_ == 0) return -1;
+        if (instruments.empty()) return 0;
+        std::vector<std::vector<char> > buffers;
+        buffers.reserve(instruments.size());
+        for (std::size_t i = 0; i < instruments.size(); ++i) {
+          buffers.push_back(toMutable(instruments[i]));
+        }
+        std::vector<char*> pointers;
+        pointers.reserve(buffers.size());
+        for (std::size_t i = 0; i < buffers.size(); ++i) {
+          pointers.push_back(&buffers[i][0]);
+        }
+        return api_->UnSubscribeMarketData(&pointers[0], static_cast<int>(pointers.size()));
+      }
+
+      virtual const char* apiVersion() const { return CThostFtdcMdApi::GetApiVersion(); }
   virtual const char* backendName() const { return "ctp-md"; }
 
  private:

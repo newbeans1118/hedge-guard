@@ -369,9 +369,137 @@ function actionTab(container) {
  * ------------------------------------------------------------------ */
 const QUOTE_STALE_MS = 15000; // 行情过期阈值（展示标识；FR-TRADE-12 验收 2「超过阈值未更新时明确标识」）
 
+// 前端静态品种字典：仅用于展示名称，映射不到则回退显示合约代码。
+// 不新增 wire 字段、不参与决策；CTP 原生代码小写，故匹配前统一大写。
+const QUOTE_NAMES = {
+  RB: '螺纹钢', HC: '热卷', CU: '沪铜', AL: '沪铝', ZN: '沪锌', NI: '沪镍', SN: '沪锡',
+  AU: '沪金', AG: '沪银', RU: '天然橡胶', BU: '沥青', FU: '燃油', SP: '纸浆', SS: '不锈钢',
+  I: '铁矿石', M: '豆粕', Y: '豆油', P: '棕榈油', C: '玉米', J: '焦炭', JM: '焦煤',
+  A: '豆一', B: '豆二', EG: '乙二醇', L: '塑料', PP: '聚丙烯', V: 'PVC',
+  SR: '白糖', TA: 'PTA', MA: '甲醇', FG: '玻璃', CF: '棉花', RM: '菜粕', OI: '菜油', SA: '纯碱',
+  IF: '沪深300', IH: '上证50', IC: '中证500', IM: '中证1000', T: '十年国债', TF: '五年国债',
+  SC: '原油', LU: '低硫燃油', NR: '20号胶', BC: '国际铜'
+};
+function quoteName(instr) {
+  const m = /^([A-Za-z]+)/.exec(String(instr || ''));
+  return m ? (QUOTE_NAMES[m[1].toUpperCase()] || '') : '';
+}
+function qNum(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return isFinite(n) ? n : null;
+}
+function qSigned(d) {
+  if (d === null || !isFinite(d)) return '—';
+  return (d > 0 ? '+' : '') + d.toFixed(2);
+}
+function qStale(frame) {
+  const ts = Date.parse(frame && frame.ts || '');
+  return !isFinite(ts) || (Date.now() - ts) > QUOTE_STALE_MS;
+}
+// 保留带引号的 data-quote-stale 锚点（既有探针 / FR-TRADE-12 依赖），仅换深色样式类。
+function staleHTML(frame) {
+  const stale = qStale(frame);
+  return '<span class="hg-q-stale" data-quote-stale="' + (stale ? 'stale' : 'fresh') + '">'
+    + (stale ? '行情延迟/过期' : '实时') + '</span>';
+}
+// 会话内最近值走势（inline SVG，零依赖；坐标为归一化 0-100，不含原始价格字面）。
+function qSpark(hist, rising) {
+  const pts = (hist || []).filter((n) => n !== null);
+  if (pts.length < 2) return '';
+  const min = Math.min.apply(null, pts), max = Math.max.apply(null, pts);
+  const span = (max - min) || 1;
+  const coords = pts.map((v, i) => {
+    const x = (i / (pts.length - 1)) * 100;
+    const y = 60 - ((v - min) / span) * 56;
+    return x.toFixed(1) + ',' + y.toFixed(1);
+  });
+  const line = coords.join(' ');
+  const stroke = rising ? '#f04b4b' : '#23b26d';
+  return '<svg class="hg-q-spark" viewBox="0 0 100 64" preserveAspectRatio="none" '
+    + 'role="img" aria-label="会话内最近值走势">'
+    + '<line class="hg-q-spark__grid" x1="0" y1="32" x2="100" y2="32" />'
+    + '<polygon class="hg-q-spark__area" points="0,64 ' + line + ' 100,64" />'
+    + '<polyline class="hg-q-spark__line" points="' + line + '" style="stroke:' + stroke + '" />'
+    + '</svg>';
+}
+
+// ---- CH-027：前端静态合约目录（非权威全市场，随换月维护）。-------------------
+// 按交易所分组，品种 → 合约代码按月份规则生成；「主力」= 该品种最近活跃月（近似，
+// 非实时持仓量判定）。原生大小写：SHFE/DCE/INE 小写 4 位、CFFEX 大写 4 位、CZCE 大写 3 位。
+const QUOTE_CATALOG_DEFS = [
+  { ex: 'SHFE', label: '上期所', kind: 'lower4', products: [
+    ['rb', '螺纹钢', [1, 5, 10]], ['hc', '热卷', [1, 5, 10]], ['cu', '沪铜', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]],
+    ['al', '沪铝', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]], ['zn', '沪锌', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]],
+    ['ni', '沪镍', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]], ['sn', '沪锡', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]],
+    ['au', '沪金', [2, 4, 6, 8, 10, 12]], ['ag', '沪银', [2, 4, 6, 8, 10, 12]],
+    ['ru', '天然橡胶', [1, 3, 5, 7, 9, 11]], ['bu', '沥青', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]],
+    ['fu', '燃油', [1, 5, 9]], ['sp', '纸浆', [1, 5, 9]], ['ss', '不锈钢', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]]
+  ] },
+  { ex: 'DCE', label: '大商所', kind: 'lower4', products: [
+    ['i', '铁矿石', [1, 5, 9]], ['m', '豆粕', [1, 3, 5, 7, 8, 9, 11]],
+    ['y', '豆油', [1, 3, 5, 7, 8, 9, 11]], ['p', '棕榈油', [1, 3, 5, 7, 8, 9, 11]],
+    ['c', '玉米', [1, 3, 5, 7, 9, 11]], ['j', '焦炭', [1, 5, 9]],
+    ['jm', '焦煤', [1, 5, 9]], ['a', '豆一', [1, 3, 5, 7, 9, 11]],
+    ['eg', '乙二醇', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]], ['l', '塑料', [1, 5, 9]], ['pp', '聚丙烯', [1, 5, 9]], ['v', 'PVC', [1, 5, 9]]
+  ] },
+  { ex: 'CZCE', label: '郑商所', kind: 'upper3', products: [
+    ['SR', '白糖', [1, 3, 5, 7, 9, 11]], ['TA', 'PTA', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]],
+    ['MA', '甲醇', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]], ['FG', '玻璃', [1, 5, 9]],
+    ['CF', '棉花', [1, 3, 5, 7, 9, 11]], ['RM', '菜粕', [1, 3, 5, 7, 8, 9, 11]],
+    ['OI', '菜油', [1, 3, 5, 7, 9, 11]], ['SA', '纯碱', [1, 5, 9]]
+  ] },
+  { ex: 'CFFEX', label: '中金所', kind: 'upper4', products: [
+    ['IF', '沪深300', null], ['IH', '上证50', null], ['IC', '中证500', null], ['IM', '中证1000', null],
+    ['T', '十年国债', [3, 6, 9, 12]], ['TF', '五年国债', [3, 6, 9, 12]]
+  ] },
+  { ex: 'INE', label: '能源中心', kind: 'lower4', products: [
+    ['sc', '原油', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]],
+    ['lu', '低硫燃油', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]], ['nr', '20号胶', [1, 3, 5, 7, 9, 11]], ['bc', '国际铜', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]]
+  ] }
+];
+
+function buildQuoteCatalog() {
+  const now = new Date();
+  const baseYear = now.getFullYear(), baseMonth = now.getMonth() + 1;
+  return QUOTE_CATALOG_DEFS.map((d) => {
+    const products = d.products.map((p) => {
+      const code = p[0], name = p[1], mainMonths = p[2];
+      const contracts = [];
+      for (let k = 0; k < 12; k++) {
+        let y = baseYear, m = baseMonth + k;
+        while (m > 12) { m -= 12; y += 1; }
+        const yy = String(y).slice(2), mm = String(m).length < 2 ? '0' + m : String(m);
+        let id;
+        if (d.kind === 'lower4') id = code.toLowerCase() + yy + mm;
+        else if (d.kind === 'upper4') id = code.toUpperCase() + yy + mm;
+        else id = code.toUpperCase() + String(y).slice(3) + mm;  // CZCE 3 位
+        // CFFEX null = 当月为「主力」（月份规则近似）；其余品种取最近 mainMonths 命中月。
+        const isMain = mainMonths === null ? (k === 0) : mainMonths.indexOf(m) !== -1 && contracts.every((c) => !c.main);
+        contracts.push({ id: id, month: m, main: isMain });
+      }
+      return { code: code, name: name, contracts: contracts };
+    });
+    return { ex: d.ex, label: d.label, products: products };
+  });
+}
+const QUOTE_CATALOG = buildQuoteCatalog();
+function mainContracts(catalog) {
+  const out = [];
+  catalog.forEach(function (exg) {
+    exg.products.forEach(function (p) {
+      p.contracts.forEach(function (c) {
+        if (c.main) out.push(c.id);
+      });
+    });
+  });
+  return out;
+}
+
 function quoteTab(container) {
   const card = ui.el('section', { class: 'hg-card' });
   card.appendChild(ui.el('h3', { class: 'hg-card__title', text: '实时行情（/ws/quote）' }));
+  // 界面边界声明：文案逐字保留（探针 / FR-TRADE-12 / R-TRADE-11 / CH-007 依赖）。
   card.appendChild(ui.banner(
     '<strong>行情只来自 CTP</strong>（R-TRADE-11：系统不接任何第三方行情源），经 <code>/ws/quote</code> 推送'
       + '（<strong>允许丢帧</strong>，仅推送最新值）；行情面板标注<strong>数据时间</strong>，'
@@ -380,57 +508,363 @@ function quoteTab(container) {
       + '补数批次行情帧由服务端消费侧丢弃（CH-007：重放陈旧价不触发 WebSocket 下发，亦不计入行情新鲜度）。',
     'warn'
   ));
-  const bar = ui.el('div', { class: 'hg-toolbar' });
-  const wsBadge = ui.el('span', { class: 'hg-badge hg-badge--draft', 'data-ws-state': 'init', text: '连接中…' });
-  bar.appendChild(ui.el('span', { class: 'hg-pager__info', text: '连接状态：' }));
-  bar.appendChild(wsBadge);
+
+  const panel = ui.el('div', { class: 'hg-q' });
+  // ① 顶部状态条
+  const top = ui.el('div', { class: 'hg-q-top' });
+  const wsBadge = ui.el('span', { class: 'hg-q-top__badge', 'data-ws-state': 'init', text: '连接中…' });
+  top.appendChild(wsBadge);
+  const countVal = ui.el('span', { class: 'hg-q-top__val', text: '0' });
+  const framesVal = ui.el('span', { class: 'hg-q-top__val', text: '0' });
+  top.appendChild(ui.el('span', { class: 'hg-q-top__label', text: '合约数' }));
+  top.appendChild(countVal);
+  top.appendChild(ui.el('span', { class: 'hg-q-top__label', text: '累计帧' }));
+  top.appendChild(framesVal);
+  top.appendChild(ui.el('div', {
+    class: 'hg-q-top__note',
+    text: '口径：「会话变动」以本会话首帧价为基准，非昨结算价、非真实涨跌幅；红涨绿跌仅表示会话内方向。'
+      + '走势为会话内最近值，非完整分时/K线。行情只展示、不驱动任何自动决策。'
+  }));
+  panel.appendChild(top);
+
+  // ② 工具栏
+  const bar = ui.el('div', { class: 'hg-q-bar' });
+  const searchInput = textInput('tr-q-search', { placeholder: '搜索合约 / 名称' });
+  searchInput.setAttribute('type', 'search');
+  bar.appendChild(ui.field({ id: 'tr-q-search', label: '搜索', control: searchInput }));
+  const favOnlyBtn = ui.el('button', { class: 'hg-q-btn', type: 'button', text: '仅自选' });
+  bar.appendChild(favOnlyBtn);
+  const denseBtn = ui.el('button', { class: 'hg-q-btn', type: 'button', text: '紧凑' });
+  bar.appendChild(denseBtn);
   const instrInput = textInput('tr-q-instr', { placeholder: '订阅合约（可空=全部；多个用逗号分隔，大写归一）' });
-  const subBtn = ui.el('button', { class: 'hg-btn hg-btn--sm', type: 'button', text: '订阅' });
+  const subBtn = ui.el('button', { class: 'hg-q-btn', type: 'button', text: '订阅' });
   bar.appendChild(ui.field({ id: 'tr-q-instr', label: '合约过滤', control: instrInput }));
   bar.appendChild(subBtn);
-  card.appendChild(bar);
-  const feedBody = ui.el('div');
-  feedBody.appendChild(ui.el('p', { class: 'hg-muted', text: '暂无行情（连接建立并订阅后，最新价将在此展示；仅保留每合约最新一帧）。' }));
-  card.appendChild(feedBody);
+  panel.appendChild(bar);
+
+  // ②b CH-027：合约选择面板（分交易所 / 分品种筛选 → 多选 → 动态订阅）。
+  const pick = ui.el('div', { class: 'hg-q-pick' });
+  const pickBar = ui.el('div', { class: 'hg-q-pick__bar' });
+  const exSel = ui.el('select', { id: 'tr-q-ex' });
+  const allExOpt = ui.el('option', { value: '', text: '全部交易所' });
+  exSel.appendChild(allExOpt);
+  QUOTE_CATALOG.forEach(function (g) {
+    exSel.appendChild(ui.el('option', { value: g.ex, text: g.label + '（' + g.ex + '）' }));
+  });
+  const prodSel = ui.el('select', { id: 'tr-q-prod' });
+  pickBar.appendChild(ui.field({ id: 'tr-q-ex', label: '交易所', control: exSel }));
+  pickBar.appendChild(ui.field({ id: 'tr-q-prod', label: '品种', control: prodSel }));
+  const mainOnlyChk = ui.el('input', { type: 'checkbox', id: 'tr-q-mainonly' });
+  mainOnlyChk.checked = true;
+  const catSearchInput = textInput('tr-q-cat-search', { placeholder: '筛选合约代码/名称' });
+  pickBar.appendChild(ui.field({ id: 'tr-q-mainonly', label: '仅主力', control: mainOnlyChk }));
+  pickBar.appendChild(ui.field({ id: 'tr-q-cat-search', label: '合约搜索', control: catSearchInput }));
+  const mainBtn = ui.el('button', { class: 'hg-q-btn', type: 'button', text: '主力一键选' });
+  const applyBtn = ui.el('button', { class: 'hg-q-btn', type: 'button', text: '应用所选' });
+  const clearBtn = ui.el('button', { class: 'hg-q-btn', type: 'button', text: '清空' });
+  pickBar.appendChild(mainBtn);
+  pickBar.appendChild(applyBtn);
+  pickBar.appendChild(clearBtn);
+  pick.appendChild(pickBar);
+  const pickNote = ui.el('div', {
+    class: 'hg-q-pick__note',
+    text: '静态合约目录（非权威全市场、随换月维护）；「主力」按月份规则近似（每品种最近活跃月），非实时持仓量判定。'
+      + '勾选后点「应用所选」动态改变 CTP 订阅集；「一键订阅主力」= 每品种主力合约一键全选并下发。'
+  });
+  pick.appendChild(pickNote);
+  const pickList = ui.el('div', { class: 'hg-q-pick__list' });
+  pick.appendChild(pickList);
+  const pickStatus = ui.el('div', { class: 'hg-q-pick__status', text: '已选 0 个合约' });
+  pick.appendChild(pickStatus);
+  panel.appendChild(pick);
+
+  // ③ 主区：左报价板 + 右选中详情
+  const main = ui.el('div', { class: 'hg-q-main' });
+  const board = ui.el('div', { class: 'hg-q-board' });
+  const emptyNode = ui.el('p', {
+    class: 'hg-q-empty',
+    text: '暂无行情（连接建立并订阅后，最新价将在此展示；仅保留每合约最新一帧）。'
+  });
+  const wrap = ui.el('div', { class: 'hg-q-wrap' });
+  const table = ui.el('table', { class: 'hg-q-table' });
+  const thead = ui.el('thead');
+  const headRow = ui.el('tr');
+  const tbody = ui.el('tbody');
+  table.appendChild(thead);
+  table.appendChild(tbody);
+  thead.appendChild(headRow);
+  wrap.appendChild(table);
+  board.appendChild(emptyNode);
+  board.appendChild(wrap);
+
+  const detail = ui.el('div', { class: 'hg-q-detail' });
+  const detailBody = ui.el('div');
+  detail.appendChild(detailBody);
+  main.appendChild(board);
+  main.appendChild(detail);
+  panel.appendChild(main);
+
+  // ④ 图例
+  panel.appendChild(ui.el('div', { html:
+    '<div class="hg-q-legend"><span><b class="hg-q-up">红</b> 涨 / <b class="hg-q-down">绿</b> 跌（会话内方向）</span>'
+    + '<span>点击表头排序 · 点击行查看详情 · ★ 自选</span>'
+    + '<span>仅现有 wire 字段：instrument / last / bid / ask / ts</span></div>'
+  }));
+  card.appendChild(panel);
   container.appendChild(card);
 
-  const st = { connected: false, quotes: {} }; // quotes: instrument -> 最新帧（最近值语义，允许丢帧）
+  // ---------------- 状态层 ----------------
+  const FAV_KEY = 'hg.q.favs';
+  function loadFav() {
+    try {
+      const raw = window.localStorage && window.localStorage.getItem(FAV_KEY);
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) return new Set(arr.filter((x) => typeof x === 'string'));
+      }
+    } catch (e) { /* 存储不可用 ⇒ 降级为空自选 */ }
+    return new Set();
+  }
+  function saveFav() {
+    try {
+      if (window.localStorage) window.localStorage.setItem(FAV_KEY, JSON.stringify(Array.from(st.favorites)));
+    } catch (e) { /* 忽略：存储不可用不影响展示 */ }
+  }
+  const st = {
+    connected: false,
+    quotes: {},            // instrument -> 最新帧（最近值语义，允许丢帧）
+    sessionOpen: {},       // instrument -> 本会话首帧 last（变动基准）
+    prevLast: {},          // instrument -> 上一帧 last（tick 方向）
+    hist: {},              // instrument -> 最近 60 帧 last（sparkline）
+    rows: {},              // instrument -> { tr, fav, cells }（差量渲染索引）
+    favorites: loadFav(),
+    showFavOnly: false,
+    filter: '',
+    sortKey: 'instrument',
+    sortDir: 'asc',
+    selected: null,
+    dense: false,
+    frames: 0,
+    lastOrder: null
+  };
+
+  // ---------------- 表头（点击排序） ----------------
+  const COLS = [
+    { k: 'fav', t: '★', sortable: false, num: false },
+    { k: 'instrument', t: '合约', sortable: true, num: false },
+    { k: 'last', t: '最新', sortable: true, num: true },
+    { k: 'chg', t: '会话变动', sortable: true, num: true },
+    { k: 'bid', t: '买一', sortable: true, num: true },
+    { k: 'ask', t: '卖一', sortable: true, num: true },
+    { k: 'spread', t: '价差', sortable: true, num: true },
+    { k: 'ts', t: '数据时间', sortable: true, num: false },
+    { k: 'fresh', t: '新鲜度', sortable: false, num: false }
+  ];
+  const thEls = {};
+  COLS.forEach((c) => {
+    const th = ui.el('th', { class: c.num ? 'hg-q-num' : '' });
+    th.innerHTML = F.esc(c.t) + (c.sortable ? '<span class="hg-q-sort"></span>' : '');
+    if (c.sortable) {
+      th.addEventListener('click', () => {
+        if (st.sortKey === c.k) st.sortDir = st.sortDir === 'asc' ? 'desc' : 'asc';
+        else { st.sortKey = c.k; st.sortDir = 'asc'; }
+        renderHeadSort();
+        renderFeed();
+      });
+    }
+    headRow.appendChild(th);
+    thEls[c.k] = th;
+  });
+  function renderHeadSort() {
+    COLS.forEach((c) => {
+      if (!c.sortable || !thEls[c.k]) return;
+      const mark = st.sortKey === c.k ? (st.sortDir === 'asc' ? '▲' : '▼') : '';
+      thEls[c.k].innerHTML = F.esc(c.t) + '<span class="hg-q-sort">' + mark + '</span>';
+    });
+  }
+  renderHeadSort();
+
+  // ---------------- 行构造与差量更新 ----------------
+  function ensureRow(inst) {
+    if (st.rows[inst]) return st.rows[inst];
+    const tr = ui.el('tr', { 'data-instr': inst });
+    const fav = ui.el('button', { class: 'hg-q-fav', type: 'button', text: '☆', title: '加入 / 移出自选' });
+    fav.addEventListener('click', (e) => {
+      // 阻止冒泡到 tr 的行选中（真实浏览器事件冒泡；探针 DOM 桩无 stopPropagation，故防御式调用）
+      if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+      if (st.favorites.has(inst)) st.favorites.delete(inst);
+      else st.favorites.add(inst);
+      saveFav();
+      renderFeed();
+    });
+    const tdFav = ui.el('td', {}, [fav]);
+    const name = quoteName(inst);
+    const tdInstr = ui.el('td', {
+      html: '<span class="hg-q-instr">' + F.esc(inst) + '</span>'
+        + (name ? '<span class="hg-q-name">' + F.esc(name) + '</span>' : '')
+    });
+    const cells = {
+      last: ui.el('td', { class: 'hg-q-num hg-q-last' }),
+      chg: ui.el('td', { class: 'hg-q-num' }),
+      bid: ui.el('td', { class: 'hg-q-num' }),
+      ask: ui.el('td', { class: 'hg-q-num' }),
+      spread: ui.el('td', { class: 'hg-q-num' }),
+      ts: ui.el('td', {}),
+      fresh: ui.el('td', {})
+    };
+    [tdFav, tdInstr, cells.last, cells.chg, cells.bid, cells.ask, cells.spread, cells.ts, cells.fresh]
+      .forEach((td) => tr.appendChild(td));
+    tr.addEventListener('click', () => { st.selected = inst; renderFeed(); });
+    const row = { tr: tr, fav: fav, cells: cells };
+    st.rows[inst] = row;
+    return row;
+  }
+  function dirClass(delta) {
+    return delta === null ? 'hg-q-flat' : (delta > 0 ? 'hg-q-up' : delta < 0 ? 'hg-q-down' : 'hg-q-flat');
+  }
+  function updateRow(inst) {
+    const row = st.rows[inst];
+    const f = st.quotes[inst];
+    if (!row || !f) return;
+    const c = row.cells;
+    const base = qNum(st.sessionOpen[inst]);
+    const cur = qNum(f.last);
+    const delta = (base !== null && cur !== null) ? cur - base : null;
+    const cls = dirClass(delta);
+    c.last.textContent = String(f.last === undefined || f.last === null || f.last === '' ? '—' : f.last);
+    c.last.className = 'hg-q-num hg-q-last ' + cls;
+    c.chg.textContent = qSigned(delta);
+    c.chg.className = 'hg-q-num ' + cls;
+    c.bid.textContent = String(f.bid === undefined || f.bid === null || f.bid === '' ? '—' : f.bid);
+    c.ask.textContent = String(f.ask === undefined || f.ask === null || f.ask === '' ? '—' : f.ask);
+    const b = qNum(f.bid), a = qNum(f.ask);
+    c.spread.textContent = (b !== null && a !== null) ? (a - b).toFixed(2) : '—';
+    c.ts.textContent = F.dateTime(f.ts) || String(f.ts || '—');
+    c.fresh.innerHTML = staleHTML(f);
+    // tick 方向闪烁（仅本次更新，方向变化才换 class ⇒ 动画可重播）
+    const prev = qNum(st.prevLast[inst]);
+    const rising = cur !== null && prev !== null && cur > prev;
+    const falling = cur !== null && prev !== null && cur < prev;
+    const flash = rising ? ' hg-q-flash-up' : (falling ? ' hg-q-flash-down' : '');
+    // 自选星标 / 选中态
+    const on = st.favorites.has(inst);
+    row.fav.textContent = on ? '★' : '☆';
+    row.fav.className = 'hg-q-fav' + (on ? ' is-on' : '');
+    row.tr.className = (st.selected === inst ? 'is-selected' : '') + flash;
+  }
+  function sortVal(inst, key) {
+    const f = st.quotes[inst] || {};
+    if (key === 'instrument') return inst;
+    if (key === 'ts') return Date.parse(f.ts || '') || 0;
+    if (key === 'chg') {
+      const base = qNum(st.sessionOpen[inst]), cur = qNum(f.last);
+      return (base !== null && cur !== null) ? cur - base : -Infinity;
+    }
+    if (key === 'spread') {
+      const a = qNum(f.ask), b = qNum(f.bid);
+      return (a !== null && b !== null) ? a - b : -Infinity;
+    }
+    return qNum(f[key]);
+  }
+  function visibleKeys() {
+    let keys = Object.keys(st.quotes);
+    const q = st.filter.trim().toUpperCase();
+    if (q) {
+      keys = keys.filter((k) => k.toUpperCase().indexOf(q) !== -1
+        || quoteName(k).indexOf(st.filter.trim()) !== -1);
+    }
+    if (st.showFavOnly) keys = keys.filter((k) => st.favorites.has(k));
+    const dir = st.sortDir === 'asc' ? 1 : -1;
+    keys.sort((x, y) => {
+      const vx = sortVal(x, st.sortKey), vy = sortVal(y, st.sortKey);
+      let r = 0;
+      if (typeof vx === 'string' || typeof vy === 'string') r = String(vx).localeCompare(String(vy));
+      else r = vx === vy ? 0 : (vx < vy ? -1 : 1);
+      return r * dir || x.localeCompare(y);
+    });
+    return keys;
+  }
+  function reorder(keys) {
+    ui.clear(tbody);
+    keys.forEach((k) => { if (st.rows[k]) tbody.appendChild(st.rows[k].tr); });
+  }
+
+  // ---------------- 详情（选中合约盘口 + sparkline） ----------------
+  function updateDetail() {
+    const inst = st.selected;
+    const f = inst && st.quotes[inst];
+    if (!f) {
+      detailBody.innerHTML = '<p class="hg-q-detail__title">合约详情</p>'
+        + '<p class="hg-q-detail__empty">点击左侧报价行查看买一 / 卖一盘口与会话内走势。</p>';
+      return;
+    }
+    const name = quoteName(inst);
+    const base = qNum(st.sessionOpen[inst]), cur = qNum(f.last);
+    const delta = (base !== null && cur !== null) ? cur - base : null;
+    const cls = dirClass(delta);
+    const b = qNum(f.bid), a = qNum(f.ask);
+    const sum = (b === null ? 0 : b) + (a === null ? 0 : a);
+    const bidPct = sum > 0 && b !== null ? Math.max(0, Math.min(100, (b / sum) * 100)) : 50;
+    const askPct = 100 - bidPct;
+    const rising = delta !== null && delta > 0;
+    detailBody.innerHTML = ''
+      + '<p class="hg-q-detail__title">合约详情</p>'
+      + '<div><span class="hg-q-detail__instr">' + F.esc(inst) + '</span>'
+      + (name ? '<span class="hg-q-detail__name">' + F.esc(name) + '</span>' : '') + '</div>'
+      + '<div class="hg-q-detail__last ' + cls + '">' + F.esc(String(f.last || '—')) + '</div>'
+      + '<div class="hg-q-detail__chg ' + cls + '">会话变动 ' + F.esc(qSigned(delta)) + '</div>'
+      + '<div class="hg-q-depth">'
+      + '  <span class="hg-q-depth__tag">买一</span>'
+      + '  <span class="hg-q-depth__track"><span class="hg-q-depth__fill hg-q-depth__fill--bid" style="width:' + bidPct.toFixed(1) + '%"></span></span>'
+      + '  <span class="hg-q-depth__val hg-q-depth__val--bid">' + F.esc(String(f.bid || '—')) + '</span>'
+      + '  <span class="hg-q-depth__tag">卖一</span>'
+      + '  <span class="hg-q-depth__track"><span class="hg-q-depth__fill hg-q-depth__fill--ask" style="width:' + askPct.toFixed(1) + '%"></span></span>'
+      + '  <span class="hg-q-depth__val hg-q-depth__val--ask">' + F.esc(String(f.ask || '—')) + '</span>'
+      + '</div>'
+      + (qSpark(st.hist[inst], rising) || '<p class="hg-q-detail__note">会话内数据点不足，走势待累积。</p>')
+      + '<div class="hg-q-detail__note">走势为会话内最近值，非完整分时；盘口仅买一 / 卖一。'
+      + '会话变动以本会话首帧价为基准，非真实涨跌幅。</div>';
+  }
+
+  // ---------------- 主渲染（差量：只更新单元格，顺序变化才重排） ----------------
+  function renderFeed() {
+    Object.keys(st.quotes).forEach(ensureRow);
+    Object.keys(st.rows).forEach(updateRow);
+    const keys = visibleKeys();
+    const sig = keys.join('|');
+    if (sig !== st.lastOrder) { reorder(keys); st.lastOrder = sig; }
+    const total = Object.keys(st.quotes).length;
+    emptyNode.textContent = total === 0
+      ? '暂无行情（连接建立并订阅后，最新价将在此展示；仅保留每合约最新一帧）。'
+      : '无匹配合约（调整搜索词或「仅自选」筛选）。';
+    emptyNode.style.display = keys.length ? 'none' : '';
+    wrap.style.display = keys.length ? '' : 'none';
+    countVal.textContent = String(total);
+    framesVal.textContent = String(st.frames);
+    updateDetail();
+  }
+  // 高频推送节流渲染（前端纪律 §5.3；差量更新由「每合约最新一帧」+ throttle 实现）
+  const renderFeedThrottled = HG.ws.throttle ? HG.ws.throttle(renderFeed, 300) : renderFeed;
 
   function renderWsBadge() {
     wsBadge.textContent = st.connected ? '已连接' : '已断线（自动重连中）';
-    wsBadge.className = 'hg-badge ' + (st.connected ? 'hg-badge--active' : 'hg-badge--danger');
+    wsBadge.className = 'hg-q-top__badge';
     wsBadge.setAttribute('data-ws-state', st.connected ? 'connected' : 'disconnected');
   }
 
-  function staleHTML(frame) {
-    const ts = Date.parse(frame.ts || '');
-    const stale = !isFinite(ts) || (Date.now() - ts) > QUOTE_STALE_MS;
-    return stale
-      ? '<span class="hg-badge hg-badge--danger" data-quote-stale="stale">行情延迟/过期</span>'
-      : '<span class="hg-badge hg-badge--active" data-quote-stale="fresh">实时</span>';
-  }
-
-  function renderFeed() {
-    ui.clear(feedBody);
-    const keys = Object.keys(st.quotes);
-    if (!keys.length) {
-      feedBody.appendChild(ui.el('p', { class: 'hg-muted', text: '暂无行情（连接建立并订阅后，最新价将在此展示；仅保留每合约最新一帧）。' }));
-      return;
-    }
-    feedBody.appendChild(ui.el('div', { html: ui.tableHTML(
-      [
-        { title: '合约', render: (r) => F.esc(r.instrument) },
-        { title: '最新价', num: true, render: (r) => F.esc(r.last || '—') },
-        { title: '买价', num: true, render: (r) => F.esc(r.bid || '—') },
-        { title: '卖价', num: true, render: (r) => F.esc(r.ask || '—') },
-        { title: '数据时间', render: (r) => F.esc(F.dateTime(r.ts) || String(r.ts || '—')) },
-        { title: '新鲜度', render: (r) => staleHTML(r) }
-      ],
-      keys.map((k) => st.quotes[k])
-    ) }));
-  }
-  // 高频推送节流渲染（前端纪律 §5.3；差量更新由「每合约最新一帧」最近值语义 + throttle 实现）
-  const renderFeedThrottled = HG.ws.throttle ? HG.ws.throttle(renderFeed, 300) : renderFeed;
+  // ---------------- 交互绑定 ----------------
+  searchInput.addEventListener('input', () => { st.filter = searchInput.value; renderFeed(); });
+  favOnlyBtn.addEventListener('click', () => {
+    st.showFavOnly = !st.showFavOnly;
+    favOnlyBtn.className = 'hg-q-btn' + (st.showFavOnly ? ' is-active' : '');
+    renderFeed();
+  });
+  denseBtn.addEventListener('click', () => {
+    st.dense = !st.dense;
+    panel.className = 'hg-q' + (st.dense ? ' hg-q--compact' : '');
+    denseBtn.className = 'hg-q-btn' + (st.dense ? ' is-active' : '');
+    denseBtn.textContent = st.dense ? '标准' : '紧凑';
+  });
 
   // 防僵尸连接：重建面板前关闭上一次构建遗留的连接（risk.js 同型）
   if (HG.pages._tradeQuoteConn && typeof HG.pages._tradeQuoteConn.close === 'function') {
@@ -441,7 +875,14 @@ function quoteTab(container) {
     onClose: () => { st.connected = false; renderWsBadge(); },
     onMessage: (msg) => {
       if (msg && msg.type === 'quote' && msg.instrument) {
-        st.quotes[msg.instrument] = msg; // 最近值语义：仅保留每合约最新一帧
+        const inst = msg.instrument;
+        if (st.sessionOpen[inst] === undefined) st.sessionOpen[inst] = msg.last;
+        if (st.quotes[inst]) st.prevLast[inst] = st.quotes[inst].last;
+        st.quotes[inst] = msg; // 最近值语义：仅保留每合约最新一帧
+        if (!st.hist[inst]) st.hist[inst] = [];
+        const n = qNum(msg.last);
+        if (n !== null) { st.hist[inst].push(n); if (st.hist[inst].length > 60) st.hist[inst].shift(); }
+        st.frames += 1;
         renderFeedThrottled();
       }
     }
@@ -453,6 +894,109 @@ function quoteTab(container) {
     conn.subscribe({ channels: ['quote'], instruments: list });
     ui.toast('已发送订阅（instruments=' + (list.length ? list.join('/').toUpperCase() : '全部') + '）', 'ok');
   });
+
+  // ---------------- CH-027 合约选择面板逻辑 ----------------
+  st.pickSelected = new Set();   // 原生大小写合约代码集合
+  function catalogProducts() {
+    const ex = exSel.value || '';
+    const groups = ex ? QUOTE_CATALOG.filter((g) => g.ex === ex) : QUOTE_CATALOG;
+    const prod = prodSel.value || '';
+    const out = [];
+    groups.forEach((g) => g.products.forEach((p) => {
+      if (!prod || prod === g.ex + ':' + p.code) {
+        out.push({ ex: g.ex, label: g.label, code: p.code, name: p.name, contracts: p.contracts });
+      }
+    }));
+    return out;
+  }
+  function renderProdOptions() {
+    ui.clear(prodSel);
+    prodSel.appendChild(ui.el('option', { value: '', text: '全部品种' }));
+    const ex = exSel.value || '';
+    const groups = ex ? QUOTE_CATALOG.filter((g) => g.ex === ex) : QUOTE_CATALOG;
+    groups.forEach(function (g) {
+      g.products.forEach(function (p) {
+        prodSel.appendChild(ui.el('option', {
+          value: g.ex + ':' + p.code, text: p.name + '（' + p.code + '·' + g.ex + '）'
+        }));
+      });
+    });
+  }
+  function updatePickStatus() {
+    const list = Array.from(st.pickSelected);
+    const preview = list.slice(0, 12).join(', ') + (list.length > 12 ? ' …' : '');
+    pickStatus.textContent = '已选 ' + list.length + ' 个合约' + (list.length ? '：' + preview : '');
+  }
+  function renderPickList() {
+    ui.clear(pickList);
+    const mainOnly = mainOnlyChk.checked;
+    const q = (catSearchInput.value || '').trim().toUpperCase();
+    const prods = catalogProducts();
+    let shown = 0;
+    prods.forEach((p) => {
+      const row = ui.el('div', { class: 'hg-q-pick__grp' });
+      row.appendChild(ui.el('span', {
+        class: 'hg-q-pick__grpname',
+        text: p.label + ' · ' + p.name + '（' + p.code + '）'
+      }));
+      p.contracts.forEach((c) => {
+        if (mainOnly && !c.main) return;
+        if (q && (c.id.toUpperCase().indexOf(q) === -1 && p.name.indexOf(q) === -1)) return;
+        const lab = ui.el('label', { class: 'hg-q-pick__item' });
+        const cb = ui.el('input', { type: 'checkbox' });
+        cb.checked = st.pickSelected.has(c.id);
+        cb.addEventListener('change', () => {
+          if (cb.checked) st.pickSelected.add(c.id);
+          else st.pickSelected.delete(c.id);
+          updatePickStatus();
+        });
+        lab.appendChild(cb);
+        lab.appendChild(ui.el('span', { text: c.id + (c.main ? ' ★' : '') }));
+        row.appendChild(lab);
+        shown += 1;
+      });
+      if (row.children.length > 1) pickList.appendChild(row);
+    });
+    if (!shown) pickList.appendChild(ui.el('p', { class: 'hg-q-empty', text: '无匹配合约（调整交易所/品种/仅主力/搜索条件）' }));
+    updatePickStatus();
+  }
+
+  function applyContracts(list, label) {
+    const instruments = Array.from(new Set(list));
+    HG.api.post(RT.QUOTE_SUBSCRIPTION, { instruments: instruments })
+      .then(() => {
+        conn.subscribe({ channels: ['quote'], instruments: instruments.map((s) => s.toUpperCase()) });
+        ui.toast('已应用：' + label + '（' + instruments.length + ' 个合约）', 'ok');
+      })
+      .catch((err) => {
+        ui.toast('订阅下发失败：' + ((err && err.message) || '组件不可达'), 'error');
+      });
+  }
+
+  exSel.addEventListener('change', () => { prodSel.value = ''; renderProdOptions(); renderPickList(); });
+  prodSel.addEventListener('change', renderPickList);
+  mainOnlyChk.addEventListener('change', renderPickList);
+  catSearchInput.addEventListener('input', renderPickList);
+  mainBtn.addEventListener('click', () => {
+    const mains = mainContracts(QUOTE_CATALOG);
+    st.pickSelected = new Set(mains);
+    renderPickList();
+    applyContracts(mains, '一键订阅主力（每品种最近活跃月）');
+  });
+  applyBtn.addEventListener('click', () => {
+    if (!st.pickSelected.size) { ui.toast('请先勾选合约', 'error'); return; }
+    applyContracts(Array.from(st.pickSelected), '所选合约');
+  });
+  clearBtn.addEventListener('click', () => {
+    st.pickSelected = new Set();
+    renderPickList();
+    applyContracts([], '清空订阅（退订全部）');
+  });
+
+  renderProdOptions();
+  renderPickList();
+
+  renderFeed(); // 初始空态 / 详情占位
 }
 
 /* ------------------------------------------------------------------ *

@@ -173,7 +173,7 @@ final class FullWebAssembly {
      * <p>【管理端「关闭系统」】新增 1 对 {@code POST /system/shutdown}
      * ⇒ 本装配 {@code 174 → 175}；生产装配含 ping 2 条后 {@code 176 → 177}。
      */
-    static final int ROUTE_COUNT = 175;
+    static final int ROUTE_COUNT = 176;
 
     private FullWebAssembly() {
     }

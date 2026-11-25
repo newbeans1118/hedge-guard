@@ -111,7 +111,7 @@ class JobAssemblyTest {
             // FR-PLAN-2 / FR-PLAN-5 试点：PLAN 面 +2 对 ⇒ 173 → 175（见 BootstrapAssemblyTest 同轮注释）。
             // 【阶段 1 监控面增注】新增 1 对 GET /monitor/component ⇒ 175 → 176。
             // 【管理端「关闭系统」增注】新增 1 对 POST /system/shutdown ⇒ 176 → 177。
-            assertEquals(177, assembly.routeCount());
+            assertEquals(178, assembly.routeCount());
         } finally {
             Bootstrap.close(assembly);
         }

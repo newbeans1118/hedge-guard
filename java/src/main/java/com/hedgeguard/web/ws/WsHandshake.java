@@ -166,10 +166,10 @@ public final class WsHandshake {
         if (key == null || key.trim().isEmpty()) {
             return "缺少 Sec-WebSocket-Key";
         }
-        // 请求头中含子协议/扩展请求时明确拒绝（范围裁剪：不协商 subprotocol / permessage-deflate）
-        if (ctx.header("Sec-WebSocket-Extensions") != null) {
-            return "不支持扩展协商（permessage-deflate 等）";
-        }
+        // RFC 6455：请求头中携带 Sec-WebSocket-Extensions / Sec-WebSocket-Protocol 仅是客户端
+        // 「提议」，服务端只要在 101 响应中**不回显**相应头即表示不协商（upgradeResponse 未含这两头）。
+        // 不得因 offer 拒绝握手——真实浏览器默认带 permessage-deflate，拒收会导致全部浏览器无法连接
+        // （2026-11-24 实测修复；CONTRACTS.md:882 冻结行待 CH-xxx 裁定，见 docs/BACKLOG.md）。
         return null;
     }
 

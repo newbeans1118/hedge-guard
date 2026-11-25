@@ -59,6 +59,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -102,9 +103,10 @@ struct AppStats {
   std::uint64_t replies;         // 已上线回执帧
   std::uint64_t events;          // 已上线事件帧
   std::uint64_t events_deferred;  // 就绪前被抑制的 EVT_SYSTEM_STATE(READY)
-  std::uint64_t ctp_events;      // 已消费 CTP 回报
-  std::uint64_t quotes_dropped;  // 已丢弃行情（行情发布未装配，见回执披露）
-  std::uint64_t expire_events;   // 超时失效事件
+      std::uint64_t ctp_events;      // 已消费 CTP 回报
+      std::uint64_t quote_events;    // 已发布行情帧（EVT_MARKET_QUOTE）
+      std::uint64_t quotes_dropped;  // 节流 / 编码失败 / 断连丢弃的行情
+      std::uint64_t expire_events;   // 超时失效事件
   std::uint64_t replay_runs;     // 重放执行次数
 
   // T-211 本地管理入口（人工核验释放）计数。
@@ -152,7 +154,14 @@ class TradingApp {
   std::size_t recovery_open() const { return ledger_.entry_count(); }
   // T-211：台账**未闭环**计数（= `has_unknown_open()` 的数值投影；释放后归零）。
   //   与 `recovery_open()`（登记总数，含已释放）区分，供人工核验闭环断言。
-  std::size_t recovery_open_count() const { return ledger_.view().open_count; }
+      std::size_t recovery_open_count() const { return ledger_.view().open_count; }
+
+      // ---- 行情发布观测 / 诊断注入接缝（pump 内自动驱动；测试可直接驱动）----
+      // 从 CTP 行情队列取帧 → 按合约 200ms 节流 → 编码 EvtMarketQuote →
+      // emitter_.emit_market_quote（可丢例外）。返回本步实际发布的帧数。
+      std::size_t publishQuotes(std::int64_t now);
+      // 生产路径由 CtMdSpiImpl 的 SPI 回调入队；此接缝仅供诊断 / 单测注入一帧。
+      void enqueueQuote(const hg::ctp_adapter::CtQuoteEvent& q);
 
   // ---- T-211 本地管理入口观测面（测试/诊断；非交易路径）----
   const std::string& admin_dir() const { return admin_dir_; }  // = <hg.flow.dir>/admin
@@ -232,6 +241,11 @@ class TradingApp {
   //   纯内存聚合、无 I/O、不查库、不落盘（E1/E2）。
   static std::string statusDetail(void* user, std::uint32_t what);
 
+  // ---- CH-027：CMD_SET_QUOTE_SUBSCRIPTION 回调（函数指针 + user，hgcp 不反向依赖本类）----
+  //   `instruments` 为完整替换集；转发 `ct_.setQuoteSubscription` 的回执 detail。
+  static std::string setQuoteSubscription(void* user,
+                                         const std::vector<std::string>& instruments);
+
   void setState(AppState s, const std::string& note);
 
   const AppConfig cfg_;
@@ -269,8 +283,13 @@ class TradingApp {
   //   同口径，作为 `EvtReplayProgress.started_ts_ms` 的**唯一来源**。
   std::int64_t replay_started_ms_;
   // T-211：本地管理入口（人工核验释放）——目录派生于 `hg.flow.dir`（CFG-29 同族）。
-  std::string admin_dir_;         // = <hg.flow.dir>/admin
-  std::int64_t last_admin_poll_ms_;  // 低频轮询节流（≥ kAdminPollPeriodMs）
+      std::string admin_dir_;         // = <hg.flow.dir>/admin
+      std::int64_t last_admin_poll_ms_;  // 低频轮询节流（≥ kAdminPollPeriodMs）
+      // 行情发布：按合约记录上次发射时刻。emit_market_quote 直发不排队，
+      // 必须在 C++ 侧限流，避免多合约行情淹没 HGCP 通道。
+      std::map<std::string, std::int64_t> last_quote_emit_ms_;
+      // MD 前置登录后仅订阅一次合约；断线重连（isMdLoggedIn 回落）后重新订阅。
+      bool md_subscribed_;
 
   ClockFn clock_fn_;
   void* clock_user_;

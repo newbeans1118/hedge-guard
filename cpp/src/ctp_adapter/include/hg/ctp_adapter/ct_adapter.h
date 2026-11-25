@@ -63,6 +63,9 @@ class CtAdapter : public CtCallbackSink {
   CtOrderAck sendOrder(const CtOrderReq& req);
   CtCancelAck cancelOrder(const CtCancelReq& req);
   CtSubscribeAck subscribeMarket(const std::vector<std::string>& instruments);
+  // CH-027：完整替换订阅集（先退订旧集 + 再订阅新集）。返回回执 detail 串。
+  // 失败时保持原订阅集不变（不静默丢弃）；空集 = 退订全部并停止行情订阅。
+  std::string setQuoteSubscription(const std::vector<std::string>& instruments);
   CtFundAck reqFundTransfer(const CtFundReq& req);
 
   // ---- 报单状态查询（§4.5.3 ⑤；T-212 生产实现）-----------------------------
@@ -137,8 +140,10 @@ class CtAdapter : public CtCallbackSink {
   bool trade_logged_in_;
   bool md_connected_;
   bool md_logged_in_;
-  int request_seq_;
-  std::string trading_day_;
+      int request_seq_;
+      std::string trading_day_;
+      // CH-027：当前已订阅合约集（供退订旧集）。仅 T4 单线程访问。
+      std::vector<std::string> subscribed_instruments_;
   RingBuffer<CtOrderEvent, kOrderEventQueueCapacity + 1>* order_events_;
   QuoteQueue* quote_events_;
   std::deque<CtOrderReq> retained_orders_;

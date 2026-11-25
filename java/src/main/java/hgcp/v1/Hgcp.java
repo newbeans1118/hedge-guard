@@ -145,6 +145,14 @@ public final class Hgcp {
     CMD_QUERY_FUND_RESULT(286),
     /**
      * <pre>
+     * CH-027：动态行情订阅（Java→C++）
+     * </pre>
+     *
+     * <code>CMD_SET_QUOTE_SUBSCRIPTION = 287;</code>
+     */
+    CMD_SET_QUOTE_SUBSCRIPTION(287),
+    /**
+     * <pre>
      * 事件流（C++→Java）
      * </pre>
      *
@@ -328,6 +336,14 @@ public final class Hgcp {
     public static final int CMD_QUERY_FUND_RESULT_VALUE = 286;
     /**
      * <pre>
+     * CH-027：动态行情订阅（Java→C++）
+     * </pre>
+     *
+     * <code>CMD_SET_QUOTE_SUBSCRIPTION = 287;</code>
+     */
+    public static final int CMD_SET_QUOTE_SUBSCRIPTION_VALUE = 287;
+    /**
+     * <pre>
      * 事件流（C++→Java）
      * </pre>
      *
@@ -439,6 +455,7 @@ public final class Hgcp {
         case 284: return CMD_QUERY_STATUS;
         case 285: return CMD_FUND_TRANSFER;
         case 286: return CMD_QUERY_FUND_RESULT;
+        case 287: return CMD_SET_QUOTE_SUBSCRIPTION;
         case 513: return EVT_ORDER_ACCEPTED;
         case 514: return EVT_PRE_TRADE_REJECT;
         case 515: return EVT_ORDER_REPORT;
@@ -33914,6 +33931,716 @@ public final class Hgcp {
 
   }
 
+  public interface CmdSetQuoteSubscriptionOrBuilder extends
+      // @@protoc_insertion_point(interface_extends:hgcp.v1.CmdSetQuoteSubscription)
+      com.google.protobuf.MessageOrBuilder {
+
+    /**
+     * <pre>
+     * 目标订阅合约集（完整替换，非增量）；空集 = 退订全部并停止行情订阅。
+     * 保留交易所原生大小写与位数，由 C++ 原样传给 SubscribeMarketData。
+     * </pre>
+     *
+     * <code>repeated string instruments = 1;</code>
+     * @return A list containing the instruments.
+     */
+    java.util.List<java.lang.String>
+        getInstrumentsList();
+    /**
+     * <pre>
+     * 目标订阅合约集（完整替换，非增量）；空集 = 退订全部并停止行情订阅。
+     * 保留交易所原生大小写与位数，由 C++ 原样传给 SubscribeMarketData。
+     * </pre>
+     *
+     * <code>repeated string instruments = 1;</code>
+     * @return The count of instruments.
+     */
+    int getInstrumentsCount();
+    /**
+     * <pre>
+     * 目标订阅合约集（完整替换，非增量）；空集 = 退订全部并停止行情订阅。
+     * 保留交易所原生大小写与位数，由 C++ 原样传给 SubscribeMarketData。
+     * </pre>
+     *
+     * <code>repeated string instruments = 1;</code>
+     * @param index The index of the element to return.
+     * @return The instruments at the given index.
+     */
+    java.lang.String getInstruments(int index);
+    /**
+     * <pre>
+     * 目标订阅合约集（完整替换，非增量）；空集 = 退订全部并停止行情订阅。
+     * 保留交易所原生大小写与位数，由 C++ 原样传给 SubscribeMarketData。
+     * </pre>
+     *
+     * <code>repeated string instruments = 1;</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the instruments at the given index.
+     */
+    com.google.protobuf.ByteString
+        getInstrumentsBytes(int index);
+  }
+  /**
+   * <pre>
+   * 0x011F（CH-027）
+   * </pre>
+   *
+   * Protobuf type {@code hgcp.v1.CmdSetQuoteSubscription}
+   */
+  public static final class CmdSetQuoteSubscription extends
+      com.google.protobuf.GeneratedMessageV3 implements
+      // @@protoc_insertion_point(message_implements:hgcp.v1.CmdSetQuoteSubscription)
+      CmdSetQuoteSubscriptionOrBuilder {
+  private static final long serialVersionUID = 0L;
+    // Use CmdSetQuoteSubscription.newBuilder() to construct.
+    private CmdSetQuoteSubscription(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
+      super(builder);
+    }
+    private CmdSetQuoteSubscription() {
+      instruments_ = com.google.protobuf.LazyStringArrayList.EMPTY;
+    }
+
+    @java.lang.Override
+    @SuppressWarnings({"unused"})
+    protected java.lang.Object newInstance(
+        UnusedPrivateParameter unused) {
+      return new CmdSetQuoteSubscription();
+    }
+
+    @java.lang.Override
+    public final com.google.protobuf.UnknownFieldSet
+    getUnknownFields() {
+      return this.unknownFields;
+    }
+    public static final com.google.protobuf.Descriptors.Descriptor
+        getDescriptor() {
+      return hgcp.v1.Hgcp.internal_static_hgcp_v1_CmdSetQuoteSubscription_descriptor;
+    }
+
+    @java.lang.Override
+    protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+        internalGetFieldAccessorTable() {
+      return hgcp.v1.Hgcp.internal_static_hgcp_v1_CmdSetQuoteSubscription_fieldAccessorTable
+          .ensureFieldAccessorsInitialized(
+              hgcp.v1.Hgcp.CmdSetQuoteSubscription.class, hgcp.v1.Hgcp.CmdSetQuoteSubscription.Builder.class);
+    }
+
+    public static final int INSTRUMENTS_FIELD_NUMBER = 1;
+    @SuppressWarnings("serial")
+    private com.google.protobuf.LazyStringList instruments_;
+    /**
+     * <pre>
+     * 目标订阅合约集（完整替换，非增量）；空集 = 退订全部并停止行情订阅。
+     * 保留交易所原生大小写与位数，由 C++ 原样传给 SubscribeMarketData。
+     * </pre>
+     *
+     * <code>repeated string instruments = 1;</code>
+     * @return A list containing the instruments.
+     */
+    public com.google.protobuf.ProtocolStringList
+        getInstrumentsList() {
+      return instruments_;
+    }
+    /**
+     * <pre>
+     * 目标订阅合约集（完整替换，非增量）；空集 = 退订全部并停止行情订阅。
+     * 保留交易所原生大小写与位数，由 C++ 原样传给 SubscribeMarketData。
+     * </pre>
+     *
+     * <code>repeated string instruments = 1;</code>
+     * @return The count of instruments.
+     */
+    public int getInstrumentsCount() {
+      return instruments_.size();
+    }
+    /**
+     * <pre>
+     * 目标订阅合约集（完整替换，非增量）；空集 = 退订全部并停止行情订阅。
+     * 保留交易所原生大小写与位数，由 C++ 原样传给 SubscribeMarketData。
+     * </pre>
+     *
+     * <code>repeated string instruments = 1;</code>
+     * @param index The index of the element to return.
+     * @return The instruments at the given index.
+     */
+    public java.lang.String getInstruments(int index) {
+      return instruments_.get(index);
+    }
+    /**
+     * <pre>
+     * 目标订阅合约集（完整替换，非增量）；空集 = 退订全部并停止行情订阅。
+     * 保留交易所原生大小写与位数，由 C++ 原样传给 SubscribeMarketData。
+     * </pre>
+     *
+     * <code>repeated string instruments = 1;</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the instruments at the given index.
+     */
+    public com.google.protobuf.ByteString
+        getInstrumentsBytes(int index) {
+      return instruments_.getByteString(index);
+    }
+
+    private byte memoizedIsInitialized = -1;
+    @java.lang.Override
+    public final boolean isInitialized() {
+      byte isInitialized = memoizedIsInitialized;
+      if (isInitialized == 1) return true;
+      if (isInitialized == 0) return false;
+
+      memoizedIsInitialized = 1;
+      return true;
+    }
+
+    @java.lang.Override
+    public void writeTo(com.google.protobuf.CodedOutputStream output)
+                        throws java.io.IOException {
+      for (int i = 0; i < instruments_.size(); i++) {
+        com.google.protobuf.GeneratedMessageV3.writeString(output, 1, instruments_.getRaw(i));
+      }
+      getUnknownFields().writeTo(output);
+    }
+
+    @java.lang.Override
+    public int getSerializedSize() {
+      int size = memoizedSize;
+      if (size != -1) return size;
+
+      size = 0;
+      {
+        int dataSize = 0;
+        for (int i = 0; i < instruments_.size(); i++) {
+          dataSize += computeStringSizeNoTag(instruments_.getRaw(i));
+        }
+        size += dataSize;
+        size += 1 * getInstrumentsList().size();
+      }
+      size += getUnknownFields().getSerializedSize();
+      memoizedSize = size;
+      return size;
+    }
+
+    @java.lang.Override
+    public boolean equals(final java.lang.Object obj) {
+      if (obj == this) {
+       return true;
+      }
+      if (!(obj instanceof hgcp.v1.Hgcp.CmdSetQuoteSubscription)) {
+        return super.equals(obj);
+      }
+      hgcp.v1.Hgcp.CmdSetQuoteSubscription other = (hgcp.v1.Hgcp.CmdSetQuoteSubscription) obj;
+
+      if (!getInstrumentsList()
+          .equals(other.getInstrumentsList())) return false;
+      if (!getUnknownFields().equals(other.getUnknownFields())) return false;
+      return true;
+    }
+
+    @java.lang.Override
+    public int hashCode() {
+      if (memoizedHashCode != 0) {
+        return memoizedHashCode;
+      }
+      int hash = 41;
+      hash = (19 * hash) + getDescriptor().hashCode();
+      if (getInstrumentsCount() > 0) {
+        hash = (37 * hash) + INSTRUMENTS_FIELD_NUMBER;
+        hash = (53 * hash) + getInstrumentsList().hashCode();
+      }
+      hash = (29 * hash) + getUnknownFields().hashCode();
+      memoizedHashCode = hash;
+      return hash;
+    }
+
+    public static hgcp.v1.Hgcp.CmdSetQuoteSubscription parseFrom(
+        java.nio.ByteBuffer data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data);
+    }
+    public static hgcp.v1.Hgcp.CmdSetQuoteSubscription parseFrom(
+        java.nio.ByteBuffer data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data, extensionRegistry);
+    }
+    public static hgcp.v1.Hgcp.CmdSetQuoteSubscription parseFrom(
+        com.google.protobuf.ByteString data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data);
+    }
+    public static hgcp.v1.Hgcp.CmdSetQuoteSubscription parseFrom(
+        com.google.protobuf.ByteString data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data, extensionRegistry);
+    }
+    public static hgcp.v1.Hgcp.CmdSetQuoteSubscription parseFrom(byte[] data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data);
+    }
+    public static hgcp.v1.Hgcp.CmdSetQuoteSubscription parseFrom(
+        byte[] data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return PARSER.parseFrom(data, extensionRegistry);
+    }
+    public static hgcp.v1.Hgcp.CmdSetQuoteSubscription parseFrom(java.io.InputStream input)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input);
+    }
+    public static hgcp.v1.Hgcp.CmdSetQuoteSubscription parseFrom(
+        java.io.InputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input, extensionRegistry);
+    }
+    public static hgcp.v1.Hgcp.CmdSetQuoteSubscription parseDelimitedFrom(java.io.InputStream input)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseDelimitedWithIOException(PARSER, input);
+    }
+    public static hgcp.v1.Hgcp.CmdSetQuoteSubscription parseDelimitedFrom(
+        java.io.InputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+    }
+    public static hgcp.v1.Hgcp.CmdSetQuoteSubscription parseFrom(
+        com.google.protobuf.CodedInputStream input)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input);
+    }
+    public static hgcp.v1.Hgcp.CmdSetQuoteSubscription parseFrom(
+        com.google.protobuf.CodedInputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return com.google.protobuf.GeneratedMessageV3
+          .parseWithIOException(PARSER, input, extensionRegistry);
+    }
+
+    @java.lang.Override
+    public Builder newBuilderForType() { return newBuilder(); }
+    public static Builder newBuilder() {
+      return DEFAULT_INSTANCE.toBuilder();
+    }
+    public static Builder newBuilder(hgcp.v1.Hgcp.CmdSetQuoteSubscription prototype) {
+      return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
+    }
+    @java.lang.Override
+    public Builder toBuilder() {
+      return this == DEFAULT_INSTANCE
+          ? new Builder() : new Builder().mergeFrom(this);
+    }
+
+    @java.lang.Override
+    protected Builder newBuilderForType(
+        com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+      Builder builder = new Builder(parent);
+      return builder;
+    }
+    /**
+     * <pre>
+     * 0x011F（CH-027）
+     * </pre>
+     *
+     * Protobuf type {@code hgcp.v1.CmdSetQuoteSubscription}
+     */
+    public static final class Builder extends
+        com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+        // @@protoc_insertion_point(builder_implements:hgcp.v1.CmdSetQuoteSubscription)
+        hgcp.v1.Hgcp.CmdSetQuoteSubscriptionOrBuilder {
+      public static final com.google.protobuf.Descriptors.Descriptor
+          getDescriptor() {
+        return hgcp.v1.Hgcp.internal_static_hgcp_v1_CmdSetQuoteSubscription_descriptor;
+      }
+
+      @java.lang.Override
+      protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+          internalGetFieldAccessorTable() {
+        return hgcp.v1.Hgcp.internal_static_hgcp_v1_CmdSetQuoteSubscription_fieldAccessorTable
+            .ensureFieldAccessorsInitialized(
+                hgcp.v1.Hgcp.CmdSetQuoteSubscription.class, hgcp.v1.Hgcp.CmdSetQuoteSubscription.Builder.class);
+      }
+
+      // Construct using hgcp.v1.Hgcp.CmdSetQuoteSubscription.newBuilder()
+      private Builder() {
+
+      }
+
+      private Builder(
+          com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+        super(parent);
+
+      }
+      @java.lang.Override
+      public Builder clear() {
+        super.clear();
+        bitField0_ = 0;
+        instruments_ = com.google.protobuf.LazyStringArrayList.EMPTY;
+        bitField0_ = (bitField0_ & ~0x00000001);
+        return this;
+      }
+
+      @java.lang.Override
+      public com.google.protobuf.Descriptors.Descriptor
+          getDescriptorForType() {
+        return hgcp.v1.Hgcp.internal_static_hgcp_v1_CmdSetQuoteSubscription_descriptor;
+      }
+
+      @java.lang.Override
+      public hgcp.v1.Hgcp.CmdSetQuoteSubscription getDefaultInstanceForType() {
+        return hgcp.v1.Hgcp.CmdSetQuoteSubscription.getDefaultInstance();
+      }
+
+      @java.lang.Override
+      public hgcp.v1.Hgcp.CmdSetQuoteSubscription build() {
+        hgcp.v1.Hgcp.CmdSetQuoteSubscription result = buildPartial();
+        if (!result.isInitialized()) {
+          throw newUninitializedMessageException(result);
+        }
+        return result;
+      }
+
+      @java.lang.Override
+      public hgcp.v1.Hgcp.CmdSetQuoteSubscription buildPartial() {
+        hgcp.v1.Hgcp.CmdSetQuoteSubscription result = new hgcp.v1.Hgcp.CmdSetQuoteSubscription(this);
+        buildPartialRepeatedFields(result);
+        if (bitField0_ != 0) { buildPartial0(result); }
+        onBuilt();
+        return result;
+      }
+
+      private void buildPartialRepeatedFields(hgcp.v1.Hgcp.CmdSetQuoteSubscription result) {
+        if (((bitField0_ & 0x00000001) != 0)) {
+          instruments_ = instruments_.getUnmodifiableView();
+          bitField0_ = (bitField0_ & ~0x00000001);
+        }
+        result.instruments_ = instruments_;
+      }
+
+      private void buildPartial0(hgcp.v1.Hgcp.CmdSetQuoteSubscription result) {
+        int from_bitField0_ = bitField0_;
+      }
+
+      @java.lang.Override
+      public Builder clone() {
+        return super.clone();
+      }
+      @java.lang.Override
+      public Builder setField(
+          com.google.protobuf.Descriptors.FieldDescriptor field,
+          java.lang.Object value) {
+        return super.setField(field, value);
+      }
+      @java.lang.Override
+      public Builder clearField(
+          com.google.protobuf.Descriptors.FieldDescriptor field) {
+        return super.clearField(field);
+      }
+      @java.lang.Override
+      public Builder clearOneof(
+          com.google.protobuf.Descriptors.OneofDescriptor oneof) {
+        return super.clearOneof(oneof);
+      }
+      @java.lang.Override
+      public Builder setRepeatedField(
+          com.google.protobuf.Descriptors.FieldDescriptor field,
+          int index, java.lang.Object value) {
+        return super.setRepeatedField(field, index, value);
+      }
+      @java.lang.Override
+      public Builder addRepeatedField(
+          com.google.protobuf.Descriptors.FieldDescriptor field,
+          java.lang.Object value) {
+        return super.addRepeatedField(field, value);
+      }
+      @java.lang.Override
+      public Builder mergeFrom(com.google.protobuf.Message other) {
+        if (other instanceof hgcp.v1.Hgcp.CmdSetQuoteSubscription) {
+          return mergeFrom((hgcp.v1.Hgcp.CmdSetQuoteSubscription)other);
+        } else {
+          super.mergeFrom(other);
+          return this;
+        }
+      }
+
+      public Builder mergeFrom(hgcp.v1.Hgcp.CmdSetQuoteSubscription other) {
+        if (other == hgcp.v1.Hgcp.CmdSetQuoteSubscription.getDefaultInstance()) return this;
+        if (!other.instruments_.isEmpty()) {
+          if (instruments_.isEmpty()) {
+            instruments_ = other.instruments_;
+            bitField0_ = (bitField0_ & ~0x00000001);
+          } else {
+            ensureInstrumentsIsMutable();
+            instruments_.addAll(other.instruments_);
+          }
+          onChanged();
+        }
+        this.mergeUnknownFields(other.getUnknownFields());
+        onChanged();
+        return this;
+      }
+
+      @java.lang.Override
+      public final boolean isInitialized() {
+        return true;
+      }
+
+      @java.lang.Override
+      public Builder mergeFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        if (extensionRegistry == null) {
+          throw new java.lang.NullPointerException();
+        }
+        try {
+          boolean done = false;
+          while (!done) {
+            int tag = input.readTag();
+            switch (tag) {
+              case 0:
+                done = true;
+                break;
+              case 10: {
+                java.lang.String s = input.readStringRequireUtf8();
+                ensureInstrumentsIsMutable();
+                instruments_.add(s);
+                break;
+              } // case 10
+              default: {
+                if (!super.parseUnknownField(input, extensionRegistry, tag)) {
+                  done = true; // was an endgroup tag
+                }
+                break;
+              } // default:
+            } // switch (tag)
+          } // while (!done)
+        } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+          throw e.unwrapIOException();
+        } finally {
+          onChanged();
+        } // finally
+        return this;
+      }
+      private int bitField0_;
+
+      private com.google.protobuf.LazyStringList instruments_ = com.google.protobuf.LazyStringArrayList.EMPTY;
+      private void ensureInstrumentsIsMutable() {
+        if (!((bitField0_ & 0x00000001) != 0)) {
+          instruments_ = new com.google.protobuf.LazyStringArrayList(instruments_);
+          bitField0_ |= 0x00000001;
+         }
+      }
+      /**
+       * <pre>
+       * 目标订阅合约集（完整替换，非增量）；空集 = 退订全部并停止行情订阅。
+       * 保留交易所原生大小写与位数，由 C++ 原样传给 SubscribeMarketData。
+       * </pre>
+       *
+       * <code>repeated string instruments = 1;</code>
+       * @return A list containing the instruments.
+       */
+      public com.google.protobuf.ProtocolStringList
+          getInstrumentsList() {
+        return instruments_.getUnmodifiableView();
+      }
+      /**
+       * <pre>
+       * 目标订阅合约集（完整替换，非增量）；空集 = 退订全部并停止行情订阅。
+       * 保留交易所原生大小写与位数，由 C++ 原样传给 SubscribeMarketData。
+       * </pre>
+       *
+       * <code>repeated string instruments = 1;</code>
+       * @return The count of instruments.
+       */
+      public int getInstrumentsCount() {
+        return instruments_.size();
+      }
+      /**
+       * <pre>
+       * 目标订阅合约集（完整替换，非增量）；空集 = 退订全部并停止行情订阅。
+       * 保留交易所原生大小写与位数，由 C++ 原样传给 SubscribeMarketData。
+       * </pre>
+       *
+       * <code>repeated string instruments = 1;</code>
+       * @param index The index of the element to return.
+       * @return The instruments at the given index.
+       */
+      public java.lang.String getInstruments(int index) {
+        return instruments_.get(index);
+      }
+      /**
+       * <pre>
+       * 目标订阅合约集（完整替换，非增量）；空集 = 退订全部并停止行情订阅。
+       * 保留交易所原生大小写与位数，由 C++ 原样传给 SubscribeMarketData。
+       * </pre>
+       *
+       * <code>repeated string instruments = 1;</code>
+       * @param index The index of the value to return.
+       * @return The bytes of the instruments at the given index.
+       */
+      public com.google.protobuf.ByteString
+          getInstrumentsBytes(int index) {
+        return instruments_.getByteString(index);
+      }
+      /**
+       * <pre>
+       * 目标订阅合约集（完整替换，非增量）；空集 = 退订全部并停止行情订阅。
+       * 保留交易所原生大小写与位数，由 C++ 原样传给 SubscribeMarketData。
+       * </pre>
+       *
+       * <code>repeated string instruments = 1;</code>
+       * @param index The index to set the value at.
+       * @param value The instruments to set.
+       * @return This builder for chaining.
+       */
+      public Builder setInstruments(
+          int index, java.lang.String value) {
+        if (value == null) { throw new NullPointerException(); }
+        ensureInstrumentsIsMutable();
+        instruments_.set(index, value);
+        onChanged();
+        return this;
+      }
+      /**
+       * <pre>
+       * 目标订阅合约集（完整替换，非增量）；空集 = 退订全部并停止行情订阅。
+       * 保留交易所原生大小写与位数，由 C++ 原样传给 SubscribeMarketData。
+       * </pre>
+       *
+       * <code>repeated string instruments = 1;</code>
+       * @param value The instruments to add.
+       * @return This builder for chaining.
+       */
+      public Builder addInstruments(
+          java.lang.String value) {
+        if (value == null) { throw new NullPointerException(); }
+        ensureInstrumentsIsMutable();
+        instruments_.add(value);
+        onChanged();
+        return this;
+      }
+      /**
+       * <pre>
+       * 目标订阅合约集（完整替换，非增量）；空集 = 退订全部并停止行情订阅。
+       * 保留交易所原生大小写与位数，由 C++ 原样传给 SubscribeMarketData。
+       * </pre>
+       *
+       * <code>repeated string instruments = 1;</code>
+       * @param values The instruments to add.
+       * @return This builder for chaining.
+       */
+      public Builder addAllInstruments(
+          java.lang.Iterable<java.lang.String> values) {
+        ensureInstrumentsIsMutable();
+        com.google.protobuf.AbstractMessageLite.Builder.addAll(
+            values, instruments_);
+        onChanged();
+        return this;
+      }
+      /**
+       * <pre>
+       * 目标订阅合约集（完整替换，非增量）；空集 = 退订全部并停止行情订阅。
+       * 保留交易所原生大小写与位数，由 C++ 原样传给 SubscribeMarketData。
+       * </pre>
+       *
+       * <code>repeated string instruments = 1;</code>
+       * @return This builder for chaining.
+       */
+      public Builder clearInstruments() {
+        instruments_ = com.google.protobuf.LazyStringArrayList.EMPTY;
+        bitField0_ = (bitField0_ & ~0x00000001);
+        onChanged();
+        return this;
+      }
+      /**
+       * <pre>
+       * 目标订阅合约集（完整替换，非增量）；空集 = 退订全部并停止行情订阅。
+       * 保留交易所原生大小写与位数，由 C++ 原样传给 SubscribeMarketData。
+       * </pre>
+       *
+       * <code>repeated string instruments = 1;</code>
+       * @param value The bytes of the instruments to add.
+       * @return This builder for chaining.
+       */
+      public Builder addInstrumentsBytes(
+          com.google.protobuf.ByteString value) {
+        if (value == null) { throw new NullPointerException(); }
+        checkByteStringIsUtf8(value);
+        ensureInstrumentsIsMutable();
+        instruments_.add(value);
+        onChanged();
+        return this;
+      }
+      @java.lang.Override
+      public final Builder setUnknownFields(
+          final com.google.protobuf.UnknownFieldSet unknownFields) {
+        return super.setUnknownFields(unknownFields);
+      }
+
+      @java.lang.Override
+      public final Builder mergeUnknownFields(
+          final com.google.protobuf.UnknownFieldSet unknownFields) {
+        return super.mergeUnknownFields(unknownFields);
+      }
+
+
+      // @@protoc_insertion_point(builder_scope:hgcp.v1.CmdSetQuoteSubscription)
+    }
+
+    // @@protoc_insertion_point(class_scope:hgcp.v1.CmdSetQuoteSubscription)
+    private static final hgcp.v1.Hgcp.CmdSetQuoteSubscription DEFAULT_INSTANCE;
+    static {
+      DEFAULT_INSTANCE = new hgcp.v1.Hgcp.CmdSetQuoteSubscription();
+    }
+
+    public static hgcp.v1.Hgcp.CmdSetQuoteSubscription getDefaultInstance() {
+      return DEFAULT_INSTANCE;
+    }
+
+    private static final com.google.protobuf.Parser<CmdSetQuoteSubscription>
+        PARSER = new com.google.protobuf.AbstractParser<CmdSetQuoteSubscription>() {
+      @java.lang.Override
+      public CmdSetQuoteSubscription parsePartialFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        Builder builder = newBuilder();
+        try {
+          builder.mergeFrom(input, extensionRegistry);
+        } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+          throw e.setUnfinishedMessage(builder.buildPartial());
+        } catch (com.google.protobuf.UninitializedMessageException e) {
+          throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
+        } catch (java.io.IOException e) {
+          throw new com.google.protobuf.InvalidProtocolBufferException(e)
+              .setUnfinishedMessage(builder.buildPartial());
+        }
+        return builder.buildPartial();
+      }
+    };
+
+    public static com.google.protobuf.Parser<CmdSetQuoteSubscription> parser() {
+      return PARSER;
+    }
+
+    @java.lang.Override
+    public com.google.protobuf.Parser<CmdSetQuoteSubscription> getParserForType() {
+      return PARSER;
+    }
+
+    @java.lang.Override
+    public hgcp.v1.Hgcp.CmdSetQuoteSubscription getDefaultInstanceForType() {
+      return DEFAULT_INSTANCE;
+    }
+
+  }
+
   public interface EvtOrderAcceptedOrBuilder extends
       // @@protoc_insertion_point(interface_extends:hgcp.v1.EvtOrderAccepted)
       com.google.protobuf.MessageOrBuilder {
@@ -66346,6 +67073,11 @@ public final class Hgcp {
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
       internal_static_hgcp_v1_CmdQueryFundResult_fieldAccessorTable;
   private static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_hgcp_v1_CmdSetQuoteSubscription_descriptor;
+  private static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_hgcp_v1_CmdSetQuoteSubscription_fieldAccessorTable;
+  private static final com.google.protobuf.Descriptors.Descriptor
     internal_static_hgcp_v1_EvtOrderAccepted_descriptor;
   private static final 
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
@@ -66563,235 +67295,237 @@ public final class Hgcp {
       "t_id\030\005 \001(\r\022\023\n\013operator_id\030\006 \001(\004\022\017\n\007bank_" +
       "id\030\007 \001(\t\022\024\n\014bank_account\030\010 \001(\t\"?\n\022CmdQue" +
       "ryFundResult\022\027\n\017idempotency_key\030\001 \001(\t\022\020\n" +
-      "\010apply_id\030\002 \001(\t\"\211\001\n\020EvtOrderAccepted\022\020\n\010" +
-      "order_id\030\001 \001(\004\022\030\n\020client_order_ref\030\002 \001(\t" +
-      "\022\023\n\013risk_passed\030\003 \001(\010\022\034\n\024effective_timeo" +
-      "ut_ms\030\004 \001(\003\022\026\n\016accepted_ts_ms\030\005 \001(\003\"\261\002\n\021" +
-      "EvtPreTradeReject\022\030\n\020client_order_ref\030\001 " +
-      "\001(\t\022\026\n\016sub_account_id\030\002 \001(\r\022\022\n\nproduct_i" +
-      "d\030\003 \001(\r\022\025\n\rinstrument_id\030\004 \001(\t\022\017\n\007rule_i" +
-      "d\030\005 \001(\t\022\023\n\013reason_code\030\006 \001(\r\022(\n\013limit_la" +
-      "yer\030\007 \001(\0162\023.hgcp.v1.LimitLayer\022\025\n\rcurren" +
-      "t_value\030\010 \001(\t\022\027\n\017threshold_value\030\t \001(\t\022\024" +
-      "\n\014order_digest\030\n \001(\t\022\023\n\013operator_id\030\013 \001(" +
-      "\004\022\024\n\014reject_ts_ms\030\014 \001(\003\"\373\001\n\016EvtOrderRepo" +
-      "rt\022\020\n\010order_id\030\001 \001(\004\022\024\n\014order_sys_id\030\002 \001" +
-      "(\t\022\026\n\016order_local_id\030\003 \001(\t\022$\n\006status\030\004 \001" +
-      "(\0162\024.hgcp.v1.OrderStatus\022\024\n\014volume_total" +
-      "\030\005 \001(\005\022\025\n\rvolume_traded\030\006 \001(\005\022\023\n\013volume_" +
-      "left\030\007 \001(\005\022\024\n\014ctp_error_id\030\010 \001(\005\022\025\n\rctp_" +
-      "error_msg\030\t \001(\t\022\024\n\014report_ts_ms\030\n \001(\003\"\250\002" +
-      "\n\014EvtTradeFill\022\020\n\010trade_id\030\001 \001(\t\022\020\n\010orde" +
-      "r_id\030\002 \001(\004\022\024\n\014order_sys_id\030\003 \001(\t\022\025\n\rinst" +
-      "rument_id\030\004 \001(\t\022%\n\tdirection\030\005 \001(\0162\022.hgc" +
-      "p.v1.Direction\022(\n\013offset_flag\030\006 \001(\0162\023.hg" +
-      "cp.v1.OffsetFlag\022\r\n\005price\030\007 \001(\t\022\016\n\006volum" +
-      "e\030\010 \001(\005\022\023\n\013trade_ts_ms\030\t \001(\003\022\026\n\016sub_acco" +
-      "unt_id\030\n \001(\r\022\025\n\rtrade_plan_id\030\013 \001(\004\022\023\n\013e" +
-      "xposure_id\030\014 \001(\004\"\204\002\n\021EvtPositionChange\022\026" +
-      "\n\016sub_account_id\030\001 \001(\r\022\025\n\rinstrument_id\030" +
-      "\002 \001(\t\022%\n\tdirection\030\003 \001(\0162\022.hgcp.v1.Direc" +
-      "tion\022,\n\rposition_type\030\004 \001(\0162\025.hgcp.v1.Po" +
-      "sitionType\022\024\n\014position_qty\030\005 \001(\005\022\025\n\ravai" +
-      "lable_qty\030\006 \001(\005\022\022\n\nfrozen_qty\030\007 \001(\005\022\025\n\rc" +
-      "hange_reason\030\010 \001(\t\022\023\n\013as_of_ts_ms\030\t \001(\003\"" +
-      "\232\001\n\024EvtOrderCancelResult\022\020\n\010order_id\030\001 \001" +
-      "(\004\022\030\n\020cancelled_volume\030\002 \001(\005\022\026\n\016released" +
-      "_quota\030\003 \001(\t\022\031\n\021restored_plan_qty\030\004 \001(\003\022" +
-      "\016\n\006result\030\005 \001(\005\022\023\n\013reason_code\030\006 \001(\r\"h\n\017" +
-      "EvtOrderExpired\022\020\n\010order_id\030\001 \001(\004\022\030\n\020cli" +
-      "ent_order_ref\030\002 \001(\t\022\025\n\rexpired_ts_ms\030\003 \001" +
-      "(\003\022\022\n\ntimeout_ms\030\004 \001(\003\"l\n\016EvtCommandFlow" +
-      "\022\020\n\010order_id\030\001 \001(\004\022$\n\tflow_type\030\002 \001(\0162\021." +
-      "hgcp.v1.FlowType\022\022\n\nflow_ts_ms\030\003 \001(\003\022\016\n\006" +
-      "detail\030\004 \001(\t\"\330\001\n\021EvtReplayProgress\022#\n\005st" +
-      "ate\030\001 \001(\0162\024.hgcp.v1.ServerState\022\030\n\020repla" +
-      "yed_records\030\002 \001(\003\022\025\n\rtotal_records\030\003 \001(\003" +
-      "\022\025\n\rstarted_ts_ms\030\004 \001(\003\022\026\n\016finished_ts_m" +
-      "s\030\005 \001(\003\022%\n\006result\030\006 \001(\0162\025.hgcp.v1.Replay" +
-      "Result\022\027\n\017mismatch_detail\030\007 \001(\t\"\212\001\n\016EvtS" +
-      "ystemState\022#\n\005state\030\001 \001(\0162\024.hgcp.v1.Serv" +
-      "erState\022\035\n\025param_version_applied\030\002 \001(\004\022\025" +
-      "\n\rloaded_counts\030\003 \001(\t\022\016\n\006reason\030\004 \001(\t\022\r\n" +
-      "\005ts_ms\030\005 \001(\003\"\264\001\n\016EvtFundReceipt\022\027\n\017idemp" +
-      "otency_key\030\001 \001(\t\022\020\n\010apply_id\030\002 \001(\t\022#\n\006re" +
-      "sult\030\003 \001(\0162\023.hgcp.v1.FundResult\022\016\n\006amoun" +
-      "t\030\004 \001(\t\022\024\n\014ctp_error_id\030\005 \001(\005\022\025\n\rctp_err" +
-      "or_msg\030\006 \001(\t\022\025\n\rreceipt_ts_ms\030\007 \001(\003\"\320\001\n\016" +
-      "EvtMarketQuote\022\025\n\rinstrument_id\030\001 \001(\t\022\022\n" +
-      "\nlast_price\030\002 \001(\t\022\022\n\nbid_price1\030\003 \001(\t\022\022\n" +
-      "\nask_price1\030\004 \001(\t\022\023\n\013bid_volume1\030\005 \001(\005\022\023" +
-      "\n\013ask_volume1\030\006 \001(\005\022\026\n\016pre_settlement\030\007 " +
-      "\001(\t\022\023\n\013quote_ts_ms\030\010 \001(\003\022\024\n\014source_ts_ms" +
-      "\030\t \001(\003\"|\n\013EvtCtpState\022\027\n\017trade_connected" +
-      "\030\001 \001(\010\022\024\n\014md_connected\030\002 \001(\010\022\022\n\nfront_ad" +
-      "dr\030\003 \001(\t\022\032\n\022state_change_ts_ms\030\004 \001(\003\022\016\n\006" +
-      "reason\030\005 \001(\t\"n\n\017EvtTradingAlert\022\022\n\nalert" +
-      "_code\030\001 \001(\r\022\"\n\005level\030\002 \001(\0162\023.hgcp.v1.Ale" +
-      "rtLevel\022\016\n\006detail\030\003 \001(\t\022\023\n\013alert_ts_ms\030\004" +
-      " \001(\003\"\254\001\n\nQuotaEntry\022(\n\013limit_layer\030\001 \001(\016" +
-      "2\023.hgcp.v1.LimitLayer\022\026\n\016sub_account_id\030" +
-      "\002 \001(\r\022\022\n\nproduct_id\030\003 \001(\r\022\025\n\rinstrument_" +
-      "id\030\004 \001(\t\022\023\n\013quota_limit\030\005 \001(\t\022\014\n\004used\030\006 " +
-      "\001(\t\022\016\n\006frozen\030\007 \001(\t\"f\n\022PositionLimitEntr" +
-      "y\022\026\n\016sub_account_id\030\001 \001(\r\022\022\n\nproduct_id\030" +
-      "\002 \001(\r\022\025\n\rinstrument_id\030\003 \001(\t\022\r\n\005limit\030\004 " +
-      "\001(\t\"\354\001\n\017PermissionEntry\022\023\n\013operator_id\030\001" +
-      " \001(\004\022\026\n\016sub_account_id\030\002 \001(\r\022\023\n\013product_" +
-      "ids\030\003 \003(\r\022\023\n\013quota_limit\030\004 \001(\t\022\034\n\024is_ent" +
-      "erprise_leader\030\005 \001(\010\022\032\n\022is_management_ro" +
-      "le\030\006 \001(\010\022\025\n\rhas_risk_role\030\007 \001(\010\022\027\n\017has_s" +
-      "ettle_role\030\010 \001(\010\022\030\n\020has_trading_post\030\t \001" +
-      "(\010\"\213\002\n\rExposureEntry\022\026\n\016sub_account_id\030\001" +
-      " \001(\r\022\022\n\nproduct_id\030\002 \001(\r\022%\n\tdirection\030\003 " +
-      "\001(\0162\022.hgcp.v1.Direction\022\037\n\027contract_unex" +
-      "ecuted_qty\030\004 \001(\003\022\025\n\rinventory_qty\030\005 \001(\003\022" +
-      "\033\n\023production_plan_qty\030\006 \001(\003\022\021\n\ttotal_qt" +
-      "y\030\007 \001(\003\022\023\n\013unit_factor\030\010 \001(\t\022\025\n\rsnapshot" +
-      "_time\030\t \001(\003\022\023\n\013snapshot_id\030\n \001(\004\"\234\004\n\016Ris" +
-      "kThresholds\022\035\n\025scale_ratio_commodity\030\001 \001" +
-      "(\t\022\031\n\021scale_ratio_trade\030\002 \001(\t\022&\n\nscale_b" +
-      "ase\030\003 \001(\0162\022.hgcp.v1.ScaleBase\022(\n\013scale_s" +
-      "cope\030\004 \001(\0162\023.hgcp.v1.ScaleScope\022\027\n\017term_" +
-      "max_months\030\005 \001(\005\022\027\n\017term_grace_days\030\006 \001(" +
-      "\005\022(\n\013term_action\030\007 \001(\0162\023.hgcp.v1.TermAct" +
-      "ion\022&\n\nprice_base\030\010 \001(\0162\022.hgcp.v1.PriceB" +
-      "ase\022\026\n\016price_warn_pct\030\t \001(\t\022\027\n\017price_blo" +
-      "ck_pct\030\n \001(\t\0227\n\023position_check_mode\030\013 \001(" +
-      "\0162\032.hgcp.v1.PositionCheckMode\022\032\n\022freq_in" +
-      "traday_warn\030\014 \001(\005\022\033\n\023freq_intraday_block" +
-      "\030\r \001(\005\022\033\n\023freq_7d_rounds_warn\030\016 \001(\005\022\032\n\022f" +
-      "req_min_hold_days\030\017 \001(\005\022\036\n\026margin_ratio_" +
-      "threshold\030\020 \001(\t\"\240\001\n\013VarietySpec\022\022\n\nprodu" +
-      "ct_id\030\001 \001(\r\022\024\n\014product_code\030\002 \001(\t\022*\n\010cat" +
-      "egory\030\003 \001(\0162\030.hgcp.v1.ProductCategory\022&\n" +
-      "\006status\030\004 \001(\0162\026.hgcp.v1.ProductStatus\022\023\n" +
-      "\013unit_factor\030\005 \001(\t\"=\n\016WhitelistEntry\022\026\n\016" +
-      "sub_account_id\030\001 \001(\r\022\023\n\013product_ids\030\002 \003(" +
-      "\r\"~\n\013TotalLimits\022\023\n\013total_limit\030\001 \001(\t\022\022\n" +
-      "\ntotal_used\030\002 \001(\t\022\024\n\014total_frozen\030\003 \001(\t\022" +
-      "0\n\nby_product\030\004 \003(\0132\034.hgcp.v1.TotalLimit" +
-      "ByProduct\"V\n\023TotalLimitByProduct\022\022\n\nprod" +
-      "uct_id\030\001 \001(\r\022\r\n\005limit\030\002 \001(\t\022\014\n\004used\030\003 \001(" +
-      "\t\022\016\n\006frozen\030\004 \001(\t\"\276\001\n\021AnnualScaleFactor\022" +
-      "\022\n\nproduct_id\030\001 \001(\r\022&\n\nscope_type\030\002 \001(\0162" +
-      "\022.hgcp.v1.ScopeType\022\026\n\016sub_account_id\030\003 " +
-      "\001(\r\022\022\n\nscale_year\030\004 \001(\005\022\"\n\032expected_spot" +
-      "_business_qty\030\005 \001(\t\022\035\n\025accumulated_hedge" +
-      "_qty\030\006 \001(\t*\310\007\n\007MsgType\022\022\n\016MSG_TYPE_UNSET" +
-      "\020\000\022\r\n\tMSG_HELLO\020\001\022\021\n\rMSG_HELLO_ACK\020\002\022\021\n\r" +
-      "MSG_AUTH_FAIL\020\003\022\021\n\rMSG_HEARTBEAT\020\004\022\025\n\021MS" +
-      "G_HEARTBEAT_ACK\020\005\022\013\n\007MSG_ACK\020\006\022\r\n\tMSG_ER" +
-      "ROR\020\007\022\022\n\016MSG_RESUME_REQ\020\010\022\023\n\017MSG_RESUME_" +
-      "DATA\020\t\022\024\n\017CMD_PLACE_ORDER\020\201\002\022\026\n\021CMD_CONF" +
-      "IRM_ORDER\020\202\002\022\025\n\020CMD_CANCEL_ORDER\020\203\002\022\031\n\024C" +
-      "MD_LOAD_RISK_PARAMS\020\221\002\022\031\n\024CMD_UPDATE_WHI" +
-      "TELIST\020\222\002\022\025\n\020CMD_UPDATE_QUOTA\020\223\002\022\036\n\031CMD_" +
-      "UPDATE_POSITION_LIMIT\020\224\002\022\036\n\031CMD_UPDATE_R" +
-      "ISK_THRESHOLD\020\225\002\022\032\n\025CMD_UPDATE_PERMISSIO" +
-      "N\020\226\002\022\030\n\023CMD_UPDATE_EXPOSURE\020\227\002\022\034\n\027CMD_SE" +
-      "T_TRADING_SUSPEND\020\230\002\022\030\n\023CMD_SET_READY_ST" +
-      "ATE\020\231\002\022\017\n\nCMD_RELOAD\020\232\002\022\027\n\022CMD_TRIGGER_R" +
-      "EPLAY\020\233\002\022\025\n\020CMD_QUERY_STATUS\020\234\002\022\026\n\021CMD_F" +
-      "UND_TRANSFER\020\235\002\022\032\n\025CMD_QUERY_FUND_RESULT" +
-      "\020\236\002\022\027\n\022EVT_ORDER_ACCEPTED\020\201\004\022\031\n\024EVT_PRE_" +
-      "TRADE_REJECT\020\202\004\022\025\n\020EVT_ORDER_REPORT\020\203\004\022\023" +
-      "\n\016EVT_TRADE_FILL\020\204\004\022\030\n\023EVT_POSITION_CHAN" +
-      "GE\020\205\004\022\034\n\027EVT_ORDER_CANCEL_RESULT\020\206\004\022\026\n\021E" +
-      "VT_ORDER_EXPIRED\020\207\004\022\025\n\020EVT_COMMAND_FLOW\020" +
-      "\210\004\022\030\n\023EVT_REPLAY_PROGRESS\020\211\004\022\025\n\020EVT_SYST" +
-      "EM_STATE\020\212\004\022\025\n\020EVT_FUND_RECEIPT\020\213\004\022\025\n\020EV" +
-      "T_MARKET_QUOTE\020\214\004\022\022\n\rEVT_CTP_STATE\020\215\004\022\026\n" +
-      "\021EVT_TRADING_ALERT\020\216\004*\220\001\n\013ServerState\022\026\n" +
-      "\022SERVER_STATE_UNSET\020\000\022\032\n\026SERVER_STATE_NO" +
-      "T_READY\020\001\022\032\n\026SERVER_STATE_REPLAYING\020\002\022\026\n" +
-      "\022SERVER_STATE_READY\020\003\022\031\n\025SERVER_STATE_ST" +
-      "OPPING\020\004*t\n\013TargetState\022\026\n\022TARGET_STATE_" +
-      "UNSET\020\000\022\026\n\022TARGET_STATE_READY\020\001\022\031\n\025TARGE" +
-      "T_STATE_STOPPING\020\002\022\032\n\026TARGET_STATE_SUSPE" +
-      "NDED\020\003*F\n\rComponentRole\022\030\n\024COMPONENT_ROL" +
-      "E_UNSET\020\000\022\r\n\tROLE_JAVA\020\001\022\014\n\010ROLE_CPP\020\002*\275" +
-      "\001\n\016ComponentState\022\031\n\025COMPONENT_STATE_UNS" +
-      "ET\020\000\022\034\n\030COMPONENT_STATE_STARTING\020\001\022\031\n\025CO" +
-      "MPONENT_STATE_READY\020\002\022\034\n\030COMPONENT_STATE" +
-      "_DEGRADED\020\003\022\034\n\030COMPONENT_STATE_STOPPING\020" +
-      "\004\022\033\n\027COMPONENT_STATE_STOPPED\020\005*i\n\017Produc" +
-      "tCategory\022\032\n\026PRODUCT_CATEGORY_UNSET\020\000\022\036\n" +
-      "\032PRODUCT_CATEGORY_COMMODITY\020\001\022\032\n\026PRODUCT" +
-      "_CATEGORY_TRADE\020\002*b\n\rProductStatus\022\030\n\024PR" +
-      "ODUCT_STATUS_UNSET\020\000\022\032\n\026PRODUCT_STATUS_E" +
-      "NABLED\020\001\022\033\n\027PRODUCT_STATUS_DISABLED\020\002*[\n" +
-      "\tScopeType\022\024\n\020SCOPE_TYPE_UNSET\020\000\022\032\n\026SCOP" +
-      "E_TYPE_SUB_ACCOUNT\020\001\022\034\n\030SCOPE_TYPE_TOTAL" +
-      "_ACCOUNT\020\002*d\n\016InstrumentType\022\031\n\025INSTRUME" +
-      "NT_TYPE_UNSET\020\000\022\033\n\027INSTRUMENT_TYPE_FUTUR" +
-      "ES\020\001\022\032\n\026INSTRUMENT_TYPE_OPTION\020\002*G\n\tDire" +
-      "ction\022\023\n\017DIRECTION_UNSET\020\000\022\021\n\rDIRECTION_" +
-      "BUY\020\001\022\022\n\016DIRECTION_SELL\020\002*m\n\nOffsetFlag\022" +
-      "\025\n\021OFFSET_FLAG_UNSET\020\000\022\024\n\020OFFSET_FLAG_OP" +
-      "EN\020\001\022\025\n\021OFFSET_FLAG_CLOSE\020\002\022\033\n\027OFFSET_FL" +
-      "AG_CLOSE_TODAY\020\003*N\n\tPriceType\022\024\n\020PRICE_T" +
-      "YPE_UNSET\020\000\022\024\n\020PRICE_TYPE_LIMIT\020\001\022\025\n\021PRI" +
-      "CE_TYPE_MARKET\020\002*\216\002\n\017TradeReasonCode\022\033\n\027" +
-      "TRADE_REASON_CODE_UNSET\020\000\022\"\n\036TRADE_REASO" +
-      "N_CODE_NEW_EXPOSURE\020\001\022\'\n#TRADE_REASON_CO" +
-      "DE_EXPOSURE_DECREASE\020\002\022$\n TRADE_REASON_C" +
-      "ODE_PLAN_EXECUTION\020\003\022\036\n\032TRADE_REASON_COD" +
-      "E_ROLLOVER\020\004\022#\n\037TRADE_REASON_CODE_RISK_D" +
-      "ISPOSAL\020\005\022&\n\"TRADE_REASON_CODE_ERROR_COR" +
-      "RECTION\020\006*\223\002\n\023TradeReasonTimeDesc\022 \n\034TRA" +
-      "DE_REASON_TIME_DESC_UNSET\020\000\022*\n&TRADE_REA" +
-      "SON_TIME_DESC_CONTRACT_SIGNED\020\001\022*\n&TRADE" +
-      "_REASON_TIME_DESC_PRICE_TRIGGERED\020\002\022,\n(T" +
-      "RADE_REASON_TIME_DESC_MONTHLY_REBALANCE\020" +
-      "\003\022*\n&TRADE_REASON_TIME_DESC_EXPIRY_ROLLO" +
-      "VER\020\004\022(\n$TRADE_REASON_TIME_DESC_RISK_REQ" +
-      "UIRED\020\005*\263\001\n\nLimitLayer\022\025\n\021LIMIT_LAYER_UN" +
-      "SET\020\000\022\033\n\027LIMIT_LAYER_SUB_PRODUCT\020\001\022\036\n\032LI" +
-      "MIT_LAYER_SUB_INSTRUMENT\020\002\022\037\n\033LIMIT_LAYE" +
-      "R_ACCOUNT_PRODUCT\020\003\022\032\n\026LIMIT_LAYER_AUTH_" +
-      "QUOTA\020\004\022\024\n\020LIMIT_LAYER_NONE\020\005*]\n\014Positio" +
-      "nType\022\027\n\023POSITION_TYPE_UNSET\020\000\022\027\n\023POSITI" +
-      "ON_TYPE_TODAY\020\001\022\033\n\027POSITION_TYPE_YESTERD" +
-      "AY\020\002*\223\001\n\010FlowType\022\023\n\017FLOW_TYPE_UNSET\020\000\022\022" +
-      "\n\016FLOW_TYPE_SENT\020\001\022\026\n\022FLOW_TYPE_REPORTED" +
-      "\020\002\022\026\n\022FLOW_TYPE_REJECTED\020\003\022\025\n\021FLOW_TYPE_" +
-      "EXPIRED\020\004\022\027\n\023FLOW_TYPE_CANCELLED\020\005*;\n\tSc" +
-      "anScope\022\024\n\020SCAN_SCOPE_UNSET\020\000\022\030\n\024SCAN_SC" +
-      "OPE_OPEN_ONLY\020\001*X\n\rFundDirection\022\030\n\024FUND" +
-      "_DIRECTION_UNSET\020\000\022\025\n\021FUND_DIRECTION_IN\020" +
-      "\001\022\026\n\022FUND_DIRECTION_OUT\020\002*\207\001\n\nFundResult" +
-      "\022\025\n\021FUND_RESULT_UNSET\020\000\022\027\n\023FUND_RESULT_S" +
-      "UCCESS\020\001\022\024\n\020FUND_RESULT_FAIL\020\002\022\032\n\026FUND_R" +
-      "ESULT_PROCESSING\020\003\022\027\n\023FUND_RESULT_UNKNOW" +
-      "N\020\004*Y\n\014ReplayResult\022\027\n\023REPLAY_RESULT_UNS" +
-      "ET\020\000\022\024\n\020REPLAY_RESULT_OK\020\001\022\032\n\026REPLAY_RES" +
-      "ULT_MISMATCH\020\002*s\n\tScaleBase\022\024\n\020SCALE_BAS" +
-      "E_UNSET\020\000\022\033\n\027SCALE_BASE_EXPOSURE_QTY\020\001\022\026" +
-      "\n\022SCALE_BASE_REVENUE\020\002\022\033\n\027SCALE_BASE_PUR" +
-      "CHASE_QTY\020\003*u\n\nScaleScope\022\025\n\021SCALE_SCOPE" +
-      "_UNSET\020\000\022\033\n\027SCALE_SCOPE_SUB_ACCOUNT\020\001\022\035\n" +
-      "\031SCALE_SCOPE_TOTAL_ACCOUNT\020\002\022\024\n\020SCALE_SC" +
-      "OPE_BOTH\020\003*}\n\nTermAction\022\025\n\021TERM_ACTION_" +
-      "UNSET\020\000\022\037\n\033TERM_ACTION_WARN_THEN_BLOCK\020\001" +
-      "\022\025\n\021TERM_ACTION_BLOCK\020\002\022 \n\034TERM_ACTION_W" +
-      "ARN_AND_APPROVE\020\003*\241\001\n\021PositionCheckMode\022" +
-      "\035\n\031POSITION_CHECK_MODE_UNSET\020\000\022)\n%POSITI" +
-      "ON_CHECK_MODE_PRE_TRADE_AND_EOD\020\001\022 \n\034POS" +
-      "ITION_CHECK_MODE_ON_ORDER\020\002\022 \n\034POSITION_" +
-      "CHECK_MODE_EOD_ONLY\020\003*A\n\tPriceBase\022\024\n\020PR" +
-      "ICE_BASE_UNSET\020\000\022\036\n\032PRICE_BASE_PREV_SETT" +
-      "LEMENT\020\001*l\n\nAlertLevel\022\025\n\021ALERT_LEVEL_UN" +
-      "SET\020\000\022\024\n\020ALERT_LEVEL_INFO\020\001\022\027\n\023ALERT_LEV" +
-      "EL_WARNING\020\002\022\030\n\024ALERT_LEVEL_CRITICAL\020\003*\265" +
-      "\002\n\013OrderStatus\022\026\n\022ORDER_STATUS_UNSET\020\000\022 " +
-      "\n\034ORDER_STATUS_PENDING_CONFIRM\020\001\022\"\n\036ORDE" +
-      "R_STATUS_REJECTED_PRECHECK\020\002\022\032\n\026ORDER_ST" +
-      "ATUS_SUBMITTED\020\003\022\031\n\025ORDER_STATUS_SENT_CT" +
-      "P\020\004\022\037\n\033ORDER_STATUS_PARTIAL_FILLED\020\005\022\033\n\027" +
-      "ORDER_STATUS_ALL_FILLED\020\006\022\032\n\026ORDER_STATU" +
-      "S_CANCELLED\020\007\022\035\n\031ORDER_STATUS_REJECTED_C" +
-      "TP\020\010\022\030\n\024ORDER_STATUS_EXPIRED\020\tb\006proto3"
+      "\010apply_id\030\002 \001(\t\".\n\027CmdSetQuoteSubscripti" +
+      "on\022\023\n\013instruments\030\001 \003(\t\"\211\001\n\020EvtOrderAcce" +
+      "pted\022\020\n\010order_id\030\001 \001(\004\022\030\n\020client_order_r" +
+      "ef\030\002 \001(\t\022\023\n\013risk_passed\030\003 \001(\010\022\034\n\024effecti" +
+      "ve_timeout_ms\030\004 \001(\003\022\026\n\016accepted_ts_ms\030\005 " +
+      "\001(\003\"\261\002\n\021EvtPreTradeReject\022\030\n\020client_orde" +
+      "r_ref\030\001 \001(\t\022\026\n\016sub_account_id\030\002 \001(\r\022\022\n\np" +
+      "roduct_id\030\003 \001(\r\022\025\n\rinstrument_id\030\004 \001(\t\022\017" +
+      "\n\007rule_id\030\005 \001(\t\022\023\n\013reason_code\030\006 \001(\r\022(\n\013" +
+      "limit_layer\030\007 \001(\0162\023.hgcp.v1.LimitLayer\022\025" +
+      "\n\rcurrent_value\030\010 \001(\t\022\027\n\017threshold_value" +
+      "\030\t \001(\t\022\024\n\014order_digest\030\n \001(\t\022\023\n\013operator" +
+      "_id\030\013 \001(\004\022\024\n\014reject_ts_ms\030\014 \001(\003\"\373\001\n\016EvtO" +
+      "rderReport\022\020\n\010order_id\030\001 \001(\004\022\024\n\014order_sy" +
+      "s_id\030\002 \001(\t\022\026\n\016order_local_id\030\003 \001(\t\022$\n\006st" +
+      "atus\030\004 \001(\0162\024.hgcp.v1.OrderStatus\022\024\n\014volu" +
+      "me_total\030\005 \001(\005\022\025\n\rvolume_traded\030\006 \001(\005\022\023\n" +
+      "\013volume_left\030\007 \001(\005\022\024\n\014ctp_error_id\030\010 \001(\005" +
+      "\022\025\n\rctp_error_msg\030\t \001(\t\022\024\n\014report_ts_ms\030" +
+      "\n \001(\003\"\250\002\n\014EvtTradeFill\022\020\n\010trade_id\030\001 \001(\t" +
+      "\022\020\n\010order_id\030\002 \001(\004\022\024\n\014order_sys_id\030\003 \001(\t" +
+      "\022\025\n\rinstrument_id\030\004 \001(\t\022%\n\tdirection\030\005 \001" +
+      "(\0162\022.hgcp.v1.Direction\022(\n\013offset_flag\030\006 " +
+      "\001(\0162\023.hgcp.v1.OffsetFlag\022\r\n\005price\030\007 \001(\t\022" +
+      "\016\n\006volume\030\010 \001(\005\022\023\n\013trade_ts_ms\030\t \001(\003\022\026\n\016" +
+      "sub_account_id\030\n \001(\r\022\025\n\rtrade_plan_id\030\013 " +
+      "\001(\004\022\023\n\013exposure_id\030\014 \001(\004\"\204\002\n\021EvtPosition" +
+      "Change\022\026\n\016sub_account_id\030\001 \001(\r\022\025\n\rinstru" +
+      "ment_id\030\002 \001(\t\022%\n\tdirection\030\003 \001(\0162\022.hgcp." +
+      "v1.Direction\022,\n\rposition_type\030\004 \001(\0162\025.hg" +
+      "cp.v1.PositionType\022\024\n\014position_qty\030\005 \001(\005" +
+      "\022\025\n\ravailable_qty\030\006 \001(\005\022\022\n\nfrozen_qty\030\007 " +
+      "\001(\005\022\025\n\rchange_reason\030\010 \001(\t\022\023\n\013as_of_ts_m" +
+      "s\030\t \001(\003\"\232\001\n\024EvtOrderCancelResult\022\020\n\010orde" +
+      "r_id\030\001 \001(\004\022\030\n\020cancelled_volume\030\002 \001(\005\022\026\n\016" +
+      "released_quota\030\003 \001(\t\022\031\n\021restored_plan_qt" +
+      "y\030\004 \001(\003\022\016\n\006result\030\005 \001(\005\022\023\n\013reason_code\030\006" +
+      " \001(\r\"h\n\017EvtOrderExpired\022\020\n\010order_id\030\001 \001(" +
+      "\004\022\030\n\020client_order_ref\030\002 \001(\t\022\025\n\rexpired_t" +
+      "s_ms\030\003 \001(\003\022\022\n\ntimeout_ms\030\004 \001(\003\"l\n\016EvtCom" +
+      "mandFlow\022\020\n\010order_id\030\001 \001(\004\022$\n\tflow_type\030" +
+      "\002 \001(\0162\021.hgcp.v1.FlowType\022\022\n\nflow_ts_ms\030\003" +
+      " \001(\003\022\016\n\006detail\030\004 \001(\t\"\330\001\n\021EvtReplayProgre" +
+      "ss\022#\n\005state\030\001 \001(\0162\024.hgcp.v1.ServerState\022" +
+      "\030\n\020replayed_records\030\002 \001(\003\022\025\n\rtotal_recor" +
+      "ds\030\003 \001(\003\022\025\n\rstarted_ts_ms\030\004 \001(\003\022\026\n\016finis" +
+      "hed_ts_ms\030\005 \001(\003\022%\n\006result\030\006 \001(\0162\025.hgcp.v" +
+      "1.ReplayResult\022\027\n\017mismatch_detail\030\007 \001(\t\"" +
+      "\212\001\n\016EvtSystemState\022#\n\005state\030\001 \001(\0162\024.hgcp" +
+      ".v1.ServerState\022\035\n\025param_version_applied" +
+      "\030\002 \001(\004\022\025\n\rloaded_counts\030\003 \001(\t\022\016\n\006reason\030" +
+      "\004 \001(\t\022\r\n\005ts_ms\030\005 \001(\003\"\264\001\n\016EvtFundReceipt\022" +
+      "\027\n\017idempotency_key\030\001 \001(\t\022\020\n\010apply_id\030\002 \001" +
+      "(\t\022#\n\006result\030\003 \001(\0162\023.hgcp.v1.FundResult\022" +
+      "\016\n\006amount\030\004 \001(\t\022\024\n\014ctp_error_id\030\005 \001(\005\022\025\n" +
+      "\rctp_error_msg\030\006 \001(\t\022\025\n\rreceipt_ts_ms\030\007 " +
+      "\001(\003\"\320\001\n\016EvtMarketQuote\022\025\n\rinstrument_id\030" +
+      "\001 \001(\t\022\022\n\nlast_price\030\002 \001(\t\022\022\n\nbid_price1\030" +
+      "\003 \001(\t\022\022\n\nask_price1\030\004 \001(\t\022\023\n\013bid_volume1" +
+      "\030\005 \001(\005\022\023\n\013ask_volume1\030\006 \001(\005\022\026\n\016pre_settl" +
+      "ement\030\007 \001(\t\022\023\n\013quote_ts_ms\030\010 \001(\003\022\024\n\014sour" +
+      "ce_ts_ms\030\t \001(\003\"|\n\013EvtCtpState\022\027\n\017trade_c" +
+      "onnected\030\001 \001(\010\022\024\n\014md_connected\030\002 \001(\010\022\022\n\n" +
+      "front_addr\030\003 \001(\t\022\032\n\022state_change_ts_ms\030\004" +
+      " \001(\003\022\016\n\006reason\030\005 \001(\t\"n\n\017EvtTradingAlert\022" +
+      "\022\n\nalert_code\030\001 \001(\r\022\"\n\005level\030\002 \001(\0162\023.hgc" +
+      "p.v1.AlertLevel\022\016\n\006detail\030\003 \001(\t\022\023\n\013alert" +
+      "_ts_ms\030\004 \001(\003\"\254\001\n\nQuotaEntry\022(\n\013limit_lay" +
+      "er\030\001 \001(\0162\023.hgcp.v1.LimitLayer\022\026\n\016sub_acc" +
+      "ount_id\030\002 \001(\r\022\022\n\nproduct_id\030\003 \001(\r\022\025\n\rins" +
+      "trument_id\030\004 \001(\t\022\023\n\013quota_limit\030\005 \001(\t\022\014\n" +
+      "\004used\030\006 \001(\t\022\016\n\006frozen\030\007 \001(\t\"f\n\022PositionL" +
+      "imitEntry\022\026\n\016sub_account_id\030\001 \001(\r\022\022\n\npro" +
+      "duct_id\030\002 \001(\r\022\025\n\rinstrument_id\030\003 \001(\t\022\r\n\005" +
+      "limit\030\004 \001(\t\"\354\001\n\017PermissionEntry\022\023\n\013opera" +
+      "tor_id\030\001 \001(\004\022\026\n\016sub_account_id\030\002 \001(\r\022\023\n\013" +
+      "product_ids\030\003 \003(\r\022\023\n\013quota_limit\030\004 \001(\t\022\034" +
+      "\n\024is_enterprise_leader\030\005 \001(\010\022\032\n\022is_manag" +
+      "ement_role\030\006 \001(\010\022\025\n\rhas_risk_role\030\007 \001(\010\022" +
+      "\027\n\017has_settle_role\030\010 \001(\010\022\030\n\020has_trading_" +
+      "post\030\t \001(\010\"\213\002\n\rExposureEntry\022\026\n\016sub_acco" +
+      "unt_id\030\001 \001(\r\022\022\n\nproduct_id\030\002 \001(\r\022%\n\tdire" +
+      "ction\030\003 \001(\0162\022.hgcp.v1.Direction\022\037\n\027contr" +
+      "act_unexecuted_qty\030\004 \001(\003\022\025\n\rinventory_qt" +
+      "y\030\005 \001(\003\022\033\n\023production_plan_qty\030\006 \001(\003\022\021\n\t" +
+      "total_qty\030\007 \001(\003\022\023\n\013unit_factor\030\010 \001(\t\022\025\n\r" +
+      "snapshot_time\030\t \001(\003\022\023\n\013snapshot_id\030\n \001(\004" +
+      "\"\234\004\n\016RiskThresholds\022\035\n\025scale_ratio_commo" +
+      "dity\030\001 \001(\t\022\031\n\021scale_ratio_trade\030\002 \001(\t\022&\n" +
+      "\nscale_base\030\003 \001(\0162\022.hgcp.v1.ScaleBase\022(\n" +
+      "\013scale_scope\030\004 \001(\0162\023.hgcp.v1.ScaleScope\022" +
+      "\027\n\017term_max_months\030\005 \001(\005\022\027\n\017term_grace_d" +
+      "ays\030\006 \001(\005\022(\n\013term_action\030\007 \001(\0162\023.hgcp.v1" +
+      ".TermAction\022&\n\nprice_base\030\010 \001(\0162\022.hgcp.v" +
+      "1.PriceBase\022\026\n\016price_warn_pct\030\t \001(\t\022\027\n\017p" +
+      "rice_block_pct\030\n \001(\t\0227\n\023position_check_m" +
+      "ode\030\013 \001(\0162\032.hgcp.v1.PositionCheckMode\022\032\n" +
+      "\022freq_intraday_warn\030\014 \001(\005\022\033\n\023freq_intrad" +
+      "ay_block\030\r \001(\005\022\033\n\023freq_7d_rounds_warn\030\016 " +
+      "\001(\005\022\032\n\022freq_min_hold_days\030\017 \001(\005\022\036\n\026margi" +
+      "n_ratio_threshold\030\020 \001(\t\"\240\001\n\013VarietySpec\022" +
+      "\022\n\nproduct_id\030\001 \001(\r\022\024\n\014product_code\030\002 \001(" +
+      "\t\022*\n\010category\030\003 \001(\0162\030.hgcp.v1.ProductCat" +
+      "egory\022&\n\006status\030\004 \001(\0162\026.hgcp.v1.ProductS" +
+      "tatus\022\023\n\013unit_factor\030\005 \001(\t\"=\n\016WhitelistE" +
+      "ntry\022\026\n\016sub_account_id\030\001 \001(\r\022\023\n\013product_" +
+      "ids\030\002 \003(\r\"~\n\013TotalLimits\022\023\n\013total_limit\030" +
+      "\001 \001(\t\022\022\n\ntotal_used\030\002 \001(\t\022\024\n\014total_froze" +
+      "n\030\003 \001(\t\0220\n\nby_product\030\004 \003(\0132\034.hgcp.v1.To" +
+      "talLimitByProduct\"V\n\023TotalLimitByProduct" +
+      "\022\022\n\nproduct_id\030\001 \001(\r\022\r\n\005limit\030\002 \001(\t\022\014\n\004u" +
+      "sed\030\003 \001(\t\022\016\n\006frozen\030\004 \001(\t\"\276\001\n\021AnnualScal" +
+      "eFactor\022\022\n\nproduct_id\030\001 \001(\r\022&\n\nscope_typ" +
+      "e\030\002 \001(\0162\022.hgcp.v1.ScopeType\022\026\n\016sub_accou" +
+      "nt_id\030\003 \001(\r\022\022\n\nscale_year\030\004 \001(\005\022\"\n\032expec" +
+      "ted_spot_business_qty\030\005 \001(\t\022\035\n\025accumulat" +
+      "ed_hedge_qty\030\006 \001(\t*\351\007\n\007MsgType\022\022\n\016MSG_TY" +
+      "PE_UNSET\020\000\022\r\n\tMSG_HELLO\020\001\022\021\n\rMSG_HELLO_A" +
+      "CK\020\002\022\021\n\rMSG_AUTH_FAIL\020\003\022\021\n\rMSG_HEARTBEAT" +
+      "\020\004\022\025\n\021MSG_HEARTBEAT_ACK\020\005\022\013\n\007MSG_ACK\020\006\022\r" +
+      "\n\tMSG_ERROR\020\007\022\022\n\016MSG_RESUME_REQ\020\010\022\023\n\017MSG" +
+      "_RESUME_DATA\020\t\022\024\n\017CMD_PLACE_ORDER\020\201\002\022\026\n\021" +
+      "CMD_CONFIRM_ORDER\020\202\002\022\025\n\020CMD_CANCEL_ORDER" +
+      "\020\203\002\022\031\n\024CMD_LOAD_RISK_PARAMS\020\221\002\022\031\n\024CMD_UP" +
+      "DATE_WHITELIST\020\222\002\022\025\n\020CMD_UPDATE_QUOTA\020\223\002" +
+      "\022\036\n\031CMD_UPDATE_POSITION_LIMIT\020\224\002\022\036\n\031CMD_" +
+      "UPDATE_RISK_THRESHOLD\020\225\002\022\032\n\025CMD_UPDATE_P" +
+      "ERMISSION\020\226\002\022\030\n\023CMD_UPDATE_EXPOSURE\020\227\002\022\034" +
+      "\n\027CMD_SET_TRADING_SUSPEND\020\230\002\022\030\n\023CMD_SET_" +
+      "READY_STATE\020\231\002\022\017\n\nCMD_RELOAD\020\232\002\022\027\n\022CMD_T" +
+      "RIGGER_REPLAY\020\233\002\022\025\n\020CMD_QUERY_STATUS\020\234\002\022" +
+      "\026\n\021CMD_FUND_TRANSFER\020\235\002\022\032\n\025CMD_QUERY_FUN" +
+      "D_RESULT\020\236\002\022\037\n\032CMD_SET_QUOTE_SUBSCRIPTIO" +
+      "N\020\237\002\022\027\n\022EVT_ORDER_ACCEPTED\020\201\004\022\031\n\024EVT_PRE" +
+      "_TRADE_REJECT\020\202\004\022\025\n\020EVT_ORDER_REPORT\020\203\004\022" +
+      "\023\n\016EVT_TRADE_FILL\020\204\004\022\030\n\023EVT_POSITION_CHA" +
+      "NGE\020\205\004\022\034\n\027EVT_ORDER_CANCEL_RESULT\020\206\004\022\026\n\021" +
+      "EVT_ORDER_EXPIRED\020\207\004\022\025\n\020EVT_COMMAND_FLOW" +
+      "\020\210\004\022\030\n\023EVT_REPLAY_PROGRESS\020\211\004\022\025\n\020EVT_SYS" +
+      "TEM_STATE\020\212\004\022\025\n\020EVT_FUND_RECEIPT\020\213\004\022\025\n\020E" +
+      "VT_MARKET_QUOTE\020\214\004\022\022\n\rEVT_CTP_STATE\020\215\004\022\026" +
+      "\n\021EVT_TRADING_ALERT\020\216\004*\220\001\n\013ServerState\022\026" +
+      "\n\022SERVER_STATE_UNSET\020\000\022\032\n\026SERVER_STATE_N" +
+      "OT_READY\020\001\022\032\n\026SERVER_STATE_REPLAYING\020\002\022\026" +
+      "\n\022SERVER_STATE_READY\020\003\022\031\n\025SERVER_STATE_S" +
+      "TOPPING\020\004*t\n\013TargetState\022\026\n\022TARGET_STATE" +
+      "_UNSET\020\000\022\026\n\022TARGET_STATE_READY\020\001\022\031\n\025TARG" +
+      "ET_STATE_STOPPING\020\002\022\032\n\026TARGET_STATE_SUSP" +
+      "ENDED\020\003*F\n\rComponentRole\022\030\n\024COMPONENT_RO" +
+      "LE_UNSET\020\000\022\r\n\tROLE_JAVA\020\001\022\014\n\010ROLE_CPP\020\002*" +
+      "\275\001\n\016ComponentState\022\031\n\025COMPONENT_STATE_UN" +
+      "SET\020\000\022\034\n\030COMPONENT_STATE_STARTING\020\001\022\031\n\025C" +
+      "OMPONENT_STATE_READY\020\002\022\034\n\030COMPONENT_STAT" +
+      "E_DEGRADED\020\003\022\034\n\030COMPONENT_STATE_STOPPING" +
+      "\020\004\022\033\n\027COMPONENT_STATE_STOPPED\020\005*i\n\017Produ" +
+      "ctCategory\022\032\n\026PRODUCT_CATEGORY_UNSET\020\000\022\036" +
+      "\n\032PRODUCT_CATEGORY_COMMODITY\020\001\022\032\n\026PRODUC" +
+      "T_CATEGORY_TRADE\020\002*b\n\rProductStatus\022\030\n\024P" +
+      "RODUCT_STATUS_UNSET\020\000\022\032\n\026PRODUCT_STATUS_" +
+      "ENABLED\020\001\022\033\n\027PRODUCT_STATUS_DISABLED\020\002*[" +
+      "\n\tScopeType\022\024\n\020SCOPE_TYPE_UNSET\020\000\022\032\n\026SCO" +
+      "PE_TYPE_SUB_ACCOUNT\020\001\022\034\n\030SCOPE_TYPE_TOTA" +
+      "L_ACCOUNT\020\002*d\n\016InstrumentType\022\031\n\025INSTRUM" +
+      "ENT_TYPE_UNSET\020\000\022\033\n\027INSTRUMENT_TYPE_FUTU" +
+      "RES\020\001\022\032\n\026INSTRUMENT_TYPE_OPTION\020\002*G\n\tDir" +
+      "ection\022\023\n\017DIRECTION_UNSET\020\000\022\021\n\rDIRECTION" +
+      "_BUY\020\001\022\022\n\016DIRECTION_SELL\020\002*m\n\nOffsetFlag" +
+      "\022\025\n\021OFFSET_FLAG_UNSET\020\000\022\024\n\020OFFSET_FLAG_O" +
+      "PEN\020\001\022\025\n\021OFFSET_FLAG_CLOSE\020\002\022\033\n\027OFFSET_F" +
+      "LAG_CLOSE_TODAY\020\003*N\n\tPriceType\022\024\n\020PRICE_" +
+      "TYPE_UNSET\020\000\022\024\n\020PRICE_TYPE_LIMIT\020\001\022\025\n\021PR" +
+      "ICE_TYPE_MARKET\020\002*\216\002\n\017TradeReasonCode\022\033\n" +
+      "\027TRADE_REASON_CODE_UNSET\020\000\022\"\n\036TRADE_REAS" +
+      "ON_CODE_NEW_EXPOSURE\020\001\022\'\n#TRADE_REASON_C" +
+      "ODE_EXPOSURE_DECREASE\020\002\022$\n TRADE_REASON_" +
+      "CODE_PLAN_EXECUTION\020\003\022\036\n\032TRADE_REASON_CO" +
+      "DE_ROLLOVER\020\004\022#\n\037TRADE_REASON_CODE_RISK_" +
+      "DISPOSAL\020\005\022&\n\"TRADE_REASON_CODE_ERROR_CO" +
+      "RRECTION\020\006*\223\002\n\023TradeReasonTimeDesc\022 \n\034TR" +
+      "ADE_REASON_TIME_DESC_UNSET\020\000\022*\n&TRADE_RE" +
+      "ASON_TIME_DESC_CONTRACT_SIGNED\020\001\022*\n&TRAD" +
+      "E_REASON_TIME_DESC_PRICE_TRIGGERED\020\002\022,\n(" +
+      "TRADE_REASON_TIME_DESC_MONTHLY_REBALANCE" +
+      "\020\003\022*\n&TRADE_REASON_TIME_DESC_EXPIRY_ROLL" +
+      "OVER\020\004\022(\n$TRADE_REASON_TIME_DESC_RISK_RE" +
+      "QUIRED\020\005*\263\001\n\nLimitLayer\022\025\n\021LIMIT_LAYER_U" +
+      "NSET\020\000\022\033\n\027LIMIT_LAYER_SUB_PRODUCT\020\001\022\036\n\032L" +
+      "IMIT_LAYER_SUB_INSTRUMENT\020\002\022\037\n\033LIMIT_LAY" +
+      "ER_ACCOUNT_PRODUCT\020\003\022\032\n\026LIMIT_LAYER_AUTH" +
+      "_QUOTA\020\004\022\024\n\020LIMIT_LAYER_NONE\020\005*]\n\014Positi" +
+      "onType\022\027\n\023POSITION_TYPE_UNSET\020\000\022\027\n\023POSIT" +
+      "ION_TYPE_TODAY\020\001\022\033\n\027POSITION_TYPE_YESTER" +
+      "DAY\020\002*\223\001\n\010FlowType\022\023\n\017FLOW_TYPE_UNSET\020\000\022" +
+      "\022\n\016FLOW_TYPE_SENT\020\001\022\026\n\022FLOW_TYPE_REPORTE" +
+      "D\020\002\022\026\n\022FLOW_TYPE_REJECTED\020\003\022\025\n\021FLOW_TYPE" +
+      "_EXPIRED\020\004\022\027\n\023FLOW_TYPE_CANCELLED\020\005*;\n\tS" +
+      "canScope\022\024\n\020SCAN_SCOPE_UNSET\020\000\022\030\n\024SCAN_S" +
+      "COPE_OPEN_ONLY\020\001*X\n\rFundDirection\022\030\n\024FUN" +
+      "D_DIRECTION_UNSET\020\000\022\025\n\021FUND_DIRECTION_IN" +
+      "\020\001\022\026\n\022FUND_DIRECTION_OUT\020\002*\207\001\n\nFundResul" +
+      "t\022\025\n\021FUND_RESULT_UNSET\020\000\022\027\n\023FUND_RESULT_" +
+      "SUCCESS\020\001\022\024\n\020FUND_RESULT_FAIL\020\002\022\032\n\026FUND_" +
+      "RESULT_PROCESSING\020\003\022\027\n\023FUND_RESULT_UNKNO" +
+      "WN\020\004*Y\n\014ReplayResult\022\027\n\023REPLAY_RESULT_UN" +
+      "SET\020\000\022\024\n\020REPLAY_RESULT_OK\020\001\022\032\n\026REPLAY_RE" +
+      "SULT_MISMATCH\020\002*s\n\tScaleBase\022\024\n\020SCALE_BA" +
+      "SE_UNSET\020\000\022\033\n\027SCALE_BASE_EXPOSURE_QTY\020\001\022" +
+      "\026\n\022SCALE_BASE_REVENUE\020\002\022\033\n\027SCALE_BASE_PU" +
+      "RCHASE_QTY\020\003*u\n\nScaleScope\022\025\n\021SCALE_SCOP" +
+      "E_UNSET\020\000\022\033\n\027SCALE_SCOPE_SUB_ACCOUNT\020\001\022\035" +
+      "\n\031SCALE_SCOPE_TOTAL_ACCOUNT\020\002\022\024\n\020SCALE_S" +
+      "COPE_BOTH\020\003*}\n\nTermAction\022\025\n\021TERM_ACTION" +
+      "_UNSET\020\000\022\037\n\033TERM_ACTION_WARN_THEN_BLOCK\020" +
+      "\001\022\025\n\021TERM_ACTION_BLOCK\020\002\022 \n\034TERM_ACTION_" +
+      "WARN_AND_APPROVE\020\003*\241\001\n\021PositionCheckMode" +
+      "\022\035\n\031POSITION_CHECK_MODE_UNSET\020\000\022)\n%POSIT" +
+      "ION_CHECK_MODE_PRE_TRADE_AND_EOD\020\001\022 \n\034PO" +
+      "SITION_CHECK_MODE_ON_ORDER\020\002\022 \n\034POSITION" +
+      "_CHECK_MODE_EOD_ONLY\020\003*A\n\tPriceBase\022\024\n\020P" +
+      "RICE_BASE_UNSET\020\000\022\036\n\032PRICE_BASE_PREV_SET" +
+      "TLEMENT\020\001*l\n\nAlertLevel\022\025\n\021ALERT_LEVEL_U" +
+      "NSET\020\000\022\024\n\020ALERT_LEVEL_INFO\020\001\022\027\n\023ALERT_LE" +
+      "VEL_WARNING\020\002\022\030\n\024ALERT_LEVEL_CRITICAL\020\003*" +
+      "\265\002\n\013OrderStatus\022\026\n\022ORDER_STATUS_UNSET\020\000\022" +
+      " \n\034ORDER_STATUS_PENDING_CONFIRM\020\001\022\"\n\036ORD" +
+      "ER_STATUS_REJECTED_PRECHECK\020\002\022\032\n\026ORDER_S" +
+      "TATUS_SUBMITTED\020\003\022\031\n\025ORDER_STATUS_SENT_C" +
+      "TP\020\004\022\037\n\033ORDER_STATUS_PARTIAL_FILLED\020\005\022\033\n" +
+      "\027ORDER_STATUS_ALL_FILLED\020\006\022\032\n\026ORDER_STAT" +
+      "US_CANCELLED\020\007\022\035\n\031ORDER_STATUS_REJECTED_" +
+      "CTP\020\010\022\030\n\024ORDER_STATUS_EXPIRED\020\tb\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -66953,146 +67687,152 @@ public final class Hgcp {
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_CmdQueryFundResult_descriptor,
         new java.lang.String[] { "IdempotencyKey", "ApplyId", });
-    internal_static_hgcp_v1_EvtOrderAccepted_descriptor =
+    internal_static_hgcp_v1_CmdSetQuoteSubscription_descriptor =
       getDescriptor().getMessageTypes().get(26);
+    internal_static_hgcp_v1_CmdSetQuoteSubscription_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_hgcp_v1_CmdSetQuoteSubscription_descriptor,
+        new java.lang.String[] { "Instruments", });
+    internal_static_hgcp_v1_EvtOrderAccepted_descriptor =
+      getDescriptor().getMessageTypes().get(27);
     internal_static_hgcp_v1_EvtOrderAccepted_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_EvtOrderAccepted_descriptor,
         new java.lang.String[] { "OrderId", "ClientOrderRef", "RiskPassed", "EffectiveTimeoutMs", "AcceptedTsMs", });
     internal_static_hgcp_v1_EvtPreTradeReject_descriptor =
-      getDescriptor().getMessageTypes().get(27);
+      getDescriptor().getMessageTypes().get(28);
     internal_static_hgcp_v1_EvtPreTradeReject_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_EvtPreTradeReject_descriptor,
         new java.lang.String[] { "ClientOrderRef", "SubAccountId", "ProductId", "InstrumentId", "RuleId", "ReasonCode", "LimitLayer", "CurrentValue", "ThresholdValue", "OrderDigest", "OperatorId", "RejectTsMs", });
     internal_static_hgcp_v1_EvtOrderReport_descriptor =
-      getDescriptor().getMessageTypes().get(28);
+      getDescriptor().getMessageTypes().get(29);
     internal_static_hgcp_v1_EvtOrderReport_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_EvtOrderReport_descriptor,
         new java.lang.String[] { "OrderId", "OrderSysId", "OrderLocalId", "Status", "VolumeTotal", "VolumeTraded", "VolumeLeft", "CtpErrorId", "CtpErrorMsg", "ReportTsMs", });
     internal_static_hgcp_v1_EvtTradeFill_descriptor =
-      getDescriptor().getMessageTypes().get(29);
+      getDescriptor().getMessageTypes().get(30);
     internal_static_hgcp_v1_EvtTradeFill_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_EvtTradeFill_descriptor,
         new java.lang.String[] { "TradeId", "OrderId", "OrderSysId", "InstrumentId", "Direction", "OffsetFlag", "Price", "Volume", "TradeTsMs", "SubAccountId", "TradePlanId", "ExposureId", });
     internal_static_hgcp_v1_EvtPositionChange_descriptor =
-      getDescriptor().getMessageTypes().get(30);
+      getDescriptor().getMessageTypes().get(31);
     internal_static_hgcp_v1_EvtPositionChange_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_EvtPositionChange_descriptor,
         new java.lang.String[] { "SubAccountId", "InstrumentId", "Direction", "PositionType", "PositionQty", "AvailableQty", "FrozenQty", "ChangeReason", "AsOfTsMs", });
     internal_static_hgcp_v1_EvtOrderCancelResult_descriptor =
-      getDescriptor().getMessageTypes().get(31);
+      getDescriptor().getMessageTypes().get(32);
     internal_static_hgcp_v1_EvtOrderCancelResult_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_EvtOrderCancelResult_descriptor,
         new java.lang.String[] { "OrderId", "CancelledVolume", "ReleasedQuota", "RestoredPlanQty", "Result", "ReasonCode", });
     internal_static_hgcp_v1_EvtOrderExpired_descriptor =
-      getDescriptor().getMessageTypes().get(32);
+      getDescriptor().getMessageTypes().get(33);
     internal_static_hgcp_v1_EvtOrderExpired_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_EvtOrderExpired_descriptor,
         new java.lang.String[] { "OrderId", "ClientOrderRef", "ExpiredTsMs", "TimeoutMs", });
     internal_static_hgcp_v1_EvtCommandFlow_descriptor =
-      getDescriptor().getMessageTypes().get(33);
+      getDescriptor().getMessageTypes().get(34);
     internal_static_hgcp_v1_EvtCommandFlow_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_EvtCommandFlow_descriptor,
         new java.lang.String[] { "OrderId", "FlowType", "FlowTsMs", "Detail", });
     internal_static_hgcp_v1_EvtReplayProgress_descriptor =
-      getDescriptor().getMessageTypes().get(34);
+      getDescriptor().getMessageTypes().get(35);
     internal_static_hgcp_v1_EvtReplayProgress_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_EvtReplayProgress_descriptor,
         new java.lang.String[] { "State", "ReplayedRecords", "TotalRecords", "StartedTsMs", "FinishedTsMs", "Result", "MismatchDetail", });
     internal_static_hgcp_v1_EvtSystemState_descriptor =
-      getDescriptor().getMessageTypes().get(35);
+      getDescriptor().getMessageTypes().get(36);
     internal_static_hgcp_v1_EvtSystemState_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_EvtSystemState_descriptor,
         new java.lang.String[] { "State", "ParamVersionApplied", "LoadedCounts", "Reason", "TsMs", });
     internal_static_hgcp_v1_EvtFundReceipt_descriptor =
-      getDescriptor().getMessageTypes().get(36);
+      getDescriptor().getMessageTypes().get(37);
     internal_static_hgcp_v1_EvtFundReceipt_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_EvtFundReceipt_descriptor,
         new java.lang.String[] { "IdempotencyKey", "ApplyId", "Result", "Amount", "CtpErrorId", "CtpErrorMsg", "ReceiptTsMs", });
     internal_static_hgcp_v1_EvtMarketQuote_descriptor =
-      getDescriptor().getMessageTypes().get(37);
+      getDescriptor().getMessageTypes().get(38);
     internal_static_hgcp_v1_EvtMarketQuote_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_EvtMarketQuote_descriptor,
         new java.lang.String[] { "InstrumentId", "LastPrice", "BidPrice1", "AskPrice1", "BidVolume1", "AskVolume1", "PreSettlement", "QuoteTsMs", "SourceTsMs", });
     internal_static_hgcp_v1_EvtCtpState_descriptor =
-      getDescriptor().getMessageTypes().get(38);
+      getDescriptor().getMessageTypes().get(39);
     internal_static_hgcp_v1_EvtCtpState_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_EvtCtpState_descriptor,
         new java.lang.String[] { "TradeConnected", "MdConnected", "FrontAddr", "StateChangeTsMs", "Reason", });
     internal_static_hgcp_v1_EvtTradingAlert_descriptor =
-      getDescriptor().getMessageTypes().get(39);
+      getDescriptor().getMessageTypes().get(40);
     internal_static_hgcp_v1_EvtTradingAlert_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_EvtTradingAlert_descriptor,
         new java.lang.String[] { "AlertCode", "Level", "Detail", "AlertTsMs", });
     internal_static_hgcp_v1_QuotaEntry_descriptor =
-      getDescriptor().getMessageTypes().get(40);
+      getDescriptor().getMessageTypes().get(41);
     internal_static_hgcp_v1_QuotaEntry_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_QuotaEntry_descriptor,
         new java.lang.String[] { "LimitLayer", "SubAccountId", "ProductId", "InstrumentId", "QuotaLimit", "Used", "Frozen", });
     internal_static_hgcp_v1_PositionLimitEntry_descriptor =
-      getDescriptor().getMessageTypes().get(41);
+      getDescriptor().getMessageTypes().get(42);
     internal_static_hgcp_v1_PositionLimitEntry_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_PositionLimitEntry_descriptor,
         new java.lang.String[] { "SubAccountId", "ProductId", "InstrumentId", "Limit", });
     internal_static_hgcp_v1_PermissionEntry_descriptor =
-      getDescriptor().getMessageTypes().get(42);
+      getDescriptor().getMessageTypes().get(43);
     internal_static_hgcp_v1_PermissionEntry_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_PermissionEntry_descriptor,
         new java.lang.String[] { "OperatorId", "SubAccountId", "ProductIds", "QuotaLimit", "IsEnterpriseLeader", "IsManagementRole", "HasRiskRole", "HasSettleRole", "HasTradingPost", });
     internal_static_hgcp_v1_ExposureEntry_descriptor =
-      getDescriptor().getMessageTypes().get(43);
+      getDescriptor().getMessageTypes().get(44);
     internal_static_hgcp_v1_ExposureEntry_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_ExposureEntry_descriptor,
         new java.lang.String[] { "SubAccountId", "ProductId", "Direction", "ContractUnexecutedQty", "InventoryQty", "ProductionPlanQty", "TotalQty", "UnitFactor", "SnapshotTime", "SnapshotId", });
     internal_static_hgcp_v1_RiskThresholds_descriptor =
-      getDescriptor().getMessageTypes().get(44);
+      getDescriptor().getMessageTypes().get(45);
     internal_static_hgcp_v1_RiskThresholds_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_RiskThresholds_descriptor,
         new java.lang.String[] { "ScaleRatioCommodity", "ScaleRatioTrade", "ScaleBase", "ScaleScope", "TermMaxMonths", "TermGraceDays", "TermAction", "PriceBase", "PriceWarnPct", "PriceBlockPct", "PositionCheckMode", "FreqIntradayWarn", "FreqIntradayBlock", "Freq7DRoundsWarn", "FreqMinHoldDays", "MarginRatioThreshold", });
     internal_static_hgcp_v1_VarietySpec_descriptor =
-      getDescriptor().getMessageTypes().get(45);
+      getDescriptor().getMessageTypes().get(46);
     internal_static_hgcp_v1_VarietySpec_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_VarietySpec_descriptor,
         new java.lang.String[] { "ProductId", "ProductCode", "Category", "Status", "UnitFactor", });
     internal_static_hgcp_v1_WhitelistEntry_descriptor =
-      getDescriptor().getMessageTypes().get(46);
+      getDescriptor().getMessageTypes().get(47);
     internal_static_hgcp_v1_WhitelistEntry_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_WhitelistEntry_descriptor,
         new java.lang.String[] { "SubAccountId", "ProductIds", });
     internal_static_hgcp_v1_TotalLimits_descriptor =
-      getDescriptor().getMessageTypes().get(47);
+      getDescriptor().getMessageTypes().get(48);
     internal_static_hgcp_v1_TotalLimits_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_TotalLimits_descriptor,
         new java.lang.String[] { "TotalLimit", "TotalUsed", "TotalFrozen", "ByProduct", });
     internal_static_hgcp_v1_TotalLimitByProduct_descriptor =
-      getDescriptor().getMessageTypes().get(48);
+      getDescriptor().getMessageTypes().get(49);
     internal_static_hgcp_v1_TotalLimitByProduct_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_TotalLimitByProduct_descriptor,
         new java.lang.String[] { "ProductId", "Limit", "Used", "Frozen", });
     internal_static_hgcp_v1_AnnualScaleFactor_descriptor =
-      getDescriptor().getMessageTypes().get(49);
+      getDescriptor().getMessageTypes().get(50);
     internal_static_hgcp_v1_AnnualScaleFactor_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_hgcp_v1_AnnualScaleFactor_descriptor,

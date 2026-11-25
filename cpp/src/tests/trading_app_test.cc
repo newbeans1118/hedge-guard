@@ -1091,6 +1091,131 @@ void test_status_detail() {
   app.stop();
 }
 
+// ── 行情订阅合约配置键：逗号分隔 / 去空白 / 去重 / **保留交易所原生大小写** ─
+//  回归守护：CTP 合约代码大小写敏感（rb2701 / IF2612 / SR701 混用），
+//  曾因 normalizeInstruments 做 upper() 导致 10/11 合约静默失效，此处锁死「不归一」。
+void test_quote_config() {
+  const std::string dir = makeTempDir("hgtquotecfg");
+  const std::string path = dir + "/hg.properties";
+  {
+    std::FILE* f = std::fopen(path.c_str(), "w");
+    HG_CHECK(f != 0);
+    if (f != 0) {
+      // 混合各交易所原生写法：SHFE 小写 4 位 / CFFEX 大写 4 位 / CZCE 大写 3 位。
+      std::fprintf(f,
+          "hg.ctp.subscribe_instruments= rb2701, IF2612 ,rb2701,  ,SR701,cu2612\n");
+      std::fclose(f);
+    }
+  }
+  AppConfig cfg;
+  ConfigOutcome oc = loadWith({"--config", path.c_str()}, &cfg);
+  HG_CHECK(oc.ok);
+  // 去空白 / 去空项 / 去重（rb2701 重复）/ 保序，**大小写逐字保留**。
+  HG_CHECK_EQ(cfg.ctp_subscribe_instruments,
+              std::string("rb2701,IF2612,SR701,cu2612"));
+  HG_CHECK(cfg.ctp_subscribe_instruments.find("RB2701") == std::string::npos);
+  HG_CHECK(cfg.ctp_subscribe_instruments.find("sr701") == std::string::npos);
+  // 非敏感键：脱敏摘要照实回显（不是 <redacted>）。
+  const std::string sum = hg::app::redactedSummary(cfg);
+  HG_CHECK(sum.find("hg.ctp.subscribe_instruments=rb2701,IF2612,SR701,cu2612")
+           != std::string::npos);
+  // env 覆盖文件（优先级 env > 文件）；大小写不同视为不同合约 ⇒ 不去重。
+  ::setenv("HG_CTP_SUBSCRIBE_INSTRUMENTS", "cu2701, CU2701,cu2701", 1);
+  AppConfig cfg2;
+  ConfigOutcome oc2 = loadWith({"--config", path.c_str()}, &cfg2);
+  HG_CHECK(oc2.ok);
+  HG_CHECK_EQ(cfg2.ctp_subscribe_instruments, std::string("cu2701,CU2701"));
+  ::unsetenv("HG_CTP_SUBSCRIBE_INSTRUMENTS");
+}
+
+// ── 行情发布：CtQuoteEvent → EVT_MARKET_QUOTE + 按合约 200ms 节流 ────────
+void test_quote_publish() {
+  const std::string dir = makeTempDir("hgtquotepub");
+  const std::uint16_t port = probeFreePort();
+  HG_CHECK(port != 0);
+  AppConfig cfg = baseConfig(dir, port);
+  TradingApp app(cfg);
+  TestClock clk;
+  clk.base = 100000;
+  clk.step = 0;  // 固定时刻，节流判定完全由 publishQuotes(now) 入参控制
+  clk.calls = 0;
+  app.set_clock(&testClockFn, &clk);
+  std::string err;
+  HG_CHECK(app.start(&err));
+
+  Client cli;
+  HG_CHECK(cli.connect(port));
+  Harness h(&app, &cli);
+  HG_CHECK(h.sendHello());
+  Frame hello_ack;
+  HG_CHECK(h.waitFrame(mt(MessageType::kMsgHelloAck), &hello_ack, 2000));
+
+  hg::ctp_adapter::CtQuoteEvent q;
+  q.instrument_id = "CU2506";
+  q.last_price = 70500.0;
+  q.pre_settlement_price = 70000.0;
+  q.bid_price1 = 70490.0;
+  q.ask_price1 = 70510.0;
+  q.bid_volume1 = 10;
+  q.ask_volume1 = 12;
+  q.local_recv_ts_ms = 9999;
+
+  // ① 首帧：编码并发布，载荷字段逐项对齐 wire。
+  app.enqueueQuote(q);
+  HG_CHECK_EQ(app.publishQuotes(100000), static_cast<std::size_t>(1));
+  HG_CHECK_EQ(app.stats().quote_events, static_cast<std::uint64_t>(1));
+  std::vector<Frame> q1;
+  HG_CHECK_EQ(h.takeAll(mt(MessageType::kEvtMarketQuote), &q1), static_cast<std::size_t>(1));
+  pbv1::EvtMarketQuote e1;
+  HG_CHECK(PbPayloadCodec::decode(q1[0].body, &e1));
+  HG_CHECK_EQ(e1.instrument_id(), std::string("CU2506"));
+  HG_CHECK_EQ(e1.last_price(), std::string("70500.0000"));
+  HG_CHECK_EQ(e1.bid_price1(), std::string("70490.0000"));
+  HG_CHECK_EQ(e1.ask_price1(), std::string("70510.0000"));
+  HG_CHECK_EQ(e1.bid_volume1(), 10);
+  HG_CHECK_EQ(e1.quote_ts_ms(), static_cast<std::int64_t>(9999));
+
+  // ② 同合约 100ms 内再一帧 ⇒ 节流丢弃（允许丢帧，仅推最新值）。
+  q.last_price = 70600.0;
+  app.enqueueQuote(q);
+  HG_CHECK_EQ(app.publishQuotes(100100), static_cast<std::size_t>(0));
+  HG_CHECK_EQ(app.stats().quotes_dropped, static_cast<std::uint64_t>(1));
+
+  // ③ 跨过 200ms ⇒ 再发布一帧。
+  q.last_price = 70700.0;
+  app.enqueueQuote(q);
+  HG_CHECK_EQ(app.publishQuotes(100300), static_cast<std::size_t>(1));
+  HG_CHECK_EQ(app.stats().quote_events, static_cast<std::uint64_t>(2));
+  std::vector<Frame> q3;
+  HG_CHECK_EQ(h.takeAll(mt(MessageType::kEvtMarketQuote), &q3), static_cast<std::size_t>(1));
+  pbv1::EvtMarketQuote e3;
+  HG_CHECK(PbPayloadCodec::decode(q3[0].body, &e3));
+  HG_CHECK_EQ(e3.last_price(), std::string("70700.0000"));
+
+  // ④ 空合约号 ⇒ 丢弃，不发布。
+  hg::ctp_adapter::CtQuoteEvent empty;
+  app.enqueueQuote(empty);
+  HG_CHECK_EQ(app.publishQuotes(100600), static_cast<std::size_t>(0));
+  HG_CHECK_EQ(app.stats().quote_events, static_cast<std::uint64_t>(2));
+
+  // ⑤ CTP DBL_MAX 哨兵价 ⇒ wire 归一为空串（不渲染 300+ 位数字）。
+  hg::ctp_adapter::CtQuoteEvent sentinel;
+  sentinel.instrument_id = "AU2512";
+  sentinel.last_price = 1.7976931348623157e308;
+  sentinel.bid_price1 = 480.0;
+  sentinel.ask_price1 = 481.0;
+  app.enqueueQuote(sentinel);
+  HG_CHECK_EQ(app.publishQuotes(100900), static_cast<std::size_t>(1));
+  std::vector<Frame> q5;
+  HG_CHECK_EQ(h.takeAll(mt(MessageType::kEvtMarketQuote), &q5), static_cast<std::size_t>(1));
+  pbv1::EvtMarketQuote e5;
+  HG_CHECK(PbPayloadCodec::decode(q5[0].body, &e5));
+  HG_CHECK(e5.last_price().empty());
+  HG_CHECK_EQ(e5.bid_price1(), std::string("480.0000"));
+
+  app.stop();
+}
+
 int main(int argc, char** argv) {
   const std::string only = (argc > 1 && argv[1] != 0) ? std::string(argv[1]) : std::string("all");
   const bool all = (only == "all");
@@ -1103,9 +1228,12 @@ int main(int argc, char** argv) {
   if (all || only == "release") test_release_unknown_inflight();
   if (all || only == "order_query") test_order_query_wiring();
   if (all || only == "status_detail") test_status_detail();
+  if (all || only == "quote_config") test_quote_config();
+  if (all || only == "quote_publish") test_quote_publish();
   if (!all && only != "config" && only != "secret" && only != "listen" && only != "ready" &&
       only != "progress" && only != "corrupt" && only != "release" &&
-      only != "order_query" && only != "status_detail") {
+      only != "order_query" && only != "status_detail" &&
+      only != "quote_config" && only != "quote_publish") {
     std::printf("[FATAL] 未知用例：%s\n", only.c_str());
     return 2;
   }

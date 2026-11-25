@@ -299,3 +299,141 @@ table.hg-table td.hg-num, table.hg-table th.hg-num { text-align: right; font-fam
   padding: 8px 14px; cursor: pointer; color: var(--hg-fg-muted); font-size: 14px;
 }
 .hg-tabs button.is-active { color: var(--hg-primary-dark); border-bottom-color: var(--hg-primary); font-weight: 600; }
+
+/* ==========================================================================
+ * 行情终端面板（.hg-q-* 命名空间，局部深色；不影响其余浅色页面）
+ * 风格参照主流行情终端：深色底 / 红涨绿跌 / 等宽数字 / 紧凑行 / 报价板 + 盘口 + 走势。
+ * 纪律：仅用现有 wire 字段（instrument/last/bid/ask/ts），不臆造涨跌幅；
+ *       「会话变动」以本会话首帧价为基准并显式标注口径，非昨结算价、非真实涨跌幅。
+ * ========================================================================== */
+.hg-q {
+  --hg-q-bg: #0e1621;
+  --hg-q-panel: #142031;
+  --hg-q-panel-2: #101b2b;
+  --hg-q-line: #22334a;
+  --hg-q-fg: #d7e2ef;
+  --hg-q-muted: #7d90a8;
+  --hg-q-up: #f04b4b;      /* 红涨（国内惯例） */
+  --hg-q-down: #23b26d;    /* 绿跌 */
+  --hg-q-flat: #9fb0c4;
+  --hg-q-accent: #4d9dff;
+  background: var(--hg-q-bg);
+  color: var(--hg-q-fg);
+  border: 1px solid var(--hg-q-line);
+  border-radius: var(--hg-radius);
+  padding: 12px 14px;
+  margin-top: 10px;
+}
+.hg-q * { box-sizing: border-box; }
+.hg-q .hg-num, .hg-q .hg-q-num { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; }
+
+/* 顶部状态条 */
+.hg-q-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-bottom: 10px; border-bottom: 1px solid var(--hg-q-line); }
+.hg-q-top__label { color: var(--hg-q-muted); font-size: 12px; }
+.hg-q-top__val { color: var(--hg-q-fg); font-size: 13px; font-weight: 600; }
+.hg-q-top__badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 2px 9px; border-radius: 10px; border: 1px solid var(--hg-q-line); }
+.hg-q-top__badge[data-ws-state="connected"] { color: var(--hg-q-down); border-color: var(--hg-q-down); }
+.hg-q-top__badge[data-ws-state="disconnected"], .hg-q-top__badge[data-ws-state="init"] { color: var(--hg-q-up); border-color: var(--hg-q-up); }
+.hg-q-top__dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.hg-q-top__note { color: var(--hg-q-muted); font-size: 11px; line-height: 1.5; width: 100%; }
+
+/* 工具栏 */
+.hg-q-bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; padding: 10px 0; border-bottom: 1px solid var(--hg-q-line); }
+.hg-q-bar .hg-field > label { color: var(--hg-q-muted); }
+.hg-q-bar input[type="text"], .hg-q-bar input[type="search"], .hg-q-bar select {
+  background: var(--hg-q-panel-2); color: var(--hg-q-fg); border: 1px solid var(--hg-q-line); border-radius: 4px; padding: 5px 8px; font-size: 13px;
+}
+.hg-q-bar input::placeholder { color: var(--hg-q-muted); }
+.hg-q-btn { background: var(--hg-q-panel); color: var(--hg-q-fg); border: 1px solid var(--hg-q-line); border-radius: 4px; padding: 5px 12px; cursor: pointer; font-size: 13px; }
+.hg-q-btn:hover { border-color: var(--hg-q-accent); }
+.hg-q-btn.is-active { border-color: var(--hg-q-accent); color: var(--hg-q-accent); }
+.hg-q-seg { display: inline-flex; border: 1px solid var(--hg-q-line); border-radius: 4px; overflow: hidden; }
+.hg-q-seg .hg-q-btn { border: none; border-right: 1px solid var(--hg-q-line); border-radius: 0; padding: 5px 10px; }
+.hg-q-seg .hg-q-btn:last-child { border-right: none; }
+
+/* 主区：左报价板 + 右详情 */
+.hg-q-main { display: flex; gap: 12px; margin-top: 10px; align-items: stretch; flex-wrap: wrap; }
+.hg-q-board { flex: 1 1 460px; min-width: 0; }
+.hg-q-detail { flex: 0 0 268px; background: var(--hg-q-panel-2); border: 1px solid var(--hg-q-line); border-radius: 6px; padding: 12px; }
+.hg-q-detail__title { font-size: 12px; color: var(--hg-q-muted); margin: 0 0 8px; }
+.hg-q-detail__instr { font-size: 17px; font-weight: 700; }
+.hg-q-detail__name { font-size: 12px; color: var(--hg-q-muted); margin-left: 6px; font-weight: 400; }
+.hg-q-detail__last { font-size: 30px; font-weight: 700; line-height: 1.25; margin: 4px 0 2px; font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; }
+.hg-q-detail__chg { font-size: 12px; margin-bottom: 12px; }
+.hg-q-detail__empty { color: var(--hg-q-muted); font-size: 13px; padding: 16px 0; }
+.hg-q-detail__note { color: var(--hg-q-muted); font-size: 11px; line-height: 1.5; margin-top: 10px; border-top: 1px solid var(--hg-q-line); padding-top: 8px; }
+
+/* 盘口（买一/卖一比例条） */
+.hg-q-depth { display: grid; grid-template-columns: 34px 1fr auto; gap: 6px 8px; align-items: center; font-size: 12px; }
+.hg-q-depth__tag { color: var(--hg-q-muted); }
+.hg-q-depth__track { height: 12px; background: var(--hg-q-panel); border-radius: 2px; overflow: hidden; position: relative; }
+.hg-q-depth__fill { height: 100%; border-radius: 2px; }
+.hg-q-depth__fill--bid { background: var(--hg-q-down); }
+.hg-q-depth__fill--ask { background: var(--hg-q-up); }
+.hg-q-depth__val { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; min-width: 62px; text-align: right; }
+.hg-q-depth__val--bid { color: var(--hg-q-down); }
+.hg-q-depth__val--ask { color: var(--hg-q-up); }
+
+/* 报价板表格 */
+.hg-q-wrap { overflow: auto; max-height: 420px; border: 1px solid var(--hg-q-line); border-radius: 4px; }
+.hg-q-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.hg-q-table th { position: sticky; top: 0; z-index: 1; background: var(--hg-q-panel); color: var(--hg-q-muted); font-weight: 600; text-align: left; padding: 6px 8px; white-space: nowrap; cursor: pointer; user-select: none; border-bottom: 1px solid var(--hg-q-line); }
+.hg-q-table th:hover { color: var(--hg-q-accent); }
+.hg-q-table th.hg-q-num { text-align: right; }
+.hg-q-table th .hg-q-sort { color: var(--hg-q-accent); margin-left: 3px; }
+.hg-q-table td { padding: 5px 8px; border-bottom: 1px solid var(--hg-q-line); white-space: nowrap; }
+.hg-q-table td.hg-q-num { text-align: right; }
+.hg-q-table tbody tr { cursor: pointer; }
+.hg-q-table tbody tr:hover { background: var(--hg-q-panel); }
+.hg-q-table tbody tr.is-selected { background: #1b3352; }
+.hg-q-table tbody tr.is-hidden { display: none; }
+.hg-q-table .hg-q-instr { color: var(--hg-q-fg); font-weight: 600; }
+.hg-q-table .hg-q-name { color: var(--hg-q-muted); font-size: 11px; margin-left: 5px; font-weight: 400; }
+
+/* 涨跌色与闪烁 */
+.hg-q-up { color: var(--hg-q-up) !important; }
+.hg-q-down { color: var(--hg-q-down) !important; }
+.hg-q-flat { color: var(--hg-q-flat) !important; }
+.hg-q-last { font-weight: 700; }
+.hg-q-flash-up { animation: hg-q-flash-up .55s ease-out; }
+.hg-q-flash-down { animation: hg-q-flash-down .55s ease-out; }
+@keyframes hg-q-flash-up { 0% { background: rgba(240, 75, 75, .38); } 100% { background: transparent; } }
+@keyframes hg-q-flash-down { 0% { background: rgba(35, 178, 109, .38); } 100% { background: transparent; } }
+
+/* 星标自选 / 新鲜度 / 密度 */
+.hg-q-fav { background: none; border: none; cursor: pointer; color: var(--hg-q-muted); font-size: 14px; padding: 0 2px; line-height: 1; }
+.hg-q-fav.is-on { color: #f5c451; }
+.hg-q-stale { font-size: 10px; padding: 1px 6px; border-radius: 8px; border: 1px solid var(--hg-q-line); white-space: nowrap; }
+.hg-q-stale[data-quote-stale="fresh"] { color: var(--hg-q-down); border-color: var(--hg-q-down); }
+.hg-q-stale[data-quote-stale="stale"] { color: var(--hg-q-up); border-color: var(--hg-q-up); }
+.hg-q--compact .hg-q-table td { padding: 2px 8px; }
+.hg-q--compact .hg-q-table { font-size: 11px; }
+.hg-q--compact .hg-q-wrap { max-height: 520px; }
+
+/* CH-027 合约选择面板 */
+.hg-q-pick { border-top: 1px solid var(--hg-q-line); margin-top: 10px; padding-top: 10px; }
+.hg-q-pick__bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; }
+.hg-q-pick__bar .hg-field > label { color: var(--hg-q-muted); }
+.hg-q-pick__bar select, .hg-q-pick__bar input[type="text"], .hg-q-pick__bar input[type="search"] {
+  background: var(--hg-q-panel-2); color: var(--hg-q-fg); border: 1px solid var(--hg-q-line); border-radius: 4px; padding: 5px 8px; font-size: 13px;
+}
+.hg-q-pick__bar input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--hg-q-accent); }
+.hg-q-pick__note { color: var(--hg-q-muted); font-size: 11px; line-height: 1.5; margin: 8px 0 6px; }
+.hg-q-pick__list { display: flex; flex-wrap: wrap; gap: 6px 14px; max-height: 168px; overflow-y: auto; padding: 6px 4px; }
+.hg-q-pick__grp { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; border-bottom: 1px dashed var(--hg-q-line); padding-bottom: 4px; width: 100%; }
+.hg-q-pick__grpname { color: var(--hg-q-muted); font-size: 11px; min-width: 130px; }
+.hg-q-pick__item { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; font-family: "JetBrains Mono", Consolas, monospace; }
+.hg-q-pick__item input { accent-color: var(--hg-q-accent); }
+.hg-q-pick__status { color: var(--hg-q-accent); font-size: 12px; padding-top: 6px; }
+
+/* sparkline（inline SVG，零依赖） */
+.hg-q-spark { width: 100%; height: 64px; display: block; margin: 6px 0; }
+.hg-q-spark__grid { stroke: var(--hg-q-line); stroke-width: 1; }
+.hg-q-spark__line { fill: none; stroke: var(--hg-q-accent); stroke-width: 1.6; }
+.hg-q-spark__area { fill: rgba(77, 157, 255, .12); stroke: none; }
+
+/* 空态 / 图例 */
+.hg-q-empty { color: var(--hg-q-muted); font-size: 13px; padding: 18px 8px; }
+.hg-q-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11px; color: var(--hg-q-muted); padding-top: 10px; margin-top: 10px; border-top: 1px solid var(--hg-q-line); }
+.hg-q-legend b { font-weight: 600; }
+.hg-q-legend .hg-q-up, .hg-q-legend .hg-q-down { font-weight: 600; }

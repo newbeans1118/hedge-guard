@@ -58,7 +58,7 @@ const conn = HG.ws.connectComponentAlerts({
 });
 
 ok(sockets.length === 1, '恰好建立 1 条连接');
-ok(sockets[0].url === 'ws://probe.local/ws/alert', '连接 URL = 同源 + /ws/alert（无硬编码 IP:端口）');
+ok(sockets[0].url === 'ws://probe.local/ws/alert', '无 document/meta 时退回同源 + /ws/alert（反向代理部署兼容）');
 
 const sub = sockets[0].sent.map((s) => JSON.parse(s))
     .find((m) => m.type === 'subscribe');
@@ -82,6 +82,23 @@ ok(component.length === 1 && component[0].metric === 'component.state',
 ok(all.length === 2, '全部 alert 帧仍按原语义透传 onMessage（不破坏既有告警页）');
 ok(conn && typeof conn.close === 'function', '返回可关闭的连接句柄');
 conn.close();
+
+// ---- 方案 A / CFG-32 部署端口分支（wsBase() 在 connect() 时求值，故可延迟注入桩）----
+// (a) index.html 注入 <meta name="hg-ws-port" content="81"> ⇒ 连 :81，不再打 :80
+globalThis.document = {
+  querySelector: (sel) => (sel === 'meta[name="hg-ws-port"]' ? { content: '81' } : null)
+};
+const connPort = HG.ws.connect('quote', {});
+ok(sockets.length === 2 && sockets[1].url === 'ws://probe.local:81/ws/quote',
+    'meta 下发端口时 URL = ws://<hostname>:<hg.web.ws.port>/ws/quote（修复断线根因）');
+connPort.close();
+// (b) document 存在但无 meta（t071 桩 / 反向代理部署）⇒ 仍退回同源
+globalThis.document = { querySelector: () => null };
+const connFallback = HG.ws.connect('alert', {});
+ok(sockets.length === 3 && sockets[2].url === 'ws://probe.local/ws/alert',
+    'document 存在但无 meta 时退回同源（不破坏既有探针/反向代理部署）');
+connFallback.close();
+delete globalThis.document;
 
 console.log('monitor_ws_probe: PASS=' + pass + ' FAIL=' + fail);
 process.exit(fail === 0 ? 0 : 1);

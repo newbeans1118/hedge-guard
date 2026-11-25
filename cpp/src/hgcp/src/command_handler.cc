@@ -958,11 +958,11 @@ CommandOutcome CommandHandler::handle(std::uint16_t type,
                                       const std::vector<std::uint8_t>& body,
                                       std::uint64_t ack_msg_id, std::int64_t now_ms) {
   CommandOutcome out;
-  // 仅控制指令段（0x0101–0x011E）进入本消费器。
-  if (type < mt(MessageType::kCmdPlaceOrder) ||
-      type > mt(MessageType::kCmdQueryFundResult)) {
-    return out;  // consumed = false
-  }
+      // 仅控制指令段（0x0101–0x011F，CH-027 末位扩到 0x011F）进入本消费器。
+      if (type < mt(MessageType::kCmdPlaceOrder) ||
+          type > mt(MessageType::kCmdSetQuoteSubscription)) {
+        return out;  // consumed = false
+      }
   out.consumed = true;
   std::string reject_reason;
   switch (type) {
@@ -1232,10 +1232,29 @@ CommandOutcome CommandHandler::handle(std::uint16_t type,
                     static_cast<unsigned long long>(state_->param_version()),
                     static_cast<unsigned>(session_.batches_received()),
                     static_cast<unsigned>(session_.batches_total()));
-      out.reply = make_ack_with_detail(ack_msg_id, std::string(buf));
-      return out;
-    }
-    // ---- 交易路径面（受理消费 + 就绪门卫；生效归 T-036/T-037）----
+          out.reply = make_ack_with_detail(ack_msg_id, std::string(buf));
+          return out;
+        }
+        // ---- CH-027：动态行情订阅（解析 → 上层接缝 → 回执 detail）----
+        case mt(MessageType::kCmdSetQuoteSubscription): {
+          pbv1::CmdSetQuoteSubscription msg;
+          if (!PbPayloadCodec::decode(body, &msg)) {
+            out.reply = invalid_payload(ack_msg_id, "unparseable");
+            return out;
+          }
+          if (quote_subscription_fn_ == nullptr) {
+            out.reply = invalid_payload(ack_msg_id, "quote subscription fn not wired");
+            return out;
+          }
+          std::vector<std::string> instruments;
+          for (int i = 0; i < msg.instruments_size(); ++i) {
+            instruments.push_back(msg.instruments(i));
+          }
+          const std::string detail = quote_subscription_fn_(quote_subscription_user_, instruments);
+          out.reply = make_ack_with_detail(ack_msg_id, detail);
+          return out;
+        }
+        // ---- 交易路径面（受理消费 + 就绪门卫；生效归 T-036/T-037）----
     case mt(MessageType::kCmdPlaceOrder):
     case mt(MessageType::kCmdConfirmOrder):
     case mt(MessageType::kCmdCancelOrder):

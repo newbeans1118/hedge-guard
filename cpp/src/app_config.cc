@@ -55,8 +55,10 @@ const KeyDef kKeys[] = {
     {"hg.ctp.md_front", "HG_CTP_MD_FRONT", false},
     {"hg.ctp.broker_id", "HG_CTP_BROKER_ID", false},
     {"hg.ctp.user_id", "HG_CTP_USER_ID", false},
-    {"hg.ctp.flow_path", "HG_CTP_FLOW_PATH", false},
-    // 敏感（仅 env）
+        {"hg.ctp.flow_path", "HG_CTP_FLOW_PATH", false},
+        // 行情订阅合约集（非敏感；CTP 行情链路装配，见 docs/BACKLOG.md）
+        {"hg.ctp.subscribe_instruments", "HG_CTP_SUBSCRIBE_INSTRUMENTS", false},
+        // 敏感（仅 env）
     {"hg.ctp.password", "HG_CTP_PASSWORD", true},
     {"hg.ctp.auth_code", "HG_CTP_AUTH_CODE", true},
     {"hg.ctp.app_id", "HG_CTP_APP_ID", true},
@@ -73,14 +75,43 @@ std::string trim(const std::string& s) {
   return s.substr(b, e - b);
 }
 
-std::string lower(const std::string& s) {
-  std::string out(s);
-  for (std::size_t i = 0; i < out.size(); ++i) {
-    const char c = out[i];
-    if (c >= 'A' && c <= 'Z') out[i] = static_cast<char>(c - 'A' + 'a');
-  }
-  return out;
-}
+    std::string lower(const std::string& s) {
+      std::string out(s);
+      for (std::size_t i = 0; i < out.size(); ++i) {
+        const char c = out[i];
+        if (c >= 'A' && c <= 'Z') out[i] = static_cast<char>(c - 'A' + 'a');
+      }
+      return out;
+    }
+
+    // 逗号分隔合约集 → 去空白 / 去重 / 保序的规范串。
+    // ★ **保留交易所原生大小写与位数**：CTP 合约代码大小写敏感，且各所规则不同
+    //   （SHFE/DCE/INE 小写 4 位如 rb2701 / CFFEX 大写 4 位如 IF2612 /
+    //    CZCE 大写 3 位如 SR701）。此处**不得做大小写归一** —— 前端 WS 订阅的
+    //   `toUpperCase` 是 W-1 过滤口径（ws.js / WsSubscription），与 CTP
+    //   `SubscribeMarketData` 的 InstrumentID 是两套语义，混用会让 10/11 合约静默失效。
+    std::string normalizeInstruments(const std::string& s) {
+      std::vector<std::string> seen;
+      std::string::size_type b = 0;
+      while (b <= s.size()) {
+        const std::string::size_type e = s.find(',', b);
+        const std::string part = trim(s.substr(
+            b, e == std::string::npos ? std::string::npos : e - b));
+        bool dup = false;
+        for (std::size_t i = 0; i < seen.size(); ++i) {
+          if (seen[i] == part) { dup = true; break; }
+        }
+        if (!part.empty() && !dup) seen.push_back(part);
+        if (e == std::string::npos) break;
+        b = e + 1;
+      }
+      std::string out;
+      for (std::size_t i = 0; i < seen.size(); ++i) {
+        if (i != 0) out += ",";
+        out += seen[i];
+      }
+      return out;
+    }
 
 bool contains(const std::string& hay, const char* needle) {
   return hay.find(needle) != std::string::npos;
@@ -189,9 +220,11 @@ bool applyKey(const std::string& key, const std::string& value, AppConfig* cfg,
     cfg->ctp_broker_id = value;
   } else if (key == "hg.ctp.user_id") {
     cfg->ctp_user_id = value;
-  } else if (key == "hg.ctp.flow_path") {
-    cfg->ctp_flow_path = value;
-  } else if (key == "hg.ctp.password") {
+      } else if (key == "hg.ctp.flow_path") {
+        cfg->ctp_flow_path = value;
+      } else if (key == "hg.ctp.subscribe_instruments") {
+        cfg->ctp_subscribe_instruments = normalizeInstruments(value);
+      } else if (key == "hg.ctp.password") {
     cfg->ctp_password = value;  // 仅 env 可达（CLI/文件已在更外层拒绝）
   } else if (key == "hg.ctp.auth_code") {
     cfg->ctp_auth_code = value;
@@ -557,8 +590,10 @@ std::string redactedSummary(const AppConfig& cfg) {
   s += " hg.ctp.md_front=" + (cfg.ctp_md_front.empty() ? empty_mark : cfg.ctp_md_front);
   s += " hg.ctp.broker_id=" + (cfg.ctp_broker_id.empty() ? empty_mark : cfg.ctp_broker_id);
   s += " hg.ctp.user_id=" + (cfg.ctp_user_id.empty() ? empty_mark : cfg.ctp_user_id);
-  s += " hg.ctp.flow_path=" + (cfg.ctp_flow_path.empty() ? empty_mark : cfg.ctp_flow_path);
-  // 敏感项：只报「是否已提供」，永不回显值/长度/片段。
+      s += " hg.ctp.flow_path=" + (cfg.ctp_flow_path.empty() ? empty_mark : cfg.ctp_flow_path);
+      s += " hg.ctp.subscribe_instruments=" +
+           (cfg.ctp_subscribe_instruments.empty() ? empty_mark : cfg.ctp_subscribe_instruments);
+      // 敏感项：只报「是否已提供」，永不回显值/长度/片段。
   s += " hg.ctp.password=" + (cfg.ctp_password.empty() ? empty_mark : redacted);
   s += " hg.ctp.auth_code=" + (cfg.ctp_auth_code.empty() ? empty_mark : redacted);
   s += " hg.ctp.app_id=" + (cfg.ctp_app_id.empty() ? empty_mark : redacted);

@@ -19,11 +19,16 @@
 //   CFG-22  hg.ctp.env_type                                    （SIMULATION）
 //   W-10    hg.ctp.api_key_mode  AUTO / PRODUCTION / EVALUATION（AUTO）
 //           —— SDK 握手密钥模式，与 env_type 的实盘准入治理语义解耦；AUTO 跟随 env_type
-//   CTP 连接（非敏感）：hg.ctp.trade_front / hg.ctp.md_front /
-//           hg.ctp.broker_id / hg.ctp.user_id / hg.ctp.flow_path
-//           —— 架构无 `hg.ctp.*` 连接项的独立 CFG 编号；取 CFG-22 同族最小键集
-//              （TASKS T-207 ⑩「按 CFG-22 + T-052 部署配置先例取最小键集」授权），
-//              回执已列明，**未新增协议字段**（仅为本地配置键）。
+    //   CTP 连接（非敏感）：hg.ctp.trade_front / hg.ctp.md_front /
+    //           hg.ctp.broker_id / hg.ctp.user_id / hg.ctp.flow_path
+    //           —— 架构无 `hg.ctp.*` 连接项的独立 CFG 编号；取 CFG-22 同族最小键集
+    //              （TASKS T-207 ⑩「按 CFG-22 + T-052 部署配置先例取最小键集」授权），
+    //              回执已列明，**未新增协议字段**（仅为本地配置键）。
+    //   行情订阅（非敏感）：hg.ctp.subscribe_instruments（缺省空 = 不订阅）
+    //           —— 部署期本地配置键，**不扩协议、不改冻结面**；
+    //              装载时仅去空白 / 去重 / 保序，**保留交易所原生大小写与位数**
+    //              （CTP 代码大小写敏感：SHFE/DCE/INE 小写 4 位、CFFEX 大写 4 位、CZCE 大写 3 位）；
+    //              MD 登录后调 CtAdapter::subscribeMarket。
 //   重放     hg.replay.query_timeout_ms（§4.5.3 性能注 `HG.REPLAY.QUERY_TIMEOUT_MS`）
 //
 // **口令类仅 env**（`NFR-SEC-1` / `R-CONFIG-5` / 附录 B 红线 8）：
@@ -74,7 +79,12 @@ struct AppConfig {
   std::string ctp_md_front;
   std::string ctp_broker_id;
   std::string ctp_user_id;
-  std::string ctp_flow_path;   // CTP 流文件目录（与 hg.flow.dir 不同）
+      std::string ctp_flow_path;   // CTP 流文件目录（与 hg.flow.dir 不同）
+      // 行情订阅合约集：逗号分隔，装载时仅去空白 / 去重 / 保序，**保留交易所原生大小写与位数**；
+      // 空 = 不订阅。CTP 合约代码大小写敏感（SHFE/DCE/INE 小写 4 位 / CFFEX 大写 4 位 /
+      // CZCE 大写 3 位），不得归一。非敏感、部署期填写；供 TradingApp 在 MD 登录后调
+      // CtAdapter::subscribeMarket。
+      std::string ctp_subscribe_instruments;
 
   // ---- 敏感（**仅 env**）----
   std::string ctp_password;

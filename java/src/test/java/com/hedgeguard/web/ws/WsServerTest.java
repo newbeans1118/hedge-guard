@@ -203,6 +203,48 @@ class WsServerTest {
     }
 
     @Test
+    @DisplayName("🔴 W-1/CH-027：flushQuotes 须按 instruments 白名单过滤实时行情帧")
+    void realtimeQuoteRespectsInstrumentWhitelist() throws IOException {
+        try (Socket s = WsTestSupport.connectAndUpgrade(port(), "/ws/quote", "S-" + USER_WITH_GRANTS)) {
+            WsTestSupport.readFrame(s);                                  // 首帧 subscribed
+            WsTestSupport.sendText(s, "{\"type\":\"subscribe\",\"channels\":[\"quote\"],"
+                    + "\"instruments\":[\"ru2601\"],\"subAccounts\":[1]}");
+            WsFrame ack = WsTestSupport.readFrame(s);
+            assertTrue(ack.text().contains("\"type\":\"subscribed\""));
+
+            // 非白名单合约：flushQuotes 须按 matchesQuote 过滤，不得下发。
+            // 回归旧缺陷：flushQuotes 曾仅判 wantsQuote()，W-1 instruments 对实时帧零生效。
+            server.publishQuote("rb2701", "3500.000000", "3499.000000", "3501.000000");
+            s.setSoTimeout(700);                                         // ≥3 个 QUOTE_TICK(200ms)
+            boolean leaked = false;
+            try {
+                long deadline = System.currentTimeMillis() + 700;
+                while (System.currentTimeMillis() < deadline) {
+                    WsFrame f = WsTestSupport.readFrame(s);
+                    if (f == null) {
+                        break;
+                    }
+                    if (f.opcode() == WsFrame.Opcode.TEXT
+                            && f.text().contains("\"type\":\"quote\"")
+                            && f.text().contains("rb2701")) {
+                        leaked = true;
+                        break;
+                    }
+                }
+            } catch (SocketTimeoutException expected) {
+                // 观察窗内无帧送达 = 已正确过滤（心跳 30000ms，窗内不会来 ping）
+            }
+            assertFalse(leaked, "非白名单合约 rb2701 的实时行情帧不得下发");
+
+            // 白名单合约仍可送达：证明连接存活、过滤按合约而非全局静默
+            s.setSoTimeout(3000);
+            server.publishQuote("ru2601", "14500.000000", "14499.000000", "14501.000000");
+            WsFrame quote = readUntilType(s, "quote", 3000);
+            assertTrue(quote.text().contains("ru2601"));
+        }
+    }
+
+    @Test
     @DisplayName("🔴 W-2：越权子账户订阅 → 先回 10004 错误帧，再 close(1008)，并写入留痕")
     void unauthorizedSubscriptionIsRejectedAndRecorded() throws IOException {
         try (Socket s = WsTestSupport.connectAndUpgrade(port(), "/ws/alert", "S-" + USER_WITH_GRANTS)) {

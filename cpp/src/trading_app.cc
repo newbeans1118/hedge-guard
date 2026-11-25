@@ -36,6 +36,35 @@ namespace {
 
 std::uint16_t mt(hg::hgcp::MessageType m) { return static_cast<std::uint16_t>(m); }
 
+// 行情按合约发布的最小间隔：与 Java WsServer.QUOTE_TICK_MILLIS(200ms) 对齐。
+// emit_market_quote 直发不排队，必须在 C++ 侧限流，避免多合约行情淹没 HGCP 通道。
+const std::int64_t kQuoteMinIntervalMs = 200;
+
+// CTP double 价格 → wire 定点十进制串（避免浮点二进制误差与科学计数法）。
+// CTP 以 DBL_MAX 级哨兵标记「无有效价」（集合竞价未成交等），此处归一为空串 ⇒
+// 前端 `r.last || '—'` 显示占位符，避免把哨兵值渲染成 300+ 位数字。
+std::string priceToString(double v) {
+  if (!(v < 1e12) || !(v > -1e12)) return std::string();
+  char buf[64];
+  std::snprintf(buf, sizeof(buf), "%.4f", v);
+  return std::string(buf);
+}
+
+// 已规范化的合约串（交易所原生大小写、逗号分隔、去空白、去重）→ 合约向量。
+std::vector<std::string> splitInstruments(const std::string& s) {
+  std::vector<std::string> out;
+  std::string::size_type b = 0;
+  while (b <= s.size()) {
+    const std::string::size_type e = s.find(',', b);
+    const std::string part = s.substr(
+        b, e == std::string::npos ? std::string::npos : e - b);
+    if (!part.empty()) out.push_back(part);
+    if (e == std::string::npos) break;
+    b = e + 1;
+  }
+  return out;
+}
+
 // 装配期配置派生（缺省值来自 §11.2；此处只做形变，不做校验——校验在 validateAppConfig）。
 hg::order_engine::OrderEngineConfig makeEngineConfig(const AppConfig& cfg) {
   hg::order_engine::OrderEngineConfig c;
@@ -384,8 +413,9 @@ AppStats::AppStats()
       replies(0),
       events(0),
       events_deferred(0),
-      ctp_events(0),
-      quotes_dropped(0),
+          ctp_events(0),
+          quote_events(0),
+          quotes_dropped(0),
       expire_events(0),
       replay_runs(0),
       admin_requests(0),
@@ -420,9 +450,11 @@ TradingApp::TradingApp(const AppConfig& cfg)
       last_expire_ms_(0),
       started_ms_(systemNowMs(0)),
       replay_started_ms_(0),
-      admin_dir_(),
-      last_admin_poll_ms_(0),
-      clock_fn_(&systemNowMs),
+          admin_dir_(),
+          last_admin_poll_ms_(0),
+          last_quote_emit_ms_(),
+          md_subscribed_(false),
+          clock_fn_(&systemNowMs),
       clock_user_(0) {
   // ---- 重放配置（CFG-29）----
   hg::flow_store::FlowRuntimeConfig fc;
@@ -477,6 +509,8 @@ TradingApp::TradingApp(const AppConfig& cfg)
   //   与 componentState 同族（函数指针 + user）；未注入时 CommandHandler 自动降级
   //   为阶段 1 的 key=value 摘要，故简化装配 / 单测夹具行为不变。
   handler_.set_status_detail_fn(&TradingApp::statusDetail, this);
+  // CH-027：动态行情订阅命令回调（函数指针 + user，hgcp 不反向依赖本类）。
+  handler_.set_quote_subscription_fn(&TradingApp::setQuoteSubscription, this);
 
   // ---- 鉴权（可选；令牌仅内存，摘要持有）----
   if (!cfg_.hgcp_auth_token.empty()) {
@@ -833,6 +867,15 @@ const char* serverStateName(std::int32_t s) {
 
 }  // namespace
 
+std::string TradingApp::setQuoteSubscription(void* user,
+                                             const std::vector<std::string>& instruments) {
+  TradingApp* app = static_cast<TradingApp*>(user);
+  if (app == 0) return std::string("quote subscription rejected: no app");
+  const std::string detail = app->ct_.setQuoteSubscription(instruments);
+  logLine("ctp.md set-subscription count=" + std::to_string(instruments.size()) + " detail=" + detail);
+  return detail;
+}
+
 std::string TradingApp::statusDetail(void* user, std::uint32_t what) {
   TradingApp* app = static_cast<TradingApp*>(user);
   if (app == 0) {
@@ -881,8 +924,9 @@ std::string TradingApp::statusDetail(void* user, std::uint32_t what) {
        << ",\"replies\":" << app->stats_.replies
        << ",\"events\":" << app->stats_.events
        << ",\"eventsDeferred\":" << app->stats_.events_deferred
-       << ",\"ctpEvents\":" << app->stats_.ctp_events
-       << ",\"quotesDropped\":" << app->stats_.quotes_dropped
+           << ",\"ctpEvents\":" << app->stats_.ctp_events
+           << ",\"quoteEvents\":" << app->stats_.quote_events
+           << ",\"quotesDropped\":" << app->stats_.quotes_dropped
        << ",\"expireEvents\":" << app->stats_.expire_events
        << ",\"replayRuns\":" << app->stats_.replay_runs
        << ",\"acceptedConnections\":" << app->loop_.accepted_connections()
@@ -968,7 +1012,7 @@ void TradingApp::emitEngineEvent(const hg::order_engine::EngineEvent& ev) {
   }
 }
 
-void TradingApp::pollCtp(std::int64_t /*now*/) {
+void TradingApp::pollCtp(std::int64_t now) {
   // CTP 回报 → OrderEngine（T4 单写者）：状态迁移/落流水/事件载荷由引擎产出。
   hg::ctp_adapter::CtOrderEvent ev;
   while (ct_.pollOrderEvent(&ev)) {
@@ -976,9 +1020,61 @@ void TradingApp::pollCtp(std::int64_t /*now*/) {
     hg::order_engine::EngineEvent out;
     if (engine_.onOrderEvent(ev, &out)) emitEngineEvent(out);
   }
-  // 行情：发布（T8 节流 + EVT_MARKET_QUOTE）未在本单装配 ⇒ 排空并计数（回执披露）。
+  publishQuotes(now);
+  // MD 前置登录成功后按配置订阅一次合约；断线重连（登录态回落）后自动重订阅。
+  // 订阅动作落在 T4 单线程，不在 SPI 回调线程内做重活。
+  const bool md_logged = ct_.isMdLoggedIn();
+  if (!md_logged) {
+    md_subscribed_ = false;
+    return;
+  }
+  if (md_subscribed_) return;
+  std::vector<std::string> instruments = splitInstruments(cfg_.ctp_subscribe_instruments);
+  if (instruments.empty()) return;
+  const hg::ctp_adapter::CtSubscribeAck ack = ct_.subscribeMarket(instruments);
+  md_subscribed_ = true;  // 仅尝试一次；失败不每 pump 重试，断线重连会重置
+  logLine("ctp.md subscribe instruments=" + std::to_string(instruments.size())
+          + " code=" + std::to_string(static_cast<int>(ack.code))
+          + " accepted=" + std::to_string(ack.accepted));
+}
+
+std::size_t TradingApp::publishQuotes(std::int64_t now) {
+  std::size_t published = 0;
   hg::ctp_adapter::CtQuoteEvent q;
-  while (ct_.pollQuoteEvent(&q)) ++stats_.quotes_dropped;
+  while (ct_.pollQuoteEvent(&q)) {
+    if (q.instrument_id.empty()) {
+      ++stats_.quotes_dropped;
+      continue;
+    }
+    std::map<std::string, std::int64_t>::iterator it =
+        last_quote_emit_ms_.find(q.instrument_id);
+    if (it != last_quote_emit_ms_.end() && now - it->second < kQuoteMinIntervalMs) {
+      ++stats_.quotes_dropped;  // 节流丢弃（允许丢帧，仅推最新值）
+      continue;
+    }
+    pbv1::EvtMarketQuote e;
+    e.set_instrument_id(q.instrument_id);
+    e.set_last_price(priceToString(q.last_price));
+    e.set_bid_price1(priceToString(q.bid_price1));
+    e.set_ask_price1(priceToString(q.ask_price1));
+    e.set_bid_volume1(q.bid_volume1);
+    e.set_ask_volume1(q.ask_volume1);
+    e.set_pre_settlement(priceToString(q.pre_settlement_price));
+    e.set_quote_ts_ms(q.local_recv_ts_ms > 0 ? q.local_recv_ts_ms : now);
+    // source_ts_ms 可空：交易所 UpdateTime 无时区基准，不自造时间戳。
+    if (emitter_.emit_market_quote(e) != hg::hgcp::EmitStatus::kSent) {
+      ++stats_.quotes_dropped;  // 断连 kDroppedQuote / 未装配 kNoLoop
+      continue;
+    }
+    last_quote_emit_ms_[q.instrument_id] = now;
+    ++stats_.quote_events;
+    ++published;
+  }
+  return published;
+}
+
+void TradingApp::enqueueQuote(const hg::ctp_adapter::CtQuoteEvent& q) {
+  ct_.onQuoteEvent(q);  // 与 SPI 回调同一入队路径（pushDropOldest）
 }
 
 // CTP 登录态观测：异步登录成功 / 断连都会改变 `isLoggedIn()`。

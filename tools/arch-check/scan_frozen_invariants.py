@@ -15,7 +15,7 @@
 #   本判据把「四项冻结不变量」固化为**跨制品、可持续**的门禁。
 #
 # 四项不变量（`ARCHITECTURE.md §4.2.8` 声明；本节一律不改动）：
-#   ① 消息集        = **40**（元协议 9 + 控制指令 17 + 事件流 14）
+#   ① 消息集        = **41**（元协议 9 + 控制指令 18 + 事件流 14）〔CH-027 +CMD_SET_QUOTE_SUBSCRIPTION〕
 #   ② 组件错误码    = **62**
 #   ③ 线格式 `VER`  = **`0x0100`**
 #   ④ `FR` 计数     = **184**
@@ -41,11 +41,11 @@
 #         正是本判据立项要消灭的失效模式（与 E7/E8 同一纪律）。
 #
 # 判据（四项不变量 × 逐来源机械比对；**禁止目测抽样**）：
-#   ① 消息集 40：
+#   ① 消息集 41：
 #       a. `proto/hgcp.proto` 的 `enum MsgType` 内 `= 0x....` 有效值数（不含 `*_UNSET`）
 #       b. `ARCHITECTURE.md §4.2.8.2 + §4.2.8.3 + §4.2.8.4` 表体 message 行数之和
-#       c. `ARCHITECTURE.md §4.2.3` 标题「共 40 种」
-#       d. `ARCHITECTURE.md §4.2.8` 声明行「消息集 **40**」
+#       c. `ARCHITECTURE.md §4.2.3` 标题「共 41 种」
+#       d. `ARCHITECTURE.md §4.2.8` 声明行「消息集 **41**」
 #       e. `HgcpConstants.java` 的 `MESSAGE_TYPE_COUNT`
 #   ② 错误码 62：
 #       a. `ARCHITECTURE.md §4.3.2` 表体 `| `0x....` |` 行数
@@ -91,7 +91,7 @@ DEFAULT_JAVA_FRAME = "java/src/main/java/com/hedgeguard/bridge/HgcpFrame.java"
 DEFAULT_REQ_DIR = "docs/REQUIREMENTS"
 
 # ---- 冻结值（`ARCHITECTURE.md §4.2.8`「本节一律不改动」；改此处须走 `CH-xxx`）----
-MSG_TOTAL = 40
+MSG_TOTAL = 41
 ERR_TOTAL = 62
 WIRE_VER = 0x0100
 FR_TOTAL = 184
@@ -105,7 +105,7 @@ USAGE = """用法：scan_frozen_invariants.py [--arch FILE] [--proto FILE] [--pr
   --java-frame  Java 帧常量         （默认 java/src/main/java/com/hedgeguard/bridge/HgcpFrame.java）
   --req-dir     需求文档目录        （默认 docs/REQUIREMENTS）
   -h, --help    显示本帮助
-判据：消息集 40 / 组件错误码 62 / 线格式 VER 0x0100 / FR 计数 184，跨制品逐来源互校。
+判据：消息集 41 / 组件错误码 62 / 线格式 VER 0x0100 / FR 计数 184，跨制品逐来源互校。
 退出码：0 通过或默认路径缺失(SKIP)；1 不变量漂移；2 用法/前置错误
 """
 
@@ -308,7 +308,7 @@ def main(argv):
     ]
 
     sys.stdout.write("=" * 67 + "\n")
-    sys.stdout.write("E9 冻结-不变量跨制品一致性（消息 40 / 错误码 62 / VER 0x0100 / FR 184）\n")
+    sys.stdout.write("E9 冻结-不变量跨制品一致性（消息 41 / 错误码 62 / VER 0x0100 / FR 184）\n")
     sys.stdout.write("判据      : 四项不变量 × 逐来源机械比对；任一来源间不一致或与冻结值不符 ⇒ 退 1\n")
     sys.stdout.write("不覆盖    : 字段级 schema(归 E7) / 错误码语义列 / FR 正文 / §13 历史记录行 / proto 非字段内容\n")
     sys.stdout.write("-" * 67 + "\n")

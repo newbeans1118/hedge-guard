@@ -909,7 +909,7 @@ public final class Bootstrap {
                 new DmTradeOrderReportDao(tx), new DmTradeFillDao(tx),
                 new DmTradePositionDao(tx), new DmTradePreTradeRejectDao(tx),
                 new DmTradeCommandFlowDao(tx));
-        TradeRoutes.register(router, tradeService);
+        TradeRoutes.register(router, tradeService, bridge);  // CH-027：行情订阅需 bridge 下发 HGCP
 
         // T-188 重大事项亏损阈值自动触发器（CFG-26 = audit.major_event.loss_threshold，惰性读取）：
         // 轨 1（EOD 已实现/记账级）挂结算链（下方 SettleService），轨 2（盘中镜像/提醒级）

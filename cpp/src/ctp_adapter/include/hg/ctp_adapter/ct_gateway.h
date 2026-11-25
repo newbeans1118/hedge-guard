@@ -64,11 +64,15 @@ class CtMdGateway {
   virtual bool connect(const CtConfig& cfg, std::string* error) = 0;
   virtual void disconnect() = 0;
   virtual int reqLogin(const CtConfig& cfg, int request_id) = 0;
-  virtual int subscribeMarket(const std::vector<std::string>& instruments,
-                              int request_id) = 0;
-  virtual const char* apiVersion() const = 0;
-  virtual const char* backendName() const = 0;
-};
+      virtual int subscribeMarket(const std::vector<std::string>& instruments,
+                                  int request_id) = 0;
+      // CH-027：退订（默认 no-op，供 stub / fake 网关零改动；真实网关覆写）。
+      // 完整替换订阅集时先退订旧集。空集由调用方判定，无需下发。
+      virtual int unsubscribeMarket(const std::vector<std::string>& /*instruments*/,
+                                    int /*request_id*/) { return 0; }
+      virtual const char* apiVersion() const = 0;
+      virtual const char* backendName() const = 0;
+    };
 
 // 工厂：按 `HG_CTP_FOUND` 返回真实 SDK 网关或 stub 网关（返回对象所有权归调用方）。
 CtTradeGateway* createTradeGateway(CtCallbackSink* sink);

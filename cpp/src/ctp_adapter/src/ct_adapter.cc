@@ -241,8 +241,41 @@ CtSubscribeAck CtAdapter::subscribeMarket(const std::vector<std::string>& instru
   }
   const int rc = md_->subscribeMarket(instruments, nextRequestId());
   ack.code = (rc == 0) ? kCtOk : ((rc > 0) ? kCtBackpressure : kCtNotConnected);
-  if (ack.code == kCtOk) ack.accepted = static_cast<int>(instruments.size());
+  if (ack.code == kCtOk) {
+    ack.accepted = static_cast<int>(instruments.size());
+    subscribed_instruments_ = instruments;  // CH-027：记录当前集，供退订
+  }
   return ack;
+}
+
+// CH-027：完整替换订阅集。先按订阅集等价短路（避免重复下发）；退订旧集失败不阻断
+// 后续订阅（CTP 侧退订为尽力而为；旧合约残留只是多推几帧，不产生错误数据）。
+std::string CtAdapter::setQuoteSubscription(const std::vector<std::string>& instruments) {
+  std::vector<std::string> desired;
+  desired.reserve(instruments.size());
+  for (std::size_t i = 0; i < instruments.size(); ++i) {
+    if (!instruments[i].empty()) desired.push_back(instruments[i]);  // 保留原生大小写
+  }
+  if (!md_logged_in_) {
+    return "quote subscription rejected: MD not logged in";
+  }
+  if (desired == subscribed_instruments_) {
+    return "quote subscription unchanged: count=" + std::to_string(subscribed_instruments_.size());
+  }
+  // ① 退订旧集（尽力而为）
+  if (!subscribed_instruments_.empty()) {
+    (void)md_->unsubscribeMarket(subscribed_instruments_, nextRequestId());
+  }
+  // ② 订阅新集（空集 = 只退订，停止行情订阅）
+  if (desired.empty()) {
+    subscribed_instruments_.clear();
+    return "quote subscription cleared: count=0";
+  }
+  CtSubscribeAck ack = subscribeMarket(desired);
+  if (ack.code == kCtOk) {
+    return "quote subscription applied: count=" + std::to_string(ack.accepted);
+  }
+  return "quote subscription accepted-with-error: code=" + std::to_string(static_cast<int>(ack.code));
 }
 
 CtFundAck CtAdapter::reqFundTransfer(const CtFundReq& req) {

@@ -13,14 +13,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * {@link TradingBridge} 契约与内存桩测试（{@code ARCHITECTURE.md} §3.10 / §8.4 {@code NFR-TEST-4}）。
  *
- * <p>同时校验"接口面"：{@code TradingBridge} <b>只有</b>
- * {@code placeOrder/confirmOrder/cancelOrder/dispatch/isReady/replayProgress/mirror} 七项，
+ * <p>同时校验"接口面"：{@code TradingBridge} <b>恰为</b>
+ * {@code placeOrder/confirmOrder/cancelOrder/dispatch/isReady/replayProgress/mirror} 七项 +
+ * {@code CH-027} 新增 {@code setQuoteSubscription}（{@code default} 兼容增量）＝八项，
  * <b>不得</b>出现 {@code preCheck}（{@code §3.0.3} 越界诱因消除）。
  */
 class TradingBridgeContractTest {
 
     @Test
-    @DisplayName("接口面冻结：方法集合恰为 §3.10 所列七项，不含 preCheck")
+    @DisplayName("接口面冻结：方法集合恰为 §3.10 七项 + CH-027 setQuoteSubscription 八项，不含 preCheck")
     void interfaceSurfaceMatchesSpec() {
         java.util.Set<String> names = new java.util.TreeSet<>();
         for (java.lang.reflect.Method m : TradingBridge.class.getDeclaredMethods()) {
@@ -28,7 +29,7 @@ class TradingBridgeContractTest {
         }
         assertEquals(new java.util.TreeSet<>(java.util.Arrays.asList(
                 "placeOrder", "confirmOrder", "cancelOrder", "dispatch", "isReady",
-                "replayProgress", "mirror")), names);
+                "replayProgress", "mirror", "setQuoteSubscription")), names);
         assertFalse(names.contains("preCheck"), "Java 侧不得提供事前校验接口（§3.0.3）");
     }
 

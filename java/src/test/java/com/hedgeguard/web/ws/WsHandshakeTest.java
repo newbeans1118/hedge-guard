@@ -22,7 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * WebSocket 握手单测（`T-028` 验收 1/4；**完全离线**）。
  *
  * <p>覆盖：官方 Accept 向量、请求解析（方法/路径/查询串/头名小写）、升级合法性校验
- * （缺 {@code Upgrade}/{@code Connection}/版本、扩展请求拒收）、失败响应（**握手期 401**、`10006`、带 traceId）。
+ * （缺 {@code Upgrade}/{@code Connection}/版本/Key 被拒；扩展/子协议 offer 按 RFC 6455 忽略不协商）、
+ * 失败响应（**握手期 401**、`10006`、带 traceId）。
  */
 class WsHandshakeTest {
 
@@ -81,7 +82,7 @@ class WsHandshakeTest {
     }
 
     @Test
-    @DisplayName("升级校验：合法请求通过；缺 Upgrade / 缺 Connection / 版本非 13 / 无 Key / 请求扩展 各自被拒")
+    @DisplayName("升级校验：合法请求通过；缺 Upgrade / 缺 Connection / 版本非 13 / 无 Key 被拒；扩展/子协议 offer 忽略不协商")
     void validatesUpgrade() {
         String ok = WsTestSupport.upgradeRequest("/ws/quote", "S-1", WsTestSupport.RFC_KEY);
         assertNull(WsHandshake.validateUpgrade(WsHandshake.parse(ok, TRACE, "ip")));
@@ -94,10 +95,18 @@ class WsHandshakeTest {
                 + "Sec-WebSocket-Version: 8\r\nSec-WebSocket-Key: k\r\n\r\n", "13");
         assertRejected("GET /ws/quote HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
                 + "Sec-WebSocket-Version: 13\r\n\r\n", "Key");
-        // 扩展协商（permessage-deflate）属范围外，明确拒绝而不是静默忽略
-        assertRejected("GET /ws/quote HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+        // RFC 6455：浏览器默认携带 Sec-WebSocket-Extensions: permessage-deflate（offer），
+        // 服务端不协商的正确姿势是 101 不回显该头，而非拒绝握手（2026-11-24 实测修复）。
+        RequestContext withOffer = WsHandshake.parse("GET /ws/quote HTTP/1.1\r\n"
+                + "Upgrade: websocket\r\nConnection: Upgrade\r\n"
                 + "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: k\r\n"
-                + "Sec-WebSocket-Extensions: permessage-deflate\r\n\r\n", "扩展");
+                + "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits\r\n"
+                + "Sec-WebSocket-Protocol: chat\r\n\r\n", TRACE, "ip");
+        assertNull(WsHandshake.validateUpgrade(withOffer), "携带扩展/子协议 offer 不得拒绝握手");
+        String upgrade = new String(WsHandshake.upgradeResponse(WsTestSupport.RFC_ACCEPT),
+                StandardCharsets.US_ASCII);
+        assertFalse(upgrade.contains("Sec-WebSocket-Extensions"), "101 不得回显扩展头（即不协商）");
+        assertFalse(upgrade.contains("Sec-WebSocket-Protocol"), "101 不得回显子协议头（即不协商）");
     }
 
     @Test

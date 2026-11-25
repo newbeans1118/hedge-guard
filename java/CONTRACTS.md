@@ -1,6 +1,7 @@
 # 接口冻结清单（FREEZE）
 
-> **冻结标识**：`HGC-1.7`
+> **冻结标识**：`HGC-1.8`
+> **`HGC-1.7` → `HGC-1.8` 差异说明（2026-11-25 `CH-027`，L3 契约级，**用户批准**）**：新增 HGCP 控制指令 `CMD_SET_QUOTE_SUBSCRIPTION`(0x011F) 承接动态行情订阅；`TradingBridge` 以 `default` 兼容增量**新增第八方法** `setQuoteSubscription(List<String>)`；消息集 **40→41**、顶层字段号 **214→215**、`TradingBridge` 方法集合 **七→八项**；`proto/hgcp.proto` 同批 +1 message；E7/E9 判据常量同步。其余错误码 62 / `VER 0x0100` / `FR 184` 不变。详见 `docs/DECISIONS/CH-027-quote-subscription-command.md`。
 > **`HGC-1.6` → `HGC-1.7` 差异说明（2026-11-24 `CH-026`，纯增量）**：**前端监听面配置键取值订正**（`hg.web.bind` 默认 `127.0.0.1` → `0.0.0.0`）+ 新增 `hg.web.ws.bind`（默认 `0.0.0.0`）；**不触及 REST 路由 / 方法签名 / HGCP 协议 / WS 帧形态**（未新增任何路由 / 方法 / 协议字段 / WS 帧形态，属配置键取值订正，不得借机扩面）
 > **`HGC-1.6`（前序）**：（`HGC-1.5` → `HGC-1.6`）**`payload` 键名严格限定为协议表字段**（禁止协议外字段，含内部关联标识）+ `data-init.sql` 的 `t_product(id=0)` 保留行纳入机器校验；纯增量
 > **`HGC-1.5`（前序）**：**`param_version` 取号口径收紧**（唯一基准 = `maxParamVersion()+1`、同临界区、**禁用行数代替**）+ **超时分支字段值明确**（`ack_time = NULL`）+ 新增 `ParamDispatchDao.maxParamVersion()`；纯增量）
@@ -184,16 +185,19 @@ java/
 ### 2.2 冻结的公共接口（签名）
 
 ```java
-// —— J4 桥接层：只此七项，不得出现 preCheck（§3.0.3）——
-public interface TradingBridge {
-    CompletableFuture<PlaceOrderResult> placeOrder(PlaceOrderCmd cmd);
-    CompletableFuture<AckResult>        confirmOrder(long orderId, long operatorId, String confirmToken);
-    CompletableFuture<AckResult>        cancelOrder(long orderId, String reason, long operatorId);
-    CompletableFuture<AckResult>        dispatch(ParamChange change);
-    boolean                             isReady();
-    ReplayProgress                      replayProgress();
-    MirrorSnapshot                      mirror();
-}
+    // —— J4 桥接层：七项 + CH-027 setQuoteSubscription(default 兼容增量) = 八项，不得出现 preCheck（§3.0.3）——
+    public interface TradingBridge {
+        CompletableFuture<PlaceOrderResult> placeOrder(PlaceOrderCmd cmd);
+        CompletableFuture<AckResult>        confirmOrder(long orderId, long operatorId, String confirmToken);
+        CompletableFuture<AckResult>        cancelOrder(long orderId, String reason, long operatorId);
+        CompletableFuture<AckResult>        dispatch(ParamChange change);
+        boolean                             isReady();
+        ReplayProgress                      replayProgress();
+        MirrorSnapshot                      mirror();
+        default CompletableFuture<AckResult> setQuoteSubscription(List<String> instruments) {
+            return CompletableFuture.completedFuture(new AckResult());  // CH-027 兼容增量
+        }
+    }
 
 // —— J3 DAO：L3 只见接口，不见 JDBC 类型 ——
 public interface BaseDao<T extends AuditedEntity, ID> {
@@ -979,6 +983,7 @@ instantiated OK        # 同时打印 SLF4J: Defaulting to no-operation (NOP) lo
 | 2026-11-09（P1 试点；编排者代单写者登记） | 编排者（依 `T-131` 先例代单写者登记，非席位改写正文） | **兼容性增量登记（`FR-PLAN-2` / `FR-PLAN-5`）**：补齐 2 对**已声明未注册**的方法对 —— `PUT /plan/{id}`（`PlanDraftHandler`，修改草稿、部分更新）、`GET /plan/{id}/doc`（`PlanDocReadHandler`，读取当前书面文件正文 `DocView`）。路径与方法逐字取自 `ARCHITECTURE.md §4.1.1` PLAN 行（该行已声明 `PUT(草稿)` 与 `/plan/{id}/doc`），**未新增路径**；`ApiRoutes.BY_MODULE_ROUTES` PLAN 键 `18 → 20`，业务路由计数 `171 → 173` / 含 ping `173 → 175`。新增服务方法 `PlanService.updateDraft(long,HedgePlan,long)` / `currentDoc(long,long)`（该类不在 §2.2 冻结公共接口 ⇒ §0③ 兼容变更）；新增响应视图 `PlanDocReadHandler.DocView`（camelCase，时间字段由 `T-235` 适配器统一序列化）。**未改字段 / 未改错误码（复用 `PARAM_INVALID`/`STATE_NOT_ALLOWED`/`SUB_ACCOUNT_PERMISSION_DENIED`）/ 信封不变** ⇒ **未升版（`HGC-1.6` 不变）**。⚠️ **诚实披露**：`DELETE /plan/{id}`（`FR-PLAN-3`）**未注册、非本次范围** —— 草稿必带 `t_plan_state_log`（编制留痕）与 `t_hedge_plan_exposure`（绑定敞口）子行，二者 FK `ON DELETE RESTRICT`，且状态留痕表「只增不改不删」、全库禁级联（`DATA_MODEL.md §0.3/§0.4`）⇒ 物理删除在真 DM8 上必然被拒，内存引擎不校验 RESTRICT 会造成假绿；须先经 `CH/DC` 裁定删除留痕承载方案，已登记待裁定。FR-PLAN-2 的「完整 `R-PLAN-3` 六项阻断式预校验」仍归提交审批（`submitForApproval`），修改期只重跑编制期标量校验 + 期限红线（`FR-PLAN-2` 验收 4 口径），未重复提交门禁。 | `HGC-1.6`（未升版） |
 | 2026-11-10（P1 试点补正；编排者代单写者登记） | 编排者（依 `T-131` 先例代单写者登记，非席位改写正文） | **兼容性补正登记（`TE-P1PILOT-001`；独立复核 `te-verify-p1-pilot` 发现、用户裁定退回补正）**：`PlanService.updateDraft` 在套保方向 / 品种相对原值变化时，新增私有方法 `requireBoundExposureConsistency` 对已 `BOUND` 的绑定敞口重跑 `R-PLAN-1`（方向相反）/ `R-PLAN-7`（同品种 + 同子账户）判据，与 `createPlan`/`bindExposure` 同口径；无 `BOUND` 绑定行时放行，绑定 / 敞口取数入口缺失时 fail-closed 拒绝（不假绿）。**未新增路径 / 未改 wire 字段 / 未改错误码（复用 `PARAM_INVALID`/`SUB_ACCOUNT_PERMISSION_DENIED`/`DATA_INSUFFICIENT`）/ 信封不变 / 未动 §2.2 冻结公共接口**（新增方法为私有）⇒ **未升版（`HGC-1.6` 不变）**。`ApiRoutes` 与 `ARCHITECTURE §4.1.1` 声明面零改动；`R-PLAN-3` 六项阻断式预校验仍归 `submitForApproval`，修改期不重复。⚠️ 测试侧同步（非契约）：`PlanDraftAndDocReadEndpointTest` 注入 `FakeBindDao`/`FakeExposureDao`，新增 6 用例（用例数 `14 → 20`）；2 组自设变异（摘方向 / 摘品种校验）均验红并逐字节复位。 | `HGC-1.6`（未升版） |
 | 2026-11-24 | `backend-engineer#java` | **`CH-026` 配置键取值订正（用户 2026-11-24 裁定；应编排者 `Q-JAVA-002` `question` 落笔）**：§4 配置键表 `hg.web.bind` 默认值 `127.0.0.1` → **`0.0.0.0`**（说明改为「`CH-026` 后默认对外、仅沿用既有会话鉴权；组件间 TCP 通道 `hg.tcp.bind` 仍仅回环（`NFR-SEC-3` 适用范围澄清）」、出处列追加 `CH-026`）；**新增** `hg.web.ws.bind`（默认 `0.0.0.0`，`CFG-32`）一行；§4 下方 `D-5`/`D-9` 闭环注**原文逐字保留**、仅在段末追加一条 `CH-026` 澄清注（该处 `127.0.0.1` 为 v1.5.3 时点值，现行默认值以 §4 表 + `PROJECT.md` v1.4 为准）；文件头冻结标识 `HGC-1.6` → **`HGC-1.7`** + 补差异说明。**纯增量 · 配置键取值订正**：不触及 §1 REST 冻结对 / §2 包结构与公共接口签名 / §4.1·§4.3 WS 对外约定 / 错误码表 / HGCP 协议 / WS 帧形态，未新增任何路由·方法·协议字段 | `HGC-1.7` |
+| 2026-11-25 | 编排者（代单写者登记；`CH-027` **L3 契约级 · 用户批准**） | **契约增量登记（`CH-027`）**：① §2.2 `TradingBridge` 签名块**追加第八方法** `setQuoteSubscription(List<String>)`（`default` 兼容增量，`HgcpClient` 覆写）；`TradingBridgeContractTest` 方法集合断言同步七→八项。② HGCP 新增 `CMD_SET_QUOTE_SUBSCRIPTION`(0x011F)（动态行情订阅，完整替换订阅集）；`proto/hgcp.proto` +1 message，消息集 **40→41**、顶层字段号 **214→215**；E7/E9 判据常量、`ARCHITECTURE.md` §4.2.3/§4.2.8 冻结表同步。**未改错误码 62 / `VER 0x0100` / `FR 184` / §1 REST 冻结对 / §3.2.1 payload 键表（不动，E8 无新登记指令）。裁定书 `docs/DECISIONS/CH-027-quote-subscription-command.md`。 | `HGC-1.8`（**升版**：新增冻结对象——消息集首次改动 + 公共接口第八方法） |
 
 ---
 

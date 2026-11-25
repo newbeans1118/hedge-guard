@@ -13,7 +13,17 @@ const WS_PATH = { quote: '/ws/quote', alert: '/ws/alert' };
 
 function wsBase() {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return proto + '//' + window.location.host;
+  // CFG-32：WS 监听独立端口，端口由部署期 index.html 的 <meta name="hg-ws-port"> 下发。
+  // 无 document（探针桩）/ 无 meta（反向代理部署）⇒ 退回同源，保持兼容。
+  const meta = (typeof document !== 'undefined' && typeof document.querySelector === 'function')
+    ? document.querySelector('meta[name="hg-ws-port"]') : null;
+  const port = meta && meta.content ? String(meta.content).trim() : '';
+  let host = window.location.host;
+  if (port) {
+    const bare = window.location.hostname || String(host).replace(/:\d+$/, '');
+    host = bare + ':' + port;
+  }
+  return proto + '//' + host;
 }
 
 /**

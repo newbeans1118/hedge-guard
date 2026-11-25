@@ -532,17 +532,21 @@ public final class WsServer implements AutoCloseable {
         if (closed || pendingQuotes.isEmpty()) {
             return;
         }
-        List<String> drained = new ArrayList<>();
+        // key 为 publishQuote 时大写归一的合约代码；保留 key 以便按 W-1 instruments 白名单过滤。
+        List<Map.Entry<String, String>> drained = new ArrayList<>();
         for (String key : new ArrayList<>(pendingQuotes.keySet())) {
             String json = pendingQuotes.remove(key);
             if (json != null) {
-                drained.add(json);
+                drained.add(new java.util.AbstractMap.SimpleEntry<>(key, json));
             }
         }
-        for (String json : drained) {
+        for (Map.Entry<String, String> entry : drained) {
+            String instrument = entry.getKey();
             for (WsConnection c : connections.values()) {
-                if (c.subscription().wantsQuote()) {
-                    c.sendQuote(json);
+                // CH-027：应用 W-1 matchesQuote（此前零调用点 → 实时推送无视白名单）。
+                // matchesQuote 内部判 wantsQuote + 空集=全部 + 大写归一比对。
+                if (c.subscription().matchesQuote(instrument)) {
+                    c.sendQuote(entry.getValue());
                 }
             }
         }

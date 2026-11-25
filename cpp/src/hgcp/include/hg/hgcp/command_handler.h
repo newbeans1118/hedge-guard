@@ -135,6 +135,18 @@ class CommandHandler {
     status_detail_user_ = user;
   }
 
+  // ---- CH-027：动态行情订阅注入（可空；不反向依赖 app 层）----------------------
+  //   CMD_SET_QUOTE_SUBSCRIPTION 解析出合约集后交上层（TradingApp）退订旧集 +
+  //   订阅新集；本层只透传 `instruments`，**不感知** CTP/MD 状态（同 StatusDetailFn
+  //   的函数指针 + user 形态）。回调返回回执 detail 串（成功含受理数，失败含原因）。
+  //   未注入（缺省 null，单测夹具）⇒ 回 `0x0104`「未装配」，不静默当成成功。
+  typedef std::string (*QuoteSubscriptionFn)(void* user,
+                                             const std::vector<std::string>& instruments);
+  void set_quote_subscription_fn(QuoteSubscriptionFn fn, void* user) {
+    quote_subscription_fn_ = fn;
+    quote_subscription_user_ = user;
+  }
+
   // 参数重建会话的批次观测（供上层组装监控 detail；只读）。
   std::uint32_t batches_received() const { return session_.batches_received(); }
   std::uint32_t batches_total() const { return session_.batches_total(); }
@@ -147,6 +159,8 @@ class CommandHandler {
   hg::order_engine::RecoveryHook* recovery_ = nullptr;  // T-041 未闭环台账门禁（可空）
   StatusDetailFn status_detail_fn_ = nullptr;  // 阶段 2 监控面（可空 ⇒ 阶段 1 摘要）
   void* status_detail_user_ = nullptr;
+  QuoteSubscriptionFn quote_subscription_fn_ = nullptr;  // CH-027（可空 ⇒ 0x0104）
+  void* quote_subscription_user_ = nullptr;
 
   // 交易路径三指令的消费体（T-036；engine_ 注入后由 handle() 分派）。
   CommandOutcome handleTradePath(std::uint16_t type, const std::vector<std::uint8_t>& body,

@@ -813,9 +813,9 @@ L5 前端 ──→ L4 接口层 ──→ L3 应用服务 ──→ L2a DAO ─
 - 所有多字节整数**大端（网络序）**。
 - **字符串编码**：protobuf `string` 一律 **UTF-8**；标识符类字段（品种编码 / 合约 / 经纪商代码）**仅允许 ASCII**。
 
-#### 4.2.3 消息类型总表（**共 40 种**）
+#### 4.2.3 消息类型总表（**共 41 种**）〔`CH-027` +`CMD_SET_QUOTE_SUBSCRIPTION`〕
 
-**A. 会话与元协议（9 种，双向）**
+    **A. 会话与元协议（9 种，双向）**
 
 | # | 类型码 | 名称 | 方向 | 用途 | 关键字段 |
 |---|--------|------|------|------|---------|
@@ -829,10 +829,10 @@ L5 前端 ──→ L4 接口层 ──→ L3 应用服务 ──→ L2a DAO ─
 | 8 | `0x0008` | `MSG_RESUME_REQ` | 客户端 → 服务端 | 重连补数请求 | `last_received_seq`, `session_id`, `max_resume_count` |
 | 9 | `0x0009` | `MSG_RESUME_DATA` | 服务端 → 客户端 | 补数数据（`FLAGS.IS_RESUME_DATA=1`） | `from_seq`, `to_seq`, `is_last`, `frames`(repeated bytes，原始帧) |
 
-**B. Java → C++ 控制指令（17 种）**
+    **B. Java → C++ 控制指令（18 种）**
 
-| # | 类型码 | 名称 | 用途 | 关键字段 | 回执 |
-|---|--------|------|------|---------|------|
+    | # | 类型码 | 名称 | 用途 | 关键字段 | 回执 |
+    |---|--------|------|------|---------|------|
 | 10 | `0x0101` | `CMD_PLACE_ORDER` | 提交交易指令（**不落库**，走交易路径） | `client_order_ref`, `trade_plan_id`, `exposure_id`, `sub_account_id`, `product_id`, `instrument_id`, `instrument_type`, `direction`, `offset_flag`, `price_type`, `limit_price`, `volume`, `operator_id`, `strategy_id`, `leg_no`, `trade_reason_code`, `trade_reason_text` | `EVT_ORDER_ACCEPTED` / `EVT_PRE_TRADE_REJECT` |
 | 11 | `0x0102` | `CMD_CONFIRM_ORDER` | 人工确认后发送 | `order_id`, `operator_id`, `confirm_ts_ms`, `confirm_token` | `MSG_ACK` + `EVT_ORDER_REPORT` |
 | 12 | `0x0103` | `CMD_CANCEL_ORDER` | 撤单 | `order_id`, `operator_id`, `reason` | `MSG_ACK` + `EVT_ORDER_CANCEL_RESULT` |
@@ -850,27 +850,28 @@ L5 前端 ──→ L4 接口层 ──→ L3 应用服务 ──→ L2a DAO ─
 | 24 | `0x011C` | `CMD_QUERY_STATUS` | 查询就绪 / 重放进度 / 参数版本 / 队列水位 | `what`(bitmask) | `MSG_ACK`（`detail` 内嵌状态） |
 | 25 | `0x011D` | `CMD_FUND_TRANSFER` | 出入金划转请求（经 CTP） | `idempotency_key`, `apply_id`, `direction`(`IN`/`OUT`), `amount`, `sub_account_id`, `operator_id`, `bank_id`, `bank_account` | `MSG_ACK` + `EVT_FUND_RECEIPT` |
 | 26 | `0x011E` | `CMD_QUERY_FUND_RESULT` | 资金划转结果查询（"超时待查"） | `idempotency_key`, `apply_id` | `MSG_ACK` / `EVT_FUND_RECEIPT` |
+| 27 | `0x011F` | `CMD_SET_QUOTE_SUBSCRIPTION` | **动态行情订阅**（`CH-027`，完整替换订阅集；空集=退订全部） | `instruments`(repeated string) | `MSG_ACK`（`detail` 载受理信息） |
 
-**C. C++ → Java 事件流（14 种）**
+    **C. C++ → Java 事件流（14 种）**
 
 | # | 类型码 | 名称 | 用途 | 关键字段 | 幂等键 |
 |---|--------|------|------|---------|--------|
-| 27 | `0x0201` | `EVT_ORDER_ACCEPTED` | 指令受理（事前风控通过，进入待确认） | `order_id`, `client_order_ref`, `risk_passed=true`, `effective_timeout_ms`, `accepted_ts_ms` | `client_order_ref` |
-| 28 | `0x0202` | `EVT_PRE_TRADE_REJECT` | **事前风控拒绝记录**（必须落库） | `client_order_ref`, `sub_account_id`, `product_id`, `instrument_id`, `rule_id`, `reason_code`, `limit_layer`（命中的限额层级，`Q-16`）, `current_value`, `threshold_value`, `order_digest`, `operator_id`, `reject_ts_ms` | `client_order_ref` + `rule_id` |
-| 29 | `0x0203` | `EVT_ORDER_REPORT` | 委托回报 | `order_id`, `order_sys_id`, `order_local_id`, `status`, `volume_total`, `volume_traded`, `volume_left`, `ctp_error_id`, `ctp_error_msg`, `report_ts_ms` | `order_sys_id` + `status` |
-| 30 | `0x0204` | `EVT_TRADE_FILL` | 成交回报 | `trade_id`, `order_id`, `order_sys_id`, `instrument_id`, `direction`, `offset_flag`, `price`, `volume`, `trade_ts_ms`, `sub_account_id`, `trade_plan_id`, `exposure_id` | **`trade_id`** |
-| 31 | `0x0205` | `EVT_POSITION_CHANGE` | 持仓变化 | `sub_account_id`, `instrument_id`, `direction`, `position_type`(`TODAY`/`YESTERDAY`), `position_qty`, `available_qty`, `frozen_qty`, `change_reason`, `as_of_ts_ms` | `sub_account_id`+`instrument_id`+`direction`+`position_type`+`as_of_ts_ms` |
-| 32 | `0x0206` | `EVT_ORDER_CANCEL_RESULT` | 撤单结果 | `order_id`, `cancelled_volume`, `released_quota`, `restored_plan_qty`, `result`, `reason_code` | `order_id`+`result` |
-| 33 | `0x0207` | `EVT_ORDER_EXPIRED` | 待确认超时失效 | `order_id`, `client_order_ref`, `expired_ts_ms`, `timeout_ms` | `order_id` |
-| 34 | `0x0208` | `EVT_COMMAND_FLOW` | 指令流水事件（生命周期轨迹） | `order_id`, `flow_type`(`SENT`/`REPORTED`/`REJECTED`/`EXPIRED`/`CANCELLED`), `flow_ts_ms`, `detail` | `order_id`+`flow_type`+`flow_ts_ms` |
-| 35 | `0x0209` | `EVT_REPLAY_PROGRESS` | 重放进度 | `state`, `replayed_records`, `total_records`, `started_ts_ms`, `finished_ts_ms`, `result`(`OK`/`MISMATCH`), `mismatch_detail` | `started_ts_ms` |
-| 36 | `0x020A` | `EVT_SYSTEM_STATE` | 系统状态变更（就绪 / 参数生效 / 停机） | `state`, `param_version_applied`, `loaded_counts`, `reason` | `state`+`param_version_applied`+`ts_ms` |
-| 37 | `0x020B` | `EVT_FUND_RECEIPT` | 资金划转回执 | `idempotency_key`, `apply_id`, `result`(`SUCCESS`/`FAIL`/`PROCESSING`/`UNKNOWN`), `amount`, `ctp_error_id`, `ctp_error_msg`, `receipt_ts_ms` | `idempotency_key`+`result`+`receipt_ts_ms` |
-| 38 | `0x020C` | `EVT_MARKET_QUOTE` | 行情（**经 HGCP 组件通道承载，C++→Java；可丢**，`CH-006`） | `instrument_id`, `last_price`, `bid_price1`, `ask_price1`, `bid_volume1`, `ask_volume1`, `pre_settlement`, `quote_ts_ms`, `source_ts_ms` | 无（可丢） |
-| 39 | `0x020D` | `EVT_CTP_STATE` | CTP 连接状态变更 | `trade_connected`, `md_connected`, `front_addr`, `state_change_ts_ms`, `reason` | `state_change_ts_ms` |
-| 40 | `0x020E` | `EVT_TRADING_ALERT` | C++ 侧内部告警（流水落盘失败 / 队列水位 / 内存异常） | `alert_code`, `level`, `detail`, `alert_ts_ms` | `alert_code`+`alert_ts_ms` |
+| 28 | `0x0201` | `EVT_ORDER_ACCEPTED` | 指令受理（事前风控通过，进入待确认） | `order_id`, `client_order_ref`, `risk_passed=true`, `effective_timeout_ms`, `accepted_ts_ms` | `client_order_ref` |
+| 29 | `0x0202` | `EVT_PRE_TRADE_REJECT` | **事前风控拒绝记录**（必须落库） | `client_order_ref`, `sub_account_id`, `product_id`, `instrument_id`, `rule_id`, `reason_code`, `limit_layer`（命中的限额层级，`Q-16`）, `current_value`, `threshold_value`, `order_digest`, `operator_id`, `reject_ts_ms` | `client_order_ref` + `rule_id` |
+| 30 | `0x0203` | `EVT_ORDER_REPORT` | 委托回报 | `order_id`, `order_sys_id`, `order_local_id`, `status`, `volume_total`, `volume_traded`, `volume_left`, `ctp_error_id`, `ctp_error_msg`, `report_ts_ms` | `order_sys_id` + `status` |
+| 31 | `0x0204` | `EVT_TRADE_FILL` | 成交回报 | `trade_id`, `order_id`, `order_sys_id`, `instrument_id`, `direction`, `offset_flag`, `price`, `volume`, `trade_ts_ms`, `sub_account_id`, `trade_plan_id`, `exposure_id` | **`trade_id`** |
+| 32 | `0x0205` | `EVT_POSITION_CHANGE` | 持仓变化 | `sub_account_id`, `instrument_id`, `direction`, `position_type`(`TODAY`/`YESTERDAY`), `position_qty`, `available_qty`, `frozen_qty`, `change_reason`, `as_of_ts_ms` | `sub_account_id`+`instrument_id`+`direction`+`position_type`+`as_of_ts_ms` |
+| 33 | `0x0206` | `EVT_ORDER_CANCEL_RESULT` | 撤单结果 | `order_id`, `cancelled_volume`, `released_quota`, `restored_plan_qty`, `result`, `reason_code` | `order_id`+`result` |
+| 34 | `0x0207` | `EVT_ORDER_EXPIRED` | 待确认超时失效 | `order_id`, `client_order_ref`, `expired_ts_ms`, `timeout_ms` | `order_id` |
+| 35 | `0x0208` | `EVT_COMMAND_FLOW` | 指令流水事件（生命周期轨迹） | `order_id`, `flow_type`(`SENT`/`REPORTED`/`REJECTED`/`EXPIRED`/`CANCELLED`), `flow_ts_ms`, `detail` | `order_id`+`flow_type`+`flow_ts_ms` |
+| 36 | `0x0209` | `EVT_REPLAY_PROGRESS` | 重放进度 | `state`, `replayed_records`, `total_records`, `started_ts_ms`, `finished_ts_ms`, `result`(`OK`/`MISMATCH`), `mismatch_detail` | `started_ts_ms` |
+| 37 | `0x020A` | `EVT_SYSTEM_STATE` | 系统状态变更（就绪 / 参数生效 / 停机） | `state`, `param_version_applied`, `loaded_counts`, `reason` | `state`+`param_version_applied`+`ts_ms` |
+| 38 | `0x020B` | `EVT_FUND_RECEIPT` | 资金划转回执 | `idempotency_key`, `apply_id`, `result`(`SUCCESS`/`FAIL`/`PROCESSING`/`UNKNOWN`), `amount`, `ctp_error_id`, `ctp_error_msg`, `receipt_ts_ms` | `idempotency_key`+`result`+`receipt_ts_ms` |
+| 39 | `0x020C` | `EVT_MARKET_QUOTE` | 行情（**经 HGCP 组件通道承载，C++→Java；可丢**，`CH-006`） | `instrument_id`, `last_price`, `bid_price1`, `ask_price1`, `bid_volume1`, `ask_volume1`, `pre_settlement`, `quote_ts_ms`, `source_ts_ms` | 无（可丢） |
+| 40 | `0x020D` | `EVT_CTP_STATE` | CTP 连接状态变更 | `trade_connected`, `md_connected`, `front_addr`, `state_change_ts_ms`, `reason` | `state_change_ts_ms` |
+| 41 | `0x020E` | `EVT_TRADING_ALERT` | C++ 侧内部告警（流水落盘失败 / 队列水位 / 内存异常） | `alert_code`, `level`, `detail`, `alert_ts_ms` | `alert_code`+`alert_ts_ms` |
 
-**统计（冻结口径）**：消息类型 **40 种**（元协议 9 + 控制指令 17 + 事件 14）；
+**统计（冻结口径）**：消息类型 **41 种**（元协议 9 + 控制指令 18 + 事件 14）；
 **控制指令 17 条 / 事件流 14 条**；其中**须落库**的事件类型 **10 种**（`0x0202`、`0x0203`、`0x0204`、`0x0205`、`0x0206`、`0x0207`、`0x0208`、`0x0209`、`0x020A`、`0x020B`）。
 
 #### 4.2.4 字段级定义（关键消息）
@@ -1093,7 +1094,7 @@ C++ (服务端, 监听 127.0.0.1:P)                        Java (客户端)
 > - **前身** = 附录 C 的 `CH-013` 提案（技术负责人席 `tl-proto-gap` 提出；2026-09-22 经**用户批准**，**条件 = 先并入 `G-1`〔37 条消息字段必填性〕与 `G-6`〔4 个复合类型内部字段〕后方视为定稿**）。本节 = 该条件已满足后的**生效态**。
 > - **本节 = HGCP「线格式表示」（字段号 / 字段类型 / 必填性 / 枚举名与显式值）的唯一定义**，与 §4.2.1–§4.2.7 的**语义定义**（消息集 / 字段名 / 取值域 / 序列化**规定**）**并列**，共同构成 §4.2 冻结对象。
 > - **`proto/hgcp.proto` 必须由本节逐条转录产出**（转录动作归 `T-032`；**本节不落 `proto/**`**）。**附录 C 保留为提案留痕，非权威**（权威 = 本节）。
-> - **冻结-不变量（本节一律不改动）**：消息集 **40**、组件错误码 **62**、线格式 `VER` = **`0x0100`**、`FR` 计数 **184**。
+> - **冻结-不变量（本节一律不改动）**：消息集 **41**（`CH-027` +`CMD_SET_QUOTE_SUBSCRIPTION`）、组件错误码 **62**、线格式 `VER` = **`0x0100`**、`FR` 计数 **184**。
 > - **变更纪律**：本节落笔后即受 §4.2「变更规则」约束 —— 改字段号 / 改字段类型 / 复用已删除字段号 / 改枚举已取值语义 → **禁止**；新增字段分配新号、新增枚举值（追加，不复用号）→ 须走 `CH-xxx`（§4.2.5）。
 
 ##### 4.2.8.1 通则（编号 / 类型 / 必填 / 枚举）—— 含 `G-7` 裁定
@@ -1101,7 +1102,7 @@ C++ (服务端, 监听 127.0.0.1:P)                        Java (客户端)
 | 项 | 规定 |
 |----|------|
 | **编号空间（`G-7`）** | 字段号**按 message 独立分配**，各 message **自 `1` 起连续、不跳号、不预留**（`CH-013` 裁定；理由：`§4.2.5` 只规定「新增字段**分配新号**」，未要求预留空洞；**预留空洞反而永久浪费号段**）。**同一 message 内字段号唯一**。 |
-| **顶层字段号总量** | **40 条消息的顶层字段合计 = 214**（元协议 **38** + 控制指令 **77** + 事件流 **99**）。**复合类型（§4.2.8.6）为独立 `message`，其字段号空间独立、不计入 214**。 |
+| **顶层字段号总量** | **41 条消息的顶层字段合计 = 215**（元协议 **38** + 控制指令 **78** + 事件流 **99**）。**复合类型（§4.2.8.6）为独立 `message`，其字段号空间独立、不计入 215**。`CH-027` 新增 `CmdSetQuoteSubscription` 1 字段（`instruments`），落在控制指令段 77→78。 |
 | **新增字段** | 冻结后新增字段一律**追加该 message 当前最大号 + 1**（§4.2.5）；**不得**复用已删除号（`proto` 保留号语义）。 |
 | **类型映射** | 照 §4.2.5：金额 / 价格 / 比率 → `string`（十进制，`BigDecimal` ↔ 定点 `int64` scale=1e6）；数量 → `int32`（手数）/ `int64`（折算后，scale=1e4）；时间 → `int64`（ms，UTC epoch）；业务日期 → `string`（`yyyy-MM-dd`）；标识符 → `string`（ASCII）；`*_seq` → `uint64`；`*_ts_ms` / `*_time` → `int64`。 |
 | **必填性语义** | proto3 **无 `required`** ⇒ 本表「必填性」列 = **接收侧校验语义**（§4.2.5）：`必` = **缺失即拒绝**并回明确错误码（**不得**静默使用默认值——数值 `0` / 字符串 `""` **不视为合法值**）；`可` = 允许缺省；`条件` = 见 **§4.2.8.5 条件必填清单**。 |
@@ -1126,7 +1127,7 @@ C++ (服务端, 监听 127.0.0.1:P)                        Java (客户端)
 | 9 | `0x0009` | `MsgResumeData` | `from_seq`(1:uint64·必), `to_seq`(2:uint64·必), `is_last`(3:bool·必), `frames`(4:repeated bytes·条件〔非 `is_last` 时非空〕) | 4 |
 | | | | **小计** | **38** |
 
-##### 4.2.8.3 控制指令（17 条，Java→C++）
+##### 4.2.8.3 控制指令（18 条，Java→C++）〔`CH-027` +`CMD_SET_QUOTE_SUBSCRIPTION`〕
 
 | # | 类型码 | message | 字段（号:类型·必填） | 字段数 |
 |---|--------|---------|--------------------|-------|
@@ -1147,29 +1148,30 @@ C++ (服务端, 监听 127.0.0.1:P)                        Java (客户端)
 | 24 | `0x011C` | `CmdQueryStatus` | `what`(1:uint32·必〔bitmask〕) | 1 |
 | 25 | `0x011D` | `CmdFundTransfer` | `idempotency_key`(1:string·必), `apply_id`(2:string·必), `direction`(3:FundDirection·必), `amount`(4:string·必), `sub_account_id`(5:uint32·必), `operator_id`(6:uint64·必), `bank_id`(7:string·必), `bank_account`(8:string·必) | 8 |
 | 26 | `0x011E` | `CmdQueryFundResult` | `idempotency_key`(1:string·必), `apply_id`(2:string·必) | 2 |
-| | | | **小计** | **77** |
+| 27 | `0x011F` | `CmdSetQuoteSubscription` | `instruments`(1:repeated string·可) | 1 |
+| | | | **小计** | **78** |
 
 ##### 4.2.8.4 事件流（14 条，C++→Java）
 
 | # | 类型码 | message | 字段（号:类型·必填） | 字段数 |
 |---|--------|---------|--------------------|-------|
-| 27 | `0x0201` | `EvtOrderAccepted` | `order_id`(1:uint64·必), `client_order_ref`(2:string·必), `risk_passed`(3:bool·必), `effective_timeout_ms`(4:int64·必), `accepted_ts_ms`(5:int64·必) | 5 |
-| 28 | `0x0202` | `EvtPreTradeReject` | `client_order_ref`(1:string·必), `sub_account_id`(2:uint32·必), `product_id`(3:uint32·必), `instrument_id`(4:string·必), `rule_id`(5:string·必), `reason_code`(6:uint32·必), `limit_layer`(7:LimitLayer·条件), `current_value`(8:string·必), `threshold_value`(9:string·必), `order_digest`(10:string·必), `operator_id`(11:uint64·必), `reject_ts_ms`(12:int64·必) 〔**必填性照 §4.2.4**〕 | 12 |
-| 29 | `0x0203` | `EvtOrderReport` | `order_id`(1:uint64·必), `order_sys_id`(2:string·条件), `order_local_id`(3:string·可), `status`(4:OrderStatus·必), `volume_total`(5:int32·必), `volume_traded`(6:int32·必), `volume_left`(7:int32·必), `ctp_error_id`(8:int32·条件), `ctp_error_msg`(9:string·可), `report_ts_ms`(10:int64·必) | 10 |
-| 30 | `0x0204` | `EvtTradeFill` | `trade_id`(1:string·必), `order_id`(2:uint64·必), `order_sys_id`(3:string·必), `instrument_id`(4:string·必), `direction`(5:Direction·必), `offset_flag`(6:OffsetFlag·必), `price`(7:string·必), `volume`(8:int32·必), `trade_ts_ms`(9:int64·必), `sub_account_id`(10:uint32·必), `trade_plan_id`(11:uint64·必), `exposure_id`(12:uint64·必) | 12 |
-| 31 | `0x0205` | `EvtPositionChange` | `sub_account_id`(1:uint32·必), `instrument_id`(2:string·必), `direction`(3:Direction·必), `position_type`(4:PositionType·必), `position_qty`(5:int32·必), `available_qty`(6:int32·必), `frozen_qty`(7:int32·必), `change_reason`(8:string·可), `as_of_ts_ms`(9:int64·必) | 9 |
-| 32 | `0x0206` | `EvtOrderCancelResult` | `order_id`(1:uint64·必), `cancelled_volume`(2:int32·必), `released_quota`(3:string·可), `restored_plan_qty`(4:int64·可), `result`(5:int32·必), `reason_code`(6:uint32·条件) | 6 |
-| 33 | `0x0207` | `EvtOrderExpired` | `order_id`(1:uint64·必), `client_order_ref`(2:string·必), `expired_ts_ms`(3:int64·必), `timeout_ms`(4:int64·必) | 4 |
-| 34 | `0x0208` | `EvtCommandFlow` | `order_id`(1:uint64·必), `flow_type`(2:FlowType·必), `flow_ts_ms`(3:int64·必), `detail`(4:string·可) | 4 |
-| 35 | `0x0209` | `EvtReplayProgress` | `state`(1:ServerState·必), `replayed_records`(2:int64·必), `total_records`(3:int64·必), `started_ts_ms`(4:int64·必), `finished_ts_ms`(5:int64·条件), `result`(6:ReplayResult·必), `mismatch_detail`(7:string·条件) | 7 |
-| 36 | `0x020A` | `EvtSystemState` | `state`(1:ServerState·必), `param_version_applied`(2:uint64·必), `loaded_counts`(3:string·可〔JSON 摘要〕), `reason`(4:string·可), `ts_ms`(5:int64·必) | 5 |
-| 37 | `0x020B` | `EvtFundReceipt` | `idempotency_key`(1:string·必), `apply_id`(2:string·必), `result`(3:FundResult·必), `amount`(4:string·必), `ctp_error_id`(5:int32·条件), `ctp_error_msg`(6:string·可), `receipt_ts_ms`(7:int64·必) | 7 |
-| 38 | `0x020C` | `EvtMarketQuote` | `instrument_id`(1:string·必), `last_price`(2:string·必), `bid_price1`(3:string·可), `ask_price1`(4:string·可), `bid_volume1`(5:int32·可), `ask_volume1`(6:int32·可), `pre_settlement`(7:string·可), `quote_ts_ms`(8:int64·必), `source_ts_ms`(9:int64·可) | 9 |
-| 39 | `0x020D` | `EvtCtpState` | `trade_connected`(1:bool·必), `md_connected`(2:bool·必), `front_addr`(3:string·可), `state_change_ts_ms`(4:int64·必), `reason`(5:string·可) | 5 |
-| 40 | `0x020E` | `EvtTradingAlert` | `alert_code`(1:uint32·必), `level`(2:AlertLevel·必), `detail`(3:string·可), `alert_ts_ms`(4:int64·必) | 4 |
+| 28 | `0x0201` | `EvtOrderAccepted` | `order_id`(1:uint64·必), `client_order_ref`(2:string·必), `risk_passed`(3:bool·必), `effective_timeout_ms`(4:int64·必), `accepted_ts_ms`(5:int64·必) | 5 |
+| 29 | `0x0202` | `EvtPreTradeReject` | `client_order_ref`(1:string·必), `sub_account_id`(2:uint32·必), `product_id`(3:uint32·必), `instrument_id`(4:string·必), `rule_id`(5:string·必), `reason_code`(6:uint32·必), `limit_layer`(7:LimitLayer·条件), `current_value`(8:string·必), `threshold_value`(9:string·必), `order_digest`(10:string·必), `operator_id`(11:uint64·必), `reject_ts_ms`(12:int64·必) 〔**必填性照 §4.2.4**〕 | 12 |
+| 30 | `0x0203` | `EvtOrderReport` | `order_id`(1:uint64·必), `order_sys_id`(2:string·条件), `order_local_id`(3:string·可), `status`(4:OrderStatus·必), `volume_total`(5:int32·必), `volume_traded`(6:int32·必), `volume_left`(7:int32·必), `ctp_error_id`(8:int32·条件), `ctp_error_msg`(9:string·可), `report_ts_ms`(10:int64·必) | 10 |
+| 31 | `0x0204` | `EvtTradeFill` | `trade_id`(1:string·必), `order_id`(2:uint64·必), `order_sys_id`(3:string·必), `instrument_id`(4:string·必), `direction`(5:Direction·必), `offset_flag`(6:OffsetFlag·必), `price`(7:string·必), `volume`(8:int32·必), `trade_ts_ms`(9:int64·必), `sub_account_id`(10:uint32·必), `trade_plan_id`(11:uint64·必), `exposure_id`(12:uint64·必) | 12 |
+| 32 | `0x0205` | `EvtPositionChange` | `sub_account_id`(1:uint32·必), `instrument_id`(2:string·必), `direction`(3:Direction·必), `position_type`(4:PositionType·必), `position_qty`(5:int32·必), `available_qty`(6:int32·必), `frozen_qty`(7:int32·必), `change_reason`(8:string·可), `as_of_ts_ms`(9:int64·必) | 9 |
+| 33 | `0x0206` | `EvtOrderCancelResult` | `order_id`(1:uint64·必), `cancelled_volume`(2:int32·必), `released_quota`(3:string·可), `restored_plan_qty`(4:int64·可), `result`(5:int32·必), `reason_code`(6:uint32·条件) | 6 |
+| 34 | `0x0207` | `EvtOrderExpired` | `order_id`(1:uint64·必), `client_order_ref`(2:string·必), `expired_ts_ms`(3:int64·必), `timeout_ms`(4:int64·必) | 4 |
+| 35 | `0x0208` | `EvtCommandFlow` | `order_id`(1:uint64·必), `flow_type`(2:FlowType·必), `flow_ts_ms`(3:int64·必), `detail`(4:string·可) | 4 |
+| 36 | `0x0209` | `EvtReplayProgress` | `state`(1:ServerState·必), `replayed_records`(2:int64·必), `total_records`(3:int64·必), `started_ts_ms`(4:int64·必), `finished_ts_ms`(5:int64·条件), `result`(6:ReplayResult·必), `mismatch_detail`(7:string·条件) | 7 |
+| 37 | `0x020A` | `EvtSystemState` | `state`(1:ServerState·必), `param_version_applied`(2:uint64·必), `loaded_counts`(3:string·可〔JSON 摘要〕), `reason`(4:string·可), `ts_ms`(5:int64·必) | 5 |
+| 38 | `0x020B` | `EvtFundReceipt` | `idempotency_key`(1:string·必), `apply_id`(2:string·必), `result`(3:FundResult·必), `amount`(4:string·必), `ctp_error_id`(5:int32·条件), `ctp_error_msg`(6:string·可), `receipt_ts_ms`(7:int64·必) | 7 |
+| 39 | `0x020C` | `EvtMarketQuote` | `instrument_id`(1:string·必), `last_price`(2:string·必), `bid_price1`(3:string·可), `ask_price1`(4:string·可), `bid_volume1`(5:int32·可), `ask_volume1`(6:int32·可), `pre_settlement`(7:string·可), `quote_ts_ms`(8:int64·必), `source_ts_ms`(9:int64·可) | 9 |
+| 40 | `0x020D` | `EvtCtpState` | `trade_connected`(1:bool·必), `md_connected`(2:bool·必), `front_addr`(3:string·可), `state_change_ts_ms`(4:int64·必), `reason`(5:string·可) | 5 |
+| 41 | `0x020E` | `EvtTradingAlert` | `alert_code`(1:uint32·必), `level`(2:AlertLevel·必), `detail`(3:string·可), `alert_ts_ms`(4:int64·必) | 4 |
 | | | | **小计** | **99** |
 
-> **顶层字段号合计 = 38 + 77 + 99 = 214**（与 §4.2.8.1 口径一致；复合类型不计入）。
+> **顶层字段号合计 = 38 + 78 + 99 = 215**（与 §4.2.8.1 口径一致；复合类型不计入）。
 
 ##### 4.2.8.5 `条件` 必填的判定清单（`G-1` 的落地形式）
 
@@ -1237,7 +1239,7 @@ C++ (服务端, 监听 127.0.0.1:P)                        Java (客户端)
 
 | 枚举 | 取值（名=值） | 来源 / 依据 |
 |------|--------------|------------|
-| `MsgType` | `MSG_TYPE_UNSET`=0 + **40 个冻结名逐字 = §4.2.3 类型码**（`MSG_HELLO`=0x0001 … `EVT_TRADING_ALERT`=0x020E） | §4.2.3 |
+| `MsgType` | `MSG_TYPE_UNSET`=0 + **41 个冻结名逐字 = §4.2.3 类型码**（`MSG_HELLO`=0x0001 … `EVT_TRADING_ALERT`=0x020E） | §4.2.3 |
 | `ServerState` | `*_UNSET`=0, `NOT_READY`=1, `REPLAYING`=2, `READY`=3, `STOPPING`=4 | §4.2.3 `:795` |
 | `TargetState` | `*_UNSET`=0, `READY`=1, `STOPPING`=2, `SUSPENDED`=3 | §4.2.3 `:819` |
 | `ComponentRole` | `*_UNSET`=0, `ROLE_JAVA`=1, `ROLE_CPP`=2 | §4.2.3 `:794` + §4.2.6 `:929`（`role=JAVA`） |
@@ -3158,23 +3160,23 @@ CTP 行情 ─▶ C++ ctp_md_spi(T3) ─▶ quoteQueue（满则丢旧）─▶ T
 
 | # | 类型码 | message | 字段（号:类型） | 字段数 |
 |---|--------|---------|----------------|-------|
-| 27 | `0x0201` | `EvtOrderAccepted` | `order_id`(1:uint64), `client_order_ref`(2:string), `risk_passed`(3:bool), `effective_timeout_ms`(4:int64), `accepted_ts_ms`(5:int64) | 5 |
-| 28 | `0x0202` | `EvtPreTradeReject` | `client_order_ref`(1:string), `sub_account_id`(2:uint32), `product_id`(3:uint32), `instrument_id`(4:string), `rule_id`(5:string), `reason_code`(6:uint32), `limit_layer`(7:LimitLayer), `current_value`(8:string), `threshold_value`(9:string), `order_digest`(10:string), `operator_id`(11:uint64), `reject_ts_ms`(12:int64) 〔照 §4.2.4 `:889`–`:899`〕 | 12 |
-| 29 | `0x0203` | `EvtOrderReport` | `order_id`(1:uint64), `order_sys_id`(2:string), `order_local_id`(3:string), `status`(4:OrderStatus)〔值域待定，见 §C.4〕, `volume_total`(5:int32), `volume_traded`(6:int32), `volume_left`(7:int32), `ctp_error_id`(8:int32〔建议〕), `ctp_error_msg`(9:string), `report_ts_ms`(10:int64) | 10 |
-| 30 | `0x0204` | `EvtTradeFill` | `trade_id`(1:string), `order_id`(2:uint64), `order_sys_id`(3:string), `instrument_id`(4:string), `direction`(5:Direction), `offset_flag`(6:OffsetFlag), `price`(7:string), `volume`(8:int32), `trade_ts_ms`(9:int64), `sub_account_id`(10:uint32), `trade_plan_id`(11:uint64), `exposure_id`(12:uint64) 〔幂等键 `trade_id`，§4.2.4 `:901`〕 | 12 |
-| 31 | `0x0205` | `EvtPositionChange` | `sub_account_id`(1:uint32), `instrument_id`(2:string), `direction`(3:Direction), `position_type`(4:PositionType), `position_qty`(5:int32), `available_qty`(6:int32), `frozen_qty`(7:int32), `change_reason`(8:string), `as_of_ts_ms`(9:int64) | 9 |
-| 32 | `0x0206` | `EvtOrderCancelResult` | `order_id`(1:uint64), `cancelled_volume`(2:int32), `released_quota`(3:string〔**额度口径待定**，见 §C.4〕), `restored_plan_qty`(4:int64), `result`(5:int32), `reason_code`(6:uint32) | 6 |
-| 33 | `0x0207` | `EvtOrderExpired` | `order_id`(1:uint64), `client_order_ref`(2:string), `expired_ts_ms`(3:int64), `timeout_ms`(4:int64) | 4 |
-| 34 | `0x0208` | `EvtCommandFlow` | `order_id`(1:uint64), `flow_type`(2:FlowType), `flow_ts_ms`(3:int64), `detail`(4:string) | 4 |
-| 35 | `0x0209` | `EvtReplayProgress` | `state`(1:ServerState〔**建议复用**〕), `replayed_records`(2:int64), `total_records`(3:int64), `started_ts_ms`(4:int64), `finished_ts_ms`(5:int64), `result`(6:ReplayResult), `mismatch_detail`(7:string) | 7 |
-| 36 | `0x020A` | `EvtSystemState` | `state`(1:ServerState), `param_version_applied`(2:uint64), `loaded_counts`(3:string〔**承载形态待定**：JSON 或结构化，见 §C.4〕), `reason`(4:string), `ts_ms`(5:int64) | 5 |
-| 37 | `0x020B` | `EvtFundReceipt` | `idempotency_key`(1:string), `apply_id`(2:string), `result`(3:FundResult), `amount`(4:string), `ctp_error_id`(5:int32〔建议〕), `ctp_error_msg`(6:string), `receipt_ts_ms`(7:int64) | 7 |
-| 38 | `0x020C` | `EvtMarketQuote` | `instrument_id`(1:string), `last_price`(2:string), `bid_price1`(3:string), `ask_price1`(4:string), `bid_volume1`(5:int32), `ask_volume1`(6:int32), `pre_settlement`(7:string), `quote_ts_ms`(8:int64), `source_ts_ms`(9:int64) | 9 |
-| 39 | `0x020D` | `EvtCtpState` | `trade_connected`(1:bool), `md_connected`(2:bool), `front_addr`(3:string), `state_change_ts_ms`(4:int64), `reason`(5:string) | 5 |
-| 40 | `0x020E` | `EvtTradingAlert` | `alert_code`(1:uint32), `level`(2:AlertLevel〔值域待定〕), `detail`(3:string), `alert_ts_ms`(4:int64) | 4 |
+| 28 | `0x0201` | `EvtOrderAccepted` | `order_id`(1:uint64), `client_order_ref`(2:string), `risk_passed`(3:bool), `effective_timeout_ms`(4:int64), `accepted_ts_ms`(5:int64) | 5 |
+| 29 | `0x0202` | `EvtPreTradeReject` | `client_order_ref`(1:string), `sub_account_id`(2:uint32), `product_id`(3:uint32), `instrument_id`(4:string), `rule_id`(5:string), `reason_code`(6:uint32), `limit_layer`(7:LimitLayer), `current_value`(8:string), `threshold_value`(9:string), `order_digest`(10:string), `operator_id`(11:uint64), `reject_ts_ms`(12:int64) 〔照 §4.2.4 `:889`–`:899`〕 | 12 |
+| 30 | `0x0203` | `EvtOrderReport` | `order_id`(1:uint64), `order_sys_id`(2:string), `order_local_id`(3:string), `status`(4:OrderStatus)〔值域待定，见 §C.4〕, `volume_total`(5:int32), `volume_traded`(6:int32), `volume_left`(7:int32), `ctp_error_id`(8:int32〔建议〕), `ctp_error_msg`(9:string), `report_ts_ms`(10:int64) | 10 |
+| 31 | `0x0204` | `EvtTradeFill` | `trade_id`(1:string), `order_id`(2:uint64), `order_sys_id`(3:string), `instrument_id`(4:string), `direction`(5:Direction), `offset_flag`(6:OffsetFlag), `price`(7:string), `volume`(8:int32), `trade_ts_ms`(9:int64), `sub_account_id`(10:uint32), `trade_plan_id`(11:uint64), `exposure_id`(12:uint64) 〔幂等键 `trade_id`，§4.2.4 `:901`〕 | 12 |
+| 32 | `0x0205` | `EvtPositionChange` | `sub_account_id`(1:uint32), `instrument_id`(2:string), `direction`(3:Direction), `position_type`(4:PositionType), `position_qty`(5:int32), `available_qty`(6:int32), `frozen_qty`(7:int32), `change_reason`(8:string), `as_of_ts_ms`(9:int64) | 9 |
+| 33 | `0x0206` | `EvtOrderCancelResult` | `order_id`(1:uint64), `cancelled_volume`(2:int32), `released_quota`(3:string〔**额度口径待定**，见 §C.4〕), `restored_plan_qty`(4:int64), `result`(5:int32), `reason_code`(6:uint32) | 6 |
+| 34 | `0x0207` | `EvtOrderExpired` | `order_id`(1:uint64), `client_order_ref`(2:string), `expired_ts_ms`(3:int64), `timeout_ms`(4:int64) | 4 |
+| 35 | `0x0208` | `EvtCommandFlow` | `order_id`(1:uint64), `flow_type`(2:FlowType), `flow_ts_ms`(3:int64), `detail`(4:string) | 4 |
+| 36 | `0x0209` | `EvtReplayProgress` | `state`(1:ServerState〔**建议复用**〕), `replayed_records`(2:int64), `total_records`(3:int64), `started_ts_ms`(4:int64), `finished_ts_ms`(5:int64), `result`(6:ReplayResult), `mismatch_detail`(7:string) | 7 |
+| 37 | `0x020A` | `EvtSystemState` | `state`(1:ServerState), `param_version_applied`(2:uint64), `loaded_counts`(3:string〔**承载形态待定**：JSON 或结构化，见 §C.4〕), `reason`(4:string), `ts_ms`(5:int64) | 5 |
+| 38 | `0x020B` | `EvtFundReceipt` | `idempotency_key`(1:string), `apply_id`(2:string), `result`(3:FundResult), `amount`(4:string), `ctp_error_id`(5:int32〔建议〕), `ctp_error_msg`(6:string), `receipt_ts_ms`(7:int64) | 7 |
+| 39 | `0x020C` | `EvtMarketQuote` | `instrument_id`(1:string), `last_price`(2:string), `bid_price1`(3:string), `ask_price1`(4:string), `bid_volume1`(5:int32), `ask_volume1`(6:int32), `pre_settlement`(7:string), `quote_ts_ms`(8:int64), `source_ts_ms`(9:int64) | 9 |
+| 40 | `0x020D` | `EvtCtpState` | `trade_connected`(1:bool), `md_connected`(2:bool), `front_addr`(3:string), `state_change_ts_ms`(4:int64), `reason`(5:string) | 5 |
+| 41 | `0x020E` | `EvtTradingAlert` | `alert_code`(1:uint32), `level`(2:AlertLevel〔值域待定〕), `detail`(3:string), `alert_ts_ms`(4:int64) | 4 |
 | | | | **小计** | **99** |
 
-> **顶层字段号合计 = 38 + 77 + 99 = 214**。
+> **顶层字段号合计 = 38 + 78 + 99 = 215**。
 
 #### C.3.4 复合类型（repeated 元素 / 嵌套消息）
 
@@ -3196,7 +3198,7 @@ CTP 行情 ─▶ C++ ctp_md_spi(T3) ─▶ quoteQueue（满则丢旧）─▶ T
 
 | 枚举 | 取值（名=值） | 来源 |
 |------|--------------|------|
-| `MsgType` | `MSG_TYPE_UNSET`=0 + **40 个冻结名逐字 = §4.2.3 类型码**（`MSG_HELLO`=0x0001 … `EVT_TRADING_ALERT`=0x020E） | §4.2.3 |
+| `MsgType` | `MSG_TYPE_UNSET`=0 + **41 个冻结名逐字 = §4.2.3 类型码**（`MSG_HELLO`=0x0001 … `EVT_TRADING_ALERT`=0x020E） | §4.2.3 |
 | `ServerState` | `*_UNSET`=0, `NOT_READY`=1, `REPLAYING`=2, `READY`=3, `STOPPING`=4 | §4.2.3 `:795` |
 | `TargetState` | `*_UNSET`=0, `READY`=1, `STOPPING`=2, `SUSPENDED`=3 | §4.2.3 `:819` |
 | `ComponentRole` | `*_UNSET`=0, `ROLE_JAVA`=1, `ROLE_CPP`=2 | §4.2.3 `:794` + §4.2.6 `:929`（`role=JAVA`） |

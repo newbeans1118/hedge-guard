@@ -1090,10 +1090,27 @@ public final class HgcpClient implements TradingBridge, AutoCloseable {
      * @param what {@code CmdQueryStatus.what} bitmask（阶段 1 传 {@code 0}）
      * @return 回执；{@link AckResult#message} 即 {@code MSG_ACK.detail}
      */
-    public CompletableFuture<AckResult> queryStatus(int what) {
-        byte[] body = Hgcp.CmdQueryStatus.newBuilder().setWhat(what).build().toByteArray();
-        return sendCommand(HgcpConstants.CMD_QUERY_STATUS, body);
-    }
+        public CompletableFuture<AckResult> queryStatus(int what) {
+            byte[] body = Hgcp.CmdQueryStatus.newBuilder().setWhat(what).build().toByteArray();
+            return sendCommand(HgcpConstants.CMD_QUERY_STATUS, body);
+        }
+
+        /**
+         * CH-027：动态行情订阅（CMD_SET_QUOTE_SUBSCRIPTION 0x011F）。
+         * 合约集完整替换；空集 = 退订全部。交易所原生大小写原样传给 C++。
+         */
+        @Override
+        public CompletableFuture<AckResult> setQuoteSubscription(List<String> instruments) {
+            Hgcp.CmdSetQuoteSubscription.Builder b = Hgcp.CmdSetQuoteSubscription.newBuilder();
+            if (instruments != null) {
+                for (String s : instruments) {
+                    if (s != null && !s.isEmpty()) {
+                        b.addInstruments(s);
+                    }
+                }
+            }
+            return sendCommand(HgcpConstants.CMD_SET_QUOTE_SUBSCRIPTION, b.build().toByteArray());
+        }
 
     /**
      * 组件运行状态只读快照（阶段 1 监控面）。

@@ -77,8 +77,9 @@ enum class MessageType : std::uint16_t {
   kCmdReload              = 0x011A,  // CMD_RELOAD
   kCmdTriggerReplay       = 0x011B,  // CMD_TRIGGER_REPLAY
   kCmdQueryStatus         = 0x011C,  // CMD_QUERY_STATUS
-  kCmdFundTransfer        = 0x011D,  // CMD_FUND_TRANSFER
-  kCmdQueryFundResult     = 0x011E,  // CMD_QUERY_FUND_RESULT
+      kCmdFundTransfer        = 0x011D,  // CMD_FUND_TRANSFER
+      kCmdQueryFundResult     = 0x011E,  // CMD_QUERY_FUND_RESULT
+      kCmdSetQuoteSubscription = 0x011F, // CMD_SET_QUOTE_SUBSCRIPTION（CH-027 动态行情订阅）
 
   // C. C++ → Java 事件流（14 种）
   kEvtOrderAccepted     = 0x0201,  // EVT_ORDER_ACCEPTED
@@ -97,7 +98,7 @@ enum class MessageType : std::uint16_t {
   kEvtTradingAlert      = 0x020E   // EVT_TRADING_ALERT
 };
 
-const std::size_t kMessageTypeCount = 40u;
+const std::size_t kMessageTypeCount = 41u;  // CH-027：+CMD_SET_QUOTE_SUBSCRIPTION
 
 // 是否为 §4.2.3 清单内的消息类型（否则 = `ERR_UNKNOWN_TYPE` 0x0105）
 bool is_known_message_type(std::uint16_t type);

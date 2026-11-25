@@ -285,7 +285,7 @@ class BootstrapAssemblyTest {
             // 【管理端「关闭系统」增注】新增 1 对 POST /system/shutdown ⇒ 176 → 177。
             //   非为过测试而放宽断言：SYSTEM 路径先经 §4.1.1 声明，再由 ApiRoutes / routes.js /
             //   FullWebAssembly / ModuleRoutesConsistencyTest 同批同步；停机动作可注入，装配不触发退出。
-            assertEquals(177, assembly.routeCount(),
+            assertEquals(178, assembly.routeCount(),
                     "业务路由必须全部注册：175（AUTH17/CONFIG18/PRODUCT18/SPOT15/PLAN20/RISK7/TRADE3/"
                             + "SETTLE15/FUND16/AUDIT24/ACCT20/MONITOR1/SYSTEM1）+ ping 2");
 

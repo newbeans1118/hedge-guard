@@ -1,7 +1,8 @@
 package com.hedgeguard.web.handler.trade;
 
-import com.hedgeguard.service.TradeService;
-import com.hedgeguard.web.Router;
+    import com.hedgeguard.bridge.TradingBridge;
+    import com.hedgeguard.service.TradeService;
+    import com.hedgeguard.web.Router;
 
 /**
  * {@code TRADE} 模块路由注册（{@code T-046}；路径逐字取自 {@code ApiRoutes.byModule().get("TRADE")}）。
@@ -33,13 +34,27 @@ public final class TradeRoutes {
      * @param router       路由
      * @param tradeService 交易服务
      */
-    public static void register(Router router, TradeService tradeService) {
-        // 先静态
-        router.register("POST", TradeOrderHandler.PATH, new TradeOrderHandler(tradeService));
-        // 后占位符（5 段，不与静态同段数冲突）
-        router.register("POST", TradeOrderActionHandler.Action.CONFIRM.path(),
-                new TradeOrderActionHandler(tradeService, TradeOrderActionHandler.Action.CONFIRM));
-        router.register("POST", TradeOrderActionHandler.Action.CANCEL.path(),
-                new TradeOrderActionHandler(tradeService, TradeOrderActionHandler.Action.CANCEL));
-    }
+        public static void register(Router router, TradeService tradeService) {
+            register(router, tradeService, null);
+        }
+
+        /**
+         * 注册 {@code TRADE} 模块路由（{@code CH-027} 增 {@code POST /trade/quote-subscription}）。
+         *
+         * @param router       路由
+         * @param tradeService 交易服务
+         * @param bridge       组件桥接层（装配期可为 {@code null}；仅业务调用时使用）
+         */
+        public static void register(Router router, TradeService tradeService, TradingBridge bridge) {
+            // 先静态
+            router.register("POST", TradeOrderHandler.PATH, new TradeOrderHandler(tradeService));
+            // CH-027：动态行情订阅（静态 4 段，与 /trade/order 同段数但路径不同）
+            router.register("POST", QuoteSubscriptionHandler.PATH,
+                    new QuoteSubscriptionHandler(bridge));
+            // 后占位符（5 段，不与静态同段数冲突）
+            router.register("POST", TradeOrderActionHandler.Action.CONFIRM.path(),
+                    new TradeOrderActionHandler(tradeService, TradeOrderActionHandler.Action.CONFIRM));
+            router.register("POST", TradeOrderActionHandler.Action.CANCEL.path(),
+                    new TradeOrderActionHandler(tradeService, TradeOrderActionHandler.Action.CANCEL));
+        }
 }

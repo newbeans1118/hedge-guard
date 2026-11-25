@@ -57,6 +57,7 @@ bool PbPayloadCodec::validate(std::uint16_t type,
     case pbv1::CMD_QUERY_STATUS:          return parses<pbv1::CmdQueryStatus>(body);
     case pbv1::CMD_FUND_TRANSFER:         return parses<pbv1::CmdFundTransfer>(body);
     case pbv1::CMD_QUERY_FUND_RESULT:     return parses<pbv1::CmdQueryFundResult>(body);
+    case pbv1::CMD_SET_QUOTE_SUBSCRIPTION: return parses<pbv1::CmdSetQuoteSubscription>(body);
     // C. 事件流（14）
     case pbv1::EVT_ORDER_ACCEPTED:      return parses<pbv1::EvtOrderAccepted>(body);
     case pbv1::EVT_PRE_TRADE_REJECT:    return parses<pbv1::EvtPreTradeReject>(body);

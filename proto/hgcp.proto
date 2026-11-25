@@ -65,6 +65,7 @@ enum MsgType {
   CMD_QUERY_STATUS            = 0x011C;
   CMD_FUND_TRANSFER           = 0x011D;
   CMD_QUERY_FUND_RESULT       = 0x011E;
+  CMD_SET_QUOTE_SUBSCRIPTION  = 0x011F;  // CH-027：动态行情订阅（Java→C++）
   EVT_ORDER_ACCEPTED          = 0x0201;  // 事件流（C++→Java）
   EVT_PRE_TRADE_REJECT        = 0x0202;
   EVT_ORDER_REPORT            = 0x0203;
@@ -528,6 +529,13 @@ message CmdFundTransfer {
 message CmdQueryFundResult {
   string idempotency_key = 1;  // 必
   string apply_id        = 2;  // 必
+}
+
+// 0x011F（CH-027）
+message CmdSetQuoteSubscription {
+  // 目标订阅合约集（完整替换，非增量）；空集 = 退订全部并停止行情订阅。
+  // 保留交易所原生大小写与位数，由 C++ 原样传给 SubscribeMarketData。
+  repeated string instruments = 1;  // 可
 }
 
 // -----------------------------------------------------------------------------

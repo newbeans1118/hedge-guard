@@ -8,6 +8,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- CFG-32：WS 为独立端口。content 须与 hg.properties 的 hg.web.ws.port 一致；
+       留空/移除本标签则 ws.js 退回同源（供反向代理部署使用）。 -->
+  <meta name="hg-ws-port" content="81">
   <title>HedgeGuard 套期保值管理系统</title>
   <link rel="stylesheet" href="/web/css/hg.css">
 </head>

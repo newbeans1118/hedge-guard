@@ -1,5 +1,6 @@
 package com.hedgeguard.bridge;
 
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -83,4 +84,18 @@ public interface TradingBridge {
      * @return 镜像快照
      */
     MirrorSnapshot mirror();
+
+    /**
+     * 动态设置行情订阅合约集（{@code CH-027}；Java → C++，完整替换）。
+     *
+     * <p>以 {@code default} 空实现提供兼容增量（T-040b {@code HgcpEventListener} 先例）：
+     * 既有实现（含测试替身）零改动；{@code HgcpClient} 覆写为真实下发
+     * {@code CMD_SET_QUOTE_SUBSCRIPTION}。C++ 退订旧集 + 订阅新集；空集 = 停止行情订阅。
+     *
+     * @param instruments 目标合约集（交易所原生大小写，页面原样传）
+     * @return 回执
+     */
+    default CompletableFuture<AckResult> setQuoteSubscription(List<String> instruments) {
+        return CompletableFuture.completedFuture(new AckResult());
+    }
 }
