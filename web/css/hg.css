@@ -410,8 +410,7 @@ table.hg-table td.hg-num, table.hg-table th.hg-num { text-align: right; font-fam
 .hg-q--compact .hg-q-table { font-size: 11px; }
 .hg-q--compact .hg-q-wrap { max-height: 520px; }
 
-/* CH-027 合约选择面板 */
-.hg-q-pick { border-top: 1px solid var(--hg-q-line); margin-top: 10px; padding-top: 10px; }
+/* CH-027 合约选择面板（§24 起移入弹出式对话框，常驻分隔线 / 上边距不再需要） */
 .hg-q-pick__bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; }
 .hg-q-pick__bar .hg-field > label { color: var(--hg-q-muted); }
 .hg-q-pick__bar select, .hg-q-pick__bar input[type="text"], .hg-q-pick__bar input[type="search"] {
@@ -425,6 +424,38 @@ table.hg-table td.hg-num, table.hg-table th.hg-num { text-align: right; font-fam
 .hg-q-pick__item { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; font-family: "JetBrains Mono", Consolas, monospace; }
 .hg-q-pick__item input { accent-color: var(--hg-q-accent); }
 .hg-q-pick__status { color: var(--hg-q-accent); font-size: 12px; padding-top: 6px; }
+
+/* §24 行情订阅弹出式对话框（常驻 .hg-q 内以继承 --hg-q-* 变量；默认隐藏，is-open 显隐） */
+.hg-q-dlg {
+  position: fixed; inset: 0; z-index: 50; display: none;
+  align-items: center; justify-content: center; padding: 20px;
+  background: rgba(8, 16, 28, .66);
+}
+.hg-q-dlg.is-open { display: flex; }
+.hg-q-dlg__box {
+  background: var(--hg-q-bg); color: var(--hg-q-fg);
+  border: 1px solid var(--hg-q-line); border-radius: var(--hg-radius);
+  width: 100%; max-width: 800px; max-height: 88vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .45);
+}
+.hg-q-dlg__head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid var(--hg-q-line);
+}
+.hg-q-dlg__title { margin: 0; font-size: 15px; font-weight: 600; }
+.hg-q-dlg__x {
+  background: transparent; color: var(--hg-q-fg); border: 0; cursor: pointer;
+  font-size: 20px; line-height: 1; padding: 2px 8px;
+}
+.hg-q-dlg__x:hover { color: var(--hg-q-accent); }
+.hg-q-dlg__body { padding: 14px 16px; overflow-y: auto; min-height: 0; }
+.hg-q-dlg__foot {
+  display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+  padding: 12px 16px; border-top: 1px solid var(--hg-q-line);
+}
+.hg-q-btn--primary { border-color: var(--hg-q-accent); color: var(--hg-q-accent); }
+.hg-q-dlg .hg-q-pick__list { max-height: 240px; }
 
 /* sparkline（inline SVG，零依赖） */
 .hg-q-spark { width: 100%; height: 64px; display: block; margin: 6px 0; }

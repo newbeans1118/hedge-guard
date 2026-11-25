@@ -536,13 +536,37 @@ function quoteTab(container) {
   bar.appendChild(favOnlyBtn);
   const denseBtn = ui.el('button', { class: 'hg-q-btn', type: 'button', text: '紧凑' });
   bar.appendChild(denseBtn);
-  const instrInput = textInput('tr-q-instr', { placeholder: '订阅合约（可空=全部；多个用逗号分隔，大写归一）' });
-  const subBtn = ui.el('button', { class: 'hg-q-btn', type: 'button', text: '订阅' });
-  bar.appendChild(ui.field({ id: 'tr-q-instr', label: '合约过滤', control: instrInput }));
+  // §24：订阅入口合并为单一按钮。旧的「合约过滤」手输栏只改 WS 白名单、不下发 CTP 订阅集
+  // （正是「订阅改变合约未成功」的历史根源），已移除；原「订阅」按钮复用为弹窗触发按钮。
+  const subBtn = ui.el('button', {
+    class: 'hg-q-btn hg-q-btn--primary', id: 'tr-q-open-sub', type: 'button', text: '行情订阅'
+  });
   bar.appendChild(subBtn);
   panel.appendChild(bar);
 
-  // ②b CH-027：合约选择面板（分交易所 / 分品种筛选 → 多选 → 动态订阅）。
+  // ②b §24：合约筛选订阅收进弹出式对话框。DOM 常驻 .hg-q 面板内（不挂 document.body）：
+  // ① --hg-q-* 变量定义在 .hg-q 局部作用域，挂在面板内才能继承深色配色；
+  // ② 保持探针 collect(root,…) 可达；③ position:fixed 遮罩不受 .hg-main 的 overflow 影响。
+  const dlg = ui.el('div', {
+    class: 'hg-q-dlg', id: 'tr-q-dlg', role: 'dialog', 'aria-modal': 'true', 'aria-label': '行情订阅'
+  });
+  const dlgBox = ui.el('div', { class: 'hg-q-dlg__box' });
+  const dlgHead = ui.el('div', { class: 'hg-q-dlg__head' });
+  dlgHead.appendChild(ui.el('h3', {
+    class: 'hg-q-dlg__title', text: '行情订阅 · 分交易所 / 分品种筛选'
+  }));
+  const dlgClose = ui.el('button', {
+    class: 'hg-q-dlg__x', id: 'tr-q-dlg-x', type: 'button', 'aria-label': '关闭', text: '×'
+  });
+  dlgHead.appendChild(dlgClose);
+  const dlgBody = ui.el('div', { class: 'hg-q-dlg__body' });
+  const dlgFoot = ui.el('div', { class: 'hg-q-dlg__foot' });
+  const dlgCancel = ui.el('button', {
+    class: 'hg-q-btn', id: 'tr-q-dlg-cancel', type: 'button', text: '取消'
+  });
+  dlgFoot.appendChild(dlgCancel);
+
+  // CH-027 合约选择面板（分交易所 / 分品种筛选 → 多选 → 动态订阅）：整块搬入对话框。
   const pick = ui.el('div', { class: 'hg-q-pick' });
   const pickBar = ui.el('div', { class: 'hg-q-pick__bar' });
   const exSel = ui.el('select', { id: 'tr-q-ex' });
@@ -560,23 +584,32 @@ function quoteTab(container) {
   pickBar.appendChild(ui.field({ id: 'tr-q-mainonly', label: '仅主力', control: mainOnlyChk }));
   pickBar.appendChild(ui.field({ id: 'tr-q-cat-search', label: '合约搜索', control: catSearchInput }));
   const mainBtn = ui.el('button', { class: 'hg-q-btn', type: 'button', text: '主力一键选' });
-  const applyBtn = ui.el('button', { class: 'hg-q-btn', type: 'button', text: '应用所选' });
   const clearBtn = ui.el('button', { class: 'hg-q-btn', type: 'button', text: '清空' });
+  const applyBtn = ui.el('button', {
+    class: 'hg-q-btn hg-q-btn--primary', type: 'button', text: '应用所选'
+  });
   pickBar.appendChild(mainBtn);
-  pickBar.appendChild(applyBtn);
   pickBar.appendChild(clearBtn);
   pick.appendChild(pickBar);
   const pickNote = ui.el('div', {
     class: 'hg-q-pick__note',
     text: '静态合约目录（非权威全市场、随换月维护）；「主力」按月份规则近似（每品种最近活跃月），非实时持仓量判定。'
       + '勾选后点「应用所选」动态改变 CTP 订阅集；「一键订阅主力」= 每品种主力合约一键全选并下发。'
+      + '订阅成功后本对话框自动关闭；下发失败则保持打开以便改选或重试。'
   });
   pick.appendChild(pickNote);
   const pickList = ui.el('div', { class: 'hg-q-pick__list' });
   pick.appendChild(pickList);
   const pickStatus = ui.el('div', { class: 'hg-q-pick__status', text: '已选 0 个合约' });
   pick.appendChild(pickStatus);
-  panel.appendChild(pick);
+
+  dlgBody.appendChild(pick);
+  dlgFoot.appendChild(applyBtn);   // 主操作置于对话框底部，避免与筛选栏按钮重复
+  dlgBox.appendChild(dlgHead);
+  dlgBox.appendChild(dlgBody);
+  dlgBox.appendChild(dlgFoot);
+  dlg.appendChild(dlgBox);
+  panel.appendChild(dlg);          // 常驻、默认隐藏（class 不含 is-open）
 
   // ③ 主区：左报价板 + 右选中详情
   const main = ui.el('div', { class: 'hg-q-main' });
@@ -889,11 +922,29 @@ function quoteTab(container) {
   });
   HG.pages._tradeQuoteConn = conn;
 
-  subBtn.addEventListener('click', () => {
-    const list = instrInput.value.split(',').map((s) => s.trim()).filter(Boolean);
-    conn.subscribe({ channels: ['quote'], instruments: list });
-    ui.toast('已发送订阅（instruments=' + (list.length ? list.join('/').toUpperCase() : '全部') + '）', 'ok');
-  });
+  // ---------------- §24 订阅对话框显隐 ----------------
+  // 订阅集规模只由 REST 成功回执更新；null = 尚未下发过，按钮不带数字（不臆造初值）。
+  let subCount = null;
+  function syncSubBtn() {
+    subBtn.textContent = '行情订阅' + (subCount === null ? '' : ' · ' + subCount);
+  }
+  function openSubDlg() {
+    dlg.classList.add('is-open');
+    document.removeEventListener('keydown', onDlgKey);  // 防重复挂载
+    document.addEventListener('keydown', onDlgKey);
+    catSearchInput.focus();
+  }
+  function closeSubDlg() {
+    dlg.classList.remove('is-open');
+    document.removeEventListener('keydown', onDlgKey);
+    subBtn.focus();
+  }
+  function onDlgKey(e) { if (e && e.key === 'Escape') closeSubDlg(); }
+  subBtn.addEventListener('click', openSubDlg);
+  dlgClose.addEventListener('click', closeSubDlg);
+  dlgCancel.addEventListener('click', closeSubDlg);
+  dlg.addEventListener('click', (e) => { if (e.target === dlg) closeSubDlg(); });
+  syncSubBtn();
 
   // ---------------- CH-027 合约选择面板逻辑 ----------------
   st.pickSelected = new Set();   // 原生大小写合约代码集合
@@ -966,9 +1017,13 @@ function quoteTab(container) {
     HG.api.post(RT.QUOTE_SUBSCRIPTION, { instruments: instruments })
       .then(() => {
         conn.subscribe({ channels: ['quote'], instruments: instruments.map((s) => s.toUpperCase()) });
+        subCount = instruments.length;
+        syncSubBtn();
+        closeSubDlg();   // §24：仅 REST 成功后隐藏对话框
         ui.toast('已应用：' + label + '（' + instruments.length + ' 个合约）', 'ok');
       })
       .catch((err) => {
+        // 失败保持对话框打开，供改选 / 重试（§24 裁定）
         ui.toast('订阅下发失败：' + ((err && err.message) || '组件不可达'), 'error');
       });
   }

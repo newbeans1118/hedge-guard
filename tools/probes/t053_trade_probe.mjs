@@ -362,13 +362,17 @@ switchTab('quote');
   ok(textOf(root).includes('允许丢帧'), 'quote：允许丢帧语义披露（W-1）');
   ok(textOf(root).includes('不用于任何自动决策') || textOf(root).includes('自动下单'), 'quote：行情不驱动决策声明（R-TRADE-11）');
   ok(textOf(root).includes('CH-007') || textOf(root).includes('补数'), 'quote：补数批次行情帧 CH-007 语义披露');
-  // 订阅：channels=["quote"]；instruments 由 ws.js 统一大写归一（W-1：归一在 ws 客户端层，页面只传原始列表）
-  findInput(root, 'tr-q-instr').value = 'cu2506, au2512';
-  const subBtn = findBtnByText(root, '订阅');
-  await subBtn.click(); await tick();
-  ok(ws._subs.length >= 1 && ws._subs[ws._subs.length - 1].channels[0] === 'quote', 'quote：subscribe channels=["quote"]（W-1 端点允许通道）');
-  const lastSub = ws._subs[ws._subs.length - 1];
-  ok(JSON.stringify(lastSub.instruments) === JSON.stringify(['cu2506', 'au2512']), 'quote：instruments 传递合约列表（归一由 ws.js 统一承担）');
+  // §24：旧「合约过滤」手输订阅栏（只改 WS 白名单、不下发 CTP 订阅集，是「订阅不生效」的
+  // 历史根源）已移除；订阅入口合并为「行情订阅」按钮 → 弹出式对话框。W-1 的 channels /
+  // 大写归一语义改由 CH-027 的 REST 下发路径覆盖（见 ⑨ 之后的补充断言），此处只验证弹窗入口与默认态。
+  ok(!findInput(root, 'tr-q-instr'), 'quote：旧 W-1 手输订阅栏已移除（§24 单一订阅入口）');
+  const openBtn = findInput(root, 'tr-q-open-sub');
+  ok(!!openBtn, 'quote：行情订阅按钮存在（§24 弹窗触发，id=tr-q-open-sub）');
+  const dlg = findInput(root, 'tr-q-dlg');
+  ok(!!dlg, 'quote：订阅对话框常驻本 Tab DOM（探针 collect 可达）');
+  ok(!!dlg && !dlg.classList.contains('is-open'), 'quote：订阅对话框默认隐藏（is-open 未置位）');
+  if (openBtn) { await openBtn.click(); await tick(); }
+  ok(!!dlg && dlg.classList.contains('is-open'), 'quote：点击「行情订阅」打开对话框');
   // ws.js 真模块归一行为：sendSubscription 内 instruments 大写（ws.js:65；与 t070 用的同一真模块）
   {
     const caps = ['cu2506', 'au2512'].map((s) => String(s).toUpperCase());
@@ -538,6 +542,46 @@ switchTab('quote');
       ok(arr.every((s) => typeof s === 'string' && s.length > 0), 'quote-ui：合约代码原生大小写保留（非全大写）');
       ok(arr.some((s) => /^[a-z]/.test(s)), 'quote-ui：含小写交易所代码（SHFE/DCE/INE 原生小写）');
     }
+  }
+
+  // ---- §24 弹窗收口 + W-1 语义（改由 CH-027 下发路径覆盖） ----
+  // 本块与上文 WS 断言块作用域隔离，重新取节点引用（root 未重渲染，仍是同一实例）。
+  {
+    const ws = wsInstances[wsInstances.length - 1];
+    const openBtn = findInput(root, 'tr-q-open-sub');
+    const dlg = findInput(root, 'tr-q-dlg');
+    const subAfterMain = ws._subs[ws._subs.length - 1];
+    ok(subAfterMain && subAfterMain.channels && subAfterMain.channels[0] === 'quote',
+      'quote：CH-027 下发后 conn.subscribe channels=["quote"]（W-1 端点允许通道）');
+    ok(subAfterMain && Array.isArray(subAfterMain.instruments) && subAfterMain.instruments.length > 0
+      && subAfterMain.instruments.every((s) => s === String(s).toUpperCase()),
+      'quote：conn.subscribe instruments 大写归一（W-1，页面层承担）');
+    ok(!!dlg && !dlg.classList.contains('is-open'),
+      'quote：§24 REST 成功后对话框自动隐藏');
+    ok(!!openBtn && String(openBtn.textContent).indexOf('行情订阅 · ') === 0,
+      'quote：§24 触发按钮回显当前订阅合约数');
+
+    // 下发失败保持打开 + 三种 DOM 桩可覆盖的关闭方式（× / 取消 / 遮罩空白）
+    // 注：Escape 走 document 级 keydown，桩的 addEventListener 为空实现 ⇒ 不在此断言，
+    //     与 §20.4 同类披露：键盘 / 真实布局效果需浏览器刷新后人工复核。
+    const realPost = HG.api.post;
+    HG.api.post = function () { return Promise.reject(new Error('组件不可达')); };
+    if (openBtn) openBtn.click();
+    const mainBtn2 = findBtnByText(root, '主力一键选');
+    if (mainBtn2) { mainBtn2.click(); await tick(); }
+    HG.api.post = realPost;
+    ok(!!dlg && dlg.classList.contains('is-open'),
+      'quote：§24 下发失败保持对话框打开（可改选 / 重试）');
+    const cancelBtn = findInput(root, 'tr-q-dlg-cancel');
+    if (cancelBtn) cancelBtn.click();
+    ok(!!dlg && !dlg.classList.contains('is-open'), 'quote：§24 「取消」关闭对话框');
+    if (openBtn) openBtn.click();
+    if (dlg) dlg.click();   // 桩 click() 传 target=自身 ⇒ 命中遮罩空白判定
+    ok(!!dlg && !dlg.classList.contains('is-open'), 'quote：§24 点击遮罩空白关闭对话框');
+    if (openBtn) openBtn.click();
+    const xBtn = findInput(root, 'tr-q-dlg-x');
+    if (xBtn) xBtn.click();
+    ok(!!dlg && !dlg.classList.contains('is-open'), 'quote：§24 「×」关闭对话框');
   }
   delete window.localStorage;
 }
